@@ -59,6 +59,10 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    """Run the migration scripts against an already-open connection.
+
+    :param connection: a live, synchronous-facing database connection
+    """
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
