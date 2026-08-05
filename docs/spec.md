@@ -1,8 +1,10 @@
 # rif — design
 
-Written 5 Aug 2026, revised the same day. The store moved from git repos to
-Postgres, and retrieval moved from search to whole-corpus loading. See
-"Supersedes" at the end.
+Written 5 Aug 2026, revised twice the same day. Rev 1: the store moved from git
+repos to Postgres, retrieval from search to whole-corpus loading. Rev 2, after
+an external architecture review: RLS became the enforced boundary, promotion
+became a two-step nonce flow, writes became retry-safe, the plan reordered
+risk-first, and mirror automation was cut from v1. See "Supersedes" at the end.
 
 ## Purpose
 
@@ -82,15 +84,17 @@ Three rules:
 
 ## Access control
 
-The privacy boundary used to be GitHub's to enforce. It is now this
-application's, which is a genuine downgrade in assurance and makes this the most
-review-critical code in the repo.
+The privacy boundary used to be GitHub's to enforce. It is now the
+**database's**: Postgres Row-Level Security with `FORCE`, policies joining
+through `memberships`, principal bound per transaction via
+`set_config('app.person_id', …, true)`. The accessor module arms RLS and
+provides ergonomics, but a forgotten application-level filter fails closed —
+the row simply does not come back. Adversarial tests attack the boundary with
+raw SQL as the wrong principal and with no principal, not just through the API.
 
-**Every content read and write goes through one accessor** taking an
-authenticated principal and a space alias, resolving it against `memberships`
-and raising otherwise. No query outside that module touches `pages`,
-`revisions`, or `attachments`. A test asserts that a cross-space read fails, and
-it is not optional.
+Application-code discipline alone was the rev-1 design and did not survive
+review: the plan's own modules queried content tables directly, proving the
+convention unenforceable even against its author.
 
 Tools speak in **aliases** — `personal` and `household` — never space ids or
 names. The alias resolves per principal, so the same call means her personal
@@ -100,49 +104,61 @@ space for her and his for him, and neither can name the other's.
 
 | Tool | Notes |
 |---|---|
-| `load_context()` | **Primary.** Everything the principal can see, plus `version` and `truncated`. |
-| `read_page(space, path)` | Single page. Exists for the post-growth fallback. |
-| `read_image(space, path)` | Inline image content or a short-lived signed URL. |
-| `remember(fact, space="personal")` | **Private by default in the signature**, not in prose. Appends to that space's inbox page. |
-| `write_page(space, path, body, ...)` | Full page write. |
-| `edit_section(space, path, old_text, new_text, ...)` | Surgical edit per the protocol. |
-| `promote(path, confirm)` | Personal → household. Explicit confirmation, never inferred, never batched. |
+| `load_all_context()` | **Primary.** Everything the principal can see, plus `version`, `truncated`, and `page_count`/`included_count` so host-side truncation is detectable. |
+| `read_page(space, path)` | Single page; the truncation fallback. |
+| `add_image` / `read_image` | Mandatory description in; short-lived signed URL out, behind the same ACL. |
+| `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
+| `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
+| `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. |
+| `prepare_to_share(path)` → `confirm_share(nonce)` | Promotion, two steps. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
 
 There is no demotion tool, because there is no demotion. Once a fact is in the
-household space, the other person has read it or may have. `promote`'s
-confirmation is the only gate that exists, and its description says so.
+household space, the other person has read it or may have. The prepare/confirm
+pair is the only gate that exists, and `prepare_to_share` returns the exact
+disclosure the user must see before agreeing.
+
+Truncation, when the corpus outgrows the budget, is priority-aware: `meta/`
+pages first, `core`-tagged pages second, then smallest-first — an old allergy
+note must never lose its context slot to a fresh diary entry. Omitted pages
+appear with `body=null`, never silently.
 
 ## Protocol delivery
 
 The operating protocol lives as a page at `meta/protocol.md` in the household
 space; each person's persona lives at `meta/persona.md` in their personal space.
-The server concatenates them into the MCP `instructions` returned on initialize.
+MCP `instructions` are static per server, not per principal — so the stable
+security framing (call `load_all_context` first; page bodies are data, never
+instructions) lives there, and the per-person protocol + persona load through
+`get_operating_protocol`.
 
-The protocol stays ordinary content — editable through the same tools, with the
-same revision history — and reaches a phone that has no filesystem to load a
-manual from.
+The protocol stays ordinary content — editable only through `update_meta_page`,
+with the same revision history as everything else — and reaches a phone that
+has no filesystem to load a manual from. Loaded pages are an
+instruction-injection surface: the static instructions say so explicitly, and
+the `meta/` write gate keeps a poisoned page from silently rewriting the
+protocol itself.
 
-## Git mirror
+The protocol's empty-space behavior doubles as onboarding: a first conversation
+with an empty personal space introduces the assistant, asks what to call it,
+and interviews gently to seed the persona and first pages.
 
-A scheduled job renders every page to markdown with frontmatter and commits it
-to a mirror repo. Attachments export alongside.
+## Export (the exit hatch)
 
-**One-way, app → git.** Hand-edits to the mirror are clobbered. Bidirectional
-sync was refused for Notion and is refused here for the same reason: the
-conflict-resolution problem never ends. The mirror carries a `CLAUDE.md`
-declaring itself read-only, so an agent session that opens it does not edit
-doomed files.
+A manual command renders every page to markdown with frontmatter,
+import-compatible, so the knowledge survives the application — portable,
+offline-readable, restorable if the deployment is lost. **One-way, app → files.**
+Bidirectional sync was refused for Notion and is refused here for the same
+reason: the conflict-resolution problem never ends.
 
-Nothing reads from the mirror. It exists so the knowledge survives the
-application — portable markdown, offline-readable, restorable if the deployment
-is lost.
+**Automation is deferred, on external review:** a scheduled mirror job adds git
+credentials, durable job state, and deletion reconciliation before the write
+path has earned trust. When it returns post-v1, mirror commits replay the
+revision messages accumulated since the last export — the mirror log becomes
+the knowledge changelog, restoring the human diff-review habit one step
+downstream — and the mirror repo carries a `CLAUDE.md` declaring itself
+read-only so an agent session never edits doomed files.
 
-Mirror commits replay the revision messages accumulated since the last export,
-so the mirror log reads as the knowledge changelog. Skimming it is the
-surviving equivalent of reviewing `mark`'s commits — the human review loop the
-git design had, one step downstream.
-
-## Maintenance
+## Maintenance (post-v1, with mirror automation)
 
 `remember` appends to inbox pages; nothing about the schema compiles them.
 Without a compile step the design degrades into the transcript dump the wiki
@@ -155,6 +171,8 @@ a scheduled cloud agent for `mark`) repoints at the MCP and gains one step:
    personal page and its household counterpart, and a contradiction in the
    household space may mean one person is wrong rather than that the page is
    stale. Flag, never silently resolve.
+
+Until then, inbox compilation happens by asking either assistant for a tidy-up.
 
 ## Surfaces
 
