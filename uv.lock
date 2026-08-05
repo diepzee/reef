@@ -1215,6 +1215,7 @@ dependencies = [
     { name = "boto3" },
     { name = "fastmcp" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
@@ -1232,6 +1233,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.43.64" },
     { name = "fastmcp", specifier = ">=2" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2" },
 ]
 
