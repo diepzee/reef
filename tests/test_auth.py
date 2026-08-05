@@ -30,3 +30,18 @@ async def test_stranger_is_denied(session, household):
         await principal_from_claims(
             session, {"sub": "auth0|y", "email": "stranger@example.test",
                       "email_verified": True})
+
+
+def test_http_transport_refuses_to_start_without_auth(monkeypatch):
+    """PORT set with no auth provider must abort at startup, not boot open.
+
+    The deployed endpoint is never allowed to be reachable without
+    authentication; a missing WORKOS_AUTHKIT_DOMAIN/RIF_BASE_URL has to be
+    a loud startup failure rather than a silently unauthenticated server.
+    """
+    from rif import server
+
+    monkeypatch.setenv("PORT", "8080")
+    assert server.mcp.auth is None  # the test env never sets the WorkOS vars
+    with pytest.raises(RuntimeError, match="auth"):
+        server.main()

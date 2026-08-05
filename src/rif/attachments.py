@@ -7,7 +7,7 @@ import boto3
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rif.access import Principal, resolve_space
+from rif.access import Principal, _set_rls_principal, resolve_space
 from rif.config import get_settings
 from rif.models import Attachment, AttachmentStatus, Page
 
@@ -76,7 +76,9 @@ async def add_attachment(
     window right after ``store.put`` succeeds but before the ready flip
     commits — leaves, at worst, a pending row (invisible to ``load_context``,
     which filters on ready) and an orphan object; it never loses the row
-    entirely and never leaves a ready row with missing bytes.
+    entirely and never leaves a ready row with missing bytes. Because that
+    mid-flow commit also clears the transaction-local RLS principal, the
+    principal is re-armed before the ready flip.
 
     :param session: database session
     :param principal: the authenticated person
@@ -105,6 +107,12 @@ async def add_attachment(
     session.add(attachment)
     await session.commit()
     await store.put(key, data, mime)
+    # The commit above ended the transaction that carried the RLS principal
+    # (set_config(..., true) is transaction-local), so the READY flip runs in
+    # a fresh transaction. Re-arm before flushing: without this, FORCE RLS
+    # hides the pending row, the UPDATE matches nothing, and SQLAlchemy
+    # raises StaleDataError.
+    await _set_rls_principal(session, principal)
     attachment.status = AttachmentStatus.READY
     await session.flush()
     return attachment

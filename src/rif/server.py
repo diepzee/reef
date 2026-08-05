@@ -346,9 +346,22 @@ async def read_image(space: str, key: str) -> dict:
 
 
 def main() -> None:
-    """Run over HTTP when PORT is set (production), otherwise stdio (dev)."""
+    """Run over HTTP when PORT is set (production), otherwise stdio (dev).
+
+    HTTP means a deployed, network-reachable endpoint, so it must never
+    start without an auth provider: if ``_build_auth()`` came up empty
+    (``WORKOS_AUTHKIT_DOMAIN`` or ``RIF_BASE_URL`` unset), refuse loudly at
+    startup instead of booting into a misconfigured state where every tool
+    call fails with a confusing AttributeError.
+
+    :raises RuntimeError: if the HTTP transport would start with no auth
+    """
     port = os.environ.get("PORT")
     if port:
+        if mcp.auth is None:
+            raise RuntimeError(
+                "refusing to serve HTTP without an auth provider: set "
+                "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL")
         mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
     else:
         mcp.run()
