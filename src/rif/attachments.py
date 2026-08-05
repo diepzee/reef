@@ -67,12 +67,16 @@ async def add_attachment(
     store: ObjectStore,
     page_path: str | None = None,
 ) -> Attachment:
-    """Store an image: pending row, bytes to storage, then flip to ready.
+    """Store an image: pending row committed, bytes to storage, then flip to ready.
 
     The mandatory description is what makes images usable in a load-everything
     design — bytes cannot go into context every turn, but descriptions can.
-    A crash mid-upload leaves a pending row that context loading ignores,
-    never a ready row with missing bytes.
+    The pending row is committed on its own before the bytes ever reach
+    storage, so a crash at any point after that — including the narrow
+    window right after ``store.put`` succeeds but before the ready flip
+    commits — leaves, at worst, a pending row (invisible to ``load_context``,
+    which filters on ready) and an orphan object; it never loses the row
+    entirely and never leaves a ready row with missing bytes.
 
     :param session: database session
     :param principal: the authenticated person
@@ -90,13 +94,16 @@ async def add_attachment(
         page = await session.scalar(select(Page).where(
             Page.space_id == space.id, Page.path == page_path))
         page_id = page.id if page else None
-    key = f"{space.id}/{uuid4().hex}-{sha256(data).hexdigest()[:16]}"
+    # Opaque: never derived from space.id, which must not cross the tool
+    # boundary (it would let two keys sharing a prefix reveal they're the
+    # same space, an internal-identifier correlation leak).
+    key = f"{uuid4().hex}-{sha256(data).hexdigest()[:16]}"
     attachment = Attachment(space_id=space.id, page_id=page_id, object_key=key,
                             mime=mime, byte_size=len(data),
                             description=description,
                             status=AttachmentStatus.PENDING)
     session.add(attachment)
-    await session.flush()
+    await session.commit()
     await store.put(key, data, mime)
     attachment.status = AttachmentStatus.READY
     await session.flush()
