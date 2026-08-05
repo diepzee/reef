@@ -6,44 +6,24 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from rif.config import get_settings
 from rif.models import Base, Membership, Person, Space, SpaceKind
+from rif.rls import enable_statements
 
 
 @pytest_asyncio.fixture(scope="session")
 async def engine():
     """Create the test schema once per session, including RLS policies.
 
-    Mirrors ``migrations/versions/0f1d29c16349_initial_schema.py``; keep the
-    two in sync. Policies use ``NULLIF(current_setting(...), '')`` rather than
-    a bare cast: clearing the principal sets ``app.person_id`` to a defined
-    empty string via ``set_config``, not to an absent setting, and
-    ``''::uuid`` raises instead of comparing false, so the bare form would
-    error on every "no principal" test instead of denying cleanly.
+    The policy DDL comes from ``rif.rls``, the same module
+    ``migrations/versions/0f1d29c16349_initial_schema.py`` uses to build the
+    real schema, so production and tests can never apply different
+    policies.
     """
     engine = create_async_engine(get_settings().test_database_url)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-        for table in ("pages", "attachments"):
-            await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
-            await conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY"))
-            await conn.execute(text(f"""
-                CREATE POLICY {table}_member ON {table}
-                USING (space_id IN (SELECT space_id FROM memberships
-                    WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))
-                WITH CHECK (space_id IN (SELECT space_id FROM memberships
-                    WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))
-            """))
-        await conn.execute(text("ALTER TABLE revisions ENABLE ROW LEVEL SECURITY"))
-        await conn.execute(text("ALTER TABLE revisions FORCE ROW LEVEL SECURITY"))
-        await conn.execute(text("""
-            CREATE POLICY revisions_member ON revisions
-            USING (page_id IN (SELECT p.id FROM pages p
-                JOIN memberships m ON m.space_id = p.space_id
-                WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))
-            WITH CHECK (page_id IN (SELECT p.id FROM pages p
-                JOIN memberships m ON m.space_id = p.space_id
-                WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))
-        """))
+        for statement in enable_statements():
+            await conn.execute(text(statement))
     yield engine
     await engine.dispose()
 

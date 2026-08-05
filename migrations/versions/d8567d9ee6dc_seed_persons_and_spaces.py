@@ -49,10 +49,23 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Remove the seeded persons, spaces, and memberships, by id."""
+    """Remove the seeded persons, spaces, and memberships, by natural key.
+
+    ``WOUTER``/``PARTNER``/``W_SPACE``/``P_SPACE``/``SHARED`` are module-level
+    ``uuid4()`` calls, regenerated on every import — deleting by those ids
+    would match zero rows whenever downgrade runs in a different process
+    than upgrade (i.e. every realistic invocation), silently leaving the
+    seed rows in place while alembic still marks the revision downgraded. A
+    later ``alembic upgrade`` would then fail on the ``persons.email`` unique
+    constraint. Deleting by the actual seeded values — the same slug and
+    email literals ``upgrade()`` inserts — is immune to that, since those
+    values are stable across processes.
+    """
     op.execute(
-        f"DELETE FROM memberships WHERE space_id IN "
-        f"('{W_SPACE}', '{P_SPACE}', '{SHARED}')"
+        "DELETE FROM memberships WHERE space_id IN "
+        "(SELECT id FROM spaces WHERE slug IN ('wouter', 'partner', 'school'))"
     )
-    op.execute(f"DELETE FROM spaces WHERE id IN ('{W_SPACE}', '{P_SPACE}', '{SHARED}')")
-    op.execute(f"DELETE FROM persons WHERE id IN ('{WOUTER}', '{PARTNER}')")
+    op.execute("DELETE FROM spaces WHERE slug IN ('wouter', 'partner', 'school')")
+    op.execute(
+        "DELETE FROM persons WHERE email IN ('wouter@rugvin.be', '<HER-EMAIL>')"
+    )
