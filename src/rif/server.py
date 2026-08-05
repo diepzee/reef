@@ -76,6 +76,21 @@ async def tool_read_page(
             "updated": page.updated_at.isoformat()}
 
 
+async def tool_list_spaces(session: AsyncSession, principal: Principal) -> list[dict]:
+    """List the spaces the principal can see, split from the tool for testability.
+
+    Only the space alias (``personal``/``household``) and version cross the
+    tool boundary. The underlying ``Space.slug`` — and thus another person's
+    space name, e.g. a shared space slug like ``school`` — never does.
+
+    :param session: database session
+    :param principal: the authenticated person
+    :returns: one dict per accessible space, alias and version only
+    """
+    return [{"alias": s.kind.value, "version": s.version}
+            for s in await accessible_spaces(session, principal)]
+
+
 @mcp.tool
 async def load_all_context() -> dict:
     """Load everything you can see. Call this first, every conversation.
@@ -107,8 +122,7 @@ async def list_spaces() -> list[dict]:
     """List the spaces you can see."""
     async with session_scope() as session:
         principal = await current_principal(session)
-        return [{"alias": s.kind.value, "slug": s.slug, "version": s.version}
-                for s in await accessible_spaces(session, principal)]
+        return await tool_list_spaces(session, principal)
 
 
 def main() -> None:
