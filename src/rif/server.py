@@ -14,6 +14,7 @@ from rif.db import session_scope
 from rif.models import Page
 from rif.pages import (ProtectedPath, SectionNotFound, VersionConflict,
                        edit_section, get_page, save_page)
+from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 
 
 def _build_auth():
@@ -254,6 +255,38 @@ async def update_meta_page(space: str, path: str, body: str, message: str,
         page = await save_page(session, principal, space, path, body,
                                message=message, allow_protected=True)
         return {"space": space, "path": page.path, "version": page.version}
+
+
+@mcp.tool
+async def prepare_to_share(path: str) -> dict:
+    """Stage sharing a personal page to the household space. Step 1 of 2.
+
+    Show the user the returned disclosure and warning, and only call
+    confirm_share after they explicitly agree in this conversation. Sharing is
+    permanent: the other household member can then read the page forever.
+
+    :param path: page path in the personal space
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        try:
+            return await prepare_promotion(session, principal, path)
+        except PromotionError as exc:
+            return {"error": "promotion_failed", "detail": str(exc)}
+
+
+@mcp.tool
+async def confirm_share(nonce: str) -> dict:
+    """Execute a staged share after the user has agreed. Step 2 of 2.
+
+    :param nonce: the value returned by prepare_to_share
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        try:
+            return await confirm_promotion(session, principal, nonce)
+        except PromotionError as exc:
+            return {"error": "promotion_failed", "detail": str(exc)}
 
 
 def main() -> None:
