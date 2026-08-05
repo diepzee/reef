@@ -75,12 +75,26 @@ docker compose exec db pg_dump --format=custom -U postgres -d rif > rif-<stamp>.
 # In production this is scripts/backup.py, whose upload lands in R2 at
 # backups/rif-<stamp>.dump — download that object first.
 
-# 2. Target database
-docker compose exec db createdb -U postgres rif_restore
+# 2. Target database, owned by rif — not created by rif. The rif role has
+#    no CREATEDB privilege (deliberately: it is the RLS-constrained app
+#    role, not an admin role), so this must run as the bypass-RLS role,
+#    and the -O/OWNER matters: Postgres 15+ no longer grants CREATE on the
+#    public schema to non-owners by default, so a database left owned by
+#    whoever ran createdb (postgres) would make every CREATE TABLE in the
+#    restore fail with "permission denied for schema public" once pg_restore
+#    connects as rif.
+docker compose exec db createdb -U postgres -O rif rif_restore
 
-# 3. Restore
-pg_restore --clean --if-exists \
-  --dbname "postgresql://rif:rif@localhost:5433/rif_restore" rif-<stamp>.dump
+# 3. Restore — run through the same Postgres major version as the server
+#    (here, via docker exec, so it uses postgres:17's own pg_restore). A
+#    host-installed pg_restore from a different major version will refuse
+#    the dump outright ("unsupported version ... in file header") — on a
+#    Mac with Homebrew's default (non-versioned) postgresql formula this is
+#    likely, since that formula tends to lag the server's major version;
+#    install/use postgresql@17 specifically, or just run pg_restore inside
+#    the container as below.
+docker compose exec db pg_restore --clean --if-exists \
+  -U rif -d rif_restore rif-<stamp>.dump
 
 # 4. Verify — the numbers that actually matter
 docker compose exec db psql -U postgres -d rif_restore -c \
@@ -103,16 +117,23 @@ accidentally dropped or left `NO FORCE` by the restore process.
 
 ### Local rehearsal performed for this task
 
-Ran the full sequence above against local Postgres only (`docker compose`,
-port 5433) — no Railway, no R2, no production data. Source `rif` database
-held 13 pages / 26 revisions / 4 memberships (from the `import_mark.py`
-rehearsal, run twice to also prove re-imports don't duplicate pages).
-`pg_dump -U postgres` succeeded; `pg_dump -U rif` reproduced the RLS error
-above. Restored into a scratch `rif_restore` database: counts matched
-exactly (13 / 26 / 4), and a post-restore RLS check (connecting as `rif`
-with no principal set) returned zero rows, confirming FORCE RLS survived
-the restore. `rif_restore` was dropped afterward — it was a rehearsal
-database, not a fixture to keep around.
+Ran the exact sequence above, verbatim, against local Postgres only
+(`docker compose`, port 5433) — no Railway, no R2, no production data.
+Source `rif` database held 13 pages / 26 revisions / 4 memberships (from
+the `import_mark.py` rehearsal, run twice to also prove re-imports don't
+duplicate pages). `pg_dump -U postgres` succeeded; `pg_dump -U rif`
+reproduced the RLS error above. `createdb -U rif` (no `-O`) reproduced
+"permission denied to create database" — `rif` has no `CREATEDB`. A
+host-side `pg_restore` (Homebrew's default `postgresql` formula, v14)
+against the v17-format dump reproduced "unsupported version (1.16) in file
+header" — hence running `pg_restore` through `docker compose exec` above,
+which uses the container's own matching-version client. With those three
+fixes applied, the documented commands restored cleanly into a scratch
+`rif_restore` database: counts matched exactly (13 / 26 / 4), and a
+post-restore RLS check (connecting as `rif` with no principal set)
+returned zero rows, confirming FORCE RLS survived the restore.
+`rif_restore` was dropped afterward — it was a rehearsal database, not a
+fixture to keep around.
 
 This proves the restore *mechanics* (the exact commands above) are correct.
 It does **not** prove the backup cron works against Railway's actual
