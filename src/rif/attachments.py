@@ -70,7 +70,7 @@ async def add_attachment(
     """Store an image: pending row, bytes to storage, then flip to ready.
 
     The mandatory description is what makes images usable in a load-everything
-    design -- bytes cannot go into context every turn, but descriptions can.
+    design — bytes cannot go into context every turn, but descriptions can.
     A crash mid-upload leaves a pending row that context loading ignores,
     never a ready row with missing bytes.
 
