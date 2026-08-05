@@ -1,11 +1,11 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rif.access import Principal, resolve_space
-from rif.models import Page, Promotion
+from rif.models import Page, Promotion, utc_now
 from rif.pages import get_page, save_page
 
 NONCE_TTL = timedelta(minutes=10)
@@ -64,8 +64,8 @@ async def confirm_promotion(
         raise PromotionError("unknown promotion nonce")
     if staged.consumed_at is not None:
         return {"promoted": True, "dest_path": staged.dest_path, "already_done": True}
-    now = datetime.now(UTC)
-    if now - staged.created_at.replace(tzinfo=UTC) > NONCE_TTL:
+    now = utc_now()
+    if now - staged.created_at > NONCE_TTL:
         raise PromotionError("promotion expired; prepare it again")
 
     source = await session.get(Page, staged.source_page_id)
@@ -83,6 +83,6 @@ async def confirm_promotion(
                     f"# {source.title}\n\nMoved to the household space; "
                     f"see `{staged.dest_path}` there.",
                     message="stubbed after promotion", title=source.title)
-    staged.consumed_at = now.replace(tzinfo=None)
+    staged.consumed_at = now
     await session.flush()
     return {"promoted": True, "dest_path": staged.dest_path, "already_done": False}

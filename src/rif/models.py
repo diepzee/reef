@@ -1,9 +1,24 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
 from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def utc_now() -> datetime:
+    """Return the current instant as a naive UTC ``datetime``.
+
+    Every ``DateTime`` column in this schema is ``TIMESTAMP WITHOUT TIME
+    ZONE``. Columns populated by ``server_default=func.now()`` alone take
+    their value from the Postgres server's ``TimeZone`` setting, not from
+    UTC -- correct only incidentally, when the server happens to run UTC.
+    Columns whose value is later compared against client-computed time
+    (:class:`Promotion.created_at`, for nonce-expiry checks) use this
+    client-side default instead, so the comparison is correct regardless
+    of server locale.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class SpaceKind(StrEnum):
@@ -122,5 +137,5 @@ class Promotion(Base):
     source_page_id: Mapped[UUID] = mapped_column(ForeignKey("pages.id"))
     source_version: Mapped[int]
     dest_path: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
     consumed_at: Mapped[datetime | None]
