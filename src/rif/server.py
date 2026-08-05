@@ -1,3 +1,4 @@
+import base64
 import os
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -7,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from rif.access import Principal, accessible_spaces, resolve_space
+from rif.attachments import S3ObjectStore, add_attachment, get_attachment
 from rif.auth import current_principal
 from rif.config import get_settings
 from rif.context import load_context
@@ -296,6 +298,51 @@ async def confirm_share(nonce: str) -> dict:
             return await confirm_promotion(session, principal, nonce)
         except PromotionError as exc:
             return {"error": "promotion_failed", "detail": str(exc)}
+
+
+@mcp.tool
+async def add_image(space: str, data_base64: str, mime: str, description: str,
+                    page_path: str | None = None) -> dict:
+    """Store an image with a text description of what it shows.
+
+    Write the description yourself, concretely — it is what future
+    conversations see in loaded context ("photo of the boiler's model plate,
+    reading Vaillant ecoTEC VU 246/5-5"), so put the facts in it.
+
+    :param space: ``personal`` or ``household``
+    :param data_base64: the image bytes, base64-encoded
+    :param mime: content type, e.g. image/jpeg
+    :param description: concrete text description; required
+    :param page_path: page in the same space this image belongs to
+    """
+    data = base64.b64decode(data_base64)
+    if len(data) > get_settings().image_max_bytes:
+        return {"error": "too_large", "max_bytes": get_settings().image_max_bytes}
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        attachment = await add_attachment(
+            session, principal, space, data, mime,
+            description=description, store=S3ObjectStore(), page_path=page_path)
+        return {"key": attachment.object_key, "status": attachment.status.value}
+
+
+@mcp.tool
+async def read_image(space: str, key: str) -> dict:
+    """Return a short-lived URL for an image. Only when the pixels matter —
+    descriptions are already in your loaded context.
+
+    :param space: ``personal`` or ``household``
+    :param key: the image key from the context payload
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        attachment = await get_attachment(session, principal, space, key)
+        if attachment is None:
+            return {"error": "not_found", "key": key}
+        ttl = get_settings().signed_url_ttl_seconds
+        return {"url": await S3ObjectStore().signed_url(key, ttl),
+                "mime": attachment.mime, "description": attachment.description,
+                "expires_in": ttl}
 
 
 def main() -> None:

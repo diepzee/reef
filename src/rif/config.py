@@ -12,6 +12,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://rif:rif@localhost:5433/rif"
     test_database_url: str = "postgresql+asyncpg://rif:rif@localhost:5433/rif_test"
     context_char_budget: int = 150_000
+    s3_endpoint: str = ""
+    s3_bucket: str = ""
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    image_max_bytes: int = 5_000_000
+    signed_url_ttl_seconds: int = 300
 
     @property
     def async_database_url(self) -> str:
