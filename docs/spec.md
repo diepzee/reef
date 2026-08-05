@@ -150,7 +150,21 @@ isolated to one late phase, so a painful OAuth never blocks a working server.
 
 Python 3.13, uv, ruff. FastMCP. SQLAlchemy 2.0 async with Alembic. pytest
 against a real Postgres — mocked repositories cannot catch the constraint and
-isolation bugs that matter here. Fly.io with Fly Postgres and Tigris.
+isolation bugs that matter here. Railway for the app and Postgres; Cloudflare R2
+for attachments, since Railway has no object storage of its own.
+
+**No vector database.** Embeddings solve "the corpus does not fit in context",
+which is not this problem and will not be for a long time. Top-k similarity
+returns a subset chosen by cosine distance, and its failure mode — the assistant
+confidently not knowing something it was told — is the worst available outcome
+for a memory system. Whole-corpus loading cannot fail that way. When the corpus
+does outgrow the budget, the next step is index-plus-selective-read, not
+embeddings: the model is a better retriever than a similarity score while the
+index still fits.
+
+Durability is now this application's problem, where GitHub previously handled it
+for free. Managed Postgres backups plus an independent dump, with a restore
+drill that verifies `memberships` survived — an untested backup is not a backup.
 
 ## Out of scope for v1
 
