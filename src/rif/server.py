@@ -15,6 +15,7 @@ from rif.models import Page
 from rif.pages import (ProtectedPath, SectionNotFound, VersionConflict,
                        edit_section, get_page, save_page)
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
+from rif.protocol import build_instructions
 
 
 def _build_auth():
@@ -141,6 +142,14 @@ async def load_all_context() -> dict:
     async with session_scope() as session:
         principal = await current_principal(session)
         return await tool_load_context(session, principal)
+
+
+@mcp.tool
+async def get_operating_protocol() -> str:
+    """Return the operating protocol and your persona. Call after loading context."""
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        return await build_instructions(session, principal)
 
 
 @mcp.tool
