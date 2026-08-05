@@ -1,8 +1,17 @@
+from datetime import timedelta
+from uuid import UUID
+
 import pytest
 
 from rif.access import Principal
+from rif.models import Promotion, utc_now
 from rif.pages import get_page, save_page
-from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
+from rif.promotion import (
+    NONCE_TTL,
+    PromotionError,
+    confirm_promotion,
+    prepare_promotion,
+)
 
 
 def principal_for(person) -> Principal:
@@ -38,6 +47,24 @@ async def test_source_changed_since_prepare_fails(session, household):
     await save_page(session, me, "personal", "a.md", "v2", message="x")
     with pytest.raises(PromotionError):
         await confirm_promotion(session, me, prepared["nonce"])
+
+
+async def test_expired_nonce_is_rejected(session, household):
+    """The 10-minute TTL must reject on its own, independent of DB server locale.
+
+    ``created_at`` is backdated directly rather than by sleeping, so the
+    test is fast and exercises the comparison itself rather than the
+    passage of wall-clock time.
+    """
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "d.md", "stale", message="x")
+    prepared = await prepare_promotion(session, me, "d.md")
+    staged = await session.get(Promotion, UUID(prepared["nonce"]))
+    staged.created_at = utc_now() - NONCE_TTL - timedelta(seconds=1)
+    await session.flush()
+    with pytest.raises(PromotionError):
+        await confirm_promotion(session, me, prepared["nonce"])
+    assert await get_page(session, me, "household", "d.md") is None
 
 
 async def test_existing_household_page_is_never_overwritten(session, household):
