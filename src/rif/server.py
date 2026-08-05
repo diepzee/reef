@@ -1,15 +1,19 @@
 import os
 from dataclasses import asdict
+from datetime import UTC, datetime
 
 from fastmcp import FastMCP
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from rif.access import Principal, accessible_spaces
+from rif.access import Principal, accessible_spaces, resolve_space
 from rif.auth import current_principal
 from rif.config import get_settings
 from rif.context import load_context
 from rif.db import session_scope
-from rif.pages import get_page
+from rif.models import Page
+from rif.pages import (ProtectedPath, SectionNotFound, VersionConflict,
+                       edit_section, get_page, save_page)
 
 
 def _build_auth():
@@ -91,6 +95,39 @@ async def tool_list_spaces(session: AsyncSession, principal: Principal) -> list[
             for s in await accessible_spaces(session, principal)]
 
 
+_INBOX = "inbox.md"
+
+
+async def tool_remember(
+    session: AsyncSession, principal: Principal, fact: str, space: str = "personal"
+) -> dict:
+    """Append one fact to a space's inbox, locking the row and deduplicating.
+
+    The personal default is deliberate: sharing is irreversible in effect, so
+    the default destination must be the private one. The row lock serializes
+    concurrent appends; the exact-duplicate check makes transport retries
+    harmless.
+
+    :param session: database session
+    :param principal: the authenticated person
+    :param fact: the text to record
+    :param space: ``personal`` or ``household``
+    :returns: what was written, with a duplicate flag
+    """
+    resolved = await resolve_space(session, principal, space)
+    inbox = await session.scalar(
+        select(Page).where(Page.space_id == resolved.id, Page.path == _INBOX)
+        .with_for_update())
+    if inbox is not None and fact in inbox.body:
+        return {"space": space, "path": _INBOX, "duplicate": True}
+    stamp = datetime.now(UTC).date().isoformat()
+    entry = f"- ({stamp}) {fact}"
+    body = f"{inbox.body}\n{entry}" if inbox else f"# Inbox\n\n{entry}"
+    await save_page(session, principal, space, _INBOX, body,
+                    message=f"remember: {fact[:60]}", title="Inbox")
+    return {"space": space, "path": _INBOX, "appended": entry, "duplicate": False}
+
+
 @mcp.tool
 async def load_all_context() -> dict:
     """Load everything you can see. Call this first, every conversation.
@@ -123,6 +160,100 @@ async def list_spaces() -> list[dict]:
     async with session_scope() as session:
         principal = await current_principal(session)
         return await tool_list_spaces(session, principal)
+
+
+@mcp.tool
+async def remember(fact: str, space: str = "personal") -> dict:
+    """Record a fact. Defaults to the private personal space.
+
+    Only pass space="household" when the fact concerns a jointly-owned thing,
+    a joint decision, or a shared obligation. Anything ambiguous is personal.
+
+    :param fact: the text to record
+    :param space: ``personal`` or ``household``
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        return await tool_remember(session, principal, fact, space)
+
+
+@mcp.tool
+async def write_page(space: str, path: str, body: str, message: str,
+                     title: str | None = None, tags: list[str] | None = None,
+                     expected_version: int | None = None) -> dict:
+    """Create or replace a whole page. Prefer edit_page_section for small changes.
+
+    Pass expected_version (from the loaded context) when replacing an existing
+    page; a conflict means someone else wrote first — reload before retrying.
+
+    :param space: ``personal`` or ``household``
+    :param path: page path
+    :param body: full markdown body
+    :param message: why this change is being made
+    :param title: human-readable title
+    :param tags: page tags; tag stable, important pages "core"
+    :param expected_version: optimistic lock from the loaded context
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        try:
+            page = await save_page(session, principal, space, path, body,
+                                   message=message, title=title, tags=tags,
+                                   expected_version=expected_version)
+        except VersionConflict as exc:
+            return {"error": "version_conflict", "detail": str(exc)}
+        except ProtectedPath as exc:
+            return {"error": "protected_path", "detail": str(exc)}
+        return {"space": space, "path": page.path, "version": page.version}
+
+
+@mcp.tool
+async def edit_page_section(space: str, path: str, old_text: str, new_text: str,
+                            message: str, expected_version: int | None = None) -> dict:
+    """Replace an exact span of a page; the old text must occur exactly once.
+
+    :param space: ``personal`` or ``household``
+    :param path: page path
+    :param old_text: exact text to replace
+    :param new_text: replacement text
+    :param message: why this change is being made
+    :param expected_version: optimistic lock from the loaded context
+    """
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        try:
+            page = await edit_section(session, principal, space, path, old_text,
+                                      new_text, message=message,
+                                      expected_version=expected_version)
+        except (SectionNotFound, VersionConflict, ProtectedPath) as exc:
+            return {"error": type(exc).__name__, "detail": str(exc)}
+        return {"space": space, "path": page.path, "version": page.version}
+
+
+@mcp.tool
+async def update_meta_page(space: str, path: str, body: str, message: str,
+                           confirm: bool = False) -> dict:
+    """Update the operating protocol or persona. These pages steer the assistant.
+
+    Only call after telling the user exactly what will change and receiving
+    their agreement in this conversation; pass confirm=True to proceed.
+
+    :param space: ``personal`` or ``household``
+    :param path: must start with ``meta/``
+    :param body: the full new body
+    :param message: why this change is being made
+    :param confirm: True only after the user has explicitly agreed
+    """
+    if not path.startswith("meta/"):
+        return {"error": "not_meta", "detail": "use write_page for ordinary pages"}
+    if not confirm:
+        return {"error": "not_confirmed",
+                "detail": "describe the change to the user first, then confirm"}
+    async with session_scope() as session:
+        principal = await current_principal(session)
+        page = await save_page(session, principal, space, path, body,
+                               message=message, allow_protected=True)
+        return {"space": space, "path": page.path, "version": page.version}
 
 
 def main() -> None:
