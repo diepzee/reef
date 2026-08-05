@@ -129,11 +129,32 @@ to a mirror repo. Attachments export alongside.
 
 **One-way, app → git.** Hand-edits to the mirror are clobbered. Bidirectional
 sync was refused for Notion and is refused here for the same reason: the
-conflict-resolution problem never ends.
+conflict-resolution problem never ends. The mirror carries a `CLAUDE.md`
+declaring itself read-only, so an agent session that opens it does not edit
+doomed files.
 
 Nothing reads from the mirror. It exists so the knowledge survives the
 application — portable markdown, offline-readable, restorable if the deployment
 is lost.
+
+Mirror commits replay the revision messages accumulated since the last export,
+so the mirror log reads as the knowledge changelog. Skimming it is the
+surviving equivalent of reviewing `mark`'s commits — the human review loop the
+git design had, one step downstream.
+
+## Maintenance
+
+`remember` appends to inbox pages; nothing about the schema compiles them.
+Without a compile step the design degrades into the transcript dump the wiki
+philosophy exists to prevent. The existing Monday maintenance routine (already
+a scheduled cloud agent for `mark`) repoints at the MCP and gains one step:
+
+1. Compile inbox pages into real pages, per space.
+2. Staleness pass over pages not updated in ~2 months.
+3. **Cross-space contradiction check** — the same fact can now drift between a
+   personal page and its household counterpart, and a contradiction in the
+   household space may mean one person is wrong rather than that the page is
+   stale. Flag, never silently resolve.
 
 ## Surfaces
 
