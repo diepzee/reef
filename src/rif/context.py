@@ -103,8 +103,8 @@ async def load_context(
             "description": attachment.description})
 
     version = ";".join(
-        f"{space.slug}={space.version}" for space in spaces) or "empty"
+        f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
     return ContextPayload(
-        version=f"{principal.person_id}:{version}", truncated=truncated, note=note,
+        version=version, truncated=truncated, note=note,
         page_count=len(pages), included_count=included,
         spaces=list(by_space.values()))
