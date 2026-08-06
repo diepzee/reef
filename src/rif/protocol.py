@@ -1,4 +1,4 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+"""Protocol and persona delivery: both are ordinary pages, read per principal."""
 
 from rif.access import Principal
 from rif.pages import get_page
@@ -18,19 +18,18 @@ _FALLBACK = (
 )
 
 
-async def build_instructions(session: AsyncSession, principal: Principal) -> str:
+async def build_instructions(principal: Principal) -> str:
     """Assemble the operating protocol plus persona for a principal.
 
     Both are ordinary pages — editable through update_meta_page, with the same
     revision history as everything else — which is how the protocol reaches a
     phone with no filesystem.
 
-    :param session: database session
     :param principal: the authenticated person
     :returns: the combined instructions text
     """
-    protocol = await get_page(session, principal, "household", PROTOCOL_PATH)
-    persona = await get_page(session, principal, "personal", PERSONA_PATH)
+    protocol = await get_page(principal, "household", PROTOCOL_PATH)
+    persona = await get_page(principal, "personal", PERSONA_PATH)
     parts = [protocol.body if protocol else _FALLBACK]
     if persona:
         parts.append(persona.body)

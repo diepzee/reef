@@ -1,12 +1,18 @@
-from dataclasses import dataclass
+"""Index-first retrieval, plus the whole-corpus bulk path.
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+Both entry points assume they run inside :func:`rif.db.transaction_scope`;
+:func:`rif.access.accessible_spaces` arms RLS before either reads anything.
+"""
+
+from dataclasses import dataclass
 
 from rif.access import Principal, accessible_spaces
 from rif.models import Attachment, AttachmentStatus, Page, SpaceKind
 
-_ALIAS_BY_KIND = {SpaceKind.PERSONAL: "personal", SpaceKind.HOUSEHOLD: "household"}
+_ALIAS_BY_KIND = {
+    SpaceKind.PERSONAL.value: "personal",
+    SpaceKind.HOUSEHOLD.value: "household",
+}
 
 
 @dataclass
@@ -77,41 +83,56 @@ def _summary(body: str) -> str:
     return ""
 
 
-async def build_index(session: AsyncSession, principal: Principal) -> IndexPayload:
+async def build_index(principal: Principal) -> IndexPayload:
     """Return the index of every space the principal can see — no bodies.
 
-    :param session: database session
     :param principal: the authenticated person
     :returns: the index payload
     """
-    spaces = await accessible_spaces(session, principal)
+    spaces = await accessible_spaces(principal)
     space_ids = [space.id for space in spaces]
-    pages = list((await session.scalars(
-        select(Page).where(Page.space_id.in_(space_ids)))).all())
-    attachments = list((await session.scalars(
-        select(Attachment).where(Attachment.space_id.in_(space_ids),
-                                 Attachment.status == AttachmentStatus.READY))).all())
+    pages = await Page.objects().where(Page.space_id.is_in(space_ids))
+    attachments = await Attachment.objects().where(
+        Attachment.space_id.is_in(space_ids),
+        Attachment.status == AttachmentStatus.READY.value,
+    )
 
+    # Keyed by space id: Piccolo Table instances are unhashable, so the row
+    # object itself cannot be a dict key the way the SQLAlchemy version did it.
     by_space = {
-        space: SpaceIndex(alias=_ALIAS_BY_KIND[space.kind], version=space.version,
-                          pages=[], attachments=[])
-        for space in spaces}
-    space_by_id = {space.id: space for space in spaces}
+        space.id: SpaceIndex(
+            alias=_ALIAS_BY_KIND[space.kind],
+            version=space.version,
+            pages=[],
+            attachments=[],
+        )
+        for space in spaces
+    }
     for page in sorted(pages, key=lambda p: p.path):
-        by_space[space_by_id[page.space_id]].pages.append({
-            "path": page.path, "title": page.title, "tags": list(page.tags),
-            "description": _summary(page.body),
-            "updated": page.updated_at.isoformat(), "size": len(page.body),
-            "version": page.version})
+        by_space[page.space_id].pages.append(
+            {
+                "path": page.path,
+                "title": page.title,
+                "tags": list(page.tags),
+                "description": _summary(page.body),
+                "updated": page.updated_at.isoformat(),
+                "size": len(page.body),
+                "version": page.version,
+            }
+        )
     for attachment in attachments:
-        by_space[space_by_id[attachment.space_id]].attachments.append({
-            "key": attachment.object_key, "mime": attachment.mime,
-            "description": attachment.description})
+        by_space[attachment.space_id].attachments.append(
+            {
+                "key": attachment.object_key,
+                "mime": attachment.mime,
+                "description": attachment.description,
+            }
+        )
 
-    version = ";".join(
-        f"{space.kind.value}={space.version}" for space in spaces) or "empty"
-    return IndexPayload(version=f"{principal.person_id}:{version}",
-                        spaces=list(by_space.values()))
+    version = ";".join(f"{space.kind}={space.version}" for space in spaces) or "empty"
+    return IndexPayload(
+        version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
+    )
 
 
 def _priority(page: Page) -> tuple:
@@ -127,62 +148,81 @@ def _priority(page: Page) -> tuple:
     )
 
 
-async def load_context(
-    session: AsyncSession, principal: Principal, *, char_budget: int
-) -> ContextPayload:
+async def load_context(principal: Principal, *, char_budget: int) -> ContextPayload:
     """Return every page in every space the principal can see.
 
     Bodies are included by priority until the character budget is spent;
     everything else still appears with ``body=None`` so omission is visible,
     never silent.
 
-    :param session: database session
     :param principal: the authenticated person
     :param char_budget: approximate ceiling on total body characters
     :returns: the assembled context payload
     """
-    spaces = await accessible_spaces(session, principal)
+    spaces = await accessible_spaces(principal)
     space_ids = [space.id for space in spaces]
-    pages = list((await session.scalars(
-        select(Page).where(Page.space_id.in_(space_ids)))).all())
-    attachments = list((await session.scalars(
-        select(Attachment).where(Attachment.space_id.in_(space_ids),
-                                 Attachment.status == AttachmentStatus.READY))).all())
+    pages = await Page.objects().where(Page.space_id.is_in(space_ids))
+    attachments = await Attachment.objects().where(
+        Attachment.space_id.is_in(space_ids),
+        Attachment.status == AttachmentStatus.READY.value,
+    )
 
     spent = 0
-    body_by_page: dict[Page, str | None] = {}
+    body_by_page: dict[object, str | None] = {}
     for page in sorted(pages, key=_priority):
         if spent + len(page.body) <= char_budget:
-            body_by_page[page] = page.body
+            body_by_page[page.id] = page.body
             spent += len(page.body)
         else:
-            body_by_page[page] = None
+            body_by_page[page.id] = None
 
     included = sum(1 for body in body_by_page.values() if body is not None)
     truncated = included < len(pages)
     note = (
         f"{len(pages) - included} page(s) exceeded the context budget and are "
         "listed with body=null. Fetch them with read_page when relevant."
-        if truncated else None)
+        if truncated
+        else None
+    )
 
     by_space = {
-        space: SpaceContext(alias=_ALIAS_BY_KIND[space.kind], version=space.version,
-                            pages=[], attachments=[])
-        for space in spaces}
-    space_by_id = {space.id: space for space in spaces}
+        space.id: SpaceContext(
+            alias=_ALIAS_BY_KIND[space.kind],
+            version=space.version,
+            pages=[],
+            attachments=[],
+        )
+        for space in spaces
+    }
     for page in sorted(pages, key=lambda p: p.path):
-        by_space[space_by_id[page.space_id]].pages.append({
-            "path": page.path, "title": page.title, "tags": list(page.tags),
-            "updated": page.updated_at.isoformat(), "size": len(page.body),
-            "version": page.version, "body": body_by_page[page]})
+        by_space[page.space_id].pages.append(
+            {
+                "path": page.path,
+                "title": page.title,
+                "tags": list(page.tags),
+                "updated": page.updated_at.isoformat(),
+                "size": len(page.body),
+                "version": page.version,
+                "body": body_by_page[page.id],
+            }
+        )
     for attachment in attachments:
-        by_space[space_by_id[attachment.space_id]].attachments.append({
-            "key": attachment.object_key, "mime": attachment.mime,
-            "description": attachment.description})
+        by_space[attachment.space_id].attachments.append(
+            {
+                "key": attachment.object_key,
+                "mime": attachment.mime,
+                "description": attachment.description,
+            }
+        )
 
-    version = ";".join(
-        f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
+    version = (
+        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
+    )
     return ContextPayload(
-        version=version, truncated=truncated, note=note,
-        page_count=len(pages), included_count=included,
-        spaces=list(by_space.values()))
+        version=version,
+        truncated=truncated,
+        note=note,
+        page_count=len(pages),
+        included_count=included,
+        spaces=list(by_space.values()),
+    )
