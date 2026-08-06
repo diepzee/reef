@@ -95,3 +95,68 @@ async def test_another_persons_nonce_is_rejected(session, household):
     prepared = await prepare_promotion(session, me, "c.md")
     with pytest.raises(PromotionError):
         await confirm_promotion(session, theirs, prepared["nonce"])
+
+
+SECTION = "## Boiler\n\nVaillant ecoTEC VU 246/5-5, serviced 2025."
+REST = "# House\n\n## Roof\n\nTiles redone 2019."
+BODY = f"{REST}\n\n{SECTION}"
+
+
+async def test_section_share_extracts_and_stubs(session, household):
+    me = principal_for(household["wouter"])
+    theirs = principal_for(household["partner"])
+    await save_page(session, me, "personal", "house-notes.md", BODY, message="x")
+
+    prepared = await prepare_promotion(
+        session, me, "house-notes.md", section=SECTION, dest_path="boiler.md")
+    assert prepared["disclosure"] == SECTION
+    assert prepared["dest_path"] == "boiler.md"
+
+    result = await confirm_promotion(session, me, prepared["nonce"])
+    assert result["promoted"] is True
+
+    shared = await get_page(session, theirs, "household", "boiler.md")
+    assert shared is not None
+    assert shared.body == SECTION
+
+    source = await get_page(session, me, "personal", "house-notes.md")
+    assert "Vaillant" not in source.body
+    assert "Tiles redone 2019" in source.body
+    assert "boiler.md" in source.body  # marker points at the extracted page
+
+
+async def test_section_prepare_requires_a_unique_span(session, household):
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "dup.md", "same\n\nsame", message="x")
+    with pytest.raises(PromotionError):
+        await prepare_promotion(session, me, "dup.md", section="same",
+                                dest_path="out.md")
+
+
+async def test_section_share_requires_dest_path(session, household):
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "a-page.md", BODY, message="x")
+    with pytest.raises(PromotionError):
+        await prepare_promotion(session, me, "a-page.md", section=SECTION)
+
+
+async def test_section_dest_must_not_exist(session, household):
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "household", "boiler.md", "joint", message="x")
+    await save_page(session, me, "personal", "notes2.md", BODY, message="x")
+    prepared = await prepare_promotion(
+        session, me, "notes2.md", section=SECTION, dest_path="boiler.md")
+    with pytest.raises(PromotionError):
+        await confirm_promotion(session, me, prepared["nonce"])
+    assert (await get_page(session, me, "household", "boiler.md")).body == "joint"
+
+
+async def test_section_share_source_changed_since_prepare_fails(session, household):
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "notes3.md", BODY, message="x")
+    prepared = await prepare_promotion(
+        session, me, "notes3.md", section=SECTION, dest_path="out3.md")
+    await save_page(session, me, "personal", "notes3.md", BODY + "\n\nmore",
+                    message="x")
+    with pytest.raises(PromotionError):
+        await confirm_promotion(session, me, prepared["nonce"])

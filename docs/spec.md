@@ -100,6 +100,48 @@ Tools speak in **aliases** — `personal` and `household` — never space ids or
 names. The alias resolves per principal, so the same call means her personal
 space for her and his for him, and neither can name the other's.
 
+## Sharing model: extract, don't fragment
+
+Sometimes only part of a page should be shared. The rule: **don't share
+fragments of a page — extract the section into its own page, and share that
+page.** The unit of access stays the space. The unit of sharing becomes as
+small as you like, because a page can be as small as you like.
+
+How it works: `prepare_to_share` takes an optional `section` (the exact text
+to extract) and a `dest_path` (the new page's name). The disclosure the user
+must approve is exactly the extracted text. On confirm, one transaction
+creates the new page in the household space, replaces the section in the
+source page with a marker pointing at it, and consumes the nonce. The rest of
+the source page never leaves the personal space — and neither does its
+revision history.
+
+Why not per-section permissions on one page:
+
+1. **It moves the security boundary.** RLS enforces access per page-in-space.
+   Per-section rules would move enforcement into application code that must
+   slice documents correctly every time — the correct-if-nobody-slips pattern
+   rev 2 removed.
+2. **Fragments leak through context.** A paragraph under a private heading
+   carries that heading's meaning with it. Extraction forces the shared text
+   to stand alone, so the owner sees exactly what the reader will see.
+3. **You can't hold it in your head.** "This page is shared with X" is a fact
+   a person can remember. "Paragraphs two and four are visible to X" is not —
+   and a privacy model you can't hold in your head gets breached by accident.
+
+**Audiences generalize the same way.** A space is really an audience. Sharing
+with a third person (an accountant, a friend) is one new space, one
+membership row, one allowlist row — data, not a redesign. The alias mapping
+in `resolve_space` grows a data-driven entry when the first real third
+audience appears; nothing is built speculatively before then.
+
+Deferred refinement: **transclusion** — the owner's page renders extracted
+sections back inline by reference, reading only from spaces the viewer can
+already see. A reading convenience, not an access path.
+
+Known cost: knowledge fragments across more, smaller pages, which makes the
+maintenance routine's cross-space contradiction check more important, not
+less.
+
 ## Tool surface
 
 | Tool | Notes |
@@ -110,7 +152,7 @@ space for her and his for him, and neither can name the other's.
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
 | `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. |
-| `prepare_to_share(path)` → `confirm_share(nonce)` | Promotion, two steps. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
+| `prepare_to_share(path, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
 
 There is no demotion tool, because there is no demotion. Once a fact is in the
 household space, the other person has read it or may have. The prepare/confirm

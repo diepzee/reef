@@ -16,30 +16,54 @@ class PromotionError(Exception):
 
 
 async def prepare_promotion(
-    session: AsyncSession, principal: Principal, path: str
+    session: AsyncSession,
+    principal: Principal,
+    path: str,
+    *,
+    section: str | None = None,
+    dest_path: str | None = None,
 ) -> dict:
-    """Stage a promotion and return the nonce plus a disclosure summary.
+    """Stage a share and return the nonce plus the exact disclosure.
 
-    The summary is what the assistant must show the user before confirming:
+    Whole page: the disclosure is the full body and the destination defaults
+    to the same path. Section: ``section`` is the exact text to extract (it
+    must occur exactly once) and ``dest_path`` names the new page it becomes —
+    the rest of the source page never leaves the personal space.
+
+    The disclosure is what the assistant must show the user before confirming:
     the exact content that will become readable by the other household member,
     permanently.
 
     :param session: database session
     :param principal: the authenticated person
     :param path: page path in the personal space
-    :raises PromotionError: if the page does not exist
+    :param section: exact span to extract; None shares the whole page
+    :param dest_path: name of the new household page; required with section
+    :raises PromotionError: if the page is missing, the section is absent or
+        ambiguous, or a section share names no destination
     :returns: nonce, disclosure text, and destination
     """
     page = await get_page(session, principal, "personal", path)
     if page is None:
         raise PromotionError(f"no personal page at {path!r}")
+    if section is not None:
+        if dest_path is None:
+            raise PromotionError(
+                "a section share needs a dest_path: the extracted section "
+                "becomes its own page, and its name is a deliberate choice")
+        occurrences = page.body.count(section)
+        if occurrences != 1:
+            raise PromotionError(
+                f"the section text must appear exactly once in {path!r}, "
+                f"found {occurrences}")
     staged = Promotion(person_id=principal.person_id, source_page_id=page.id,
-                       source_version=page.version, dest_path=path)
+                       source_version=page.version,
+                       dest_path=dest_path or path, section_text=section)
     session.add(staged)
     await session.flush()
-    return {"nonce": str(staged.id), "dest_path": path,
-            "disclosure": page.body,
-            "warning": "Promotion is permanent; there is no demotion."}
+    return {"nonce": str(staged.id), "dest_path": staged.dest_path,
+            "disclosure": section if section is not None else page.body,
+            "warning": "Sharing is permanent; there is no un-sharing."}
 
 
 async def confirm_promotion(
@@ -76,13 +100,26 @@ async def confirm_promotion(
             f"{staged.dest_path!r} already exists in the household space; "
             "merge through normal edits instead")
 
-    await save_page(session, principal, "household", staged.dest_path, source.body,
-                    message=f"promoted from personal by {principal.email}",
-                    title=source.title, tags=list(source.tags))
-    await save_page(session, principal, "personal", staged.dest_path,
-                    f"# {source.title}\n\nMoved to the household space; "
-                    f"see `{staged.dest_path}` there.",
-                    message="stubbed after promotion", title=source.title)
+    if staged.section_text is not None:
+        await save_page(session, principal, "household", staged.dest_path,
+                        staged.section_text,
+                        message=f"section shared from personal by {principal.email}",
+                        title=staged.dest_path.removesuffix(".md"))
+        marker = (f"*(section moved to the household space — "
+                  f"see `{staged.dest_path}` there)*")
+        await save_page(session, principal, "personal", source.path,
+                        source.body.replace(staged.section_text, marker),
+                        message=f"section extracted to household as {staged.dest_path}",
+                        title=source.title, tags=list(source.tags))
+    else:
+        await save_page(session, principal, "household", staged.dest_path,
+                        source.body,
+                        message=f"promoted from personal by {principal.email}",
+                        title=source.title, tags=list(source.tags))
+        await save_page(session, principal, "personal", staged.dest_path,
+                        f"# {source.title}\n\nMoved to the household space; "
+                        f"see `{staged.dest_path}` there.",
+                        message="stubbed after promotion", title=source.title)
     staged.consumed_at = now
     await session.flush()
     return {"promoted": True, "dest_path": staged.dest_path, "already_done": False}

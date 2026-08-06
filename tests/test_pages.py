@@ -4,8 +4,12 @@ from sqlalchemy import select
 from rif.access import Principal
 from rif.models import Revision, Space
 from rif.pages import (
-    ProtectedPath, SectionNotFound, VersionConflict,
-    edit_section, get_page, list_pages, save_page,
+    ProtectedPath,
+    SectionNotFound,
+    VersionConflict,
+    edit_section,
+    get_page,
+    save_page,
 )
 
 

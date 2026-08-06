@@ -14,8 +14,14 @@ from rif.config import get_settings
 from rif.context import load_context
 from rif.db import session_scope
 from rif.models import Page
-from rif.pages import (ProtectedPath, SectionNotFound, VersionConflict,
-                       edit_section, get_page, save_page)
+from rif.pages import (
+    ProtectedPath,
+    SectionNotFound,
+    VersionConflict,
+    edit_section,
+    get_page,
+    save_page,
+)
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import build_instructions
 
@@ -269,19 +275,29 @@ async def update_meta_page(space: str, path: str, body: str, message: str,
 
 
 @mcp.tool
-async def prepare_to_share(path: str) -> dict:
-    """Stage sharing a personal page to the household space. Step 1 of 2.
+async def prepare_to_share(
+    path: str, section: str | None = None, dest_path: str | None = None
+) -> dict:
+    """Stage sharing a personal page — or one section of it. Step 1 of 2.
+
+    Whole page: pass only path. One section: pass the exact text to extract
+    as section, and name the new page it becomes with dest_path — the rest of
+    the page stays private, and the extracted text must make sense on its own
+    (the reader will not see what surrounded it).
 
     Show the user the returned disclosure and warning, and only call
     confirm_share after they explicitly agree in this conversation. Sharing is
-    permanent: the other household member can then read the page forever.
+    permanent: the other household member can then read the content forever.
 
     :param path: page path in the personal space
+    :param section: exact span to extract; omit to share the whole page
+    :param dest_path: name for the extracted page; required with section
     """
     async with session_scope() as session:
         principal = await current_principal(session)
         try:
-            return await prepare_promotion(session, principal, path)
+            return await prepare_promotion(session, principal, path,
+                                           section=section, dest_path=dest_path)
         except PromotionError as exc:
             return {"error": "promotion_failed", "detail": str(exc)}
 
