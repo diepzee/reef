@@ -170,22 +170,23 @@
 <header>
   <span class="eyebrow">diepzee / rif · companion to the runbook</span>
   <h1>How it works</h1>
-  <p class="lede">One memory service, two assistants, three spaces. This
-  explains the machine you're about to deploy: where knowledge lives, how the
-  privacy boundary is enforced, what happens during a conversation, and why
-  the design refuses some fashionable ideas on purpose.</p>
+  <p class="lede">rif is one memory service for two assistants — yours and
+  hers. This page explains four things: <strong>where knowledge lives, who can
+  see what, what happens during a conversation,</strong> and <strong>why some
+  popular features were left out on purpose.</strong></p>
 </header>
 
 <section id="topology">
   <h2>The big picture</h2>
-  <p>rif is a small headless Python service. It owns a Postgres database (the
-  knowledge), talks to R2 (image bytes), and exposes everything as MCP tools
-  over HTTPS. Every surface — her Claude app, your Claude Code, anything later
-  — is just another client of the same tools. One store, one write path, one
-  enforcement point.</p>
+  <p>rif is a small Python service with no user interface. It stores pages in
+  a Postgres database. It stores image files in R2. It offers its tools over
+  HTTPS using MCP — the protocol Claude uses to call external tools.</p>
+  <p>Every surface is a client of the same tools: her Claude app, your Claude
+  Code, and anything added later. There is one store, one write path, and one
+  place where access is enforced.</p>
 
   <figure>
-    <svg viewBox="0 0 640 320" role="img" aria-label="Topology: two clients connect over MCP to rif on Railway, which owns Postgres and R2; WorkOS answers who is this; a manual export renders markdown as the exit.">
+    <svg viewBox="0 0 640 320" role="img" aria-label="Topology: two clients connect over MCP to rif on Railway. rif owns Postgres and R2. WorkOS answers who is this. A manual export writes markdown files as the exit.">
       <defs>
         <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -202,7 +203,7 @@
       <rect class="hot box" x="260" y="96" width="150" height="76" rx="3"/>
       <text class="lbl" x="335" y="122" text-anchor="middle" font-weight="600">rif</text>
       <text class="sm" x="335" y="138" text-anchor="middle">FastMCP · Railway</text>
-      <text class="sm" x="335" y="153" text-anchor="middle">accessor arms RLS</text>
+      <text class="sm" x="335" y="153" text-anchor="middle">decides access</text>
       <!-- stores -->
       <rect class="box" x="500" y="70" width="120" height="44" rx="3"/>
       <text class="lbl" x="560" y="88" text-anchor="middle">Postgres</text>
@@ -231,20 +232,22 @@
       <line class="dashed" x1="335" y1="172" x2="335" y2="246" marker-end="url(#arr)"/>
       <text class="sm" x="345" y="215" text-anchor="start">python -m rif.export</text>
     </svg>
-    <figcaption>Everything is a client of the same MCP tools. WorkOS only
-    answers identity; rif decides access. The dashed export path is one-way —
-    nothing ever reads from the markdown back into the store.</figcaption>
+    <figcaption>All clients use the same tools. WorkOS only answers "who is
+    this?" — rif decides what they may see. The export path is one-way:
+    nothing reads from the markdown files back into the store.</figcaption>
   </figure>
 </section>
 
 <section id="spaces">
-  <h2>Three spaces, and who may enter</h2>
-  <p>Knowledge lives in <strong>spaces</strong>: one personal space each, one
-  shared household space. Access is a table of memberships — and the whole
-  privacy model is the <em>absence</em> of two rows.</p>
+  <h2>Three spaces, and who can enter</h2>
+  <p>Knowledge lives in <strong>spaces</strong>. Each of you has a personal
+  space. You both share one household space.</p>
+  <p>A membership table records who may enter which space. It has four rows.
+  The privacy model is the two rows that are <em>missing</em>: no row connects
+  you to her personal space, and no row connects her to yours.</p>
 
   <figure>
-    <svg viewBox="0 0 640 230" role="img" aria-label="Membership graph: Wouter connects to his personal space and the household space; she connects to her personal space and the household space; no edge crosses between the personal spaces.">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Membership graph: Wouter connects to his personal space and the household space. She connects to her personal space and the household space. No edge crosses between the personal spaces.">
       <defs>
         <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -272,55 +275,59 @@
       <line x1="482" y1="59" x2="514" y2="136" marker-end="url(#arr2)"/>
       <text class="sm" x="320" y="105" text-anchor="middle">a membership row = an edge</text>
       <!-- absence -->
-      <text class="sm" x="320" y="218" text-anchor="middle" fill="var(--gate)">the missing edges are the privacy model — and the database enforces the absence</text>
+      <text class="sm" x="320" y="218" text-anchor="middle" fill="var(--gate)">the missing edges are the privacy model — the database enforces the absence</text>
     </svg>
     <figcaption>Four membership rows, ever. Neither assistant can reach the
-    other's personal space, and neither person can even <em>name</em> it —
-    tools speak in aliases (<code>personal</code>, <code>household</code>) that
-    resolve per person. Nobody ever sees an internal space name.</figcaption>
+    other's personal space. Neither person can even name it: tools use the
+    words <code>personal</code> and <code>household</code>, and the service
+    resolves them per person. Internal space names never leave the
+    server.</figcaption>
   </figure>
 </section>
 
 <section id="conversation">
   <h2>What happens in a conversation</h2>
   <ol class="flow">
-    <li><strong>Login, once.</strong> The Claude app discovers WorkOS through
-      rif's metadata and runs the OAuth flow. WorkOS says <em>who</em> she is;
-      the two-row <code>persons</code> table decides whether she's
-      <em>allowed</em>. An authenticated stranger is denied.</li>
+    <li><strong>Log in once.</strong> The Claude app finds WorkOS through
+      rif's metadata and runs the login flow. WorkOS answers who she is. The
+      two-row <code>persons</code> table decides whether she is allowed in.
+      A stranger with a valid login is still denied.</li>
     <li><strong>Load everything.</strong> The assistant's first call is
-      <code>load_all_context</code> — every page in every space she can see, in
-      one response. No search, no retrieval ranking, no "the model didn't find
-      the page." At this scale (~100 pages fits comfortably) complete memory is
-      simply affordable.</li>
-    <li><strong>Talk.</strong> The model reasons over full knowledge in
-      context. Image descriptions ride along as text; pixels are fetched only
-      when they matter.</li>
-    <li><strong>Remember.</strong> New facts land via
-      <code>remember(fact)</code> — which defaults to the <em>private</em>
-      space in its very signature. Only clearly-household facts (joint things,
-      joint decisions, shared obligations) go to <code>household</code>, and
-      anything ambiguous stays private.</li>
-    <li><strong>Compile.</strong> Real edits go through
-      <code>edit_page_section</code> — surgical, versioned, conflict-checked.
-      Every write records who, why, and the full page state, forever.</li>
+      <code>load_all_context</code>. It returns every page in every space she
+      can see, in one response. There is no search step, so there is no way to
+      miss a page that exists. At this scale, about 100 pages fit in one
+      response with room to spare.</li>
+    <li><strong>Talk.</strong> The model now reasons with complete knowledge.
+      Image descriptions are included as text. The image itself is fetched
+      only when it is needed.</li>
+    <li><strong>Remember.</strong> New facts go through
+      <code>remember(fact)</code>. Its default target is the private space —
+      the default is in the function signature, not in a guideline. Only
+      clearly shared facts (joint things, joint decisions, shared duties) go
+      to the household space. Anything unclear stays private.</li>
+    <li><strong>Compile.</strong> Lasting edits go through
+      <code>edit_page_section</code>: small, precise changes with a version
+      check. Every write records who wrote it, why, and the full page state.
+      That record is permanent.</li>
   </ol>
-  <p class="mut">If the corpus ever outgrows the context budget, the payload
-  says so out loud: omitted pages still appear, body-less, with a note — a
-  partial memory that <em>looks</em> complete is the one failure this design
-  refuses to permit.</p>
+  <p class="mut">If the corpus ever grows past the response budget, the
+  response says so. Left-out pages still appear in the list, without a body,
+  with a note that explains how to fetch them. The one failure this design
+  refuses: a partial memory that looks complete.</p>
 </section>
 
 <section id="boundary">
-  <h2>The boundary: the database refuses</h2>
-  <p>The rule "her sessions can't read your health pages" is not enforced by
-  application code being correct. It's enforced by Postgres
-  <strong>Row-Level Security</strong> in <code>FORCE</code> mode: every
-  content-table query is filtered by policies that join through memberships,
-  and they bind <em>everyone</em> — including rif's own database role.</p>
+  <h2>The privacy boundary</h2>
+  <p>The rule: her sessions can never read your private pages, and yours can
+  never read hers.</p>
+  <p>Application code does not enforce this rule. The database does. Postgres
+  <strong>row-level security</strong> (RLS) filters every query on the content
+  tables: it returns only rows that belong to a space the current person is a
+  member of. The policies run in FORCE mode, which means they also bind rif's
+  own database account.</p>
 
   <figure>
-    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the space, which sets the transaction-local principal; all SQL then passes through RLS policies which return only rows in that person's spaces; a query with no principal set returns zero rows.">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the space, which sets the transaction-local principal. All SQL then passes through RLS policies, which return only rows in that person's spaces. A query with no principal set returns zero rows.">
       <defs>
         <marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -348,124 +355,127 @@
       <line class="dashed gateline" x1="439" y1="96" x2="439" y2="126"/>
       <line class="dashed gateline" x1="439" y1="130" x2="540" y2="130" marker-end="url(#arr3)"/>
       <text class="lbl" x="584" y="134" text-anchor="middle" fill="var(--gate)">0 rows</text>
-      <text class="sm" x="320" y="180" text-anchor="middle">fails closed: the mistake yields nothing, not everything</text>
+      <text class="sm" x="320" y="180" text-anchor="middle">fails closed: a mistake yields nothing, not everything</text>
     </svg>
-    <figcaption>The accessor arms the principal for one transaction; the
-    policies do the filtering. Application bugs downgrade to "no data" instead
-    of "wrong person's data." The adversarial test suite attacks this directly
-    with raw SQL as the wrong principal.</figcaption>
+    <figcaption>Each tool call first names the current person to the database,
+    for one transaction. After that, the policies filter every query. A bug
+    that forgets a filter gets no data — not the wrong person's data. The test
+    suite attacks this boundary directly, with raw SQL as the wrong
+    person.</figcaption>
   </figure>
 
   <div class="callout">
     <span class="label">Why this matters</span>
-    The first draft enforced the boundary by discipline — "every query must
-    remember the filter." External review showed the plan itself already broke
-    that rule. Discipline doesn't survive contact with future code; a database
-    that refuses does.
+    The first design enforced the boundary with a coding rule: "every query
+    must remember the filter." An external review showed the plan itself
+    already broke that rule. Rules of discipline fail when future code
+    forgets them. A database that refuses does not forget.
   </div>
 </section>
 
 <section id="sharing">
-  <h2>Sharing is a one-way door</h2>
-  <p>Promoting a page from personal to household is the one irreversible act
-  in the system: once the other person <em>could have read it</em>, there is
-  no un-sharing. So there is no demotion tool at all, and promotion takes two
-  steps — because a model passing <code>confirm=true</code> on its own proves
-  nothing.</p>
-  <p>Sharing can be smaller than a page — but never a <em>fragment</em>. To
-  share one section, the same flow <strong>extracts</strong> it: the section
-  becomes its own page in the household space, and the source keeps a marker
-  where it was. The disclosure the user approves is exactly the text that
-  moves; the rest of the page — and its entire history — never leaves the
-  personal space. Extraction also forces the shared text to stand alone, so
-  what the reader sees is what the owner approved, with no private context
-  bleeding along.</p>
+  <h2>Sharing cannot be undone</h2>
+  <p>Sharing moves content from your personal space to the household space.
+  Once the other person could have read it, taking it back means nothing. So
+  there is no unshare tool, and sharing takes two steps. One step would not be
+  enough: a model can pass <code>confirm=true</code> on its own, and that
+  proves nothing about what you agreed to.</p>
+  <p>You can share one section instead of a whole page. The service
+  <strong>extracts</strong> the section: it becomes its own small page in the
+  household space, and the source page keeps a marker where it was. What you
+  approve is exactly the text that moves. The rest of the page — and its full
+  edit history — stays private. Extraction also forces the shared text to
+  stand alone, so no private context around it travels along.</p>
 
   <figure>
-    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step promotion: prepare returns the full disclosure and a nonce; only after the human says yes does confirm copy the page to household, stub the original, and consume the nonce; a retry of confirm finds the nonce consumed and does nothing.">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: prepare returns the exact text and a one-time code. After the human agrees, confirm copies the content to the household space, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
       <defs>
         <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
         </marker>
       </defs>
+      <text class="sm" x="184" y="22" text-anchor="middle">one-time code, 10 min</text>
       <rect class="box" x="16" y="30" width="140" height="52" rx="3"/>
       <text class="lbl" x="86" y="51" text-anchor="middle">prepare_to_share</text>
-      <text class="sm" x="86" y="67" text-anchor="middle">returns full disclosure</text>
+      <text class="sm" x="86" y="67" text-anchor="middle">returns the exact text</text>
       <rect class="warn box" x="216" y="30" width="140" height="52" rx="3"/>
       <text class="lbl" x="286" y="51" text-anchor="middle">the human says yes</text>
       <text class="sm" x="286" y="67" text-anchor="middle">in this conversation</text>
       <rect class="box" x="416" y="30" width="140" height="52" rx="3"/>
       <text class="lbl" x="486" y="51" text-anchor="middle">confirm_share</text>
-      <text class="sm" x="486" y="67" text-anchor="middle">copy · stub · consume</text>
+      <text class="sm" x="486" y="67" text-anchor="middle">copy · stub · use up code</text>
       <line x1="156" y1="56" x2="212" y2="56" marker-end="url(#arr4)"/>
-      <text class="sm" x="184" y="46" text-anchor="middle">nonce, 10 min</text>
       <line x1="356" y1="56" x2="412" y2="56" marker-end="url(#arr4)"/>
       <!-- guards -->
-      <text class="sm" x="86" y="115" text-anchor="middle">bound to the exact</text>
-      <text class="sm" x="86" y="130" text-anchor="middle">page revision — if it</text>
+      <text class="sm" x="86" y="115" text-anchor="middle">tied to the exact page</text>
+      <text class="sm" x="86" y="130" text-anchor="middle">version — if the page</text>
       <text class="sm" x="86" y="145" text-anchor="middle">changed, start over</text>
-      <text class="sm" x="486" y="115" text-anchor="middle">destination must not exist —</text>
+      <text class="sm" x="486" y="115" text-anchor="middle">the destination must not exist —</text>
       <text class="sm" x="486" y="130" text-anchor="middle">never a silent overwrite;</text>
-      <text class="sm" x="486" y="145" text-anchor="middle">a network retry finds the nonce</text>
-      <text class="sm" x="486" y="160" text-anchor="middle">consumed and does nothing</text>
+      <text class="sm" x="486" y="145" text-anchor="middle">a network retry finds the code</text>
+      <text class="sm" x="486" y="160" text-anchor="middle">used up and does nothing</text>
     </svg>
-    <figcaption>The nonce is single-use and pinned to the exact content the
-    human saw. The private copy becomes a stub pointing at the household page —
-    and its private drafting history stays private, because history belongs to
-    the personal page, not the moved text.</figcaption>
+    <figcaption>The code works once and is tied to the exact content you saw.
+    After sharing, the private copy becomes a stub that points to the
+    household page. The private drafting history stays private: history
+    belongs to the personal page, not to the moved text.</figcaption>
   </figure>
 </section>
 
 <section id="history">
-  <h2>Memory of the memory</h2>
-  <p>Every write stores a complete snapshot — body, title, tags — plus who
-  wrote it, when, and a one-line <em>why</em>. That's git's model, kept in a
-  table, which makes it <em>queryable</em>: "what did we know about the boiler
-  in March" is a <code>WHERE</code> clause, not an archaeology dig. Restoring
-  an old version is just writing it again — history only ever grows.</p>
-  <p class="mut">Each space also carries a version counter bumped by every
-  write, so a client can ask "did anything change?" for free — and a future
-  <code>changes_since</code> tool can open her conversations with "since
-  yesterday, Wouter noted the boiler service is booked."</p>
+  <h2>History</h2>
+  <p>Every write stores a complete snapshot: body, title, and tags, plus who
+  wrote it, when, and a one-line reason. This is git's model, kept in a
+  database table. A table can be queried: "what did we know about the boiler
+  in March?" is one <code>WHERE</code> clause. To restore an old version, the
+  assistant writes it again. History only grows.</p>
+  <p class="mut">Each space also has a version counter. Every write increases
+  it. A client can ask "did anything change?" at almost no cost. A future
+  <code>changes_since</code> tool can use it to open her conversations with:
+  "Since yesterday, Wouter noted the boiler service is booked."</p>
 </section>
 
 <section id="images">
-  <h2>Images: descriptions in memory, pixels on demand</h2>
-  <p>Bytes go to R2; Postgres keeps the metadata plus a <strong>mandatory
-  text description</strong>, written at upload time. That description is what
-  makes photos work in a load-everything design: "the boiler's model plate,
-  reading Vaillant ecoTEC VU 246/5-5" rides along in every context load, and
-  the actual image is fetched — via a short-lived signed URL, behind the same
-  space check as any page — only when the pixels matter.</p>
+  <h2>Images</h2>
+  <p>Image files go to R2. Postgres keeps the details, plus a required
+  <strong>text description</strong> written when the image is stored. The
+  description travels with every context load — for example: "the boiler's
+  model plate, reading Vaillant ecoTEC VU 246/5-5." The image itself is
+  fetched only when the pixels matter, through a link that expires after five
+  minutes and is issued only after the same space check as any page.</p>
 </section>
 
 <section id="safety">
   <h2>Safety nets</h2>
   <ol class="flow">
-    <li><strong>Railway managed backups</strong> — the belt.</li>
-    <li><strong>Daily <code>pg_dump</code> streamed to R2</strong> — the
-      braces, run by a role that may bypass RLS (the boundary works so well it
-      blanks backups run as the app).</li>
-    <li><strong>R2 object versioning</strong> — the undo button for image
-      bytes, which no database dump contains.</li>
-    <li><strong>The export</strong> — <code>python -m rif.export</code> renders
-      every space back to plain markdown with frontmatter, import-compatible.
-      If rif dies, is abandoned, or you simply change your mind, the knowledge
-      walks away as files. The store is never a hostage.</li>
+    <li><strong>Railway's managed backups</strong> — automatic database
+      backups by the hosting provider.</li>
+    <li><strong>A daily dump to R2</strong> — rif's own backup, stored with a
+      different provider than the database. It runs under a database role that
+      may bypass RLS, because the boundary works so well that a normal backup
+      run reads nothing.</li>
+    <li><strong>R2 object versioning</strong> — old versions of image files
+      survive deletion. No database dump contains the files, so this is their
+      only net.</li>
+    <li><strong>The export</strong> — <code>python -m rif.export</code> writes
+      every space back to plain markdown files. The format matches the
+      importer, so a lost database can be rebuilt from it. If rif dies or you
+      change your mind, the knowledge leaves as files. The store never holds
+      it hostage.</li>
   </ol>
 </section>
 
 <section id="refusals">
-  <h2>What it deliberately doesn't do</h2>
+  <h2>What it leaves out, on purpose</h2>
   <div class="tablewrap">
   <table>
-    <tr><th>Absent</th><th>Why</th></tr>
-    <tr><td>Full-text search</td><td>The whole corpus loads — there is nothing to search.</td></tr>
-    <tr><td>Vector DB / embeddings</td><td>Retrieval tech for corpora that don't fit in context. Top-k similarity fails silently — the assistant confidently not knowing what it was told — the worst failure a memory can have.</td></tr>
-    <tr><td>Knowledge graph</td><td>Same reason; and the wiki already is one — pages are nodes, links are edges — with the nuance kept in prose instead of lossy triples.</td></tr>
-    <tr><td>Demotion / unsharing</td><td>Can't exist honestly. Once readable, read. The only gate is before sharing, which is why that gate is heavy.</td></tr>
-    <tr><td>Notion / bidirectional sync</td><td>Two writable copies of the truth means a conflict-resolution problem that never ends. The export is one-way on purpose.</td></tr>
-    <tr><td>A web UI</td><td>Both users talk to assistants; the assistants talk to rif. A UI for nobody is the feature most worth not building.</td></tr>
+    <tr><th>Left out</th><th>Why</th></tr>
+    <tr><td>Full-text search</td><td>The whole corpus loads every time. There is nothing to search.</td></tr>
+    <tr><td>Vector database</td><td>A retrieval tool for corpora too big for context. Its failure is silent: the assistant does not know something it was told, and does not know that it does not know. A memory system cannot afford that.</td></tr>
+    <tr><td>Knowledge graph</td><td>Same reason. The wiki already is a graph — pages are nodes, links are edges — and it keeps nuance in prose instead of losing it in extracted facts.</td></tr>
+    <tr><td>Unsharing</td><td>Cannot exist honestly. Once readable, read. The only real gate is before sharing. That is why that gate is heavy.</td></tr>
+    <tr><td>Notion, or any two-way sync</td><td>Two writable copies of the truth create conflicts forever. The export is one-way on purpose.</td></tr>
+    <tr><td>A web interface</td><td>Both of you talk to assistants. The assistants talk to rif. An interface with no users is the feature most worth not building.</td></tr>
   </table>
   </div>
 </section>
@@ -475,14 +485,14 @@
   <div class="tablewrap">
   <table>
     <tr><th>Tool</th><th>What it does</th></tr>
-    <tr><td><code>load_all_context</code></td><td>Everything you can see, one call. First call of every conversation.</td></tr>
-    <tr><td><code>read_page</code></td><td>One page — the fallback when context was truncated.</td></tr>
-    <tr><td><code>remember</code></td><td>Append a fact to the inbox. Private by default, retry-safe.</td></tr>
-    <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or surgical writes, optimistically versioned.</td></tr>
-    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>The two-step one-way door — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>
-    <tr><td><code>update_meta_page</code></td><td>The only write path to protocol & persona — the pages that steer the assistant.</td></tr>
-    <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store with mandatory description; fetch via short-lived signed URL.</td></tr>
-    <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol + persona — content, versioned like everything else.</td></tr>
+    <tr><td><code>load_all_context</code></td><td>Everything you can see, in one call. The first call of every conversation.</td></tr>
+    <tr><td><code>read_page</code></td><td>One page. Used when the context load was cut short.</td></tr>
+    <tr><td><code>remember</code></td><td>Adds a fact to the inbox. Private by default. Safe to retry.</td></tr>
+    <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or precise edits, with a version check against lost updates.</td></tr>
+    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>Two-step sharing — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>
+    <tr><td><code>update_meta_page</code></td><td>The only way to change the protocol and persona pages — the pages that steer the assistant.</td></tr>
+    <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store an image with a required description. Fetch it through a short-lived link.</td></tr>
+    <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol and persona. They are pages, versioned like all pages.</td></tr>
     <tr><td><code>list_spaces</code></td><td>What you can see: <code>personal</code> and <code>household</code>. Never more.</td></tr>
   </table>
   </div>
