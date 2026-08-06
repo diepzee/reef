@@ -11,49 +11,145 @@ are content and verification.
 
 ---
 
-## Phase 1 — The gating check (WorkOS + spike + both phones)
+## Phase 1 — Prove the connection works
 
-**Why this is first:** the entire surface decision — her assistant living in
-the Claude mobile app — rests on two unproven assumptions: that a custom MCP
-connector works from the mobile app on **her plan tier**, and that Claude's
-connector OAuth (which demands Dynamic Client Registration) actually completes
-against WorkOS AuthKit. The spike exists to burn both unknowns down with zero
-real data at stake. If it fails, nothing below it is wasted — the store, tools
-and tests all survive — but the surface decision reopens (PWA route).
+**Do this before anything else.** It takes one evening. If it fails, you need
+to know now, while nothing depends on it.
 
-**Steps:**
+### Why this comes first
 
-1. **WorkOS account** (free tier; you need 2 users of their 1M): create an
-   application with AuthKit enabled. Note the `https://<something>.authkit.app`
-   domain.
-2. In the WorkOS dashboard, enable **Dynamic Client Registration**. While
-   you're there, check the Redirects tab — the spike flagged (unverified)
-   that a callback entry may or may not be needed; record what you find.
-3. **Deploy the spike:**
+Her assistant is meant to live in the Claude mobile app. That plan rests on
+two things nobody has tested yet:
 
-   ```bash
-   cd ~/Repositories/haai/rif/.worktrees/build
-   railway init --name rif && railway up && railway domain
-   railway variables --set WORKOS_AUTHKIT_DOMAIN=<authkit-domain> \
-                     --set RIF_BASE_URL=https://<railway-domain>
-   railway up   # again, so the vars take
-   ```
+- A custom MCP connector works on her plan, on her phone.
+- Claude's connector sign-in completes against WorkOS AuthKit. Claude
+  registers itself as a client automatically, so the identity provider has to
+  support Dynamic Client Registration.
 
-4. **claude.ai web, your account:** Settings → Connectors → add
-   `https://<railway-domain>/mcp`. You should get bounced to an AuthKit login
-   page; sign in; call the `whoami` tool. **Done when:** your email appears in
-   the returned claims.
-5. **Your phone:** confirm the connector shows up in the Claude mobile app and
-   `whoami` still works.
-6. **Her account, her phone:** add the same connector, sign her up through the
-   AuthKit page, `whoami`. **This is the actual gate** — her tier, her device.
-7. Record in `spike/NOTES.md`: the claims shape you saw (`sub`, `email`,
-   `email_verified` — Phase 3's login code depends on these), DCR behavior,
-   the redirects answer, any tier limits. Commit.
+The spike tests both with no real data at stake. It is a server with one
+tool, `whoami`, which returns who you are. That is all it needs to do.
 
-**If step 6 fails** (no connectors on her tier / not on mobile): stop, tell
-me, and we reopen the PWA branch of the design. Everything in `src/rif/`
-survives that pivot untouched.
+If the test fails, nothing you have built is wasted. The store, the tools and
+the tests all survive. Only the choice of surface reopens, and the fallback is
+a web app instead of the Claude app.
+
+### Step 1 — Create the WorkOS account
+
+WorkOS runs the login page and tells your server who signed in. It is free up
+to a million users a month. You need two.
+
+1. Sign up at workos.com and create an application.
+2. Turn on AuthKit. Copy the domain it shows you. It looks like
+   `https://something.authkit.app`.
+3. Open **Applications → Configuration** and turn on **Dynamic Client
+   Registration**. This is the setting the whole test depends on.
+
+**Done when:** you have the AuthKit domain written down and Dynamic Client
+Registration is on.
+
+### Step 2 — Deploy the spike
+
+Railway builds the `Dockerfile`, which starts the real server by default. The
+spike ships in the same image, so you point one throwaway service at it by
+overriding the start command.
+
+```bash
+cd ~/Repositories/haai/rif
+railway init --name rif-spike
+railway up
+railway domain
+```
+
+Copy the domain Railway gives you. Then set the two variables the spike needs
+and tell it to run the spike instead of the real server:
+
+```bash
+railway variables \
+  --set WORKOS_AUTHKIT_DOMAIN=<your-authkit-domain> \
+  --set RIF_BASE_URL=https://<your-railway-domain>
+```
+
+In the Railway dashboard, open the service, go to **Settings → Deploy**, and
+set the start command to:
+
+```
+uv run python spike/server.py
+```
+
+Then redeploy:
+
+```bash
+railway up
+```
+
+**Done when:** the deploy logs show the FastMCP banner and a line reading
+`AuthKit tokens will be validated against aud=https://<your-domain>/mcp`.
+
+### Step 3 — Set the Resource Indicator in WorkOS
+
+The log line above is an instruction, not a status. AuthKit has to stamp its
+tokens with an audience that matches what your server checks, or every call
+will be rejected.
+
+Go back to the WorkOS dashboard, turn on **Resource Indicators**, and add
+`https://<your-railway-domain>/mcp` as a resource. Use the exact URL from the
+log line.
+
+**Done when:** the resource is saved and matches the log line character for
+character.
+
+### Step 4 — Connect from your own account
+
+1. Open claude.ai in a browser.
+2. Go to **Settings → Connectors** and add `https://<your-railway-domain>/mcp`.
+3. You should be sent to an AuthKit login page. Sign in.
+4. In a conversation, ask Claude to call the `whoami` tool.
+
+**Done when:** your email address appears in what `whoami` returns.
+
+**Look closely at that output.** Write down exactly which fields come back.
+The real server needs both `email` and `email_verified` to match you to your
+row. If either is missing, stop and say so — the fix is either a WorkOS
+setting or a different FastMCP provider, and it is much cheaper to find out
+here than in Phase 3.
+
+### Step 5 — Connect from your phone
+
+Open the Claude mobile app on your phone. Check the connector is there and
+`whoami` still works.
+
+**Done when:** `whoami` returns your email on the phone, not just the browser.
+
+### Step 6 — Connect from her account, on her phone
+
+This is the real test. Her plan, her device.
+
+1. On her account, add the same connector.
+2. She signs up through the AuthKit page. Use the email she will keep — it is
+   how the real server will recognise her later.
+3. Ask for `whoami`.
+
+**Done when:** her email comes back on her phone.
+
+### Step 7 — Write down what you learned
+
+Open `spike/NOTES.md` and fill in the sections marked PENDING:
+
+- Which fields the token actually carried.
+- Whether Claude registered itself with no manual client ID anywhere.
+- Whether you needed a callback URL in the Redirects tab. The notes say to try
+  without one first; record which way it went.
+- Any limit you hit on her plan.
+
+Commit the file. Phase 3 depends on what you write here.
+
+### If Step 6 fails
+
+Stop. Do not start Phase 2.
+
+If connectors are unavailable on her plan or missing from her phone, the
+surface decision reopens and the fallback is a web app. Everything in
+`src/rif/` survives that change untouched.
 
 ---
 
