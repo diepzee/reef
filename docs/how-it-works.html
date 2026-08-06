@@ -372,6 +372,14 @@
   no un-sharing. So there is no demotion tool at all, and promotion takes two
   steps — because a model passing <code>confirm=true</code> on its own proves
   nothing.</p>
+  <p>Sharing can be smaller than a page — but never a <em>fragment</em>. To
+  share one section, the same flow <strong>extracts</strong> it: the section
+  becomes its own page in the household space, and the source keeps a marker
+  where it was. The disclosure the user approves is exactly the text that
+  moves; the rest of the page — and its entire history — never leaves the
+  personal space. Extraction also forces the shared text to stand alone, so
+  what the reader sees is what the owner approved, with no private context
+  bleeding along.</p>
 
   <figure>
     <svg viewBox="0 0 640 190" role="img" aria-label="Two-step promotion: prepare returns the full disclosure and a nonce; only after the human says yes does confirm copy the page to household, stub the original, and consume the nonce; a retry of confirm finds the nonce consumed and does nothing.">
@@ -471,7 +479,7 @@
     <tr><td><code>read_page</code></td><td>One page — the fallback when context was truncated.</td></tr>
     <tr><td><code>remember</code></td><td>Append a fact to the inbox. Private by default, retry-safe.</td></tr>
     <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or surgical writes, optimistically versioned.</td></tr>
-    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>The two-step one-way door.</td></tr>
+    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>The two-step one-way door — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>
     <tr><td><code>update_meta_page</code></td><td>The only write path to protocol & persona — the pages that steer the assistant.</td></tr>
     <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store with mandatory description; fetch via short-lived signed URL.</td></tr>
     <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol + persona — content, versioned like everything else.</td></tr>

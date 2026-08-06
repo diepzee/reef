@@ -128,7 +128,12 @@ class Attachment(Base):
 
 
 class Promotion(Base):
-    """A prepared or completed promotion. The row is nonce and audit trail."""
+    """A prepared or completed share. The row is nonce and audit trail.
+
+    ``section_text`` is None for a whole-page share; for a section share it
+    holds the exact extracted span, so confirm can verify the disclosure the
+    user approved is the text that actually moves.
+    """
 
     __tablename__ = "promotions"
 
@@ -137,5 +142,6 @@ class Promotion(Base):
     source_page_id: Mapped[UUID] = mapped_column(ForeignKey("pages.id"))
     source_version: Mapped[int]
     dest_path: Mapped[str]
+    section_text: Mapped[str | None]
     created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
     consumed_at: Mapped[datetime | None]
