@@ -63,12 +63,12 @@ survives that pivot untouched.
 ever get in. Her row was deliberately left as a placeholder because her email
 is her identity to give, not something an agent guesses.
 
-1. Edit `migrations/versions/d8567d9ee6dc_seed_persons_and_spaces.py`: replace
-   `<HER-EMAIL>` and `<HER-NAME>` with the email she'll sign into AuthKit with
-   (exact match matters — it's how her first login binds to her row) and her
-   chosen display name.
-2. Commit. Local check if you like: `uv run alembic upgrade head` against the
-   docker Postgres.
+1. Edit the seed migration — the last file in `src/rif/piccolo_migrations/`:
+   replace `<HER-EMAIL>` and `<HER-NAME>` with the email she'll sign into
+   AuthKit with (exact match matters — it's how her first login binds to her
+   row) and her chosen display name.
+2. Commit. Local check if you like: `uv run python scripts/migrate.py`
+   against the docker Postgres.
 
 **Note:** WorkOS authenticates anyone who signs up; this table is what turns
 "authenticated" into "allowed". An authenticated stranger is denied by
@@ -86,7 +86,7 @@ endpoint), and the store is empty anyway until Phase 5.
    railway add --database postgres
    railway up
    ```
-   The Dockerfile runs `alembic upgrade head` on boot (advisory-locked), which
+   The Dockerfile runs `scripts/migrate.py` on boot (advisory-locked), which
    applies the schema, RLS policies, and your Phase 2 seed.
 2. **Swap the connector** on both accounts from the spike URL to the real
    `/mcp` URL (same domain if you reused the service — then nothing to swap).

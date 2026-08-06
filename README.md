@@ -41,15 +41,15 @@ exists, and what done looks like.
 Requires Docker and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-docker compose up -d          # Postgres on 5433, creating rif and rif_test
-uv run pytest                 # builds its own schema in rif_test
-uv run alembic upgrade head   # only needed for the rif dev database
+docker compose up -d              # Postgres on 5433, creating rif and rif_test
+uv run pytest                     # builds its own schema in rif_test
+uv run python scripts/migrate.py  # only needed for the rif dev database
 ```
 
 The local Postgres deliberately does not run the app as a superuser — see the
 comment in `docker-compose.yml`. Superusers carry `BYPASSRLS`, which would
 make the security tests pass without proving anything.
 
-`migrations/versions/d8567d9ee6dc_seed_persons_and_spaces.py` seeds the real
-household and still carries `<HER-EMAIL>` and `<HER-NAME>` placeholders. Fill
-both in before running it anywhere real.
+The last migration in `src/rif/piccolo_migrations/` seeds the real household
+and still carries `<HER-EMAIL>` and `<HER-NAME>` placeholders. Fill both in
+before running it anywhere real.
