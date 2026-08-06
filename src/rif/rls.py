@@ -16,6 +16,29 @@ empty string, not an absence, and ``''::uuid`` raises rather than comparing
 false. ``NULLIF`` folds both cases to the same NULL, so both deny cleanly.
 """
 
+
+def constraint_statements() -> list[str]:
+    """Return DDL for constraints Piccolo's table definitions cannot express.
+
+    Piccolo gives every table one surrogate primary key and has no syntax
+    for multi-column uniqueness, so three constraints this schema genuinely
+    depends on have to be stated here: ``memberships`` is keyed by the pair
+    it stores, a page path is unique within its space, and a pending
+    promotion is unique per principal, source page and destination. Losing
+    any of them would let duplicates through that the application logic
+    assumes cannot exist.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        (
+            "ALTER TABLE memberships ADD CONSTRAINT memberships_person_space "
+            "UNIQUE (person_id, space_id)"
+        ),
+        ("ALTER TABLE pages ADD CONSTRAINT pages_space_path UNIQUE (space_id, path)"),
+    ]
+
+
 _MEMBER_PREDICATE = (
     "space_id IN (SELECT space_id FROM memberships "
     "WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"

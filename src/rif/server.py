@@ -4,15 +4,13 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from fastmcp import FastMCP
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from rif.access import Principal, accessible_spaces, resolve_space
 from rif.attachments import S3ObjectStore, add_attachment, get_attachment
 from rif.auth import current_principal
 from rif.config import get_settings
 from rif.context import build_index, load_context
-from rif.db import session_scope
+from rif.db import transaction_scope
 from rif.models import Page
 from rif.pages import (
     ProtectedPath,
@@ -62,82 +60,82 @@ mcp = FastMCP(
 )
 
 
-async def tool_load_context(session: AsyncSession, principal: Principal) -> dict:
+async def tool_load_context(principal: Principal) -> dict:
     """Assemble the whole-corpus payload; split from the tool for testability.
 
-    :param session: database session
     :param principal: the authenticated person
     :returns: the context payload as a plain dict
     """
     payload = await load_context(
-        session, principal, char_budget=get_settings().context_char_budget)
+        principal, char_budget=get_settings().context_char_budget
+    )
     return asdict(payload)
 
 
-async def tool_load_index(session: AsyncSession, principal: Principal) -> dict:
+async def tool_load_index(principal: Principal) -> dict:
     """Assemble the index payload; split from the tool for testability.
 
-    :param session: database session
     :param principal: the authenticated person
     :returns: the index payload as a plain dict
     """
-    return asdict(await build_index(session, principal))
+    return asdict(await build_index(principal))
 
 
 async def tool_read_pages(
-    session: AsyncSession, principal: Principal, space: str, paths: list[str]
+    principal: Principal, space: str, paths: list[str]
 ) -> list[dict]:
     """Fetch several pages in one call, preserving order.
 
-    :param session: database session
     :param principal: the authenticated person
     :param space: ``personal`` or ``household``
     :param paths: page paths to fetch
     :returns: one result per path; missing pages get a not_found marker
     """
-    return [await tool_read_page(session, principal, space, path)
-            for path in paths]
+    return [await tool_read_page(principal, space, path) for path in paths]
 
 
-async def tool_read_page(
-    session: AsyncSession, principal: Principal, space: str, path: str
-) -> dict:
+async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
     """Fetch one page as a dict, or a not_found marker.
 
-    :param session: database session
     :param principal: the authenticated person
     :param space: ``personal`` or ``household``
     :param path: page path
     :returns: page fields, or ``{"error": "not_found"}``
     """
-    page = await get_page(session, principal, space, path)
+    page = await get_page(principal, space, path)
     if page is None:
         return {"error": "not_found", "path": path}
-    return {"path": page.path, "title": page.title, "tags": list(page.tags),
-            "body": page.body, "version": page.version,
-            "updated": page.updated_at.isoformat()}
+    return {
+        "path": page.path,
+        "title": page.title,
+        "tags": list(page.tags),
+        "body": page.body,
+        "version": page.version,
+        "updated": page.updated_at.isoformat(),
+    }
 
 
-async def tool_list_spaces(session: AsyncSession, principal: Principal) -> list[dict]:
+async def tool_list_spaces(principal: Principal) -> list[dict]:
     """List the spaces the principal can see, split from the tool for testability.
 
     Only the space alias (``personal``/``household``) and version cross the
     tool boundary. The underlying ``Space.slug`` — and thus another person's
     space name, e.g. a shared space slug like ``school`` — never does.
 
-    :param session: database session
     :param principal: the authenticated person
     :returns: one dict per accessible space, alias and version only
     """
-    return [{"alias": s.kind.value, "version": s.version}
-            for s in await accessible_spaces(session, principal)]
+    return [
+        {"alias": s.kind, "version": s.version}
+        for s in await accessible_spaces(principal)
+    ]
 
 
 _INBOX = "inbox.md"
 
 
 async def tool_remember(
-    session: AsyncSession, principal: Principal, fact: str, space: str = "personal"
+    principal: Principal, fact: str, space: str = "personal"
 ) -> dict:
     """Append one fact to a space's inbox, locking the row and deduplicating.
 
@@ -146,23 +144,26 @@ async def tool_remember(
     concurrent appends; the exact-duplicate check makes transport retries
     harmless.
 
-    :param session: database session
     :param principal: the authenticated person
     :param fact: the text to record
     :param space: ``personal`` or ``household``
     :returns: what was written, with a duplicate flag
     """
-    resolved = await resolve_space(session, principal, space)
-    inbox = await session.scalar(
-        select(Page).where(Page.space_id == resolved.id, Page.path == _INBOX)
-        .with_for_update())
+    resolved = await resolve_space(principal, space)
+    inbox = (
+        await Page.objects()
+        .where(Page.space_id == resolved.id, Page.path == _INBOX)
+        .lock_rows()
+        .first()
+    )
     if inbox is not None and fact in inbox.body:
         return {"space": space, "path": _INBOX, "duplicate": True}
     stamp = datetime.now(UTC).date().isoformat()
     entry = f"- ({stamp}) {fact}"
     body = f"{inbox.body}\n{entry}" if inbox else f"# Inbox\n\n{entry}"
-    await save_page(session, principal, space, _INBOX, body,
-                    message=f"remember: {fact[:60]}", title="Inbox")
+    await save_page(
+        principal, space, _INBOX, body, message=f"remember: {fact[:60]}", title="Inbox"
+    )
     return {"space": space, "path": _INBOX, "appended": entry, "duplicate": False}
 
 
@@ -176,9 +177,9 @@ async def load_index() -> dict:
     fetch them with read_pages. Fetch again as new topics come up; never
     answer from the index's descriptions alone.
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_load_index(session, principal)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_load_index(principal)
 
 
 @mcp.tool
@@ -188,9 +189,9 @@ async def read_pages(space: str, paths: list[str]) -> list[dict]:
     :param space: ``personal`` or ``household``
     :param paths: page paths from the index, for example ["house.md", "money.md"]
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_read_pages(session, principal, space, paths)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_read_pages(principal, space, paths)
 
 
 @mcp.tool
@@ -204,17 +205,17 @@ async def load_all_context() -> dict:
     included_count matches the non-null bodies you received; a mismatch means
     the result was cut in transit.
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_load_context(session, principal)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_load_context(principal)
 
 
 @mcp.tool
 async def get_operating_protocol() -> str:
     """Return the operating protocol and your persona. Call after loading context."""
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await build_instructions(session, principal)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await build_instructions(principal)
 
 
 @mcp.tool
@@ -224,17 +225,17 @@ async def read_page(space: str, path: str) -> dict:
     :param space: ``personal`` or ``household``
     :param path: page path, for example ``house.md``
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_read_page(session, principal, space, path)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_read_page(principal, space, path)
 
 
 @mcp.tool
 async def list_spaces() -> list[dict]:
     """List the spaces you can see."""
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_list_spaces(session, principal)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_list_spaces(principal)
 
 
 @mcp.tool
@@ -247,15 +248,21 @@ async def remember(fact: str, space: str = "personal") -> dict:
     :param fact: the text to record
     :param space: ``personal`` or ``household``
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        return await tool_remember(session, principal, fact, space)
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_remember(principal, fact, space)
 
 
 @mcp.tool
-async def write_page(space: str, path: str, body: str, message: str,
-                     title: str | None = None, tags: list[str] | None = None,
-                     expected_version: int | None = None) -> dict:
+async def write_page(
+    space: str,
+    path: str,
+    body: str,
+    message: str,
+    title: str | None = None,
+    tags: list[str] | None = None,
+    expected_version: int | None = None,
+) -> dict:
     """Create or replace a whole page. Prefer edit_page_section for small changes.
 
     Pass expected_version (from the loaded context) when replacing an existing
@@ -269,12 +276,19 @@ async def write_page(space: str, path: str, body: str, message: str,
     :param tags: page tags; tag stable, important pages "core"
     :param expected_version: optimistic lock from the loaded context
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
+    async with transaction_scope():
+        principal = await current_principal()
         try:
-            page = await save_page(session, principal, space, path, body,
-                                   message=message, title=title, tags=tags,
-                                   expected_version=expected_version)
+            page = await save_page(
+                principal,
+                space,
+                path,
+                body,
+                message=message,
+                title=title,
+                tags=tags,
+                expected_version=expected_version,
+            )
         except VersionConflict as exc:
             return {"error": "version_conflict", "detail": str(exc)}
         except ProtectedPath as exc:
@@ -283,8 +297,14 @@ async def write_page(space: str, path: str, body: str, message: str,
 
 
 @mcp.tool
-async def edit_page_section(space: str, path: str, old_text: str, new_text: str,
-                            message: str, expected_version: int | None = None) -> dict:
+async def edit_page_section(
+    space: str,
+    path: str,
+    old_text: str,
+    new_text: str,
+    message: str,
+    expected_version: int | None = None,
+) -> dict:
     """Replace an exact span of a page; the old text must occur exactly once.
 
     :param space: ``personal`` or ``household``
@@ -294,20 +314,27 @@ async def edit_page_section(space: str, path: str, old_text: str, new_text: str,
     :param message: why this change is being made
     :param expected_version: optimistic lock from the loaded context
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
+    async with transaction_scope():
+        principal = await current_principal()
         try:
-            page = await edit_section(session, principal, space, path, old_text,
-                                      new_text, message=message,
-                                      expected_version=expected_version)
+            page = await edit_section(
+                principal,
+                space,
+                path,
+                old_text,
+                new_text,
+                message=message,
+                expected_version=expected_version,
+            )
         except (SectionNotFound, VersionConflict, ProtectedPath) as exc:
             return {"error": type(exc).__name__, "detail": str(exc)}
         return {"space": space, "path": page.path, "version": page.version}
 
 
 @mcp.tool
-async def update_meta_page(space: str, path: str, body: str, message: str,
-                           confirm: bool = False) -> dict:
+async def update_meta_page(
+    space: str, path: str, body: str, message: str, confirm: bool = False
+) -> dict:
     """Update the operating protocol or persona. These pages steer the assistant.
 
     Only call after telling the user exactly what will change and receiving
@@ -322,12 +349,15 @@ async def update_meta_page(space: str, path: str, body: str, message: str,
     if not path.startswith("meta/"):
         return {"error": "not_meta", "detail": "use write_page for ordinary pages"}
     if not confirm:
-        return {"error": "not_confirmed",
-                "detail": "describe the change to the user first, then confirm"}
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        page = await save_page(session, principal, space, path, body,
-                               message=message, allow_protected=True)
+        return {
+            "error": "not_confirmed",
+            "detail": "describe the change to the user first, then confirm",
+        }
+    async with transaction_scope():
+        principal = await current_principal()
+        page = await save_page(
+            principal, space, path, body, message=message, allow_protected=True
+        )
         return {"space": space, "path": page.path, "version": page.version}
 
 
@@ -350,11 +380,12 @@ async def prepare_to_share(
     :param section: exact span to extract; omit to share the whole page
     :param dest_path: name for the extracted page; required with section
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
+    async with transaction_scope():
+        principal = await current_principal()
         try:
-            return await prepare_promotion(session, principal, path,
-                                           section=section, dest_path=dest_path)
+            return await prepare_promotion(
+                principal, path, section=section, dest_path=dest_path
+            )
         except PromotionError as exc:
             return {"error": "promotion_failed", "detail": str(exc)}
 
@@ -365,17 +396,22 @@ async def confirm_share(nonce: str) -> dict:
 
     :param nonce: the value returned by prepare_to_share
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
+    async with transaction_scope():
+        principal = await current_principal()
         try:
-            return await confirm_promotion(session, principal, nonce)
+            return await confirm_promotion(principal, nonce)
         except PromotionError as exc:
             return {"error": "promotion_failed", "detail": str(exc)}
 
 
 @mcp.tool
-async def add_image(space: str, data_base64: str, mime: str, description: str,
-                    page_path: str | None = None) -> dict:
+async def add_image(
+    space: str,
+    data_base64: str,
+    mime: str,
+    description: str,
+    page_path: str | None = None,
+) -> dict:
     """Store an image with a text description of what it shows.
 
     Write the description yourself, concretely — it is what future
@@ -391,12 +427,21 @@ async def add_image(space: str, data_base64: str, mime: str, description: str,
     data = base64.b64decode(data_base64)
     if len(data) > get_settings().image_max_bytes:
         return {"error": "too_large", "max_bytes": get_settings().image_max_bytes}
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        attachment = await add_attachment(
-            session, principal, space, data, mime,
-            description=description, store=S3ObjectStore(), page_path=page_path)
-        return {"key": attachment.object_key, "status": attachment.status.value}
+    # add_attachment opens its own two transactions -- the pending row must
+    # commit before the bytes are written -- so it must not be nested inside
+    # one here. Only the principal lookup is wrapped.
+    async with transaction_scope():
+        principal = await current_principal()
+    attachment = await add_attachment(
+        principal,
+        space,
+        data,
+        mime,
+        description=description,
+        store=S3ObjectStore(),
+        page_path=page_path,
+    )
+    return {"key": attachment.object_key, "status": attachment.status}
 
 
 @mcp.tool
@@ -407,15 +452,18 @@ async def read_image(space: str, key: str) -> dict:
     :param space: ``personal`` or ``household``
     :param key: the image key from the context payload
     """
-    async with session_scope() as session:
-        principal = await current_principal(session)
-        attachment = await get_attachment(session, principal, space, key)
+    async with transaction_scope():
+        principal = await current_principal()
+        attachment = await get_attachment(principal, space, key)
         if attachment is None:
             return {"error": "not_found", "key": key}
         ttl = get_settings().signed_url_ttl_seconds
-        return {"url": await S3ObjectStore().signed_url(key, ttl),
-                "mime": attachment.mime, "description": attachment.description,
-                "expires_in": ttl}
+        return {
+            "url": await S3ObjectStore().signed_url(key, ttl),
+            "mime": attachment.mime,
+            "description": attachment.description,
+            "expires_in": ttl,
+        }
 
 
 def main() -> None:
@@ -429,12 +477,19 @@ def main() -> None:
 
     :raises RuntimeError: if the HTTP transport would start with no auth
     """
+    # No connection pool is started deliberately. A pool has to be created
+    # inside the loop that will use it, and FastMCP owns its loop -- starting
+    # one here would bind it to a loop that closes immediately. Without a
+    # pool Piccolo opens a connection per transaction, which at two users is
+    # not a bottleneck and makes the per-transaction RLS binding trivially
+    # unshareable.
     port = os.environ.get("PORT")
     if port:
         if mcp.auth is None:
             raise RuntimeError(
                 "refusing to serve HTTP without an auth provider: set "
-                "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL")
+                "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+            )
         mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
     else:
         mcp.run()

@@ -1,22 +1,45 @@
+"""Piccolo table definitions for the rif store.
+
+Two schema facts Piccolo cannot express in a table definition, and which
+``rif.rls.constraint_statements`` therefore emits as raw DDL: the composite
+key on ``memberships`` (Piccolo gives every table one surrogate primary key)
+and the ``(space_id, path)`` uniqueness of a page. Both are constraints the
+database must hold whatever the ORM believes, so they live next to the RLS
+policy DDL rather than being dropped.
+"""
+
 from datetime import UTC, datetime
 from enum import StrEnum
-from uuid import UUID, uuid4
+from uuid import uuid4
 
-from sqlalchemy import ARRAY, ForeignKey, String, UniqueConstraint, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from piccolo.columns import (
+    UUID,
+    Array,
+    ForeignKey,
+    Integer,
+    OnDelete,
+    Timestamp,
+    Varchar,
+)
+from piccolo.columns.defaults.timestamp import TimestampNow
+from piccolo.table import Table
+
+from rif.db import DB
 
 
 def utc_now() -> datetime:
     """Return the current instant as a naive UTC ``datetime``.
 
-    Every ``DateTime`` column in this schema is ``TIMESTAMP WITHOUT TIME
-    ZONE``. Columns populated by ``server_default=func.now()`` alone take
-    their value from the Postgres server's ``TimeZone`` setting, not from
-    UTC -- correct only incidentally, when the server happens to run UTC.
-    Columns whose value is later compared against client-computed time
-    (:class:`Promotion.created_at`, for nonce-expiry checks) use this
-    client-side default instead, so the comparison is correct regardless
-    of server locale.
+    Every ``Timestamp`` column in this schema is ``TIMESTAMP WITHOUT TIME
+    ZONE``. Columns defaulted by the Postgres server take their value from
+    the server's ``TimeZone`` setting, not from UTC -- correct only
+    incidentally, when the server happens to run UTC. Columns whose value is
+    later compared against client-computed time
+    (:attr:`Promotion.created_at`, for nonce-expiry checks) use this
+    client-side default instead, so the comparison is correct regardless of
+    server locale.
+
+    :returns: the current UTC instant, without tzinfo
     """
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -36,98 +59,80 @@ class AttachmentStatus(StrEnum):
     FAILED = "failed"
 
 
-class Base(DeclarativeBase):
-    """Declarative base for all rif tables."""
-
-
-class Person(Base):
+class Person(Table, tablename="persons", db=DB):
     """A human principal. Provider subject is durable identity; email binds it."""
 
-    __tablename__ = "persons"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(unique=True)
-    subject: Mapped[str | None] = mapped_column(unique=True)
-    display_name: Mapped[str]
+    id = UUID(primary_key=True, default=uuid4)
+    email = Varchar(unique=True)
+    subject = Varchar(null=True, unique=True, default=None)
+    display_name = Varchar()
 
 
-class Space(Base):
+class Space(Table, tablename="spaces", db=DB):
     """A knowledge layer. Personal spaces have exactly one owner."""
 
-    __tablename__ = "spaces"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    slug: Mapped[str] = mapped_column(unique=True)
-    kind: Mapped[SpaceKind]
-    owner_person_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("persons.id"), unique=True
-    )
-    version: Mapped[int] = mapped_column(default=0)
+    id = UUID(primary_key=True, default=uuid4)
+    slug = Varchar(unique=True)
+    kind = Varchar(choices=SpaceKind)
+    owner_person_id = ForeignKey(Person, null=True, unique=True, default=None)
+    version = Integer(default=0)
 
 
-class Membership(Base):
-    """Who may see which space."""
+class Membership(Table, tablename="memberships", db=DB):
+    """Who may see which space.
 
-    __tablename__ = "memberships"
+    The real key is ``(person_id, space_id)``; Piccolo's surrogate ``id`` is
+    an artefact, and the composite uniqueness is enforced by a raw
+    constraint rather than by this definition.
+    """
 
-    person_id: Mapped[UUID] = mapped_column(ForeignKey("persons.id"), primary_key=True)
-    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id"), primary_key=True)
+    person_id = ForeignKey(Person)
+    space_id = ForeignKey(Space)
 
 
-class Page(Base):
+class Page(Table, tablename="pages", db=DB):
     """A markdown page within a space, optimistically versioned."""
 
-    __tablename__ = "pages"
-    __table_args__ = (UniqueConstraint("space_id", "path"),)
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id"), index=True)
-    path: Mapped[str]
-    title: Mapped[str]
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    body: Mapped[str]
-    version: Mapped[int] = mapped_column(default=0)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(
-        server_default=func.now(), onupdate=func.now()
-    )
+    id = UUID(primary_key=True, default=uuid4)
+    space_id = ForeignKey(Space, index=True)
+    path = Varchar()
+    title = Varchar()
+    tags = Array(base_column=Varchar(), default=list)
+    body = Varchar(length=None)
+    version = Integer(default=0)
+    created_at = Timestamp(default=TimestampNow())
+    updated_at = Timestamp(default=TimestampNow())
 
 
-class Revision(Base):
+class Revision(Table, tablename="revisions", db=DB):
     """Append-only history: full page state per write, not just the body."""
 
-    __tablename__ = "revisions"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    page_id: Mapped[UUID] = mapped_column(ForeignKey("pages.id"), index=True)
-    path: Mapped[str]
-    title: Mapped[str]
-    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
-    body: Mapped[str]
-    message: Mapped[str]
-    author_id: Mapped[UUID] = mapped_column(ForeignKey("persons.id"))
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    id = UUID(primary_key=True, default=uuid4)
+    page_id = ForeignKey(Page, index=True)
+    path = Varchar()
+    title = Varchar()
+    tags = Array(base_column=Varchar(), default=list)
+    body = Varchar(length=None)
+    message = Varchar()
+    author_id = ForeignKey(Person)
+    created_at = Timestamp(default=TimestampNow())
 
 
-class Attachment(Base):
+class Attachment(Table, tablename="attachments", db=DB):
     """An image in object storage, described in text for context loading."""
 
-    __tablename__ = "attachments"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    space_id: Mapped[UUID] = mapped_column(ForeignKey("spaces.id"), index=True)
-    page_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("pages.id", ondelete="SET NULL")
-    )
-    object_key: Mapped[str] = mapped_column(unique=True)
-    mime: Mapped[str]
-    byte_size: Mapped[int]
-    description: Mapped[str]
-    status: Mapped[AttachmentStatus] = mapped_column(default=AttachmentStatus.PENDING)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    id = UUID(primary_key=True, default=uuid4)
+    space_id = ForeignKey(Space, index=True)
+    page_id = ForeignKey(Page, null=True, default=None, on_delete=OnDelete.set_null)
+    object_key = Varchar(unique=True)
+    mime = Varchar()
+    byte_size = Integer()
+    description = Varchar(length=None)
+    status = Varchar(choices=AttachmentStatus, default=AttachmentStatus.PENDING)
+    created_at = Timestamp(default=TimestampNow())
 
 
-class Promotion(Base):
+class Promotion(Table, tablename="promotions", db=DB):
     """A prepared or completed share. The row is nonce and audit trail.
 
     ``section_text`` is None for a whole-page share; for a section share it
@@ -135,13 +140,14 @@ class Promotion(Base):
     user approved is the text that actually moves.
     """
 
-    __tablename__ = "promotions"
+    id = UUID(primary_key=True, default=uuid4)
+    person_id = ForeignKey(Person)
+    source_page_id = ForeignKey(Page)
+    source_version = Integer()
+    dest_path = Varchar()
+    section_text = Varchar(length=None, null=True, default=None)
+    created_at = Timestamp(default=utc_now)
+    consumed_at = Timestamp(null=True, default=None)
 
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    person_id: Mapped[UUID] = mapped_column(ForeignKey("persons.id"))
-    source_page_id: Mapped[UUID] = mapped_column(ForeignKey("pages.id"))
-    source_version: Mapped[int]
-    dest_path: Mapped[str]
-    section_text: Mapped[str | None]
-    created_at: Mapped[datetime] = mapped_column(default=utc_now, server_default=func.now())
-    consumed_at: Mapped[datetime | None]
+
+TABLES = [Person, Space, Membership, Page, Revision, Attachment, Promotion]

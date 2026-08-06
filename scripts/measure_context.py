@@ -17,10 +17,8 @@ script with a target of ``0``.
 import asyncio
 import sys
 
-from sqlalchemy import select
-
 from rif.access import Principal
-from rif.db import session_scope
+from rif.db import transaction_scope
 from rif.models import Person
 from rif.pages import list_pages, save_page
 
@@ -38,21 +36,27 @@ async def main(target_kib: int, email: str) -> None:
         kibibytes (1024 bytes); ``0`` empties the scratch page
     :param email: the principal's email, to resolve them for save_page
     """
-    async with session_scope() as session:
-        person = await session.scalar(select(Person).where(Person.email == email))
+    async with transaction_scope():
+        person = await Person.objects().where(Person.email == email).first()
         principal = Principal(person_id=person.id, email=person.email)
-        pages = await list_pages(session, principal, "personal")
+        pages = await list_pages(principal, "personal")
         existing = sum(len(page.body) for page in pages if page.path != SCRATCH_PATH)
         filler_bytes = max(0, target_kib * 1024 - existing)
         await save_page(
-            session, principal, "personal", SCRATCH_PATH, "x" * filler_bytes,
+            principal,
+            "personal",
+            SCRATCH_PATH,
+            "x" * filler_bytes,
             message=f"context-limit measurement scratch page (target {target_kib} KiB)",
-            title="Context limit measurement scratch")
-        pages = await list_pages(session, principal, "personal")
+            title="Context limit measurement scratch",
+        )
+        pages = await list_pages(principal, "personal")
         total = sum(len(page.body) for page in pages)
-        print(f"personal space now totals {total} bytes (~{total / 1024:.1f} KiB) "
-              f"across {len(pages)} page(s); scratch page {SCRATCH_PATH} is "
-              f"{filler_bytes} bytes")
+        print(
+            f"personal space now totals {total} bytes (~{total / 1024:.1f} KiB) "
+            f"across {len(pages)} page(s); scratch page {SCRATCH_PATH} is "
+            f"{filler_bytes} bytes"
+        )
 
 
 if __name__ == "__main__":

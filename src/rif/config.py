@@ -9,8 +9,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="RIF_")
 
-    database_url: str = "postgresql+asyncpg://rif:rif@localhost:5433/rif"
-    test_database_url: str = "postgresql+asyncpg://rif:rif@localhost:5433/rif_test"
+    database_url: str = "postgresql://rif:rif@localhost:5433/rif"
+    test_database_url: str = "postgresql://rif:rif@localhost:5433/rif_test"
     context_char_budget: int = 150_000
     s3_endpoint: str = ""
     s3_bucket: str = ""
@@ -20,16 +20,16 @@ class Settings(BaseSettings):
     signed_url_ttl_seconds: int = 300
 
     @property
-    def async_database_url(self) -> str:
-        """Return the database URL with the asyncpg driver scheme.
+    def dsn(self) -> str:
+        """Return the connection DSN, preferring Railway's injected value.
 
-        Railway injects ``DATABASE_URL`` as ``postgresql://``; SQLAlchemy's
-        async engine needs ``postgresql+asyncpg://``.
+        Railway injects ``DATABASE_URL`` as ``postgresql://``, which is what
+        asyncpg -- and therefore Piccolo -- wants unmodified. The SQLAlchemy
+        original had to rewrite the scheme here; Piccolo does not.
 
-        :returns: a URL usable by create_async_engine
+        :returns: a DSN usable by asyncpg
         """
-        url = os.environ.get("DATABASE_URL", self.database_url)
-        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return os.environ.get("DATABASE_URL", self.database_url)
 
 
 @lru_cache

@@ -1,47 +1,72 @@
-from collections.abc import AsyncIterator
+"""Test fixtures: a real Postgres, real RLS policies, a real household.
 
-import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+``DATABASE_URL`` is set before any ``rif`` import because ``rif.db`` builds
+its engine at module scope; pointing it at ``rif_test`` afterwards would be
+too late.
+"""
+
+import os
 
 from rif.config import get_settings
-from rif.models import Base, Membership, Person, Space, SpaceKind
-from rif.rls import enable_statements
+
+os.environ["DATABASE_URL"] = get_settings().test_database_url
+
+import pytest_asyncio
+from piccolo.table import create_db_tables, drop_db_tables
+
+from rif.db import DB, transaction_scope
+from rif.models import TABLES, Membership, Person, Space, SpaceKind
+from rif.rls import constraint_statements, enable_statements
+
+CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
 
-@pytest_asyncio.fixture(scope="session")
-async def engine():
-    """Create the test schema once per session, including RLS policies.
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def schema():
+    """Build the schema once per session, including RLS policies.
 
-    The policy DDL comes from ``rif.rls``, the same module
-    ``migrations/versions/0f1d29c16349_initial_schema.py`` uses to build the
-    real schema, so production and tests can never apply different
-    policies.
+    The policy DDL comes from ``rif.rls``, the same module the real
+    migration uses, so production and tests can never apply different
+    policies -- a difference there would mean tests validate policies
+    production does not enforce.
     """
-    engine = create_async_engine(get_settings().test_database_url)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-        for statement in enable_statements():
-            await conn.execute(text(statement))
-    yield engine
-    await engine.dispose()
+    await DB.start_connection_pool()
+    await drop_db_tables(*reversed(TABLES))
+    await create_db_tables(*TABLES)
+    for statement in constraint_statements() + enable_statements():
+        await DB._run_in_new_connection(statement)
+    yield
+    await DB.close_connection_pool()
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def clean():
+    """Empty every table between tests.
+
+    TRUNCATE, not DELETE: an unarmed DELETE against an RLS-protected table
+    is itself filtered and would silently remove nothing.
+    """
+    await DB._run_in_new_connection(
+        f"TRUNCATE {', '.join(CONTENT_TABLES)}, memberships, spaces, persons "
+        f"RESTART IDENTITY CASCADE"
+    )
 
 
 @pytest_asyncio.fixture
-async def session(engine) -> AsyncIterator[AsyncSession]:
-    """Yield a session in a transaction that always rolls back."""
-    connection = await engine.connect()
-    transaction = await connection.begin()
-    factory = async_sessionmaker(bind=connection, expire_on_commit=False)
-    async with factory() as session:
-        yield session
-    await transaction.rollback()
-    await connection.close()
+async def tx():
+    """Run the test inside one transaction, so arming RLS sticks.
+
+    The SQLAlchemy suite passed a ``session`` into every call; Piccolo
+    queries are ambient, so what a test needs instead is simply to be inside
+    a transaction. Tests that manage their own scopes (``test_security``)
+    do not request this.
+    """
+    async with transaction_scope():
+        yield
 
 
 @pytest_asyncio.fixture
-async def household(session) -> dict:
+async def household() -> dict:
     """Two people, two personal spaces, one household space, four memberships.
 
     :returns: mapping with keys ``wouter``, ``partner``, ``w_personal``,
@@ -49,19 +74,27 @@ async def household(session) -> dict:
     """
     wouter = Person(email="wouter@example.test", display_name="Wouter")
     partner = Person(email="partner@example.test", display_name="Partner")
-    session.add_all([wouter, partner])
-    await session.flush()
-    w_personal = Space(slug="wouter", kind=SpaceKind.PERSONAL, owner_person_id=wouter.id)
-    p_personal = Space(slug="partner", kind=SpaceKind.PERSONAL, owner_person_id=partner.id)
-    shared = Space(slug="school", kind=SpaceKind.HOUSEHOLD)
-    session.add_all([w_personal, p_personal, shared])
-    await session.flush()
-    session.add_all([
+    await wouter.save()
+    await partner.save()
+    w_personal = Space(
+        slug="wouter", kind=SpaceKind.PERSONAL.value, owner_person_id=wouter.id
+    )
+    p_personal = Space(
+        slug="partner", kind=SpaceKind.PERSONAL.value, owner_person_id=partner.id
+    )
+    shared = Space(slug="school", kind=SpaceKind.HOUSEHOLD.value)
+    for space in (w_personal, p_personal, shared):
+        await space.save()
+    await Membership.insert(
         Membership(person_id=wouter.id, space_id=w_personal.id),
         Membership(person_id=partner.id, space_id=p_personal.id),
         Membership(person_id=wouter.id, space_id=shared.id),
         Membership(person_id=partner.id, space_id=shared.id),
-    ])
-    await session.flush()
-    return {"wouter": wouter, "partner": partner, "w_personal": w_personal,
-            "p_personal": p_personal, "shared": shared}
+    )
+    return {
+        "wouter": wouter,
+        "partner": partner,
+        "w_personal": w_personal,
+        "p_personal": p_personal,
+        "shared": shared,
+    }
