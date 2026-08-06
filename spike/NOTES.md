@@ -87,19 +87,55 @@ From the `AuthKitProvider` docstring, to be done before Step 2/3:
    token, so without a matching resource every authenticated call is rejected.
    Use the URL from the log line verbatim.
 
-## Routes this server exposes (confirmed from source, not yet hit live)
+## Routes this server exposes — CORRECTED, observed live 6 Aug
 
-- `{RIF_BASE_URL}/mcp` — the MCP endpoint (`path="/mcp"` in `mcp.run`).
-- `{RIF_BASE_URL}/.well-known/oauth-protected-resource` — RFC 9728 metadata,
-  from `RemoteAuthProvider.get_routes`.
-- `{RIF_BASE_URL}/.well-known/oauth-authorization-server` — AuthKit's own
-  metadata document, fetched server-side and forwarded verbatim
-  (`AuthKitProvider.get_routes`, the `oauth_authorization_server_metadata`
-  handler).
+Predicted from source, and two of the three were wrong. Observed against the
+deployed service:
+
+| Path | Status |
+|---|---|
+| `/mcp` | 401 unauthenticated, as intended |
+| `/.well-known/oauth-protected-resource/mcp` | **200** — note the `/mcp` suffix |
+| `/.well-known/oauth-protected-resource` | 404 |
+| `/.well-known/oauth-authorization-server` | 200 |
+| `/.well-known/oauth-authorization-server/mcp` | 404 |
+
+So protected-resource metadata is served **path-suffixed** (RFC 9728 style,
+keyed to the resource path) while the authorization-server forward sits at
+the root. The earlier note predicted both at the root.
+
+This does not need configuring anywhere: the 401 advertises the right one in
+its challenge header, which is how a client discovers it:
+
+```
+www-authenticate: Bearer resource_metadata="https://<base>/.well-known/oauth-protected-resource/mcp"
+```
 
 The actual authorize/token/callback exchange happens between the client
-(Claude) and `{WORKOS_AUTHKIT_DOMAIN}` directly, per the metadata above —
-our server is never in that request path.
+(Claude) and `{WORKOS_AUTHKIT_DOMAIN}` directly — our server is never in
+that request path.
+
+## WorkOS dashboard — CORRECTED, done 6 Aug
+
+- **Dynamic Client Registration ships DISABLED.** It is not under
+  "Applications → Configuration" as guessed; it is **Connect → Configuration
+  → MCP Auth**, with separate checkboxes for DCR and Client ID Metadata
+  Document. Only DCR was enabled — Claude uses it and there is no reason to
+  open a second mechanism. Had this been missed, the connector would have
+  failed with no obvious cause.
+- **Resource Indicators are required, not optional** — see the corrected
+  note above. Set to `https://rif-app-production.up.railway.app/mcp`.
+- **"Return Google OAuth tokens" defaults ON when you save your own
+  credentials.** Turned off: it hands the server live credentials to both
+  members' entire Google accounts, which rif never uses.
+- **Staging pre-enables Microsoft, GitHub and Apple on WorkOS demo
+  credentials. Production does not** — Production ships with every provider
+  off. Only Google was enabled there.
+- **The Production AuthKit domain is not derivable from the Staging one.**
+  Staging `worthy-moon-29-staging.authkit.app`; Production
+  `thankful-origami-62.authkit.app`. Read it, never derive it.
+- Each environment needs its own Google redirect URI. One Google OAuth
+  client holds both.
 
 ## Deploy / connect steps — PENDING (human, live)
 
