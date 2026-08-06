@@ -1,10 +1,13 @@
 # rif — design
 
-Written 5 Aug 2026, revised twice the same day. Rev 1: the store moved from git
-repos to Postgres, retrieval from search to whole-corpus loading. Rev 2, after
-an external architecture review: RLS became the enforced boundary, promotion
-became a two-step nonce flow, writes became retry-safe, the plan reordered
-risk-first, and mirror automation was cut from v1. See "Supersedes" at the end.
+Written 5 Aug 2026, revised twice the same day; rev 3 on 6 Aug. Rev 1: the
+store moved from git repos to Postgres, retrieval from search to whole-corpus
+loading. Rev 2, after an external architecture review: RLS became the enforced
+boundary, promotion became a two-step nonce flow, writes became retry-safe,
+the plan reordered risk-first, and mirror automation was cut from v1. Rev 3:
+retrieval flipped to index-first with targeted fetches — the MCP mechanizes
+the original wiki discipline; bulk loading demoted to a maintenance path. See
+"Supersedes" at the end.
 
 ## Purpose
 
@@ -21,31 +24,42 @@ client of the same MCP.
 
 One store, one write path, one enforcement point.
 
-## Retrieval: load everything, don't search
+## Retrieval: index first, then fetch
 
-At this scale the whole corpus fits in context. Thirteen pages today is roughly
-60 KB of markdown; a hundred pages would be under half a megabyte. The primary
-tool therefore returns **the entire contents of every space the principal can
-see, in one call**, and the model works from complete knowledge rather than
-retrieval hits.
+This is the wiki pattern itself, mechanized by the MCP. The assistant's first
+call is `load_index`: every page the principal can see — path, title, tags,
+and a **one-line description** — plus image descriptions, and no bodies. The
+model reads the map, decides which entries the conversation needs, and fetches
+them with `read_pages`. It fetches again as topics come up. It never answers
+from the index's descriptions alone.
 
-This removes an entire category of failure. There is no ranking to tune, no
-embedding to stale, no "the model didn't find the page that existed." It also
-removes full-text search from v1 — it would be machinery serving no one.
+The description is the retrieval surface, and it is free: the page style
+mandates a two-or-three-sentence summary as the opening paragraph, so the
+index derives each description from the page's own first prose line. The
+index is computed from the store on every call — it cannot drift from
+reality, which was the maintained-index's classic failure mode.
 
-Two guards, because this cannot hold forever:
+The trade, stated honestly: retrieval is the model's judgment against the
+index. A wrong guess means a fact goes unfetched. Mitigation is index
+quality — summary-first pages, curated by the maintenance routine — and the
+protocol's instruction to keep fetching as the conversation moves, not to
+answer from memory of the map.
 
-- `load_context` returns a `truncated` flag and an explicit note in the payload
-  when the corpus exceeds a configured token budget. It degrades to index plus
-  most-recently-updated pages. **It never silently returns less than
-  everything** — a partial context that looks complete is the one failure mode
-  worse than slow retrieval.
-- The payload carries a `version` (max `updated_at` across the spaces) so a
-  client can skip a reload when nothing changed.
+Guards:
 
-When the corpus outgrows context for real, the fallback is index-plus-selective
-read, which the existing `read_page` tool already provides. That is an addition,
-not a rewrite.
+- The index payload carries a `version` derived from per-space version
+  counters (bumped by every write), so a client can skip a reload when
+  nothing changed.
+- `load_all_context` remains as the bulk path for maintenance work
+  (tidy-ups, contradiction checks) that genuinely needs the whole corpus at
+  once. It reports truncation explicitly and lists omitted pages body-less —
+  it never silently returns less than everything.
+
+*Superseded (rev 3, 6 Aug):* rev 2 made whole-corpus loading the primary
+path. Reversed — the MCP's job is to run the index-then-fetch discipline for
+the agent, and per-conversation cost should not grow with corpus size.
+Full-text search, vector retrieval, and knowledge graphs remain out (see
+Stack): the index read whole is the retrieval mechanism.
 
 ## Data model
 
@@ -146,8 +160,9 @@ less.
 
 | Tool | Notes |
 |---|---|
-| `load_all_context()` | **Primary.** Everything the principal can see, plus `version`, `truncated`, and `page_count`/`included_count` so host-side truncation is detectable. |
-| `read_page(space, path)` | Single page; the truncation fallback. |
+| `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, and one-line description, plus image descriptions and a cache `version`. No bodies. |
+| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
+| `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_image` / `read_image` | Mandatory description in; short-lived signed URL out, behind the same ACL. |
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |

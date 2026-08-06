@@ -292,14 +292,16 @@
       rif's metadata and runs the login flow. WorkOS answers who she is. The
       two-row <code>persons</code> table decides whether she is allowed in.
       A stranger with a valid login is still denied.</li>
-    <li><strong>Load everything.</strong> The assistant's first call is
-      <code>load_all_context</code>. It returns every page in every space she
-      can see, in one response. There is no search step, so there is no way to
-      miss a page that exists. At this scale, about 100 pages fit in one
-      response with room to spare.</li>
-    <li><strong>Talk.</strong> The model now reasons with complete knowledge.
-      Image descriptions are included as text. The image itself is fetched
-      only when it is needed.</li>
+    <li><strong>Load the index.</strong> The assistant's first call is
+      <code>load_index</code>. It returns the map: every page she can see,
+      with its title, tags, and a one-line description, plus image
+      descriptions. No page bodies. The description comes from the page's own
+      opening summary, so the map is curated, not clipped at random.</li>
+    <li><strong>Fetch what matters.</strong> The assistant reads the map,
+      picks the entries this conversation needs, and fetches them with
+      <code>read_pages</code>. When a new topic comes up, it fetches again.
+      The rule in the protocol: never answer from the index's descriptions
+      alone.</li>
     <li><strong>Remember.</strong> New facts go through
       <code>remember(fact)</code>. Its default target is the private space —
       the default is in the function signature, not in a guideline. Only
@@ -310,10 +312,11 @@
       check. Every write records who wrote it, why, and the full page state.
       That record is permanent.</li>
   </ol>
-  <p class="mut">If the corpus ever grows past the response budget, the
-  response says so. Left-out pages still appear in the list, without a body,
-  with a note that explains how to fetch them. The one failure this design
-  refuses: a partial memory that looks complete.</p>
+  <p class="mut">This is the original wiki discipline — read the index, open
+  only what you need — run by the service instead of by convention. A bulk
+  tool (<code>load_all_context</code>) still exists for maintenance jobs that
+  genuinely need every page at once; when its result is cut short, it says so
+  rather than looking complete.</p>
 </section>
 
 <section id="boundary">
@@ -470,8 +473,8 @@
   <div class="tablewrap">
   <table>
     <tr><th>Left out</th><th>Why</th></tr>
-    <tr><td>Full-text search</td><td>The whole corpus loads every time. There is nothing to search.</td></tr>
-    <tr><td>Vector database</td><td>A retrieval tool for corpora too big for context. Its failure is silent: the assistant does not know something it was told, and does not know that it does not know. A memory system cannot afford that.</td></tr>
+    <tr><td>Full-text search</td><td>The index is small enough to read whole, and its descriptions are the retrieval surface. The model retrieves by reading the map, not by querying an engine.</td></tr>
+    <tr><td>Vector database</td><td>A retrieval tool for corpora far too big for an index. Its failure is silent: the assistant does not know something it was told, and does not know that it does not know. An index the model reads in full fails visibly instead.</td></tr>
     <tr><td>Knowledge graph</td><td>Same reason. The wiki already is a graph — pages are nodes, links are edges — and it keeps nuance in prose instead of losing it in extracted facts.</td></tr>
     <tr><td>Unsharing</td><td>Cannot exist honestly. Once readable, read. The only real gate is before sharing. That is why that gate is heavy.</td></tr>
     <tr><td>Notion, or any two-way sync</td><td>Two writable copies of the truth create conflicts forever. The export is one-way on purpose.</td></tr>
@@ -485,8 +488,9 @@
   <div class="tablewrap">
   <table>
     <tr><th>Tool</th><th>What it does</th></tr>
-    <tr><td><code>load_all_context</code></td><td>Everything you can see, in one call. The first call of every conversation.</td></tr>
-    <tr><td><code>read_page</code></td><td>One page. Used when the context load was cut short.</td></tr>
+    <tr><td><code>load_index</code></td><td>The map: every page's title, tags, and one-line description. The first call of every conversation.</td></tr>
+    <tr><td><code>read_pages</code> / <code>read_page</code></td><td>Fetch the entries the conversation needs, chosen from the index.</td></tr>
+    <tr><td><code>load_all_context</code></td><td>Every page body at once. Maintenance only.</td></tr>
     <tr><td><code>remember</code></td><td>Adds a fact to the inbox. Private by default. Safe to retry.</td></tr>
     <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or precise edits, with a version check against lost updates.</td></tr>
     <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>Two-step sharing — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>

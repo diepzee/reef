@@ -28,3 +28,31 @@ async def test_tool_list_spaces_returns_alias_not_slug(session, household):
         assert set(row.keys()) == {"alias", "version"}
         assert "slug" not in row
         assert household["shared"].slug not in row.values()
+
+
+async def test_tool_load_index_serialises(session, household):
+    from rif.server import tool_load_index
+
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "household", "house.md",
+                    "The family home.\n\nDetail.", message="x")
+    result = await tool_load_index(session, me)
+    pages = [p for s in result["spaces"] for p in s["pages"]]
+    assert pages and pages[0]["description"] == "The family home."
+    assert all("body" not in p for p in pages)
+
+
+async def test_tool_read_pages_fetches_batch_with_not_found_markers(
+    session, household
+):
+    from rif.server import tool_read_pages
+
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "a.md", "alpha", message="x")
+    await save_page(session, me, "personal", "b.md", "beta", message="x")
+
+    results = await tool_read_pages(session, me, "personal",
+                                    ["a.md", "nope.md", "b.md"])
+
+    assert [r.get("body", r.get("error")) for r in results] == [
+        "alpha", "not_found", "beta"]
