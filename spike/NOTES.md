@@ -78,10 +78,14 @@ From the `AuthKitProvider` docstring, to be done before Step 2/3:
    `{RIF_BASE_URL}/oauth2/callback` to WorkOS's Redirects tab if the
    connector flow fails without it, and correct this note either way once
    observed.
-4. Optional (per the `AuthKitProvider` docstring): enable Resource
-   Indicators (RFC 8707) in the WorkOS dashboard and list `{RIF_BASE_URL}/mcp`
-   as the resource, so AuthKit mints tokens whose `aud` claim matches what
-   `AuthKitProvider` validates against.
+4. **Not optional, corrected 6 Aug:** enable Resource Indicators (RFC 8707)
+   in the WorkOS dashboard and list `{RIF_BASE_URL}/mcp` as the resource. The
+   docstring frames this as a nicety; the running server does not. Booting
+   the built image logs, at INFO: *"AuthKit tokens will be validated against
+   aud=<RIF_BASE_URL>/mcp. Configure this URL as a Resource Indicator in the
+   WorkOS Dashboard."* That is the audience `AuthKitProvider` checks on every
+   token, so without a matching resource every authenticated call is rejected.
+   Use the URL from the log line verbatim.
 
 ## Routes this server exposes (confirmed from source, not yet hit live)
 

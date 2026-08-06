@@ -7,6 +7,10 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 COPY scripts ./scripts
 COPY piccolo_conf.py ./
+# The Phase 1 auth spike ships in the same image so the gate can be tested
+# by overriding the start command on a throwaway Railway service, rather
+# than maintaining a second Dockerfile that could drift from this one.
+COPY spike ./spike
 RUN uv sync --frozen --no-dev
 ENV PYTHONPATH=/app/src
 # migrate.py wraps `piccolo migrations forwards` in an advisory lock, so two
