@@ -155,20 +155,42 @@ surface decision reopens and the fallback is a web app. Everything in
 
 ## Phase 2 — Identity seeds
 
-**Why:** the `persons` table is the allowlist — the only two people who can
-ever get in. Her row was deliberately left as a placeholder because her email
-is her identity to give, not something an agent guesses.
+**Why this table matters:** `persons` is the allowlist. WorkOS will
+authenticate anyone who signs up; this table is what turns "authenticated"
+into "allowed". An authenticated stranger is denied by
+`principal_from_claims`, and RLS denies them rows even if that check were
+bypassed.
 
-1. Edit the seed migration — the last file in `src/rif/piccolo_migrations/`:
-   replace `<HER-EMAIL>` and `<HER-NAME>` with the email she'll sign into
-   AuthKit with (exact match matters — it's how her first login binds to her
-   row) and her chosen display name.
-2. Commit. Local check if you like: `uv run python scripts/migrate.py`
-   against the docker Postgres.
+**Already done.** The seed migration creates one person -- Wouter -- his
+personal space, and the household space. You can deploy and use the system
+solo today.
 
-**Note:** WorkOS authenticates anyone who signs up; this table is what turns
-"authenticated" into "allowed". An authenticated stranger is denied by
-`principal_from_claims`.
+### Adding the second member
+
+Her row is deliberately absent rather than a placeholder. Her email is the
+key her first login binds against, and a placeholder would put an unusable
+address in production that no later run of the seed would correct, because
+migrations do not re-run.
+
+When her address is settled, add a new migration alongside the others:
+
+```sql
+INSERT INTO persons (id, email, display_name)
+VALUES ('<new-uuid>', '<her-email>', '<her-name>');
+
+INSERT INTO spaces (id, slug, kind, owner_person_id, version)
+VALUES ('<new-uuid>', 'partner', 'personal', '<her-person-id>', 0);
+
+INSERT INTO memberships (person_id, space_id) VALUES
+  ('<her-person-id>', '<her-space-id>'),
+  ('<her-person-id>', '55555555-5555-5555-5555-555555555555');
+```
+
+That last id is the household space, seeded already.
+
+**Get the address exactly right**, including which Gmail if she has more
+than one. `rif` binds to the provider's subject on first login, so changing
+her account afterwards means clearing her `subject` column by hand.
 
 ---
 
