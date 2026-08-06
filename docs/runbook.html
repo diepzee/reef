@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rif — going live</title>
+<style>
+  :root {
+    --bg: #f2f6f6;
+    --surface: #ffffff;
+    --ink: #16282d;
+    --muted: #5c7176;
+    --faint: #c7d6d8;
+    --accent: #0f7a85;
+    --accent-ink: #0b5f68;
+    --gate: #b9502c;
+    --gate-bg: #faeee8;
+    --ok: #2e7d5b;
+    --code-bg: #0d1a1e;
+    --code-ink: #b8d4d7;
+    --rail: #9dbcc0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c171b;
+      --surface: #122229;
+      --ink: #d9e7e8;
+      --muted: #8aa3a8;
+      --faint: #24393f;
+      --accent: #4cc3cd;
+      --accent-ink: #7dd6dd;
+      --gate: #e0855c;
+      --gate-bg: #2a1d16;
+      --ok: #5cba93;
+      --code-bg: #081114;
+      --code-ink: #a5c6ca;
+      --rail: #35545b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c171b; --surface: #122229; --ink: #d9e7e8; --muted: #8aa3a8;
+    --faint: #24393f; --accent: #4cc3cd; --accent-ink: #7dd6dd;
+    --gate: #e0855c; --gate-bg: #2a1d16; --ok: #5cba93;
+    --code-bg: #081114; --code-ink: #a5c6ca; --rail: #35545b;
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f6f6; --surface: #ffffff; --ink: #16282d; --muted: #5c7176;
+    --faint: #c7d6d8; --accent: #0f7a85; --accent-ink: #0b5f68;
+    --gate: #b9502c; --gate-bg: #faeee8; --ok: #2e7d5b;
+    --code-bg: #0d1a1e; --code-ink: #b8d4d7; --rail: #9dbcc0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Seravek", -apple-system, "Segoe UI", sans-serif;
+    font-size: 1.0rem;
+    line-height: 1.62;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+
+  h1, h2, h3 {
+    font-family: "Avenir Next", "Futura", -apple-system, sans-serif;
+    text-wrap: balance;
+    line-height: 1.15;
+  }
+  .eyebrow {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  header h1 { font-size: 2.3rem; font-weight: 700; margin: 0.45rem 0 1rem; }
+  .lede { font-size: 1.08rem; color: var(--muted); max-width: 38rem; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .status {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    margin-top: 1.4rem;
+  }
+  .chip {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.74rem; font-weight: 600; letter-spacing: 0.04em;
+    padding: 0.28rem 0.7rem;
+    border: 1px solid var(--faint);
+    border-radius: 2px;
+    color: var(--muted);
+    background: var(--surface);
+  }
+  .chip.ok { color: var(--ok); border-color: var(--ok); }
+
+  /* phase map */
+  nav.map {
+    margin: 2.8rem 0 0;
+    border-top: 1px solid var(--faint);
+    padding-top: 1.4rem;
+  }
+  nav.map ol {
+    list-style: none;
+    display: grid; gap: 0.15rem;
+    font-family: "Avenir Next", -apple-system, sans-serif;
+  }
+  nav.map a {
+    display: flex; align-items: baseline; gap: 0.8rem;
+    padding: 0.32rem 0.4rem;
+    text-decoration: none;
+    color: var(--ink);
+    font-weight: 500;
+    font-size: 0.95rem;
+    border-radius: 2px;
+  }
+  nav.map a:hover, nav.map a:focus-visible { background: var(--surface); outline: none; }
+  nav.map a:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  nav.map .n {
+    font-variant-numeric: tabular-nums;
+    color: var(--rail);
+    font-weight: 600;
+    font-size: 0.82rem;
+    width: 1.2rem; flex: none;
+  }
+  nav.map .t { flex: 1; }
+  nav.map .when { color: var(--muted); font-size: 0.8rem; font-weight: 400; }
+  nav.map .gatechip {
+    font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em;
+    color: var(--gate);
+    border: 1px solid var(--gate);
+    padding: 0.08rem 0.42rem; border-radius: 2px;
+  }
+
+  /* the dive line */
+  main { margin-top: 3rem; }
+  .phase {
+    position: relative;
+    padding: 0 0 3.2rem 3.1rem;
+    border-left: 2px solid var(--rail);
+    margin-left: 0.85rem;
+  }
+  .phase:last-of-type { border-left-color: transparent; }
+  .marker {
+    position: absolute;
+    left: -1.05rem; top: -0.15rem;
+    width: 2rem; height: 2rem;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 2px solid var(--rail);
+    display: grid; place-items: center;
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-weight: 700; font-size: 0.85rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent-ink);
+  }
+  .phase.gate .marker { border-color: var(--gate); color: var(--gate); }
+  .phase h2 {
+    font-size: 1.35rem; font-weight: 600;
+    display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+  }
+  .phase h2 .gatechip {
+    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.12em;
+    color: var(--gate); border: 1.5px solid var(--gate);
+    padding: 0.12rem 0.5rem; border-radius: 2px;
+  }
+  .why {
+    margin: 0.8rem 0 1.2rem;
+    color: var(--muted);
+    max-width: 40rem;
+  }
+  .why strong { color: var(--ink); }
+
+  .phase ol.steps {
+    list-style: none;
+    counter-reset: step;
+    display: grid; gap: 0.85rem;
+    max-width: 40rem;
+  }
+  .phase ol.steps > li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 1.9rem;
+  }
+  .phase ol.steps > li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0.18rem;
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.72rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    border: 1px solid var(--faint);
+    background: var(--surface);
+    width: 1.25rem; height: 1.25rem; border-radius: 2px;
+    display: grid; place-items: center;
+  }
+
+  code {
+    font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--surface);
+    border: 1px solid var(--faint);
+    padding: 0.06em 0.35em;
+    border-radius: 2px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 4px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.7rem 0 0.2rem;
+    max-width: 40rem;
+  }
+  pre code {
+    background: none; border: none; padding: 0;
+    font-size: 0.8rem; line-height: 1.6;
+  }
+
+  .done {
+    margin-top: 0.55rem;
+    font-size: 0.9rem;
+    color: var(--ok);
+  }
+  .done::before { content: "✓ done when — "; font-weight: 600; }
+
+  .trap {
+    max-width: 40rem;
+    margin: 1.2rem 0;
+    background: var(--gate-bg);
+    border-left: 3px solid var(--gate);
+    padding: 0.9rem 1.2rem;
+    border-radius: 0 4px 4px 0;
+  }
+  .trap .label {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--gate);
+    display: block; margin-bottom: 0.3rem;
+  }
+  .trap p { font-size: 0.94rem; }
+
+  /* reference */
+  section.ref { margin-top: 1.5rem; border-top: 1px solid var(--faint); padding-top: 2.2rem; }
+  section.ref h2 { font-size: 1.3rem; font-weight: 600; margin-bottom: 1.2rem; }
+  section.ref h3 { font-size: 0.95rem; font-weight: 600; margin: 1.6rem 0 0.6rem; }
+  .tablewrap { overflow-x: auto; }
+  table {
+    border-collapse: collapse; width: 100%;
+    font-size: 0.88rem;
+  }
+  th {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    text-align: left; padding: 0.45rem 1rem 0.45rem 0;
+    border-bottom: 2px solid var(--faint);
+  }
+  td {
+    padding: 0.55rem 1rem 0.55rem 0;
+    border-bottom: 1px solid var(--faint);
+    vertical-align: top;
+  }
+  td:first-child { white-space: nowrap; }
+
+  ul.plain { list-style: none; display: grid; gap: 0.6rem; max-width: 40rem; }
+  ul.plain li { padding-left: 1.1rem; position: relative; font-size: 0.94rem; }
+  ul.plain li::before {
+    content: "▸"; position: absolute; left: 0; color: var(--accent);
+  }
+
+  footer {
+    margin-top: 3.5rem;
+    font-size: 0.8rem; color: var(--muted);
+    border-top: 1px solid var(--faint);
+    padding-top: 1.2rem;
+  }
+  a { color: var(--accent-ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">diepzee / rif · branch build-v1</span>
+  <h1>Going live</h1>
+  <p class="lede">Everything the agents could build is built and reviewed. What
+  remains needs <strong>you</strong> — accounts, dashboards, deploys, and two
+  phones. Seven phases, in dependency order, over roughly
+  <strong>three evenings</strong>. Phase 1 is the gate: nothing else is worth
+  starting until it passes.</p>
+  <div class="status">
+    <span class="chip ok">51 tests green</span>
+    <span class="chip ok">final review clean</span>
+    <span class="chip">33 commits</span>
+    <span class="chip">nothing parked</span>
+  </div>
+
+  <nav class="map" aria-label="Phases">
+    <ol>
+      <li><a href="#p1"><span class="n">1</span><span class="t">The gating check</span><span class="gatechip">GATE</span><span class="when">evening 1</span></a></li>
+      <li><a href="#p2"><span class="n">2</span><span class="t">Identity seeds</span><span class="when">5 min</span></a></li>
+      <li><a href="#p3"><span class="n">3</span><span class="t">Deploy the real service</span><span class="when">evening 2</span></a></li>
+      <li><a href="#p4"><span class="n">4</span><span class="t">Storage &amp; safety nets</span><span class="when">evening 2</span></a></li>
+      <li><a href="#p5"><span class="n">5</span><span class="t">Content: the import</span><span class="when">evening 3</span></a></li>
+      <li><a href="#p6"><span class="n">6</span><span class="t">Protocol &amp; personas</span><span class="when">evening 3</span></a></li>
+      <li><a href="#p7"><span class="n">7</span><span class="t">Measure the ceiling</span><span class="when">evening 3</span></a></li>
+    </ol>
+  </nav>
+</header>
+
+<main>
+
+<section class="phase gate" id="p1">
+  <span class="marker" aria-hidden="true">1</span>
+  <h2>The gating check <span class="gatechip">GO / NO-GO</span></h2>
+  <p class="why">Her assistant living in the Claude mobile app rests on two
+  unproven assumptions: that a custom MCP connector works on <strong>her plan
+  tier, on mobile</strong>, and that Claude's connector OAuth (which demands
+  Dynamic Client Registration) completes against WorkOS AuthKit. The spike
+  burns both down with zero real data at stake.</p>
+  <ol class="steps">
+    <li>Create a free <strong>WorkOS</strong> account → application with
+      AuthKit enabled. Note the <code>*.authkit.app</code> domain.</li>
+    <li>Dashboard: enable <strong>Dynamic Client Registration</strong>. Check
+      the Redirects tab — the spike flagged (unverified) that a callback entry
+      may or may not be needed; record what you find.</li>
+    <li>Deploy the spike:
+<pre><code>cd ~/Repositories/haai/rif/.worktrees/build
+railway init --name rif &amp;&amp; railway up &amp;&amp; railway domain
+railway variables --set WORKOS_AUTHKIT_DOMAIN=&lt;authkit-domain&gt; \
+                  --set RIF_BASE_URL=https://&lt;railway-domain&gt;
+railway up   # again, so the vars take</code></pre></li>
+    <li>claude.ai web, your account: add
+      <code>https://&lt;domain&gt;/mcp</code> as a custom connector → AuthKit
+      login appears → sign in → call <code>whoami</code>.
+      <p class="done">your email appears in the claims.</p></li>
+    <li>Your phone: connector visible in the mobile app, <code>whoami</code>
+      works.</li>
+    <li><strong>Her account, her phone</strong> — the actual gate. Sign her up
+      through AuthKit, run <code>whoami</code>.</li>
+    <li>Record in <code>spike/NOTES.md</code>: claims shape
+      (<code>sub</code>, <code>email</code>, <code>email_verified</code> —
+      phase 3's login depends on these), DCR behavior, redirects answer, tier
+      limits. Commit.</li>
+  </ol>
+  <div class="trap">
+    <span class="label">If step 6 fails</span>
+    <p>No connectors on her tier or on mobile → stop, and the surface decision
+    reopens (the PWA route). Everything in <code>src/rif/</code> survives that
+    pivot untouched.</p>
+  </div>
+</section>
+
+<section class="phase" id="p2">
+  <span class="marker" aria-hidden="true">2</span>
+  <h2>Identity seeds</h2>
+  <p class="why">The <code>persons</code> table is the allowlist — the only two
+  people who can ever get in. Her row is a deliberate placeholder: her email is
+  her identity to give, not something an agent guesses. WorkOS authenticates
+  anyone who signs up; this table is what turns <em>authenticated</em> into
+  <em>allowed</em>.</p>
+  <ol class="steps">
+    <li>Edit <code>migrations/versions/d8567d9ee6dc_seed_persons_and_spaces.py</code>:
+      replace <code>&lt;HER-EMAIL&gt;</code> and <code>&lt;HER-NAME&gt;</code>.
+      Exact email match matters — it's how her first login binds to her row.</li>
+    <li>Commit. Optional local check: <code>uv run alembic upgrade head</code>
+      against the docker Postgres.</li>
+  </ol>
+</section>
+
+<section class="phase" id="p3">
+  <span class="marker" aria-hidden="true">3</span>
+  <h2>Deploy the real service</h2>
+  <p class="why">Safe to do now: the server <strong>refuses to boot</strong>
+  HTTP without auth configured (a final-review fix — misconfiguration is a
+  crash, not an open endpoint), and the store is empty until phase 5 anyway.</p>
+  <ol class="steps">
+    <li><pre><code>railway add --database postgres
+railway up</code></pre>
+      Boot runs <code>alembic upgrade head</code> (advisory-locked): schema,
+      RLS policies, your phase-2 seed.</li>
+    <li>Swap the connector on both accounts to the real <code>/mcp</code> URL
+      (nothing to swap if you reused the service).</li>
+    <li>On each phone: <code>list_spaces</code>.
+      <p class="done">each person sees exactly their own
+      <code>personal</code> + <code>household</code> — never the other's
+      space, never the word <em>school</em>. It's a tested invariant; see it
+      once with your own eyes anyway.</p></li>
+    <li><code>curl -i https://&lt;domain&gt;/mcp</code> from anywhere →
+      rejected, not a tool listing.</li>
+    <li>Commit ticking Task 6's deploy checkboxes — the code commit
+      deliberately didn't claim the deploy was live.</li>
+  </ol>
+</section>
+
+<section class="phase" id="p4">
+  <span class="marker" aria-hidden="true">4</span>
+  <h2>Storage &amp; safety nets</h2>
+  <p class="why">R2 holds image bytes; Postgres holds everything else. GitHub
+  used to give durability for free — now it's yours to arrange, in three
+  layers: managed backups (belt), your own dumps to R2 (braces), bucket
+  versioning (the undo button for bytes that aren't in any dump).</p>
+  <ol class="steps">
+    <li>Cloudflare → R2 → create bucket <code>rif</code>,
+      <strong>enable object versioning</strong>. Create an S3 API token,
+      then:
+<pre><code>railway variables \
+  --set RIF_S3_ENDPOINT=https://&lt;account-id&gt;.r2.cloudflarestorage.com \
+  --set RIF_S3_BUCKET=rif \
+  --set RIF_S3_ACCESS_KEY=&lt;key&gt; --set RIF_S3_SECRET_KEY=&lt;secret&gt;
+railway up</code></pre></li>
+    <li>Create/confirm a <strong>BYPASSRLS</strong> role on Railway's Postgres
+      and give <code>scripts/backup.py</code> <em>that</em> connection string —
+      distinct from the app's <code>DATABASE_URL</code>. (See the trap.)</li>
+    <li>Enable Railway's managed Postgres backups in the dashboard.</li>
+    <li>Schedule <code>scripts/backup.py</code> as a daily Railway cron — it
+      streams <code>pg_dump</code> straight to R2, never to container disk
+      (which is ephemeral).</li>
+    <li><strong>The drill:</strong> one real backup → download from R2 →
+      restore into local scratch per <code>docs/restore.md</code> → check:
+<pre><code>select (select count(*) from pages)       pages,
+       (select count(*) from revisions)   revisions,
+       (select count(*) from memberships) memberships;</code></pre>
+      <p class="done">counts match production. If
+      <code>memberships</code> is 0, the backup is decorative.</p></li>
+  </ol>
+  <div class="trap">
+    <span class="label">The pg_dump trap</span>
+    <p>The RLS design works <em>too</em> well: <code>FORCE ROW LEVEL
+    SECURITY</code> means even the table owner sees zero content rows without a
+    principal set — and <code>pg_dump</code> connects with no principal. A
+    backup run as the app role fails. <strong>Reproduced locally, not
+    theorized.</strong> The backup connection must carry
+    <code>BYPASSRLS</code>.</p>
+  </div>
+</section>
+
+<section class="phase" id="p5">
+  <span class="marker" aria-hidden="true">5</span>
+  <h2>Content: the import</h2>
+  <p class="why">The one step that moves your actual life into the system. The
+  disposition — household vs private — is a set of judgment calls only you can
+  make, so the importer takes <strong>explicit filename lists</strong>; nothing
+  moves by inference.</p>
+  <ol class="steps">
+    <li>Finalize the disposition in <code>mark/meta/architecture.md</code>
+      (branch <code>forest-leech</code>). Two calls still open:
+      <strong>health.md</strong> — private by default, but this page deserves a
+      conscious decision (a shared summary is possible without moving the
+      investigation notes); <strong>finances.md</strong> — proposed split
+      sends joint account / 2034 plan / family loan to household, keeps
+      pension + insurance private.</li>
+    <li>Prepare the split files by hand in a scratch dir
+      (<code>money.md</code>, <code>family-film.md</code>, trimmed originals).
+      Check <code>scripts/import_mark.py</code>'s
+      <code>HOUSEHOLD</code>/<code>PERSONAL</code> lists match — and that
+      unlisted files are excluded on purpose.</li>
+    <li><pre><code>railway run uv run python scripts/import_mark.py \
+  &lt;scratch-dir&gt; wouter@rugvin.be</code></pre></li>
+    <li>Verify from both sides — your phone: <code>load_all_context</code>
+      shows everything; her phone: household pages visible, none of yours.
+      <p class="done">the privacy design has faced reality and held. Look at
+      it directly.</p></li>
+  </ol>
+</section>
+
+<section class="phase" id="p6">
+  <span class="marker" aria-hidden="true">6</span>
+  <h2>Protocol &amp; personas</h2>
+  <p class="why">The code ships a fallback protocol, but the real thing is
+  content, editable like any page and versioned like any page.</p>
+  <ol class="steps">
+    <li>Write <code>meta/protocol.md</code> in the household space (via
+      <code>update_meta_page</code>, or just ask a connected assistant): load
+      context first · compile, don't dump · private-by-default routing ·
+      promote only with consent — plus the <strong>onboarding behavior</strong>:
+      an assistant meeting an empty personal space introduces itself, asks
+      what to call itself, and interviews gently to seed the persona.</li>
+    <li>Write your own <code>meta/persona.md</code> — Mark's tone lives in
+      <code>mark/wiki/mark.md</code> today; port it.</li>
+    <li><strong>Hers is not yours to write.</strong> Her first conversation
+      creates it, via onboarding. She names her own assistant.</li>
+  </ol>
+</section>
+
+<section class="phase" id="p7">
+  <span class="marker" aria-hidden="true">7</span>
+  <h2>Measure the ceiling</h2>
+  <p class="why">The server budgets body <em>characters</em>; the client cares
+  about serialized <em>tokens</em>, and the mobile host may truncate big tool
+  results on its own. The budget must come from measurement on the real
+  device, not arithmetic.</p>
+  <ol class="steps">
+    <li><code>railway run uv run python scripts/measure_context.py
+      wouter@rugvin.be &lt;size&gt;</code> — pad the corpus to ~60&nbsp;KB,
+      then ~200&nbsp;KB, then ~500&nbsp;KB.</li>
+    <li>After each: from the Claude mobile app, ask the assistant to
+      <code>load_all_context</code> and report <code>page_count</code>,
+      <code>included_count</code>, and whether every non-null body arrived
+      intact — a mismatch means truncation in transit, by design
+      detectable.</li>
+    <li>Record in <code>docs/superpowers/plans/context-limits.md</code>; set
+      <code>RIF_CONTEXT_CHAR_BUDGET</code> comfortably below the first size
+      that misbehaved; <code>railway up</code>.</li>
+    <li>Clean up: <code>scripts/measure_context.py wouter@rugvin.be 0</code>.</li>
+  </ol>
+</section>
+
+</main>
+
+<section class="ref">
+  <h2>Reference</h2>
+
+  <h3>Environment variables (Railway)</h3>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Var</th><th>Purpose</th></tr>
+    <tr><td><code>WORKOS_AUTHKIT_DOMAIN</code></td><td>AuthKit app domain; auth refuses to boot without it</td></tr>
+    <tr><td><code>RIF_BASE_URL</code></td><td>Public root URL, no path — drives advertised resource URL + token audience</td></tr>
+    <tr><td><code>DATABASE_URL</code></td><td>Injected by Railway Postgres (app role)</td></tr>
+    <tr><td><code>RIF_S3_*</code></td><td>R2: endpoint, bucket, access key, secret — images + backups</td></tr>
+    <tr><td><code>RIF_CONTEXT_CHAR_BUDGET</code></td><td>Set from phase 7 measurement</td></tr>
+    <tr><td><code>PORT</code></td><td>Set by Railway; presence = HTTP mode = auth required</td></tr>
+  </table>
+  </div>
+
+  <h3>Escape hatches, in order of severity</h3>
+  <ul class="plain">
+    <li>AuthKit misbehaves with Claude's DCR → <code>GoogleProvider</code>
+      fallback documented in <code>spike/NOTES.md</code> (needs a Google Cloud
+      OAuth app).</li>
+    <li>Connectors unusable on her tier/mobile → surface decision reopens
+      (PWA); store and tools unaffected.</li>
+    <li>rif dies someday → <code>python -m rif.export</code> renders every
+      space back to portable markdown; plus the R2 dumps; plus Railway managed
+      backups.</li>
+  </ul>
+
+  <h3>Where things live</h3>
+  <ul class="plain">
+    <li>Code + plan: <code>diepzee/rif</code>, branch <code>build-v1</code></li>
+    <li>Knowledge design: <code>mark/meta/architecture.md</code>, branch <code>forest-leech</code></li>
+    <li>Build audit trail: <code>.worktrees/build/.superpowers/sdd/2026-08-05-rif-v1/progress.md</code></li>
+  </ul>
+</section>
+
+<footer>
+  rif — a remote MCP memory for the household. Store: Postgres + RLS. Surface:
+  the Claude app. Exit: always markdown.
+</footer>
+
+</div>
+</body>
+</html>
