@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rif — how it works</title>
+<style>
+  :root {
+    --bg: #f2f6f6;
+    --surface: #ffffff;
+    --ink: #16282d;
+    --muted: #5c7176;
+    --faint: #c7d6d8;
+    --accent: #0f7a85;
+    --accent-ink: #0b5f68;
+    --gate: #b9502c;
+    --gate-bg: #faeee8;
+    --ok: #2e7d5b;
+    --code-bg: #0d1a1e;
+    --code-ink: #b8d4d7;
+    --rail: #9dbcc0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c171b; --surface: #122229; --ink: #d9e7e8; --muted: #8aa3a8;
+      --faint: #24393f; --accent: #4cc3cd; --accent-ink: #7dd6dd;
+      --gate: #e0855c; --gate-bg: #2a1d16; --ok: #5cba93;
+      --code-bg: #081114; --code-ink: #a5c6ca; --rail: #35545b;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c171b; --surface: #122229; --ink: #d9e7e8; --muted: #8aa3a8;
+    --faint: #24393f; --accent: #4cc3cd; --accent-ink: #7dd6dd;
+    --gate: #e0855c; --gate-bg: #2a1d16; --ok: #5cba93;
+    --code-bg: #081114; --code-ink: #a5c6ca; --rail: #35545b;
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f6f6; --surface: #ffffff; --ink: #16282d; --muted: #5c7176;
+    --faint: #c7d6d8; --accent: #0f7a85; --accent-ink: #0b5f68;
+    --gate: #b9502c; --gate-bg: #faeee8; --ok: #2e7d5b;
+    --code-bg: #0d1a1e; --code-ink: #b8d4d7; --rail: #9dbcc0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Seravek", -apple-system, "Segoe UI", sans-serif;
+    font-size: 1.0rem;
+    line-height: 1.62;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+
+  h1, h2 {
+    font-family: "Avenir Next", "Futura", -apple-system, sans-serif;
+    text-wrap: balance; line-height: 1.15;
+  }
+  .eyebrow {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  header h1 { font-size: 2.3rem; font-weight: 700; margin: 0.45rem 0 1rem; }
+  .lede { font-size: 1.08rem; color: var(--muted); max-width: 38rem; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  section { margin-top: 3.2rem; }
+  section h2 {
+    font-size: 1.35rem; font-weight: 600;
+    padding-bottom: 0.5rem; margin-bottom: 1rem;
+    border-bottom: 1px solid var(--faint);
+  }
+  section p { max-width: 40rem; margin-bottom: 0.9rem; }
+  section p.mut { color: var(--muted); }
+
+  code {
+    font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+    font-size: 0.85em;
+    background: var(--surface);
+    border: 1px solid var(--faint);
+    padding: 0.06em 0.35em;
+    border-radius: 2px;
+  }
+
+  figure {
+    margin: 1.6rem 0;
+    background: var(--surface);
+    border: 1px solid var(--faint);
+    border-radius: 4px;
+    padding: 1.4rem 1.4rem 1rem;
+    overflow-x: auto;
+  }
+  figure svg { max-width: 100%; height: auto; display: block; margin: 0 auto; color: var(--ink); }
+  figcaption {
+    margin-top: 0.9rem;
+    font-size: 0.82rem; color: var(--muted);
+    max-width: 36rem;
+  }
+  svg text {
+    font-family: "Seravek", -apple-system, sans-serif;
+    fill: currentColor;
+  }
+  svg .lbl { font-size: 12px; }
+  svg .sm  { font-size: 10.5px; fill: var(--muted); }
+  svg .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 10.5px; }
+  svg rect.box { fill: none; stroke: currentColor; stroke-width: 1.3; }
+  svg rect.hot { stroke: var(--accent); stroke-width: 1.8; }
+  svg rect.warn { stroke: var(--gate); stroke-width: 1.8; }
+  svg line, svg polyline, svg path.edge { stroke: currentColor; stroke-width: 1.2; fill: none; }
+  svg .dashed { stroke-dasharray: 4 4; }
+  svg .accentline { stroke: var(--accent); }
+  svg .gateline { stroke: var(--gate); }
+
+  ol.flow {
+    list-style: none; counter-reset: s;
+    display: grid; gap: 0.85rem; max-width: 40rem;
+    margin-bottom: 1rem;
+  }
+  ol.flow > li { counter-increment: s; position: relative; padding-left: 1.9rem; }
+  ol.flow > li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: 0.18rem;
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.72rem; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    border: 1px solid var(--faint); background: var(--surface);
+    width: 1.25rem; height: 1.25rem; border-radius: 2px;
+    display: grid; place-items: center;
+  }
+
+  .callout {
+    max-width: 40rem;
+    margin: 1.2rem 0;
+    background: var(--gate-bg);
+    border-left: 3px solid var(--gate);
+    padding: 0.9rem 1.2rem;
+    border-radius: 0 4px 4px 0;
+    font-size: 0.94rem;
+  }
+  .callout .label {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--gate);
+    display: block; margin-bottom: 0.3rem;
+  }
+
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+  th {
+    font-family: "Avenir Next", -apple-system, sans-serif;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--muted);
+    text-align: left; padding: 0.45rem 1rem 0.45rem 0;
+    border-bottom: 2px solid var(--faint);
+  }
+  td { padding: 0.55rem 1rem 0.55rem 0; border-bottom: 1px solid var(--faint); vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+
+  footer {
+    margin-top: 3.5rem; font-size: 0.8rem; color: var(--muted);
+    border-top: 1px solid var(--faint); padding-top: 1.2rem;
+  }
+  a { color: var(--accent-ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">diepzee / rif · companion to the runbook</span>
+  <h1>How it works</h1>
+  <p class="lede">One memory service, two assistants, three spaces. This
+  explains the machine you're about to deploy: where knowledge lives, how the
+  privacy boundary is enforced, what happens during a conversation, and why
+  the design refuses some fashionable ideas on purpose.</p>
+</header>
+
+<section id="topology">
+  <h2>The big picture</h2>
+  <p>rif is a small headless Python service. It owns a Postgres database (the
+  knowledge), talks to R2 (image bytes), and exposes everything as MCP tools
+  over HTTPS. Every surface — her Claude app, your Claude Code, anything later
+  — is just another client of the same tools. One store, one write path, one
+  enforcement point.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 320" role="img" aria-label="Topology: two clients connect over MCP to rif on Railway, which owns Postgres and R2; WorkOS answers who is this; a manual export renders markdown as the exit.">
+      <defs>
+        <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <!-- clients -->
+      <rect class="box" x="20" y="70" width="150" height="44" rx="3"/>
+      <text class="lbl" x="95" y="88" text-anchor="middle">her phone</text>
+      <text class="sm" x="95" y="103" text-anchor="middle">Claude app</text>
+      <rect class="box" x="20" y="150" width="150" height="44" rx="3"/>
+      <text class="lbl" x="95" y="168" text-anchor="middle">your surfaces</text>
+      <text class="sm" x="95" y="183" text-anchor="middle">Claude Code · phone</text>
+      <!-- rif -->
+      <rect class="hot box" x="260" y="96" width="150" height="76" rx="3"/>
+      <text class="lbl" x="335" y="122" text-anchor="middle" font-weight="600">rif</text>
+      <text class="sm" x="335" y="138" text-anchor="middle">FastMCP · Railway</text>
+      <text class="sm" x="335" y="153" text-anchor="middle">accessor arms RLS</text>
+      <!-- stores -->
+      <rect class="box" x="500" y="70" width="120" height="44" rx="3"/>
+      <text class="lbl" x="560" y="88" text-anchor="middle">Postgres</text>
+      <text class="sm" x="560" y="103" text-anchor="middle">pages · history</text>
+      <rect class="box" x="500" y="150" width="120" height="44" rx="3"/>
+      <text class="lbl" x="560" y="168" text-anchor="middle">R2</text>
+      <text class="sm" x="560" y="183" text-anchor="middle">image bytes</text>
+      <!-- workos -->
+      <rect class="box" x="260" y="14" width="150" height="40" rx="3"/>
+      <text class="lbl" x="335" y="31" text-anchor="middle">WorkOS AuthKit</text>
+      <text class="sm" x="335" y="45" text-anchor="middle">login · OAuth · DCR</text>
+      <!-- edges -->
+      <line x1="170" y1="92" x2="256" y2="118" marker-end="url(#arr)"/>
+      <line x1="170" y1="172" x2="256" y2="150" marker-end="url(#arr)"/>
+      <text class="sm" x="212" y="88" text-anchor="middle">MCP / HTTPS</text>
+      <line class="dashed" x1="335" y1="54" x2="335" y2="92" marker-end="url(#arr)"/>
+      <text class="sm" x="345" y="76" text-anchor="start">“who is this?”</text>
+      <line x1="410" y1="118" x2="496" y2="94" marker-end="url(#arr)"/>
+      <text class="sm" x="453" y="94" text-anchor="middle">SQL, RLS on</text>
+      <line x1="410" y1="150" x2="496" y2="170" marker-end="url(#arr)"/>
+      <text class="sm" x="453" y="176" text-anchor="middle">signed URLs</text>
+      <!-- exit -->
+      <rect class="box" x="260" y="250" width="150" height="44" rx="3"/>
+      <text class="lbl" x="335" y="268" text-anchor="middle">markdown files</text>
+      <text class="sm" x="335" y="283" text-anchor="middle">the exit, always</text>
+      <line class="dashed" x1="335" y1="172" x2="335" y2="246" marker-end="url(#arr)"/>
+      <text class="sm" x="345" y="215" text-anchor="start">python -m rif.export</text>
+    </svg>
+    <figcaption>Everything is a client of the same MCP tools. WorkOS only
+    answers identity; rif decides access. The dashed export path is one-way —
+    nothing ever reads from the markdown back into the store.</figcaption>
+  </figure>
+</section>
+
+<section id="spaces">
+  <h2>Three spaces, and who may enter</h2>
+  <p>Knowledge lives in <strong>spaces</strong>: one personal space each, one
+  shared household space. Access is a table of memberships — and the whole
+  privacy model is the <em>absence</em> of two rows.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 230" role="img" aria-label="Membership graph: Wouter connects to his personal space and the household space; she connects to her personal space and the household space; no edge crosses between the personal spaces.">
+      <defs>
+        <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <!-- people -->
+      <circle cx="170" cy="40" r="22" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text class="lbl" x="170" y="44" text-anchor="middle">W</text>
+      <circle cx="470" cy="40" r="22" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <text class="lbl" x="470" y="44" text-anchor="middle">her</text>
+      <!-- spaces -->
+      <rect class="box" x="40" y="140" width="160" height="52" rx="3"/>
+      <text class="lbl" x="120" y="161" text-anchor="middle">his personal</text>
+      <text class="sm" x="120" y="177" text-anchor="middle">health · work · taste</text>
+      <rect class="hot box" x="240" y="140" width="160" height="52" rx="3"/>
+      <text class="lbl" x="320" y="161" text-anchor="middle">household</text>
+      <text class="sm" x="320" y="177" text-anchor="middle">house · money · kids</text>
+      <rect class="box" x="440" y="140" width="160" height="52" rx="3"/>
+      <text class="lbl" x="520" y="161" text-anchor="middle">her personal</text>
+      <text class="sm" x="520" y="177" text-anchor="middle">whatever she keeps</text>
+      <!-- memberships -->
+      <line x1="158" y1="59" x2="126" y2="136" marker-end="url(#arr2)"/>
+      <line x1="185" y1="57" x2="303" y2="136" marker-end="url(#arr2)"/>
+      <line x1="455" y1="57" x2="338" y2="136" marker-end="url(#arr2)"/>
+      <line x1="482" y1="59" x2="514" y2="136" marker-end="url(#arr2)"/>
+      <text class="sm" x="320" y="105" text-anchor="middle">a membership row = an edge</text>
+      <!-- absence -->
+      <text class="sm" x="320" y="218" text-anchor="middle" fill="var(--gate)">the missing edges are the privacy model — and the database enforces the absence</text>
+    </svg>
+    <figcaption>Four membership rows, ever. Neither assistant can reach the
+    other's personal space, and neither person can even <em>name</em> it —
+    tools speak in aliases (<code>personal</code>, <code>household</code>) that
+    resolve per person. Nobody ever sees an internal space name.</figcaption>
+  </figure>
+</section>
+
+<section id="conversation">
+  <h2>What happens in a conversation</h2>
+  <ol class="flow">
+    <li><strong>Login, once.</strong> The Claude app discovers WorkOS through
+      rif's metadata and runs the OAuth flow. WorkOS says <em>who</em> she is;
+      the two-row <code>persons</code> table decides whether she's
+      <em>allowed</em>. An authenticated stranger is denied.</li>
+    <li><strong>Load everything.</strong> The assistant's first call is
+      <code>load_all_context</code> — every page in every space she can see, in
+      one response. No search, no retrieval ranking, no "the model didn't find
+      the page." At this scale (~100 pages fits comfortably) complete memory is
+      simply affordable.</li>
+    <li><strong>Talk.</strong> The model reasons over full knowledge in
+      context. Image descriptions ride along as text; pixels are fetched only
+      when they matter.</li>
+    <li><strong>Remember.</strong> New facts land via
+      <code>remember(fact)</code> — which defaults to the <em>private</em>
+      space in its very signature. Only clearly-household facts (joint things,
+      joint decisions, shared obligations) go to <code>household</code>, and
+      anything ambiguous stays private.</li>
+    <li><strong>Compile.</strong> Real edits go through
+      <code>edit_page_section</code> — surgical, versioned, conflict-checked.
+      Every write records who, why, and the full page state, forever.</li>
+  </ol>
+  <p class="mut">If the corpus ever outgrows the context budget, the payload
+  says so out loud: omitted pages still appear, body-less, with a note — a
+  partial memory that <em>looks</em> complete is the one failure this design
+  refuses to permit.</p>
+</section>
+
+<section id="boundary">
+  <h2>The boundary: the database refuses</h2>
+  <p>The rule "her sessions can't read your health pages" is not enforced by
+  application code being correct. It's enforced by Postgres
+  <strong>Row-Level Security</strong> in <code>FORCE</code> mode: every
+  content-table query is filtered by policies that join through memberships,
+  and they bind <em>everyone</em> — including rif's own database role.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the space, which sets the transaction-local principal; all SQL then passes through RLS policies which return only rows in that person's spaces; a query with no principal set returns zero rows.">
+      <defs>
+        <marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <rect class="box" x="16" y="40" width="128" height="52" rx="3"/>
+      <text class="lbl" x="80" y="61" text-anchor="middle">tool call</text>
+      <text class="sm" x="80" y="77" text-anchor="middle">authenticated person</text>
+      <rect class="box" x="184" y="40" width="150" height="52" rx="3"/>
+      <text class="lbl" x="259" y="61" text-anchor="middle">resolve_space</text>
+      <text class="mono" x="259" y="77" text-anchor="middle">SET app.person_id</text>
+      <rect class="hot box" x="374" y="40" width="130" height="52" rx="3"/>
+      <text class="lbl" x="439" y="61" text-anchor="middle">RLS policies</text>
+      <text class="sm" x="439" y="77" text-anchor="middle">FORCE — bind owner too</text>
+      <rect class="box" x="544" y="40" width="80" height="52" rx="3"/>
+      <text class="lbl" x="584" y="61" text-anchor="middle">rows</text>
+      <text class="sm" x="584" y="77" text-anchor="middle">yours only</text>
+      <line x1="144" y1="66" x2="180" y2="66" marker-end="url(#arr3)"/>
+      <line x1="334" y1="66" x2="370" y2="66" marker-end="url(#arr3)"/>
+      <text class="sm" x="352" y="56" text-anchor="middle">any SQL</text>
+      <line x1="504" y1="66" x2="540" y2="66" marker-end="url(#arr3)"/>
+      <!-- fail-closed path -->
+      <line class="dashed gateline" x1="80" y1="130" x2="370" y2="130" marker-end="url(#arr3)"/>
+      <text class="sm" x="80" y="120" text-anchor="start" fill="var(--gate)">query with no principal set — a forgotten filter, a bug, pg_dump</text>
+      <line class="dashed gateline" x1="439" y1="96" x2="439" y2="126"/>
+      <line class="dashed gateline" x1="439" y1="130" x2="540" y2="130" marker-end="url(#arr3)"/>
+      <text class="lbl" x="584" y="134" text-anchor="middle" fill="var(--gate)">0 rows</text>
+      <text class="sm" x="320" y="180" text-anchor="middle">fails closed: the mistake yields nothing, not everything</text>
+    </svg>
+    <figcaption>The accessor arms the principal for one transaction; the
+    policies do the filtering. Application bugs downgrade to "no data" instead
+    of "wrong person's data." The adversarial test suite attacks this directly
+    with raw SQL as the wrong principal.</figcaption>
+  </figure>
+
+  <div class="callout">
+    <span class="label">Why this matters</span>
+    The first draft enforced the boundary by discipline — "every query must
+    remember the filter." External review showed the plan itself already broke
+    that rule. Discipline doesn't survive contact with future code; a database
+    that refuses does.
+  </div>
+</section>
+
+<section id="sharing">
+  <h2>Sharing is a one-way door</h2>
+  <p>Promoting a page from personal to household is the one irreversible act
+  in the system: once the other person <em>could have read it</em>, there is
+  no un-sharing. So there is no demotion tool at all, and promotion takes two
+  steps — because a model passing <code>confirm=true</code> on its own proves
+  nothing.</p>
+
+  <figure>
+    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step promotion: prepare returns the full disclosure and a nonce; only after the human says yes does confirm copy the page to household, stub the original, and consume the nonce; a retry of confirm finds the nonce consumed and does nothing.">
+      <defs>
+        <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
+        </marker>
+      </defs>
+      <rect class="box" x="16" y="30" width="140" height="52" rx="3"/>
+      <text class="lbl" x="86" y="51" text-anchor="middle">prepare_to_share</text>
+      <text class="sm" x="86" y="67" text-anchor="middle">returns full disclosure</text>
+      <rect class="warn box" x="216" y="30" width="140" height="52" rx="3"/>
+      <text class="lbl" x="286" y="51" text-anchor="middle">the human says yes</text>
+      <text class="sm" x="286" y="67" text-anchor="middle">in this conversation</text>
+      <rect class="box" x="416" y="30" width="140" height="52" rx="3"/>
+      <text class="lbl" x="486" y="51" text-anchor="middle">confirm_share</text>
+      <text class="sm" x="486" y="67" text-anchor="middle">copy · stub · consume</text>
+      <line x1="156" y1="56" x2="212" y2="56" marker-end="url(#arr4)"/>
+      <text class="sm" x="184" y="46" text-anchor="middle">nonce, 10 min</text>
+      <line x1="356" y1="56" x2="412" y2="56" marker-end="url(#arr4)"/>
+      <!-- guards -->
+      <text class="sm" x="86" y="115" text-anchor="middle">bound to the exact</text>
+      <text class="sm" x="86" y="130" text-anchor="middle">page revision — if it</text>
+      <text class="sm" x="86" y="145" text-anchor="middle">changed, start over</text>
+      <text class="sm" x="486" y="115" text-anchor="middle">destination must not exist —</text>
+      <text class="sm" x="486" y="130" text-anchor="middle">never a silent overwrite;</text>
+      <text class="sm" x="486" y="145" text-anchor="middle">a network retry finds the nonce</text>
+      <text class="sm" x="486" y="160" text-anchor="middle">consumed and does nothing</text>
+    </svg>
+    <figcaption>The nonce is single-use and pinned to the exact content the
+    human saw. The private copy becomes a stub pointing at the household page —
+    and its private drafting history stays private, because history belongs to
+    the personal page, not the moved text.</figcaption>
+  </figure>
+</section>
+
+<section id="history">
+  <h2>Memory of the memory</h2>
+  <p>Every write stores a complete snapshot — body, title, tags — plus who
+  wrote it, when, and a one-line <em>why</em>. That's git's model, kept in a
+  table, which makes it <em>queryable</em>: "what did we know about the boiler
+  in March" is a <code>WHERE</code> clause, not an archaeology dig. Restoring
+  an old version is just writing it again — history only ever grows.</p>
+  <p class="mut">Each space also carries a version counter bumped by every
+  write, so a client can ask "did anything change?" for free — and a future
+  <code>changes_since</code> tool can open her conversations with "since
+  yesterday, Wouter noted the boiler service is booked."</p>
+</section>
+
+<section id="images">
+  <h2>Images: descriptions in memory, pixels on demand</h2>
+  <p>Bytes go to R2; Postgres keeps the metadata plus a <strong>mandatory
+  text description</strong>, written at upload time. That description is what
+  makes photos work in a load-everything design: "the boiler's model plate,
+  reading Vaillant ecoTEC VU 246/5-5" rides along in every context load, and
+  the actual image is fetched — via a short-lived signed URL, behind the same
+  space check as any page — only when the pixels matter.</p>
+</section>
+
+<section id="safety">
+  <h2>Safety nets</h2>
+  <ol class="flow">
+    <li><strong>Railway managed backups</strong> — the belt.</li>
+    <li><strong>Daily <code>pg_dump</code> streamed to R2</strong> — the
+      braces, run by a role that may bypass RLS (the boundary works so well it
+      blanks backups run as the app).</li>
+    <li><strong>R2 object versioning</strong> — the undo button for image
+      bytes, which no database dump contains.</li>
+    <li><strong>The export</strong> — <code>python -m rif.export</code> renders
+      every space back to plain markdown with frontmatter, import-compatible.
+      If rif dies, is abandoned, or you simply change your mind, the knowledge
+      walks away as files. The store is never a hostage.</li>
+  </ol>
+</section>
+
+<section id="refusals">
+  <h2>What it deliberately doesn't do</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Absent</th><th>Why</th></tr>
+    <tr><td>Full-text search</td><td>The whole corpus loads — there is nothing to search.</td></tr>
+    <tr><td>Vector DB / embeddings</td><td>Retrieval tech for corpora that don't fit in context. Top-k similarity fails silently — the assistant confidently not knowing what it was told — the worst failure a memory can have.</td></tr>
+    <tr><td>Knowledge graph</td><td>Same reason; and the wiki already is one — pages are nodes, links are edges — with the nuance kept in prose instead of lossy triples.</td></tr>
+    <tr><td>Demotion / unsharing</td><td>Can't exist honestly. Once readable, read. The only gate is before sharing, which is why that gate is heavy.</td></tr>
+    <tr><td>Notion / bidirectional sync</td><td>Two writable copies of the truth means a conflict-resolution problem that never ends. The export is one-way on purpose.</td></tr>
+    <tr><td>A web UI</td><td>Both users talk to assistants; the assistants talk to rif. A UI for nobody is the feature most worth not building.</td></tr>
+  </table>
+  </div>
+</section>
+
+<section id="tools">
+  <h2>The tools, at a glance</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Tool</th><th>What it does</th></tr>
+    <tr><td><code>load_all_context</code></td><td>Everything you can see, one call. First call of every conversation.</td></tr>
+    <tr><td><code>read_page</code></td><td>One page — the fallback when context was truncated.</td></tr>
+    <tr><td><code>remember</code></td><td>Append a fact to the inbox. Private by default, retry-safe.</td></tr>
+    <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or surgical writes, optimistically versioned.</td></tr>
+    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>The two-step one-way door.</td></tr>
+    <tr><td><code>update_meta_page</code></td><td>The only write path to protocol & persona — the pages that steer the assistant.</td></tr>
+    <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store with mandatory description; fetch via short-lived signed URL.</td></tr>
+    <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol + persona — content, versioned like everything else.</td></tr>
+    <tr><td><code>list_spaces</code></td><td>What you can see: <code>personal</code> and <code>household</code>. Never more.</td></tr>
+  </table>
+  </div>
+</section>
+
+<footer>
+  rif — how it works. Companion to <a href="runbook.html">the go-live
+  runbook</a>. Store: Postgres + RLS · Surface: the Claude app · Exit: always
+  markdown.
+</footer>
+
+</div>
+</body>
+</html>
