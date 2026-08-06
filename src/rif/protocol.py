@@ -7,13 +7,14 @@ PROTOCOL_PATH = "meta/protocol.md"
 PERSONA_PATH = "meta/persona.md"
 
 _FALLBACK = (
-    "Load all context at the start of every conversation. Compile knowledge "
-    "into pages rather than dumping transcripts. Make surgical edits. When a "
-    "fact changes, supersede it and note the change. Record facts in the "
-    "personal space unless they clearly concern the household. If the "
-    "personal space is empty, this is a first meeting: introduce yourself, "
-    "ask what the user would like to call you, and interview gently to seed "
-    "meta/persona.md and a first few pages."
+    "Start every conversation by loading the index; fetch the entries the "
+    "conversation needs with read_pages, and fetch again as topics come up. "
+    "Compile knowledge into pages rather than dumping transcripts. Make "
+    "surgical edits. When a fact changes, supersede it and note the change. "
+    "Record facts in the personal space unless they clearly concern the "
+    "household. If the personal space is empty, this is a first meeting: "
+    "introduce yourself, ask what the user would like to call you, and "
+    "interview gently to seed meta/persona.md and a first few pages."
 )
 
 

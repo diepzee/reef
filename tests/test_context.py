@@ -51,3 +51,64 @@ async def test_version_reflects_every_space_write(session, household):
     first = (await load_context(session, me, char_budget=100_000)).version
     await save_page(session, me, "household", "h.md", "two", message="x")
     assert (await load_context(session, me, char_budget=100_000)).version != first
+
+
+async def test_index_lists_pages_without_bodies(session, household):
+    from rif.context import build_index as load_index
+
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "health.md",
+                    "Sleep profile and open questions.\n\nLong detail here.",
+                    message="x", tags=["person"])
+    await save_page(session, me, "household", "house.md", "The family home.",
+                    message="x")
+
+    idx = await load_index(session, me)
+
+    assert {s.alias for s in idx.spaces} == {"personal", "household"}
+    entry = next(p for s in idx.spaces for p in s.pages if p["path"] == "health.md")
+    assert entry["title"] == "health"
+    assert entry["tags"] == ["person"]
+    assert entry["description"] == "Sleep profile and open questions."
+    assert entry["size"] > 0 and entry["version"] == 1
+    assert "body" not in entry
+
+
+async def test_index_description_skips_headings(session, household):
+    from rif.context import build_index as load_index
+
+    me = principal_for(household["wouter"])
+    await save_page(session, me, "personal", "a.md",
+                    "# Heading\n\nThe real summary line.\n\nMore.", message="x")
+    idx = await load_index(session, me)
+    entry = next(p for s in idx.spaces for p in s.pages if p["path"] == "a.md")
+    assert entry["description"] == "The real summary line."
+
+
+async def test_index_excludes_the_other_persons_space(session, household):
+    from rif.context import build_index as load_index
+
+    mine = principal_for(household["wouter"])
+    theirs = principal_for(household["partner"])
+    await save_page(session, theirs, "personal", "hers.md", "her secret",
+                    message="x")
+    idx = await load_index(session, mine)
+    assert all(p["path"] != "hers.md" for s in idx.spaces for p in s.pages)
+
+
+async def test_index_carries_attachment_descriptions(session, household):
+    from rif.access import resolve_space
+    from rif.context import build_index as load_index
+    from rif.models import Attachment, AttachmentStatus
+
+    me = principal_for(household["wouter"])
+    shared = await resolve_space(session, me, "household")
+    session.add(Attachment(space_id=shared.id, object_key="k1", mime="image/png",
+                           byte_size=9, description="the boiler's model plate",
+                           status=AttachmentStatus.READY))
+    await session.flush()
+
+    idx = await load_index(session, me)
+    house = next(s for s in idx.spaces if s.alias == "household")
+    assert house.attachments == [{"key": "k1", "mime": "image/png",
+                                  "description": "the boiler's model plate"}]
