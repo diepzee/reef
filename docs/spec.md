@@ -244,7 +244,7 @@ isolated to one late phase, so a painful OAuth never blocks a working server.
 
 ## Stack
 
-Python 3.13, uv, ruff. FastMCP. SQLAlchemy 2.0 async with Alembic. pytest
+Python 3.13, uv, ruff. FastMCP. Piccolo (ORM and migrations in one). pytest
 against a real Postgres — mocked repositories cannot catch the constraint and
 isolation bugs that matter here. Railway for the app and Postgres; Cloudflare R2
 for attachments, since Railway has no object storage of its own.
