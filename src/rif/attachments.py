@@ -41,6 +41,13 @@ class S3ObjectStore:
             endpoint_url=settings.s3_endpoint,
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
+            # R2 signs against the pseudo-region "auto". Pinned rather than
+            # left to boto3's resolution, which reads AWS_REGION and
+            # ~/.aws/config: a developer machine with either set signs with a
+            # different region than the container, which has neither and falls
+            # back to us-east-1. Same code, two signatures, one of them only
+            # failing in production.
+            region_name="auto",
         )
 
     async def put(self, key: str, data: bytes, mime: str) -> None:
@@ -120,7 +127,15 @@ async def add_attachment(
         # Opaque: never derived from space.id, which must not cross the tool
         # boundary (it would let two keys sharing a prefix reveal they're the
         # same space, an internal-identifier correlation leak).
-        key = f"{uuid4().hex}-{sha256(data).hexdigest()[:16]}"
+        #
+        # The constant "attachments/" prefix is safe for that reason too --
+        # every attachment carries it, so it distinguishes nothing. It exists
+        # because R2 has no object versioning; the protection it does offer,
+        # bucket locks, is scoped by prefix, and attachments and backups need
+        # opposite policies: attachments locked indefinitely, backups only
+        # long enough to age out. Without a prefix here, any lock rule covers
+        # the whole bucket and no dump can ever be expired.
+        key = f"attachments/{uuid4().hex}-{sha256(data).hexdigest()[:16]}"
         attachment = Attachment(
             space_id=space.id,
             page_id=page_id,
