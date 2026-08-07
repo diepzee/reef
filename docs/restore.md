@@ -26,7 +26,8 @@ while and the timestamp naming is confirmed to sort/list the way we expect.
 ## Required: the backup connection must bypass RLS
 
 **This is not optional and not yet verified against Railway production —
-see human_steps.** `pages`, `revisions`, and `attachments` all run
+see Phase 4 of [`runbook.md`](runbook.md).** `pages`, `revisions`, and
+`attachments` all run
 `FORCE ROW LEVEL SECURITY`, which — deliberately, per `docs/spec.md` and the
 Task 2 migration — applies row security to the table *owner* too, not just
 other roles. `pg_dump` issues `COPY <table> TO stdout` internally, and
@@ -53,8 +54,8 @@ connection is deliberately RLS-constrained — that is the entire point of
 Task 2's design. The backup cron service therefore needs its own
 `DATABASE_URL`, pointing at a role that bypasses RLS: either Railway's
 managed Postgres admin/root credential (if Railway's plugin still exposes
-one distinct from whatever role the app uses — unconfirmed, see
-human_steps), or a dedicated role created with `BYPASSRLS` (not full
+one distinct from whatever role the app uses — unconfirmed, see Phase 4 of
+[`runbook.md`](runbook.md)), or a dedicated role created with `BYPASSRLS` (not full
 `SUPERUSER`) reserved for backups only, analogous to how local dev keeps
 `postgres` (bootstrap, superuser) separate from `rif` (app, RLS-bound). A
 role with plain `BYPASSRLS` is preferable to superuser for this: it is
@@ -138,21 +139,40 @@ fixture to keep around.
 This proves the restore *mechanics* (the exact commands above) are correct.
 It does **not** prove the backup cron works against Railway's actual
 production role/credential setup — that depends on the still-unconfirmed
-question in the previous section, and is a human step (see below).
+question in the previous section, and is a human step: Phase 4 of
+[`runbook.md`](runbook.md).
 
-## R2 versioning covers attachment bytes
+**As of 7 Aug 2026 the R2 bucket does not exist and the backup cron has not
+been created**, so `scripts/backup.py` has never run against production and
+the drill has never been possible. There is real data in the store. Until a
+dump is pulled from R2 and restored with matching counts, rif's only
+durability is Railway's managed snapshots — one mechanism, unverified.
+
+## Bucket locks cover attachment bytes — R2 has no versioning
 
 Image bytes live in R2 as opaque-keyed objects (`attachments.object_key`,
 never derived from `space_id` — see `src/rif/attachments.py`), outside
 Postgres entirely. `pg_dump`/`pg_restore` only ever covers the metadata row
 (`attachments` table: key, mime, size, description, status) — never the
-bytes themselves. R2's own object versioning is what protects the bytes
-against accidental overwrite or delete; enable versioning on the bucket
-(or at minimum on the `backups/` and attachment-object prefixes) in the
-Cloudflare dashboard. A restored Postgres database with attachment rows
-intact but a bucket that never had versioning enabled would still have
-working object keys — versioning specifically protects against *loss*, not
-against restore working in the first place.
+bytes themselves.
+
+**An earlier version of this document said to enable R2 object versioning.
+R2 does not have it** — `GetBucketVersioning` and `PutBucketVersioning` are
+both unimplemented. The equivalent is a **bucket lock**, which prevents
+deletion and overwriting rather than letting you recover afterwards. See
+Phase 4 of [`runbook.md`](runbook.md) for the two prefix-scoped rules to
+set, and the warning about prefix-less rules being close to irreversible.
+
+The gap this leaves is smaller than it looks. Versioning protects against
+overwrite and delete; rif does neither. Every upload writes a fresh
+`attachments/{uuid}-{hash}` key, and the MCP exposes no tool that deletes a
+page or an object at all. Bytes can only be lost by something outside the
+application — a hand-run CLI delete, or a leaked API token — and a lock
+blocks both outright, which versioning would not have.
+
+A restored Postgres database with attachment rows intact but a bucket with
+no lock configured still has working object keys. Locks protect against
+*loss*, not against restore working in the first place.
 
 ## The export mirror is a last resort, not a backup
 

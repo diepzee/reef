@@ -26,15 +26,30 @@ Backup and restore: [`docs/restore.md`](docs/restore.md).
 
 ## Status
 
-The v1 build is complete and reviewed — schema, access control, index and
-page reads, versioned writes, section-level sharing, protocol delivery,
-images, import, backup, and export. 62 tests pass against a real Postgres.
+**Live since 6 Aug 2026**, deployed on Railway behind WorkOS AuthKit and in
+daily use from Claude Code. The v1 build is complete and reviewed — schema,
+access control, index and page reads, versioned writes, section-level
+sharing, protocol delivery, images, import, backup, and export. 64 tests
+pass against a real Postgres. The connector gate passed, the real service is
+deployed, and the personal corpus is imported.
 
-What remains needs accounts, dashboards, and two phones: the OAuth gating
-check against WorkOS AuthKit, the Railway deploy, the production restore
-drill, the real import, and measuring the context ceiling from an actual
-phone. [`docs/runbook.md`](docs/runbook.md) explains each step, why it
-exists, and what done looks like.
+What remains, in the order it matters — [`docs/runbook.md`](docs/runbook.md)
+explains each step, why it exists, and what done looks like:
+
+- **There is no independent backup.** R2 is not set up and the backup cron
+  does not exist, so `scripts/backup.py` — which streams `pg_dump` straight
+  to R2 — has never run. Railway's managed Postgres snapshots are the only
+  copy of a corpus that exists nowhere else. When R2 does exist, the backup
+  connection needs its own `BYPASSRLS` role, and the restore drill still has
+  to run for real: so far it has only been rehearsed against local Postgres.
+- **Images do not work yet.** `add_image` and `read_image` build their S3
+  client per call, so with R2 unconfigured both raise a bare
+  `ValueError: Invalid endpoint:`. Everything else is unaffected.
+- **Only one person is seeded**, so rif is single-user in practice. Adding
+  the second member is a migration plus her exact email.
+- `meta/persona.md` is still the placeholder written during the first
+  end-to-end test.
+- The context ceiling has not been measured from a phone.
 
 ## Development
 
@@ -50,6 +65,8 @@ The local Postgres deliberately does not run the app as a superuser — see the
 comment in `docker-compose.yml`. Superusers carry `BYPASSRLS`, which would
 make the security tests pass without proving anything.
 
-The last migration in `src/rif/piccolo_migrations/` seeds the real household
-and still carries `<HER-EMAIL>` and `<HER-NAME>` placeholders. Fill both in
-before running it anywhere real.
+The last migration in `src/rif/piccolo_migrations/` seeds one person, his
+personal space, and the household space. The second member is deliberately
+absent rather than a placeholder: her email is the key her first login binds
+against, and migrations do not re-run to correct a guess. Adding her is a
+new migration — see Phase 2 of [`docs/runbook.md`](docs/runbook.md).
