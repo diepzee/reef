@@ -187,6 +187,7 @@ less.
 | `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_image` / `read_image` | Mandatory description in; short-lived signed URL out, behind the same ACL. |
+| `delete_image(space, key)` | The one destructive tool, added 7 Aug 2026. Removes the row and the bytes; the ACL check runs before the object store is touched, so a denied delete cannot destroy data. Row committed first, then the object: the two stores cannot be atomic, and orphaned bytes are safer wreckage than an index entry whose image 404s. |
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
 | `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. |
