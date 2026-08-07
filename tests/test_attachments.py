@@ -3,7 +3,7 @@
 import pytest
 
 from rif.access import AccessDenied, Principal, arm
-from rif.attachments import add_attachment, get_attachment
+from rif.attachments import add_attachment, delete_attachment, get_attachment
 from rif.db import transaction_scope
 from rif.models import Attachment, AttachmentStatus
 from rif.pages import save_page
@@ -32,6 +32,13 @@ class FakeStore:
         :returns: a deterministic stand-in URL
         """
         return f"https://example.test/{key}?ttl={expires_in}"
+
+    async def delete(self, key: str) -> None:
+        """Discard the bytes under a key, idempotently.
+
+        :param key: object key
+        """
+        self.objects.pop(key, None)
 
 
 def principal_for(person) -> Principal:
@@ -76,6 +83,50 @@ async def test_personal_attachment_is_invisible_to_the_other_person(household):
     )
     async with transaction_scope():
         assert await get_attachment(theirs, "personal", attachment.object_key) is None
+
+
+async def test_delete_removes_both_the_row_and_the_bytes(household):
+    """The whole point: no dangling index entry, no orphaned object."""
+    me = principal_for(household["wouter"])
+    store = FakeStore()
+    attachment = await add_attachment(
+        me, "personal", b"bytes", "image/png", description="a photo", store=store
+    )
+    key = attachment.object_key
+
+    assert await delete_attachment(me, "personal", key, store=store) is True
+    assert key not in store.objects
+    async with transaction_scope():
+        assert await get_attachment(me, "personal", key) is None
+
+
+async def test_delete_of_a_missing_key_reports_not_found(household):
+    """A retry after a successful delete must not look like a fresh success."""
+    me = principal_for(household["wouter"])
+    assert (
+        await delete_attachment(me, "personal", "attachments/nope", FakeStore())
+        is False
+    )
+
+
+async def test_cannot_delete_the_other_persons_image(household):
+    """Deletion is an access-controlled write, not just a read you act on.
+
+    The bytes must survive too: a delete that failed the ACL but still
+    reached the object store would destroy data it was denied.
+    """
+    mine = principal_for(household["wouter"])
+    theirs = principal_for(household["partner"])
+    store = FakeStore()
+    attachment = await add_attachment(
+        mine, "personal", b"bytes", "image/png", description="private", store=store
+    )
+    key = attachment.object_key
+
+    assert await delete_attachment(theirs, "personal", key, store=store) is False
+    assert store.objects[key] == b"bytes"
+    async with transaction_scope():
+        assert await get_attachment(mine, "personal", key) is not None
 
 
 async def test_unknown_alias_is_denied(household):

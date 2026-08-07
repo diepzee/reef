@@ -29,6 +29,9 @@ class ObjectStore(Protocol):
     async def signed_url(self, key: str, expires_in: int) -> str:
         """Return a time-limited URL for a key."""
 
+    async def delete(self, key: str) -> None:
+        """Remove the bytes stored under a key."""
+
 
 class S3ObjectStore:
     """R2 via the S3 API; blocking boto3 calls offloaded from the event loop."""
@@ -77,6 +80,18 @@ class S3ObjectStore:
             "get_object",
             Params={"Bucket": self._bucket, "Key": key},
             ExpiresIn=expires_in,
+        )
+
+    async def delete(self, key: str) -> None:
+        """Remove the object stored under a key.
+
+        S3 delete is idempotent -- removing a key that is already gone
+        succeeds -- which is what the caller wants after a partial failure.
+
+        :param key: object key
+        """
+        await asyncio.to_thread(
+            self._client.delete_object, Bucket=self._bucket, Key=key
         )
 
 
@@ -157,6 +172,48 @@ async def add_attachment(
         attachment.status = AttachmentStatus.READY.value
         await attachment.save()
     return attachment
+
+
+async def delete_attachment(
+    principal: Principal, alias: str, key: str, store: ObjectStore
+) -> bool:
+    """Remove an attachment's row and its bytes.
+
+    The row is deleted and committed *before* the object, deliberately. The
+    two stores cannot be made atomic, so the choice is which half-failure to
+    prefer:
+
+    - object first: a crash leaves a row whose bytes 404. The index advertises
+      an image that cannot be fetched, and nothing detects it until something
+      reaches for the pixels. This happened once by hand on 7 Aug 2026.
+    - row first: a crash leaves bytes with no row. They cost storage and
+      nothing else -- unreachable, since keys are opaque and only ever read
+      back through the metadata that no longer exists.
+
+    The second is strictly the safer wreckage, so the row goes first.
+
+    :param principal: the authenticated person
+    :param alias: ``personal`` or ``household``
+    :param key: object key
+    :param store: object store to delete the bytes from
+    :returns: True if an attachment was removed, False if it was not found
+    """
+    async with transaction_scope():
+        await arm(principal)
+        space = await resolve_space(principal, alias)
+        existing = (
+            await Attachment.objects()
+            .where(Attachment.space_id == space.id, Attachment.object_key == key)
+            .first()
+        )
+        if existing is None:
+            return False
+        await Attachment.delete().where(
+            Attachment.space_id == space.id, Attachment.object_key == key
+        )
+
+    await store.delete(key)
+    return True
 
 
 async def get_attachment(
