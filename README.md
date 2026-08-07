@@ -38,8 +38,9 @@ sharing, protocol delivery, images, import, backup, and export. 64 tests
 pass against a real Postgres. The connector gate passed, the real service is
 deployed, and the personal corpus is imported.
 
-What remains, in the order it matters — [`docs/runbook.md`](docs/runbook.md)
-explains each step, why it exists, and what done looks like:
+**Everything still outstanding is tracked in one place: the "Open items"
+list at the top of [`docs/runbook.md`](docs/runbook.md)**, grouped by what
+each item is waiting on. The headlines:
 
 - **Backups run, but only by hand.** One real dump exists in R2 and the
   restore drill passed against it — counts matched production and RLS
