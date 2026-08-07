@@ -41,15 +41,10 @@ deployed, and the personal corpus is imported.
 What remains, in the order it matters — [`docs/runbook.md`](docs/runbook.md)
 explains each step, why it exists, and what done looks like:
 
-- **There is no independent backup.** R2 is not set up and the backup cron
-  does not exist, so `scripts/backup.py` — which streams `pg_dump` straight
-  to R2 — has never run. Railway's managed Postgres snapshots are the only
-  copy of a corpus that exists nowhere else. When R2 does exist, the backup
-  connection needs its own `BYPASSRLS` role, and the restore drill still has
-  to run for real: so far it has only been rehearsed against local Postgres.
-- **Images do not work yet.** `add_image` and `read_image` build their S3
-  client per call, so with R2 unconfigured both raise a bare
-  `ValueError: Invalid endpoint:`. Everything else is unaffected.
+- **Backups run, but only by hand.** One real dump exists in R2 and the
+  restore drill passed against it — counts matched production and RLS
+  survived. The daily cron service is not created yet, so nothing is
+  automatic. See Phase 4 of [`docs/runbook.md`](docs/runbook.md).
 - **Only one person is seeded**, so rif is single-user in practice. Adding
   the second member is a migration plus her exact email.
 - `meta/persona.md` is still the placeholder written during the first
