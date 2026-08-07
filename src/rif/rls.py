@@ -50,6 +50,35 @@ _REVISION_PREDICATE = (
     "WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"
 )
 
+# Promotions belong to the person who staged them, not to a space: the row is
+# a nonce, and ``section_text`` holds the exact extracted span from a personal
+# page. A leaked promotion row is a leaked private paragraph, so the predicate
+# is ownership rather than membership.
+_PROMOTION_PREDICATE = (
+    "person_id = NULLIF(current_setting('app.person_id', true), '')::uuid"
+)
+
+
+def promotion_statements() -> list[str]:
+    """Return idempotent DDL arming RLS on ``promotions``.
+
+    Split out from :func:`enable_statements` because the table went live
+    without a policy and needed a follow-up migration against databases that
+    already existed. ``ENABLE``/``FORCE`` are no-ops when already set, and the
+    policy is dropped before creation, so this is safe to re-run.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "ALTER TABLE promotions ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE promotions FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS promotions_owner ON promotions",
+        (
+            f"CREATE POLICY promotions_owner ON promotions "
+            f"USING ({_PROMOTION_PREDICATE}) WITH CHECK ({_PROMOTION_PREDICATE})"
+        ),
+    ]
+
 
 def enable_statements() -> list[str]:
     """Return the DDL that turns on and enforces RLS on the content tables.
@@ -75,6 +104,7 @@ def enable_statements() -> list[str]:
         "CREATE POLICY revisions_member ON revisions "
         f"USING ({_REVISION_PREDICATE}) WITH CHECK ({_REVISION_PREDICATE})"
     )
+    statements.extend(promotion_statements())
     return statements
 
 
@@ -87,6 +117,9 @@ def disable_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     statements: list[str] = [
+        "DROP POLICY IF EXISTS promotions_owner ON promotions",
+        "ALTER TABLE promotions NO FORCE ROW LEVEL SECURITY",
+        "ALTER TABLE promotions DISABLE ROW LEVEL SECURITY",
         "DROP POLICY IF EXISTS revisions_member ON revisions",
         "ALTER TABLE revisions NO FORCE ROW LEVEL SECURITY",
         "ALTER TABLE revisions DISABLE ROW LEVEL SECURITY",

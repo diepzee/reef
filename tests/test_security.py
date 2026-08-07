@@ -12,7 +12,7 @@ import pytest
 
 from rif.access import Principal, arm, resolve_space
 from rif.db import transaction_scope
-from rif.models import Page, Revision
+from rif.models import Page, Promotion, Revision
 
 
 def principal_for(person) -> Principal:
@@ -84,6 +84,69 @@ async def test_forged_insert_into_foreign_space_is_rejected(household):
                 title="x",
                 tags=[],
                 body="forged",
+            ).save()
+    assert "policy" in str(exc.value).lower()
+
+
+async def _stage_promotion(household) -> Promotion:
+    """Stage one share nonce as Wouter, carrying a private section.
+
+    :param household: the seeded household fixture
+    :returns: the staged promotion row
+    """
+    page = await _seed_private_page(household)
+    staged = Promotion(
+        person_id=household["wouter"].id,
+        source_page_id=page.id,
+        source_version=page.version,
+        dest_path="shared.md",
+        section_text="private medical detail",
+    )
+    await staged.save()
+    return staged
+
+
+async def test_promotion_nonce_is_invisible_to_the_other_principal(household):
+    """A staged share must not be readable by anyone but its owner.
+
+    ``section_text`` holds the exact span extracted from a personal page, so
+    a readable promotion row is a readable private paragraph -- before the
+    owner has agreed to disclose anything.
+    """
+    async with transaction_scope():
+        await _stage_promotion(household)
+    async with transaction_scope():
+        await arm(principal_for(household["partner"]))
+        assert await Promotion.objects() == []
+
+
+async def test_promotion_nonce_is_invisible_without_a_principal(household):
+    """An unarmed connection must not see staged shares either."""
+    async with transaction_scope():
+        await _stage_promotion(household)
+    async with transaction_scope():
+        assert await Promotion.objects() == []
+
+
+async def test_forged_promotion_for_another_person_is_rejected(household):
+    """WITH CHECK must refuse a nonce staged in someone else's name.
+
+    Without this, one principal could stage a share of their own page
+    attributed to the other, and the confirm path's ownership comparison
+    would then pass for the wrong person.
+    """
+    page = None
+    async with transaction_scope():
+        page = await _seed_private_page(household)
+    with pytest.raises(Exception) as exc:
+        async with transaction_scope():
+            await arm(principal_for(household["partner"]))
+            await Promotion(
+                person_id=household["wouter"].id,
+                source_page_id=page.id,
+                source_version=page.version,
+                dest_path="forged.md",
+                section_text="x",
             ).save()
     assert "policy" in str(exc.value).lower()
 
