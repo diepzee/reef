@@ -1,12 +1,13 @@
 # Task 1 spike notes — Claude connector + OAuth
 
-**Status: Step 1 done (code + provider choice, confirmed against installed
-FastMCP source). Steps 2–4 are pending** — they need a Railway deployment,
-a live WorkOS account, and the mobile app on two people's phones, none of
-which an agent in this worktree may touch (no `railway`/deploy commands, no
-production, no another person's account/phone). Whoever runs those steps
-should fill in the "PENDING" sections below and re-commit this file before
-Task 6 relies on it.
+**Status: the gate passed.** The connector chain works end to end — WorkOS
+AuthKit, Dynamic Client Registration, token audience, and identity binding —
+and the real service went live on 6 Aug 2026. These notes are kept as the
+record of what was predicted, what was wrong, and what was finally observed.
+
+Two things this spike set out to answer are still open, both about *her* side
+rather than the mechanism: the connector has not been confirmed on a phone,
+and her account and tier have not been tried. See "Tier limitations" below.
 
 ## Provider choice
 
@@ -137,43 +138,71 @@ that request path.
 - Each environment needs its own Google redirect URI. One Google OAuth
   client holds both.
 
-## Deploy / connect steps — PENDING (human, live)
+## Deploy / connect steps — done 6 Aug 2026, except the phones
 
-- [ ] Step 2 — Railway: `railway init --name rif`, `railway up`,
-      `railway domain`, with `WORKOS_AUTHKIT_DOMAIN` and `RIF_BASE_URL` set
-      as Railway env vars (`RIF_BASE_URL` = the domain Railway assigns,
-      known only after the first `railway domain`).
-- [ ] Step 3 — claude.ai web, your account: add `https://<domain>/mcp` as a
-      custom connector, call `whoami`, confirm your email appears in
-      `claims`.
-- [ ] Step 4 — phones: confirm the connector + `whoami` on your phone, then
-      on your wife's account/tier on her phone.
+- [x] Step 2 — Railway: deployed. `RIF_BASE_URL` =
+      `https://rif-app-production.up.railway.app`, `WORKOS_AUTHKIT_DOMAIN`
+      set to the Production AuthKit domain (`thankful-origami-62.authkit.app`
+      — read from the dashboard, never derived from Staging).
+- [x] Step 3 — connector added and working. It went past the spike to the
+      real service: `/mcp` answers authenticated tool calls, and
+      `list_spaces` returns `personal` and `household` as aliases only.
+- [ ] Step 4 — phones. **Still open.** Desktop is re-confirmed working as of
+      7 Aug 2026, but no phone has been tried, and neither has her account or
+      tier. Hers is blocked behind the runbook's Phase 2 regardless of tier:
+      she is not on the allowlist, so `principal_from_claims` would deny her
+      even after a successful login.
 
 ## DCR behavior observed
 
-**PENDING** — requires Step 3. Record here once observed: did Claude
-register a client automatically against WorkOS with no manual client
-id/secret entry anywhere, and did that registration succeed on first
-connector-add attempt?
+**Confirmed working.** Claude registered itself against WorkOS with no manual
+client id or secret entered anywhere — the stored connector config is nothing
+but a type and a URL:
 
-## Claims that arrive — PENDING, with a source-level caveat
+```json
+{"type": "http", "url": "https://rif-app-production.up.railway.app/mcp"}
+```
 
-**PENDING live confirmation.** Source-level caveat worth carrying into that
-test: `AuthKitProvider`'s default token verifier is a plain `JWTVerifier`
-that decodes AuthKit's access-token JWT and exposes whatever claims are
-in it — no forced shape, no userinfo call. Whether `email` /
-`email_verified` land in that JWT depends on how the AuthKit application is
-configured (they might be ID-token-only, not access-token claims, depending
-on WorkOS's setup). Contrast: the *other* WorkOS provider in this file
+The `GoogleProvider` escape hatch below was therefore never needed. It stays
+documented in case AuthKit's DCR support regresses.
+
+## Claims that arrive — answered by outcome, not by capture
+
+The source-level caveat below turned out **not** to bite: `email` and
+`email_verified` do arrive in AuthKit's access-token JWT, not only in the ID
+token.
+
+That is an inference from behavior rather than a captured payload, and the
+reasoning is worth keeping because it is tight: `principal_from_claims`
+(`src/rif/auth.py`) binds an unknown subject *only* when the token carries
+both `email` and a truthy `email_verified`, and raises `AccessDenied`
+otherwise. Every principal in production started unknown. Binding succeeded.
+So both claims were present at first login.
+
+**Not on record:** the field-by-field `claims` dict. The spike's `whoami`
+output was never written down before the real server took over, so the exact
+set of claims AuthKit sends — beyond the three the binding path proves —
+remains uncaptured. If that ever matters (adding a provider, debugging a
+failed bind), log the claims dict once from the real server rather than
+re-deploying the spike.
+
+The original caveat, kept for context: `AuthKitProvider`'s default token
+verifier is a plain `JWTVerifier` that decodes AuthKit's access-token JWT and
+exposes whatever claims are in it — no forced shape, no userinfo call.
+Whether `email` / `email_verified` land in that JWT depends on how the AuthKit
+application is configured. Contrast: the *other* WorkOS provider in this file
 (`WorkOSProvider`, the proxy variant, not what we're using) explicitly calls
 `/oauth2/userinfo` and normalizes `sub`, `email`, `email_verified`, `name`,
-`given_name`, `family_name` — a working fallback shape to compare against if
-the AuthKit JWT claims turn out thin. Record the actual `claims` dict
-returned by `whoami` here once Step 3 runs.
+`given_name`, `family_name` — the fallback shape to reach for if AuthKit's
+claims ever turn thin.
 
 ## Tier limitations found
 
-**PENDING** — requires Step 4 on your wife's account/tier. Per the plan: if
-connectors are unavailable on her tier or on mobile, stop and reopen the
-surface decision (PWA path) before Tasks 2–5 proceed — those tasks survive
-either way, only the transport (Task 6) is in question.
+**Still open** — requires Step 4 on her account and tier. Nothing has been
+observed either way, on any phone.
+
+The stakes are lower than when this was written: the store, the tools, the
+access model and the deploy are all proven, and his own use runs over the
+same connector from Claude Code. If connectors turn out to be unavailable on
+her tier or missing from mobile, only *her* surface reopens (the PWA path) —
+rif keeps working for him throughout.

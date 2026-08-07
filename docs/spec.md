@@ -272,12 +272,15 @@ are clients of this MCP. Keep agent-facing logic free of transport knowledge.
 
 ## Gating check
 
-**Before Phase 4**, verify a custom connector is available on her Claude plan
-tier and exposed in the mobile app rather than on claude.ai web only. Test by
-adding any public MCP server as a custom connector and opening the mobile app.
+**Half answered, 6 Aug 2026.** The mechanism works: a custom connector
+against this server completes DCR with WorkOS AuthKit and answers
+authenticated tool calls. What remains unverified is *her* half — whether a
+custom connector is available on her Claude plan tier and exposed in the
+mobile app rather than on claude.ai web only.
 
-If connectors are web-only, phases 1–3 are unaffected — store, access model and
-tools all survive — and only the surface decision reopens.
+If connectors turn out to be web-only on her tier, nothing built is
+affected — store, access model and tools all survive, and his connector keeps
+working — and only her surface decision reopens.
 
 ## Security notes
 

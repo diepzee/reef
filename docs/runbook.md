@@ -1,30 +1,59 @@
 # rif — go-live runbook
 
-Everything the agents could build is built and reviewed: 51 tests green on
-`build-v1`. What remains is the part that needs *you* — accounts, dashboards,
-deploys, and two phones. This document explains each step: what it does, why
-it exists, and what "done" looks like.
+rif went live on **6 Aug 2026**. This document is now two things: a record of
+how it got there, and the list of what is still open. Each phase explains what
+it does, why it exists, and what "done" looks like. The completed phases keep
+their instructions rather than being deleted — they are what you would follow
+to stand the service up again.
 
-Rough shape: **three evenings.** Phase 1 is the gate; nothing else is worth
-starting until it passes. Phases 2–4 are one sitting at a terminal. Phases 5–7
-are content and verification.
+| Phase | State |
+|---|---|
+| 1 — Prove the connection works | **Done**, 6 Aug 2026 |
+| 2 — Identity seeds | **Partly done** — one person seeded; the second member is not |
+| 3 — Deploy the real service | **Done**, 6 Aug 2026 |
+| 4 — Storage and safety nets | **Open — the priority.** Not started: no R2, no backup cron. Real data is in the store with only Railway's managed snapshots behind it, and both image tools fail |
+| 5 — Content: the import | **Done**, 6 Aug 2026 |
+| 6 — Protocol and personas | **Partly done** — `meta/protocol.md` written; `meta/persona.md` is still the smoke-test placeholder |
+| 7 — Measure the context ceiling | **Open** |
+
+**Start with Phase 4.** The ordering below is the original build order, which
+put the connector gate first because everything depended on it. That gate has
+passed. The risk has moved: there is now a real corpus in production — a
+health page compiled from a full dossier, a character portrait, work and
+finance pages — none of it in git, and none of it yet proven to survive a
+restore.
 
 ---
 
 ## Phase 1 — Prove the connection works
 
-**Do this before anything else.** It takes one evening. If it fails, you need
-to know now, while nothing depends on it.
+> **Done, 6 Aug 2026 — for his account, on desktop.** The connector is
+> configured against the real service at
+> `https://rif-app-production.up.railway.app/mcp` and answers tool calls from
+> Claude Code. Claude registered itself with no client id or secret entered
+> anywhere, so Dynamic Client Registration works. Identity binding works too:
+> `principal_from_claims` requires a verified email to bind an unknown
+> subject, and it succeeded, so AuthKit's **access token does carry `email`
+> and `email_verified`** — the open question flagged in `spike/NOTES.md`.
+>
+> **Desktop is confirmed (7 Aug 2026). Steps 5 and 6 are not:** the connector
+> has not been tried on a phone, and her account and tier have not been tried
+> at all. Step 6 is blocked behind Phase 2 regardless — an authenticated
+> stranger is denied until she is on the allowlist.
+>
+> The phone check still matters even though desktop works. The mobile app is
+> the whole reason for the remote-MCP design, and mobile hosts are the ones
+> that may truncate large tool results — see Phase 7.
 
-### Why this comes first
+### Why this came first
 
-Her assistant is meant to live in the Claude mobile app. That plan rests on
-two things nobody has tested yet:
+Her assistant is meant to live in the Claude mobile app. That plan rested on
+two things nobody had tested:
 
-- A custom MCP connector works on her plan, on her phone.
 - Claude's connector sign-in completes against WorkOS AuthKit. Claude
   registers itself as a client automatically, so the identity provider has to
-  support Dynamic Client Registration.
+  support Dynamic Client Registration. **Settled — it does.**
+- A custom MCP connector works on her plan, on her phone. **Still open.**
 
 The spike tests both with no real data at stake. It is a server with one
 tool, `whoami`, which returns who you are. That is all it needs to do.
@@ -133,23 +162,25 @@ This is the real test. Her plan, her device.
 
 ### Step 7 — Write down what you learned
 
-Open `spike/NOTES.md` and fill in the sections marked PENDING:
+`spike/NOTES.md` now records what was observed: the WorkOS dashboard's real
+layout (DCR lives under Connect → Configuration → MCP Auth, and ships
+disabled), the corrected route table, that Claude registers itself with no
+manual client id, and that `email` / `email_verified` do arrive in the access
+token.
 
-- Which fields the token actually carried.
-- Whether Claude registered itself with no manual client ID anywhere.
-- Whether you needed a callback URL in the Redirects tab. The notes say to try
-  without one first; record which way it went.
-- Any limit you hit on her plan.
+One gap left deliberately: **the field-by-field `claims` dict was never
+captured.** The spike's `whoami` output went unrecorded before the real
+server took over, so what is known about the claims is inferred from binding
+succeeding. If that ever matters, log the dict once from the real server
+rather than re-deploying the spike.
 
-Commit the file. Phase 3 depends on what you write here.
+Still to fill in, after Step 4 above: any limit hit on her plan.
 
 ### If Step 6 fails
 
-Stop. Do not start Phase 2.
-
-If connectors are unavailable on her plan or missing from her phone, the
-surface decision reopens and the fallback is a web app. Everything in
-`src/rif/` survives that change untouched.
+Her surface reopens; nothing else does. Everything in `src/rif/` survives
+untouched, and his own connector keeps working over the same deploy — the
+fallback is a web app for her, not a redesign.
 
 ---
 
@@ -196,6 +227,11 @@ her account afterwards means clearing her `subject` column by hand.
 
 ## Phase 3 — Deploy the real service
 
+> **Done, 6 Aug 2026.** The real service runs at
+> `rif-app-production.up.railway.app`, and step 3's check passes: `list_spaces`
+> returns exactly `personal` and `household` as aliases, with no space names
+> and nothing belonging to anyone else.
+
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
 configured (a final-review fix — misconfiguration is a crash, not an open
 endpoint), and the store is empty anyway until Phase 5.
@@ -221,11 +257,52 @@ endpoint), and the store is empty anyway until Phase 5.
 
 ## Phase 4 — Storage and safety nets
 
+> **Open — and now the priority. Nothing in this phase has been done**
+> (confirmed 7 Aug 2026): no R2 bucket, no backup cron. Three consequences,
+> all live right now:
+>
+> 1. **The only copy of the corpus is Railway's managed Postgres backup.**
+>    Phases 3 and 5 put real, expensive-to-reconstruct content into
+>    production — a health page compiled from a full dossier, a character
+>    portrait, work and finance pages — and none of it is in git.
+> 2. **`scripts/backup.py` cannot run at all.** It streams `pg_dump` straight
+>    to R2, so the independent copy does not exist even in principle until
+>    the bucket does. Do the R2 half first; the backup half depends on it.
+> 3. **`add_image` and `read_image` are broken in production.** Both build an
+>    `S3ObjectStore` per call (`src/rif/server.py:441`, `:462`), and with the
+>    S3 settings empty that constructor raises `ValueError: Invalid
+>    endpoint:` from boto3. The server boots regardless — unlike auth, which
+>    deliberately refuses to boot when misconfigured, storage fails only when
+>    a tool is called, and does so with an error that does not name its
+>    cause. Worth a clearer failure message when this phase is done.
+
 **R2 (images):**
 
-1. Cloudflare dashboard → R2 → create bucket `rif`, **enable object
-   versioning** (that's the undo button for attachment bytes — they're not in
-   pg_dump).
+1. Cloudflare dashboard → R2 → create bucket `rif`.
+
+   **Not object versioning — R2 has none.** `GetBucketVersioning` and
+   `PutBucketVersioning` are both in R2's unimplemented-operations table. An
+   earlier draft of this runbook said to enable it; there is no such setting
+   to find. The feature R2 does have is **bucket locks**, which prevent
+   deletion and overwriting for a fixed period or indefinitely.
+
+   Set two rules, scoped by prefix — they need opposite policies:
+
+   | Prefix | Rule | Why |
+   |---|---|---|
+   | `attachments/` | lock indefinitely | Image bytes are never in `pg_dump`, and rif itself never deletes or overwrites an object — every upload takes a fresh key and no tool deletes. The lock guards against a stray CLI delete or a leaked token, which is the only way they can go. |
+   | `backups/` | lock ~30 days | Protects recent dumps from the same threats while still letting old ones age out. |
+
+   **Do not set a rule without a prefix.** Cloudflare's docs are explicit
+   that such a rule covers every object in the bucket, that lock rules beat
+   lifecycle rules, and that *a bucket cannot be emptied while lock rules
+   remain configured*. Deleting the policy afterwards does not release
+   objects already inside their retention window. A bucket-wide indefinite
+   lock would therefore trap every daily dump forever, and the mistake is
+   effectively irreversible.
+
+   Any lifecycle expiry for `backups/` must be **longer** than that prefix's
+   lock, or the delete simply will not happen.
 2. Create an S3-compatible API token, then:
 
    ```bash
@@ -265,6 +342,17 @@ role with `BYPASSRLS`.
 
 ## Phase 5 — Content: the import
 
+> **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 household
+> pages. The final disposition differs from the sketch in step 2 below: the
+> household layer came out as `house.md`, `future-home.md` and `travel.md`
+> rather than the `money.md` / `family-film.md` split proposed here, and
+> `health.md` and `finances.md` both stayed personal.
+>
+> **Step 4's cross-check has not happened** — verifying from her phone that
+> household pages are visible and personal ones are not needs Phase 2 first.
+> That check is the moment the privacy design faces reality, and it is still
+> outstanding.
+
 **Why the ceremony:** this is the one step that moves your actual life into
 the system, and the disposition (what's household vs private) is a set of
 judgment calls only you can make. The importer takes explicit filename lists —
@@ -297,6 +385,13 @@ nothing moves by inference.
 
 ## Phase 6 — Protocol and personas
 
+> **Step 1 done, 6 Aug 2026** — `meta/protocol.md` is written in the household
+> space. **Step 2 is not:** `meta/persona.md` is still the 157-byte
+> placeholder from the first end-to-end test, while every other page got real
+> content. It is the page that steers the assistant's voice, and `mark.md` in
+> the personal space already holds much of what belongs in it. Step 3 waits
+> on Phase 2.
+
 The code ships a built-in fallback protocol, but the real thing is content:
 
 1. Write `meta/protocol.md` in the household space (via `update_meta_page` or
@@ -313,6 +408,12 @@ The code ships a built-in fallback protocol, but the real thing is content:
 ---
 
 ## Phase 7 — Measure the context ceiling
+
+> **Open.** Less urgent than it looks: `load_index` is the primary retrieval
+> path and carries no bodies, so ordinary use no longer pushes against the
+> ceiling. It is `load_all_context` — the maintenance path — that needs a
+> measured budget. Note that step 1 pads the *real* corpus, so run it after
+> Phase 4's backup is proven, not before.
 
 **Why:** the server counts body characters; the client cares about serialized
 tokens, and the mobile host may truncate big tool results on its own. The
@@ -353,6 +454,7 @@ budget must come from measurement on the real device, not arithmetic.
 - rif dies someday → `python -m rif.export` renders every space back to
   portable markdown; plus the R2 dumps; plus Railway managed backups.
 
-**Where things live:** code+plan on `diepzee/rif` branch `build-v1`; knowledge
-design in `mark/meta/architecture.md` (branch `forest-leech`); build audit
-trail in `.worktrees/build/.superpowers/sdd/2026-08-05-rif-v1/progress.md`.
+**Where things live:** code+plan on `diepzee/rif`, `main` (the `build-v1` and
+`piccolo-port` branches are merged); knowledge design in
+`mark/meta/architecture.md` (branch `forest-leech`); build audit trail in
+`.worktrees/build/.superpowers/sdd/2026-08-05-rif-v1/progress.md`.
