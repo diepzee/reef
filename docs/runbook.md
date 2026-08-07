@@ -313,15 +313,20 @@ endpoint), and the store is empty anyway until Phase 5.
 
 **Backups — read this part, it has a trap:**
 
-The RLS design is doing its job *too* well: `FORCE ROW LEVEL SECURITY` means
-even the table owner sees zero content rows without a principal set — and
-`pg_dump` connects with no principal. **A backup run as the app role fails;
-this was reproduced locally, not theorized.** The backup connection needs a
-role with `BYPASSRLS`.
+`FORCE ROW LEVEL SECURITY` means even the table owner sees zero content rows
+without a principal set — and `pg_dump` connects with no principal. **A backup
+run as the app role fails outright** (`query would be affected by row-level
+security policy`); it does not silently dump zero rows. Reproduced locally,
+not theorized. The backup connection needs a role with `BYPASSRLS`.
 
-1. On Railway's Postgres, create/confirm a `BYPASSRLS` role (the default
-   superuser-ish `postgres` role qualifies) and give `scripts/backup.py` *that*
-   connection string — distinct from the app's `DATABASE_URL`.
+**The credential already exists.** Since 7 Aug 2026 the roles are split:
+`DATABASE_URL` is the constrained `rif_app`, and `RIF_MIGRATION_DATABASE_URL`
+is the admin role. Give the backup cron the latter. Before that date the app
+itself ran as the superuser, so this trap could not fire — and neither could
+RLS.
+
+1. Give `scripts/backup.py` the `RIF_MIGRATION_DATABASE_URL` value — distinct
+   from the app's `DATABASE_URL`, which is exactly the point.
 2. Enable Railway's **managed Postgres backups** in the dashboard (belt).
 3. Schedule `scripts/backup.py` as a daily Railway cron service (braces) — it
    streams `pg_dump` straight to R2, never to container disk, which is
@@ -440,7 +445,8 @@ budget must come from measurement on the real device, not arithmetic.
 |---|---|
 | `WORKOS_AUTHKIT_DOMAIN` | AuthKit app domain; auth refuses to boot without it |
 | `RIF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
-| `DATABASE_URL` | Injected by Railway Postgres (app role) |
+| `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
+| `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server |
 | `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |
 | `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |

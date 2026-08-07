@@ -11,6 +11,11 @@ forgotten filter in application code fails closed rather than leaking. Tools
 speak in aliases (`personal`, `household`) that resolve per principal, so
 neither person can name the other's space.
 
+That boundary only holds if the app connects as an ordinary role: a superuser
+carries `BYPASSRLS` and ignores every policy. The app therefore runs as
+`rif_app` (DML, no DDL) while migrations and backups use a separate admin
+credential — see `scripts/provision_app_role.py`.
+
 Retrieval is index first, then fetch — the wiki pattern, mechanized. The
 assistant calls `load_index` for a map of every page it may see (path, title,
 tags, one-line description, no bodies), then fetches what the conversation

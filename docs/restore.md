@@ -51,11 +51,18 @@ produces a complete, restorable dump.
 **Consequence:** `scripts/backup.py`'s `DATABASE_URL` must NOT be the same
 connection string the `rif.server` app service runs with. The app's
 connection is deliberately RLS-constrained — that is the entire point of
-Task 2's design. The backup cron service therefore needs its own
-`DATABASE_URL`, pointing at a role that bypasses RLS: either Railway's
-managed Postgres admin/root credential (if Railway's plugin still exposes
-one distinct from whatever role the app uses — unconfirmed, see Phase 4 of
-[`runbook.md`](runbook.md)), or a dedicated role created with `BYPASSRLS` (not full
+Task 2's design.
+
+**Settled 7 Aug 2026.** The split now exists in production and the credential
+you need is already on the service: `RIF_MIGRATION_DATABASE_URL` holds the
+admin role, while `DATABASE_URL` holds the constrained `rif_app` role created
+by `scripts/provision_app_role.py`. Give the backup cron the former. Until
+that date the app itself ran as the superuser, so this whole section described
+a separation that did not exist — see the header comment in
+`docker/initdb/01-create-app-role-and-databases.sql`.
+
+The alternative, if you ever rebuild this: a dedicated role created with
+`BYPASSRLS` (not full
 `SUPERUSER`) reserved for backups only, analogous to how local dev keeps
 `postgres` (bootstrap, superuser) separate from `rif` (app, RLS-bound). A
 role with plain `BYPASSRLS` is preferable to superuser for this: it is
