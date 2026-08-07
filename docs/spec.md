@@ -110,6 +110,29 @@ Application-code discipline alone was the rev-1 design and did not survive
 review: the plan's own modules queried content tables directly, proving the
 convention unenforceable even against its author.
 
+**A design is not a deployment (learned 7 Aug 2026).** All of the above was
+true of the schema and false of production for the first day of its life.
+Railway injects its bootstrap superuser into every service, the app connected
+as it, and a superuser ignores row security entirely — `FORCE` does not reach
+it, since `FORCE` only extends policies to the table *owner*. So the boundary
+this section calls enforced was inert, and the adversarial tests kept passing
+because they ran against a correctly constrained local role. Nothing leaked:
+there was one person, and the application code did filter. But that is
+precisely the correct-if-nobody-slips posture rev 2 removed, restored by
+configuration rather than by design.
+
+The fix is a second role, not a code change: the app connects as an ordinary
+`rif_app` with DML and no DDL (a role that can `ALTER TABLE` can also `DROP
+POLICY`), while migrations and backups use the admin credential. See
+`scripts/provision_app_role.py`, which verifies both directions — zero rows
+without a principal, and DDL refused.
+
+The general lesson, worth keeping: **an enforcement boundary needs a
+production assertion, not just a test.** A check that the app's own connection
+sees zero content rows without a principal belongs in the boot path or the
+monitoring, because this failure is invisible from the outside — the
+application behaves identically either way, right up until it doesn't.
+
 Tools speak in **aliases** — `personal` and `household` — never space ids or
 names. The alias resolves per principal, so the same call means her personal
 space for her and his for him, and neither can name the other's.
