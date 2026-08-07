@@ -6,7 +6,12 @@ from datetime import UTC, datetime
 from fastmcp import FastMCP
 
 from rif.access import Principal, accessible_spaces, resolve_space
-from rif.attachments import S3ObjectStore, add_attachment, get_attachment
+from rif.attachments import (
+    S3ObjectStore,
+    add_attachment,
+    delete_attachment,
+    get_attachment,
+)
 from rif.auth import current_principal
 from rif.config import get_settings
 from rif.context import build_index, load_context
@@ -464,6 +469,25 @@ async def read_image(space: str, key: str) -> dict:
             "description": attachment.description,
             "expires_in": ttl,
         }
+
+
+@mcp.tool
+async def delete_image(space: str, key: str) -> dict:
+    """Delete an image and its description. This cannot be undone.
+
+    For images that should never have been stored — a bad upload, a test, a
+    photo added to the wrong space. Confirm with the person first: nothing
+    else in this system deletes, and the bytes do not come back.
+
+    :param space: ``personal`` or ``household``
+    :param key: the image key from the index
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+    removed = await delete_attachment(principal, space, key, store=S3ObjectStore())
+    if not removed:
+        return {"error": "not_found", "key": key}
+    return {"deleted": True, "key": key}
 
 
 def main() -> None:
