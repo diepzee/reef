@@ -8,20 +8,67 @@ to stand the service up again.
 
 | Phase | State |
 |---|---|
-| 1 — Prove the connection works | **Done**, 6 Aug 2026 |
+| 1 — Prove the connection works | **Done** on desktop, 6 Aug 2026. Phones untested |
 | 2 — Identity seeds | **Partly done** — one person seeded; the second member is not |
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
-| 4 — Storage and safety nets | **Open — the priority.** Not started: no R2, no backup cron. Real data is in the store with only Railway's managed snapshots behind it, and both image tools fail |
+| 4 — Storage and safety nets | **Mostly done**, 7 Aug 2026 — R2 live, images working, one verified backup and a passed restore drill. The *schedule* is missing |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
 | 6 — Protocol and personas | **Partly done** — `meta/protocol.md` written; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
 
-**Start with Phase 4.** The ordering below is the original build order, which
-put the connector gate first because everything depended on it. That gate has
-passed. The risk has moved: there is now a real corpus in production — a
-health page compiled from a full dossier, a character portrait, work and
-finance pages — none of it in git, and none of it yet proven to survive a
-restore.
+## Open items
+
+The single list. Grouped by what each one is waiting on, because that is what
+determines when it can happen — not by priority.
+
+**Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
+assumed: it has no command for cron schedules or start commands)
+
+- [ ] **Backup cron service.** Today's dump is a one-off. Phase 4, step 3 has
+      the exact settings. *This is the highest-value item left.*
+- [ ] **Railway managed Postgres backups.** The second, independent
+      mechanism. Phase 4, step 2.
+- [ ] **R2 bucket locks** — `attachments/` indefinite, `backups/` ~30 days.
+      Phase 4, step 1. Do not create a prefix-less rule; the warning there
+      explains why it is close to irreversible.
+
+**Waiting on information or a decision**
+
+- [ ] **Nathalie's row.** rif is single-user until this exists, and it is the
+      deadline on everything privacy-related. Needs her exact email. Phase 2.
+- [ ] **`meta/persona.md`.** Still the 157-byte placeholder from the first
+      smoke test, while every other page got real content. `mark.md` already
+      holds much of what belongs in it. Phase 6, step 2.
+
+**Waiting on a phone**
+
+- [ ] **Connector on a phone**, then on her account and tier. Phase 1,
+      steps 5–6. The mobile app is the whole reason for the remote-MCP design.
+- [ ] **Context ceiling measurement.** Phase 7. Run it *after* the backup
+      cron exists — step 1 pads the real corpus.
+
+**Known gaps, no external blocker**
+
+- [ ] **`promotions` RLS is done, but check the pattern elsewhere.** The
+      table shipped unprotected and was caught on 7 Aug. Worth a sweep for
+      other tables added later without a policy.
+- [ ] **Local dev database cannot migrate.** `rif` (local, port 5433) has the
+      schema but zero rows in `migration`, so `scripts/migrate.py` tries to
+      re-run the first migration and fails on `relation "persons" already
+      exists`. Tests are unaffected — `conftest` builds `rif_test` directly.
+- [ ] **R2 lifecycle rule for `backups/`.** Dumps accumulate forever
+      otherwise. Must expire *later* than that prefix's bucket lock or the
+      delete will not happen. See `docs/restore.md`.
+- [ ] **Re-check the `postgresql-client-18` pin** whenever Railway upgrades
+      its Postgres. `pg_dump` aborts against a newer server, so a server
+      upgrade silently breaks every backup until the image catches up.
+
+---
+
+**Where the risk sits now.** The two that could lose data or leak it are
+closed: RLS is enforced in production as of 7 Aug, and a backup has been
+proven to restore with `memberships` intact. What remains is mostly
+scheduling and content.
 
 ---
 
