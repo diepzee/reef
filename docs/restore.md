@@ -149,11 +149,21 @@ production role/credential setup — that depends on the still-unconfirmed
 question in the previous section, and is a human step: Phase 4 of
 [`runbook.md`](runbook.md).
 
-**As of 7 Aug 2026 the R2 bucket does not exist and the backup cron has not
-been created**, so `scripts/backup.py` has never run against production and
-the drill has never been possible. There is real data in the store. Until a
-dump is pulled from R2 and restored with matching counts, rif's only
-durability is Railway's managed snapshots — one mechanism, unverified.
+**Superseded 7 Aug 2026 — the drill has now run against production.** One
+real backup was taken (`backups/rif-20260807T140148Z.dump`, 195,004 bytes),
+downloaded from R2, and restored into a scratch `postgres:18` container.
+Counts matched production exactly: 22 pages, 26 revisions, **2 memberships**,
+1 person, 2 spaces. RLS survived — as `rif_app` with no principal the restore
+returned zero pages, and `FORCE` was still set on all four protected tables.
+
+The exit hatch is therefore real, not theoretical. What remains is the
+*schedule*: the cron service is not yet created, so today's dump is a
+one-off. See Phase 4 of [`runbook.md`](runbook.md).
+
+**Version pinning matters in both directions.** The dump is v18 format:
+`pg_dump` must be ≥ the server's major version to produce it, and
+`pg_restore` must be ≥ that to read it. A Homebrew v14 or the v17 in this
+repo's `docker-compose.yml` will refuse it outright.
 
 ## Bucket locks cover attachment bytes — R2 has no versioning
 

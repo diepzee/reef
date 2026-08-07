@@ -325,23 +325,56 @@ is the admin role. Give the backup cron the latter. Before that date the app
 itself ran as the superuser, so this trap could not fire — and neither could
 RLS.
 
-1. Give `scripts/backup.py` the `RIF_MIGRATION_DATABASE_URL` value — distinct
-   from the app's `DATABASE_URL`, which is exactly the point.
+**Two traps found the first time this was run for real (7 Aug 2026), either
+of which alone meant no backup:**
+
+- **`pg_dump` must be at least the server's major version.** Railway's
+  Postgres is **18.4**; Debian trixie's default `postgresql-client` is 17.x,
+  and `pg_dump` aborts outright against a newer server. The `Dockerfile` now
+  installs `postgresql-client-18` from PGDG. **Re-check this pin whenever
+  Railway upgrades the server** — the failure is a hard abort, not a
+  degraded dump.
+- **The credential must not be `DATABASE_URL`.** That is the constrained
+  `rif_app` role, and `pg_dump` fails against it. `scripts/backup.py` reads
+  `RIF_BACKUP_DATABASE_URL` or `RIF_MIGRATION_DATABASE_URL` and refuses to
+  start without one.
+
+**Status: a real backup exists and the drill has passed.**
+
+1. ✅ The backup credential is `RIF_MIGRATION_DATABASE_URL`, already set on
+   the service and distinct from the app's `DATABASE_URL`.
 2. Enable Railway's **managed Postgres backups** in the dashboard (belt).
-3. Schedule `scripts/backup.py` as a daily Railway cron service (braces) — it
-   streams `pg_dump` straight to R2, never to container disk, which is
-   ephemeral.
-4. **The drill — non-negotiable:** run one real backup, download the dump from
-   R2, restore into local scratch per `docs/restore.md`, and check the counts:
+   Still to do.
+3. **Schedule the cron service** (braces). Still to do — Railway's CLI cannot
+   set a cron schedule, and a root `railway.json` must **not** be used, since
+   `rif-app` would pick it up and turn the live server into a cron job. In the
+   dashboard: **New Service → deploy from this repo**, then Settings →
+   - Start command: `uv run python scripts/backup.py`
+   - Cron schedule: `0 3 * * *`
+   - Variables: `RIF_MIGRATION_DATABASE_URL`, `RIF_S3_ENDPOINT`,
+     `RIF_S3_BUCKET`, `RIF_S3_ACCESS_KEY`, `RIF_S3_SECRET_KEY`
 
-   ```sql
-   select (select count(*) from pages) pages,
-          (select count(*) from revisions) revisions,
-          (select count(*) from memberships) memberships;
-   ```
+   It needs no `PORT` — and must not have one, or `rif.server` would boot a
+   second instance.
+4. ✅ **The drill — passed 7 Aug 2026.** One real backup taken
+   (`backups/rif-20260807T140148Z.dump`, 195,004 bytes), downloaded from R2,
+   restored into a scratch `postgres:18` container, counts compared against
+   production:
 
-   If `memberships` is 0, the backup is decorative. An untested backup is not
-   a backup.
+   | | production | restored |
+   |---|---|---|
+   | pages | 22 | 22 |
+   | revisions | 26 | 26 |
+   | **memberships** | **2** | **2** |
+   | persons / spaces | 1 / 2 | 1 / 2 |
+
+   RLS survived the restore: connecting as `rif_app` with no principal
+   returned zero pages, and `FORCE` was still set on `pages`, `revisions`,
+   `attachments` and `promotions`. If `memberships` is ever 0, the backup is
+   decorative — an untested backup is not a backup.
+
+   Note the drill needs a **matching major version** locally too: a v17
+   `pg_restore` cannot read an 18-format dump.
 
 ---
 
