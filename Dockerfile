@@ -1,5 +1,22 @@
 FROM python:3.13-slim
-RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
+# postgresql-client-18, not Debian's default. pg_dump refuses to dump from a
+# server newer than itself ("aborting because of server version mismatch"),
+# and Railway's managed Postgres is 18.4 while trixie ships 17.x -- so the
+# stock package makes scripts/backup.py fail every run. Pin this to the major
+# version Railway is on, and re-check it if that server is ever upgraded.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-18 \
+    && apt-get purge -y curl gnupg && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
