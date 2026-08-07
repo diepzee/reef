@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://rif:rif@localhost:5433/rif"
     test_database_url: str = "postgresql://rif:rif@localhost:5433/rif_test"
+    migration_database_url: str = ""
     context_char_budget: int = 150_000
     s3_endpoint: str = ""
     s3_bucket: str = ""
@@ -30,6 +31,23 @@ class Settings(BaseSettings):
         :returns: a DSN usable by asyncpg
         """
         return os.environ.get("DATABASE_URL", self.database_url)
+
+    @property
+    def migration_dsn(self) -> str:
+        """Return the DSN schema migrations should run under.
+
+        The app's own role must not be able to run DDL: it is the
+        RLS-constrained principal, and a role that can ``ALTER TABLE`` can
+        also ``DROP POLICY``. Migrations therefore need a separate, more
+        privileged credential, supplied as ``RIF_MIGRATION_DATABASE_URL``.
+
+        Falls back to :attr:`dsn` when unset, which keeps local development
+        and the test suite working unchanged -- there the app role owns its
+        own database and no split is needed.
+
+        :returns: a DSN usable by asyncpg for DDL
+        """
+        return self.migration_database_url or self.dsn
 
 
 @lru_cache

@@ -14,6 +14,7 @@ Run as: ``python scripts/migrate.py``
 """
 
 import asyncio
+import os
 import sys
 
 import asyncpg
@@ -28,13 +29,30 @@ LOCK_KEY = 0x5249_4620
 async def _main() -> int:
     """Take the lock, run migrations forwards, release by disconnecting.
 
+    Runs under ``migration_dsn`` rather than the app's own connection. The
+    app role is RLS-constrained and deliberately has no DDL rights, since a
+    role that can ``ALTER TABLE`` can also ``DROP POLICY`` -- which would put
+    the privacy boundary inside the blast radius of an application bug.
+
+    ``piccolo_conf`` builds its engine from ``rif.db.DB``, which reads
+    ``DATABASE_URL``, so the subprocess is handed an overridden environment.
+    Without that the CLI would connect as the app role and the DDL would
+    fail, which is the whole reason this indirection exists.
+
     :returns: the migration process's exit code
     """
-    connection = await asyncpg.connect(get_settings().dsn)
+    dsn = get_settings().migration_dsn
+    connection = await asyncpg.connect(dsn)
     try:
         await connection.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "piccolo.main", "migrations", "forwards", "rif"
+            sys.executable,
+            "-m",
+            "piccolo.main",
+            "migrations",
+            "forwards",
+            "rif",
+            env={**os.environ, "DATABASE_URL": dsn},
         )
         return await process.wait()
     finally:
