@@ -50,6 +50,7 @@ export default function SpaceView() {
               <AvatarStack
                 names={members.members.map((member) => member.display_name)}
                 onClick={() => openMembers(space)}
+                ariaLabel={`Members of ${space}`}
               />
               <span className="whobar-lbl">
                 {members.members.length}{" "}
