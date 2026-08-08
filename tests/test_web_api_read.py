@@ -78,6 +78,39 @@ async def test_get_page_and_404(api, world):
     assert foreign.status_code == 404
 
 
+async def test_me_sets_secure_session_cookie_by_default(api, world):
+    """An authenticated response's renewed session cookie is Secure by default.
+
+    Regression test: ``secure`` used to be derived from
+    ``request.url.scheme``, which is always ``"http"`` behind Railway's
+    TLS-terminating proxy and so never actually set ``Secure`` in
+    production. It must instead be tied to the deploy mode.
+    """
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.get("/api/me")
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_session=")
+    )
+    assert "Secure" in set_cookie
+
+
+async def test_me_omits_secure_cookie_with_dev_insecure(monkeypatch, api, world):
+    """RIF_DEV_INSECURE=1 drops Secure from the renewed session cookie."""
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.get("/api/me")
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_session=")
+    )
+    assert "Secure" not in set_cookie
+
+
 async def test_get_image_missing_key_is_404_no_s3(api, world):
     """A nonexistent attachment key 404s without ever constructing S3.
 

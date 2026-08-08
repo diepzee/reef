@@ -139,6 +139,72 @@ async def test_callback_unknown_email_gets_403(web):
     assert response.status_code == 403
 
 
+async def test_login_sets_secure_oauth_cookie_by_default(web):
+    """The OAuth cookie is Secure by default, tied to the deploy mode.
+
+    Regression test: this used to derive ``secure`` from
+    ``request.url.scheme``, which is always ``"http"`` behind Railway's
+    TLS-terminating proxy and so never actually set ``Secure`` in
+    production.
+    """
+    client, _fake, _ = web
+    response = await client.get("/api/auth/login")
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_oauth=")
+    )
+    assert "Secure" in set_cookie
+
+
+async def test_login_omits_secure_oauth_cookie_with_dev_insecure(monkeypatch, web):
+    """RIF_DEV_INSECURE=1 drops Secure so local plain-HTTP dev keeps working."""
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    client, _fake, _ = web
+    response = await client.get("/api/auth/login")
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_oauth=")
+    )
+    assert "Secure" not in set_cookie
+
+
+async def test_callback_sets_secure_session_cookie_by_default(web):
+    """The session cookie set on a successful callback is Secure by default."""
+    client, _fake, _person = web
+    login = await client.get("/api/auth/login")
+    state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+    response = await client.get(
+        "/api/auth/callback", params={"code": "code_abc", "state": state}
+    )
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_session=")
+    )
+    assert "Secure" in set_cookie
+
+
+async def test_callback_omits_secure_session_cookie_with_dev_insecure(
+    monkeypatch, web
+):
+    """RIF_DEV_INSECURE=1 also drops Secure from the renewed session cookie."""
+    client, _fake, _person = web
+    login = await client.get("/api/auth/login")
+    state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    response = await client.get(
+        "/api/auth/callback", params={"code": "code_abc", "state": state}
+    )
+    set_cookie = next(
+        h
+        for h in response.headers.get_list("set-cookie")
+        if h.startswith("rif_session=")
+    )
+    assert "Secure" not in set_cookie
+
+
 async def test_login_unconfigured_is_503(monkeypatch):
     """Login 503s cleanly when AuthKit is not configured.
 

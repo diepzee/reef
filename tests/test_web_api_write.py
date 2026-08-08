@@ -73,7 +73,7 @@ async def test_create_space_and_slug_taken(api, world):
 
 async def test_invite_and_members_and_remove(api, world):
     """Inviting adds a member, member listing reflects it, removal drops it."""
-    alice, _bob, _ = world
+    alice, bob, _ = world
     _login(api, alice)
     invited = await api.post(
         "/api/spaces/team/invites", json={"email": "New@X.com"}, headers=CSRF
@@ -89,9 +89,26 @@ async def test_invite_and_members_and_remove(api, world):
     )
     assert {member["email"] for member in members["members"]} == {
         alice.email,
-        _bob.email,
+        bob.email,
         "new@x.com",
     }
+
+    # A logged-in response renews the session cookie without an explicit
+    # domain, and httpx's cookie jar then holds that renewed cookie
+    # alongside whatever _login sets next under a distinct (bare) domain --
+    # both match the request and get sent together, so the switch to bob
+    # must clear the jar first or the request would carry alice's cookie too.
+    api.cookies.clear()
+    _login(api, bob)
+    non_owner_view = (await api.get("/api/spaces/team/members")).json()
+    assert non_owner_view["is_owner"] is False
+    assert {m["display_name"] for m in non_owner_view["members"]} == {
+        m["display_name"] for m in members["members"]
+    }
+    assert all(m["email"] == "" for m in non_owner_view["members"])
+
+    api.cookies.clear()
+    _login(api, alice)
     removed = await api.delete("/api/spaces/team/members/new@x.com", headers=CSRF)
     assert removed.status_code == 200
 

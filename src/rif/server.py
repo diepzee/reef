@@ -672,8 +672,18 @@ def main() -> None:
     WorkOS AuthKit, and prints a loud warning so it's never mistaken for a
     safe default.
 
+    HTTP also means session cookies get signed, so it must never start with
+    a missing or weak ``RIF_SESSION_SECRET`` either: an empty or short HMAC
+    key lets anyone forge a session cookie for any person. This guard is a
+    sibling of the auth-provider one above, refuses on the same condition
+    (a config mistake an operator could otherwise miss silently), and is
+    lifted by the same ``RIF_DEV_INSECURE=1`` escape hatch.
+
     :raises RuntimeError: if the HTTP transport would start with no auth
         and ``RIF_DEV_INSECURE`` is not set to ``1``
+    :raises RuntimeError: if the HTTP transport would start with a missing
+        or too-short ``RIF_SESSION_SECRET`` and ``RIF_DEV_INSECURE`` is not
+        set to ``1``
     """
     # No connection pool is started deliberately. A pool has to be created
     # inside the loop that will use it, and FastMCP owns its loop -- starting
@@ -691,6 +701,17 @@ def main() -> None:
                 )
             print(
                 "RIF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
+            )
+        if len(get_settings().session_secret) < 32:
+            if os.environ.get("RIF_DEV_INSECURE") != "1":
+                raise RuntimeError(
+                    "refusing to serve HTTP with a missing or weak "
+                    "RIF_SESSION_SECRET: set it to a random value at least "
+                    "32 characters long"
+                )
+            print(
+                "RIF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
+                "RIF_SESSION_SECRET; local development only"
             )
         mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
     else:
