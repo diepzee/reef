@@ -5,30 +5,13 @@
  * only renders what comes back — no client-side sort.
  */
 
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ApiError, apiGet } from "../api";
-import type { IndexPayload, SpaceIndex } from "../types";
+import { useIndex } from "../IndexProvider";
 
 export default function Home() {
-  const [spaces, setSpaces] = useState<SpaceIndex[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiGet<IndexPayload>("/api/index")
-      .then((index) => {
-        if (!cancelled) setSpaces(index.spaces);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : "could not load spaces");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { index, error } = useIndex();
+  const spaces = index?.spaces ?? null;
 
   return (
     <div>

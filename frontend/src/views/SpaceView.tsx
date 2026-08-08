@@ -11,33 +11,22 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { ApiError, apiGet, apiSend } from "../api";
+import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
-import type { IndexPayload, InviteResult, Members } from "../types";
+import type { InviteResult, Members } from "../types";
 
 export default function SpaceView() {
   const { space = "" } = useParams<{ space: string }>();
   const isPersonal = space === "personal";
 
-  const [index, setIndex] = useState<IndexPayload | null>(null);
-  const [indexError, setIndexError] = useState<string | null>(null);
+  const { index, error: indexError } = useIndex();
   const [members, setMembers] = useState<Members | null>(null);
   const [membersError, setMembersError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setIndex(null);
-    setIndexError(null);
     setMembers(null);
     setMembersError(null);
-
-    apiGet<IndexPayload>("/api/index")
-      .then((payload) => {
-        if (!cancelled) setIndex(payload);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setIndexError(err instanceof ApiError ? err.message : "could not load the space");
-      });
 
     if (!isPersonal) {
       apiGet<Members>(`/api/spaces/${space}/members`)
