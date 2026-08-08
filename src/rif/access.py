@@ -10,7 +10,7 @@ from uuid import UUID
 
 from rif.models import Membership, Space, SpaceKind
 
-_ALIASES = {"personal": SpaceKind.PERSONAL, "household": SpaceKind.HOUSEHOLD}
+_ALIASES = {"personal": SpaceKind.PERSONAL, "household": SpaceKind.SHARED}
 
 
 class AccessDenied(Exception):

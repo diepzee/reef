@@ -65,32 +65,82 @@ async def tx():
         yield
 
 
+class Graph:
+    """Builders for arbitrary person/space/membership topologies.
+
+    Piccolo queries are ambient, so these are plain coroutines rather than
+    session-bound ones: the caller decides whether they run inside a
+    transaction. Persons, spaces, and memberships carry no RLS policy, so a
+    builder never needs to be armed.
+    """
+
+    async def person(self, email: str, display_name: str) -> Person:
+        """Create one person row.
+
+        :param email: the person's email address
+        :param display_name: how the person is addressed
+        :returns: the saved person
+        """
+        row = Person(email=email, display_name=display_name)
+        await row.save()
+        return row
+
+    async def personal_space(self, owner: Person, slug: str | None = None) -> Space:
+        """Create a personal space plus its single membership.
+
+        :param owner: the person the space belongs to
+        :param slug: explicit slug; defaults to the onboarding form
+        :returns: the saved space
+        """
+        space = Space(
+            slug=slug or f"personal-{owner.id.hex}",
+            kind=SpaceKind.PERSONAL.value,
+            owner_person_id=owner.id,
+        )
+        await space.save()
+        await Membership(person_id=owner.id, space_id=space.id).save()
+        return space
+
+    async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
+        """Create a shared space owned by ``owner``, with memberships.
+
+        :param slug: the space's slug
+        :param owner: the accountable owner, who is also a member
+        :param members: further people to admit
+        :returns: the saved space
+        """
+        space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
+        await space.save()
+        await Membership.insert(
+            *[
+                Membership(person_id=person.id, space_id=space.id)
+                for person in (owner, *members)
+            ]
+        )
+        return space
+
+
 @pytest_asyncio.fixture
-async def household() -> dict:
-    """Two people, two personal spaces, one household space, four memberships.
+async def graph() -> Graph:
+    """Expose the topology builders to a test.
+
+    :returns: the builder object
+    """
+    return Graph()
+
+
+@pytest_asyncio.fixture
+async def household(graph: Graph) -> dict:
+    """Two people, two personal spaces, one shared space they both belong to.
 
     :returns: mapping with keys ``wouter``, ``partner``, ``w_personal``,
         ``p_personal``, ``shared``
     """
-    wouter = Person(email="wouter@example.test", display_name="Wouter")
-    partner = Person(email="partner@example.test", display_name="Partner")
-    await wouter.save()
-    await partner.save()
-    w_personal = Space(
-        slug="wouter", kind=SpaceKind.PERSONAL.value, owner_person_id=wouter.id
-    )
-    p_personal = Space(
-        slug="partner", kind=SpaceKind.PERSONAL.value, owner_person_id=partner.id
-    )
-    shared = Space(slug="school", kind=SpaceKind.HOUSEHOLD.value)
-    for space in (w_personal, p_personal, shared):
-        await space.save()
-    await Membership.insert(
-        Membership(person_id=wouter.id, space_id=w_personal.id),
-        Membership(person_id=partner.id, space_id=p_personal.id),
-        Membership(person_id=wouter.id, space_id=shared.id),
-        Membership(person_id=partner.id, space_id=shared.id),
-    )
+    wouter = await graph.person("wouter@example.test", "Wouter")
+    partner = await graph.person("partner@example.test", "Partner")
+    w_personal = await graph.personal_space(wouter, slug="wouter")
+    p_personal = await graph.personal_space(partner, slug="partner")
+    shared = await graph.shared_space("household", wouter, partner)
     return {
         "wouter": wouter,
         "partner": partner,

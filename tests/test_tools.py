@@ -21,13 +21,19 @@ async def test_tool_read_page_not_found_is_plain(tx, household):
 
 
 async def test_tool_list_spaces_returns_alias_not_slug(tx, household):
+    """Only the alias crosses the boundary, never a space's own slug.
+
+    The shared space's slug is now ``household``, which is also its alias, so
+    the leak is pinned on the personal slug instead: that is the name a slug
+    leak would actually expose to nobody's benefit.
+    """
     me = principal_for(household["wouter"])
     result = await tool_list_spaces(me)
     assert {row["alias"] for row in result} == {"personal", "household"}
     for row in result:
         assert set(row.keys()) == {"alias", "version"}
         assert "slug" not in row
-        assert household["shared"].slug not in row.values()
+        assert household["w_personal"].slug not in row.values()
 
 
 async def test_tool_load_index_serialises(tx, household):

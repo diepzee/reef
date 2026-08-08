@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from rif.access import Principal, accessible_spaces
 from rif.models import Attachment, AttachmentStatus, Page, SpaceKind
 
-_ALIAS_BY_KIND = {
+ALIAS_BY_KIND = {
     SpaceKind.PERSONAL.value: "personal",
-    SpaceKind.HOUSEHOLD.value: "household",
+    SpaceKind.SHARED.value: "household",
 }
 
 
@@ -101,7 +101,7 @@ async def build_index(principal: Principal) -> IndexPayload:
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
     by_space = {
         space.id: SpaceIndex(
-            alias=_ALIAS_BY_KIND[space.kind],
+            alias=ALIAS_BY_KIND[space.kind],
             version=space.version,
             pages=[],
             attachments=[],
@@ -187,7 +187,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
 
     by_space = {
         space.id: SpaceContext(
-            alias=_ALIAS_BY_KIND[space.kind],
+            alias=ALIAS_BY_KIND[space.kind],
             version=space.version,
             pages=[],
             attachments=[],
