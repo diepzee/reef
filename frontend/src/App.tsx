@@ -1,7 +1,10 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 
+import Editor from "./views/Editor";
 import Home from "./views/Home";
+import NewPage from "./views/NewPage";
 import NewSpace from "./views/NewSpace";
+import PageView from "./views/PageView";
 import SpaceView from "./views/SpaceView";
 
 export default function App() {
@@ -23,9 +26,9 @@ export default function App() {
         <Route path="/" element={<Home />} />
         <Route path="/spaces/new" element={<NewSpace />} />
         <Route path="/s/:space" element={<SpaceView />} />
-        <Route path="/s/:space/new" element={<p>new page</p>} />
-        <Route path="/s/:space/p/*" element={<p>page</p>} />
-        <Route path="/s/:space/e/*" element={<p>editor</p>} />
+        <Route path="/s/:space/new" element={<NewPage />} />
+        <Route path="/s/:space/p/*" element={<PageView />} />
+        <Route path="/s/:space/e/*" element={<Editor />} />
       </Routes>
     </BrowserRouter>
   );
