@@ -1,0 +1,46 @@
+/* Design tokens for rif v2 */
+
+:root {
+  --ground: #fbfcfd;
+  --panel: #f2f7f8;
+  --hairline: #e5edf0;
+  --hairline-soft: #eef3f5;
+  --ink: #1c2b33;
+  --muted: #7b8a92;
+  --faint: #b3bec4;
+  --accent: #0d9488;
+  --accent-deep: #0b6b62;
+  --accent-soft: #e7f9f4;
+  --danger: #b3554f;
+  --serif: Georgia, "Iowan Old Style", serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1a20;
+    --panel: #0f2129;
+    --hairline: #1c333d;
+    --hairline-soft: #16292f;
+    --ink: #e2f1f5;
+    --muted: #8fb0ba;
+    --faint: #5b7681;
+    --accent: #38bdd8;
+    --accent-deep: #7ce3d3;
+    --accent-soft: #123a35;
+    --danger: #e0847e;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0d1a20;
+  --panel: #0f2129;
+  --hairline: #1c333d;
+  --hairline-soft: #16292f;
+  --ink: #e2f1f5;
+  --muted: #8fb0ba;
+  --faint: #5b7681;
+  --accent: #38bdd8;
+  --accent-deep: #7ce3d3;
+  --accent-soft: #123a35;
+  --danger: #e0847e;
+}
