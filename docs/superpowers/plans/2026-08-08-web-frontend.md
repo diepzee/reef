@@ -1142,39 +1142,40 @@ export default function App() {
 
 ### Task 8: Branding — reef mark, favicon, header
 
-rif → reef. A simple SaaS-style mark: a rounded-square tile, deep-water gradient, three white coral branches rising from a seabed arc.
+**Branding is DECIDED** (Wouter, 8 Aug 2026, after 9 exploration rounds): the "W1" reef-colony mark — six fronds splaying outward in a dome profile plus a single-sway middle weed — in the **Seafoam** palette (mint→teal gradient `#5eead4→#0d9488` on seafoam-white tile `#e7f9f4`). Use the SVG below **exactly**; do not redesign it.
 
 **Files:**
 - Create: `frontend/public/reef.svg` (Bun's html build copies referenced assets; reference it from `index.html`)
 - Modify: `frontend/index.html` (favicon link + title "rif"), `frontend/src/App.tsx` (header bar), `frontend/src/app.css` (header styles)
 
-**Process note:** load the `frontend-design:frontend-design` skill before executing this task and Tasks 9–10 — it governs the visual choices; the SVG below is the starting point, refine within its guidance.
-
-`reef.svg` starting point:
+`reef.svg` — final, use verbatim:
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="rif">
   <defs>
-    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#0e7490"/>
-      <stop offset="1" stop-color="#164e63"/>
+    <linearGradient id="g" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="1" stop-color="#5eead4"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="14" fill="url(#sea)"/>
-  <path d="M12 46c6-3 14-3 20 0s14 3 20 0" fill="none" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
-  <g stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" fill="none">
-    <path d="M22 44V30c0-4-3-5-3-9"/>
-    <path d="M32 44V24c0-3 3-4 3-8"/>
-    <path d="M42 44V32c0-4 3-5 3-10"/>
+  <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+  <g stroke="url(#g)" stroke-width="4" stroke-linecap="round" fill="none">
+    <path d="M20 50C20 45.2 13 42.2 13 38"/>
+    <path d="M24 50C24 42.4 19 37.7 19 31"/>
+    <path d="M28 50C28 39.6 25 33.1 25 24"/>
+    <path d="M32 50c-2.5-11 2.5-21 0-32"/>
+    <path d="M36 50C36 39.6 39 33.1 39 24"/>
+    <path d="M40 50C40 42.4 45 37.7 45 31"/>
+    <path d="M44 50C44 45.2 51 42.2 51 38"/>
   </g>
 </svg>
 ```
 
-Header: icon + lowercase wordmark "rif" (weight 600, letter-spacing slight), links back to `/app`.
+The same file serves as favicon (`<link rel="icon" type="image/svg+xml" href="/reef.svg">`) — it was verified legible at 16 px during exploration. Header: the icon at ~26px + lowercase wordmark "rif" (weight 600, slight letter-spacing), linking back to `/app`. The app's accent tokens in `app.css` should pick up the palette: accent `#0d9488`, accent-soft `#e7f9f4`.
 
-- [ ] **Step 1: Load frontend-design skill; refine and add the SVG + favicon + header.**
-- [ ] **Step 2: Verify** — `bun run build`; open the dev server; icon renders crisply at 16px (favicon) and 40px (header); check both color schemes.
-- [ ] **Step 3: Commit** — `git commit -m "feat: reef branding — mark, favicon, header"`
+- [ ] **Step 1: Add the SVG verbatim + favicon link + header lockup; align accent tokens.**
+- [ ] **Step 2: Verify** — `bun run build`; open the dev server; icon renders crisply at 16px (favicon) and 26px (header); check both color schemes.
+- [ ] **Step 3: Commit** — `git commit -m "feat: reef branding — seafoam colony mark, favicon, header"`
 
 ---### Task 9: Views — Home and Space
 
