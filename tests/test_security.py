@@ -12,7 +12,16 @@ import pytest
 
 from rif.access import Principal, arm, resolve_space
 from rif.db import transaction_scope
-from rif.models import Page, Promotion, Revision
+from rif.models import (
+    Attachment,
+    AttachmentStatus,
+    MemberRole,
+    Membership,
+    Page,
+    Person,
+    Promotion,
+    Revision,
+)
 
 
 def principal_for(person) -> Principal:
@@ -53,6 +62,85 @@ async def _seed_private_page(household) -> Page:
         author_id=household["wouter"].id,
     ).save()
     return page
+
+
+async def _seed_shared_page(household) -> Page:
+    """Write one page into the shared space, as Wouter (a MEMBER).
+
+    :param household: the seeded household fixture
+    :returns: the page that was written
+    """
+    await resolve_space(principal_for(household["wouter"]), "personal")  # arms RLS
+    page = Page(
+        space_id=household["shared"].id,
+        path="joint.md",
+        title="Joint",
+        tags=[],
+        body="shared detail",
+    )
+    await page.save()
+    return page
+
+
+async def _seed_shared_content(household) -> tuple[Page, Revision, Attachment]:
+    """Seed one page, one revision, and one attachment in the shared space.
+
+    :param household: the seeded household fixture
+    :returns: the seeded page, revision, and attachment
+    """
+    page = await _seed_shared_page(household)
+    revision = Revision(
+        page_id=page.id,
+        path=page.path,
+        title=page.title,
+        tags=[],
+        body=page.body,
+        message="seed",
+        author_id=household["wouter"].id,
+    )
+    await revision.save()
+    attachment = Attachment(
+        space_id=household["shared"].id,
+        page_id=page.id,
+        object_key="shared/joint.png",
+        mime="image/png",
+        byte_size=1,
+        description="a photo",
+        status=AttachmentStatus.READY.value,
+    )
+    await attachment.save()
+    return page, revision, attachment
+
+
+async def _admit_viewer(household, graph) -> Person:
+    """Hand-insert a VIEWER membership into the shared space.
+
+    Nothing in the application creates viewers yet, so the row is written
+    directly -- the point is to prove Postgres already enforces the role.
+
+    :param household: the seeded household fixture
+    :param graph: the topology builder fixture
+    :returns: the viewer person
+    """
+    anna = await graph.person("anna@example.test", "Anna")
+    await graph.personal_space(anna)
+    await Membership(
+        person_id=anna.id,
+        space_id=household["shared"].id,
+        role=MemberRole.VIEWER.value,
+    ).save()
+    return anna
+
+
+async def _row_count(table: str, row_id) -> int:
+    """Return how many rows of ``table`` with ``row_id`` the caller may read.
+
+    :param table: content table name
+    :param row_id: the row's primary key
+    :returns: 1 if visible under the current principal, 0 if filtered out
+    """
+    rows = await Page.raw(f"SELECT count(*) AS n FROM {table} WHERE id = {{}}", row_id)
+    return rows[0]["n"]
 
 
 async def test_raw_select_as_other_principal_returns_nothing(household):
@@ -99,6 +187,7 @@ async def _stage_promotion(household) -> Promotion:
         person_id=household["wouter"].id,
         source_page_id=page.id,
         source_version=page.version,
+        dest_space_id=household["shared"].id,
         dest_path="shared.md",
         section_text="private medical detail",
     )
@@ -145,6 +234,7 @@ async def test_forged_promotion_for_another_person_is_rejected(household):
                 person_id=household["wouter"].id,
                 source_page_id=page.id,
                 source_version=page.version,
+                dest_space_id=household["shared"].id,
                 dest_path="forged.md",
                 section_text="x",
             ).save()
@@ -212,3 +302,88 @@ async def test_principal_does_not_leak_between_concurrent_transactions(household
             for i in range(20)
         ]
     )
+
+
+async def test_viewer_row_can_read_but_never_write(household, graph):
+    """A hand-inserted VIEWER membership reads the space but cannot write it.
+
+    Nothing creates viewers yet; this pins the RLS split so enabling
+    read-only roles later is app-level work, not a policy migration.
+    """
+    async with transaction_scope():
+        page = await _seed_shared_page(household)
+    anna = await _admit_viewer(household, graph)
+
+    async with transaction_scope():
+        await arm(principal_for(anna))
+        visible = await Page.objects().where(Page.id == page.id)
+        assert [row.id for row in visible] == [page.id]
+
+    with pytest.raises(Exception) as exc:
+        async with transaction_scope():
+            await arm(principal_for(anna))
+            await Page(
+                space_id=household["shared"].id,
+                path="planted.md",
+                title="x",
+                tags=[],
+                body="viewer write",
+            ).save()
+    assert "policy" in str(exc.value).lower()
+
+
+_WRITABLE_COLUMN = {
+    "pages": "body",
+    "revisions": "body",
+    "attachments": "description",
+}
+
+
+async def test_viewer_can_neither_update_nor_delete_any_content_row(household, graph):
+    """A VIEWER reads pages, revisions, and attachments but writes none of them.
+
+    Postgres applies only ``USING`` to ``DELETE``, and ``WITH CHECK`` only to
+    the new row of an ``INSERT``/``UPDATE``. A role restriction expressed in
+    ``WITH CHECK`` alone therefore leaves deletion governed by the permissive
+    read predicate. Piccolo exposes no rowcount, so the denial is measured the
+    way Postgres reports it: a ``DELETE``/``UPDATE ... RETURNING id`` returns
+    no rows because the policy filtered them out, and the rows are then still
+    there when a MEMBER looks. That is the failure mode an exception-based
+    test cannot see -- a denied delete removes nothing rather than raising.
+    """
+    async with transaction_scope():
+        page, revision, attachment = await _seed_shared_content(household)
+    rows = {"pages": page.id, "revisions": revision.id, "attachments": attachment.id}
+    anna = await _admit_viewer(household, graph)
+
+    async with transaction_scope():
+        await arm(principal_for(anna))
+        for table, row_id in rows.items():
+            assert await _row_count(table, row_id) == 1, (
+                f"a VIEWER must still read {table}"
+            )
+
+        for table in ("revisions", "attachments", "pages"):
+            deleted = await Page.raw(
+                f"DELETE FROM {table} WHERE id = {{}} RETURNING id", rows[table]
+            )
+            assert deleted == [], f"a VIEWER deleted {table}"
+
+        for table, row_id in rows.items():
+            updated = await Page.raw(
+                f"UPDATE {table} SET {_WRITABLE_COLUMN[table]} = 'tampered' "
+                f"WHERE id = {{}} RETURNING id",
+                row_id,
+            )
+            assert updated == [], f"a VIEWER updated {table}"
+
+    # Control: every row survived the viewer's attempts, and the same DELETE
+    # succeeds for a MEMBER -- so the policies are not merely denying everyone.
+    async with transaction_scope():
+        await arm(principal_for(household["wouter"]))
+        for table, row_id in rows.items():
+            assert await _row_count(table, row_id) == 1, f"a VIEWER destroyed {table}"
+        member_delete = await Page.raw(
+            "DELETE FROM revisions WHERE id = {} RETURNING id", revision.id
+        )
+        assert len(member_delete) == 1

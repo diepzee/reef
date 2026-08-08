@@ -14,7 +14,7 @@ from rif.attachments import (
 )
 from rif.auth import current_principal
 from rif.config import get_settings
-from rif.context import build_index, load_context
+from rif.context import ALIAS_BY_KIND, build_index, load_context
 from rif.db import transaction_scope
 from rif.models import Page
 from rif.pages import (
@@ -131,7 +131,7 @@ async def tool_list_spaces(principal: Principal) -> list[dict]:
     :returns: one dict per accessible space, alias and version only
     """
     return [
-        {"alias": s.kind, "version": s.version}
+        {"alias": ALIAS_BY_KIND[s.kind], "version": s.version}
         for s in await accessible_spaces(principal)
     ]
 

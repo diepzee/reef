@@ -59,10 +59,12 @@ async def prepare_promotion(
                 f"the section text must appear exactly once in {path!r}, "
                 f"found {occurrences}"
             )
+    dest = await resolve_space(principal, "household")
     staged = Promotion(
         person_id=principal.person_id,
         source_page_id=page.id,
         source_version=page.version,
+        dest_space_id=dest.id,
         dest_path=dest_path or path,
         section_text=section,
     )
