@@ -28,12 +28,18 @@ export default function SpaceView() {
 
   return (
     <div>
-      <h1>{space === "personal" ? "Personal" : space}</h1>
+      <div className="hero">
+        <h1 className="hero-title">{isPersonal ? "Personal" : space}</h1>
+      </div>
 
       {indexError && <div className="notice">{indexError}</div>}
       {!indexError && index === null && <p className="muted">Loading…</p>}
 
-      {!isPersonal && (
+      {isPersonal ? (
+        <div className="whobar">
+          <span className="whobar-lbl">only you</span>
+        </div>
+      ) : (
         <div className="whobar">
           {membersError && <span className="notice">{membersError}</span>}
           {!membersError && members === null && (
@@ -47,8 +53,9 @@ export default function SpaceView() {
               />
               <span className="whobar-lbl">
                 {members.members.length}{" "}
-                {members.members.length === 1 ? "member" : "members"} see
-                everything
+                {members.members.length === 1
+                  ? "member sees everything"
+                  : "members see everything"}
               </span>
               {members.is_owner && (
                 <button
@@ -63,37 +70,37 @@ export default function SpaceView() {
           )}
         </div>
       )}
-      {isPersonal && (
-        <div className="whobar">
-          <span className="whobar-lbl">only you</span>
-        </div>
-      )}
 
       {thisSpace && (
         <>
-          <ul className="page-list">
+          <div className="section-label">Pages</div>
+          <ul className="page-rows">
             {thisSpace.pages.length === 0 && (
-              <li className="muted">No pages yet.</li>
+              <li className="muted page-rows-empty">No pages yet.</li>
             )}
             {thisSpace.pages.map((page) => (
-              <li key={page.path} className="page-item">
-                <Link to={`/s/${space}/p/${page.path}`} className="page-item-title">
-                  {page.title || page.path}
+              <li key={page.path} className="page-row">
+                <Link to={`/s/${space}/p/${page.path}`} className="page-row-link">
+                  <span className="page-row-icon" aria-hidden="true">
+                    ☰
+                  </span>
+                  <span className="page-row-text">
+                    <span className="page-row-title">{page.title || page.path}</span>
+                    {page.description && (
+                      <span className="page-row-desc">{page.description}</span>
+                    )}
+                  </span>
+                  <span className="page-row-when">
+                    {relativeTime(page.updated)}
+                    {page.last_editor && ` · ${page.last_editor}`}
+                  </span>
                 </Link>
-                {page.description && (
-                  <p className="page-item-description">{page.description}</p>
-                )}
-                <p className="muted page-item-meta">
-                  updated {relativeTime(page.updated)}
-                </p>
               </li>
             ))}
           </ul>
-          <p>
-            <Link to={`/s/${space}/new`} className="button">
-              New page
-            </Link>
-          </p>
+          <Link to={`/s/${space}/new`} className="page-new">
+            ＋ New page
+          </Link>
         </>
       )}
     </div>
