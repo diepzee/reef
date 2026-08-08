@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     image_max_bytes: int = 5_000_000
     signed_url_ttl_seconds: int = 300
+    session_secret: str = ""
+    static_dir: str = "frontend/dist"
 
     @property
     def dsn(self) -> str:
