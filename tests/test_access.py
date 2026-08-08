@@ -42,3 +42,35 @@ async def test_accessible_spaces_excludes_the_other_personal_space(tx, household
         household["w_personal"].id,
         household["shared"].id,
     }
+
+
+async def test_shared_space_resolves_by_slug(tx, household):
+    space = await resolve_space(principal_for(household["wouter"]), "household")
+    assert space.id == household["shared"].id
+
+
+async def test_unknown_slug_and_foreign_slug_deny_identically(tx, household, graph):
+    stranger = await graph.person("carla@example.test", "Carla")
+    await graph.personal_space(stranger)
+    with pytest.raises(AccessDenied) as missing:
+        await resolve_space(principal_for(stranger), "no-such-space")
+    with pytest.raises(AccessDenied) as foreign:
+        await resolve_space(principal_for(stranger), "household")
+    # same message shape: a slug probe cannot distinguish "absent" from "not yours"
+    assert str(missing.value).replace("no-such-space", "household") == str(
+        foreign.value
+    )
+
+
+async def test_one_person_in_two_shared_spaces(tx, household, graph):
+    trip = await graph.shared_space("trip", household["wouter"])
+    a = await resolve_space(principal_for(household["wouter"]), "household")
+    b = await resolve_space(principal_for(household["wouter"]), "trip")
+    assert {a.id, b.id} == {household["shared"].id, trip.id}
+
+
+async def test_space_alias_names_personal_and_slugs(household):
+    from rif.access import space_alias
+
+    assert space_alias(household["w_personal"]) == "personal"
+    assert space_alias(household["shared"]) == "household"

@@ -35,7 +35,7 @@ async def export_space(principal: Principal, alias: str, target: Path) -> int:
     """Write every page in a space to a directory as markdown.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param target: directory to write into
     :returns: number of files written
     """
@@ -51,7 +51,7 @@ async def export_space(principal: Principal, alias: str, target: Path) -> int:
 async def _main(alias: str, target: str) -> None:
     """CLI entrypoint: export one space as the dev principal.
 
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param target: output directory
     """
     import os

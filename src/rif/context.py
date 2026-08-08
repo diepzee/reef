@@ -6,13 +6,8 @@ Both entry points assume they run inside :func:`rif.db.transaction_scope`;
 
 from dataclasses import dataclass
 
-from rif.access import Principal, accessible_spaces
-from rif.models import Attachment, AttachmentStatus, Page, SpaceKind
-
-_ALIAS_BY_KIND = {
-    SpaceKind.PERSONAL.value: "personal",
-    SpaceKind.HOUSEHOLD.value: "household",
-}
+from rif.access import Principal, accessible_spaces, space_alias
+from rif.models import Attachment, AttachmentStatus, Page
 
 
 @dataclass
@@ -101,7 +96,7 @@ async def build_index(principal: Principal) -> IndexPayload:
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
     by_space = {
         space.id: SpaceIndex(
-            alias=_ALIAS_BY_KIND[space.kind],
+            alias=space_alias(space),
             version=space.version,
             pages=[],
             attachments=[],
@@ -129,7 +124,9 @@ async def build_index(principal: Principal) -> IndexPayload:
             }
         )
 
-    version = ";".join(f"{space.kind}={space.version}" for space in spaces) or "empty"
+    version = (
+        ";".join(f"{space_alias(space)}={space.version}" for space in spaces) or "empty"
+    )
     return IndexPayload(
         version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
     )
@@ -187,7 +184,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
 
     by_space = {
         space.id: SpaceContext(
-            alias=_ALIAS_BY_KIND[space.kind],
+            alias=space_alias(space),
             version=space.version,
             pages=[],
             attachments=[],

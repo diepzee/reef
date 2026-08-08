@@ -4,6 +4,7 @@ import os
 
 from rif.access import AccessDenied, Principal
 from rif.models import Person
+from rif.spaces import ensure_personal_space
 
 
 async def principal_from_claims(claims: dict) -> Principal:
@@ -11,8 +12,12 @@ async def principal_from_claims(claims: dict) -> Principal:
 
     The durable identity is the provider ``sub``; a verified email is only the
     one-time binding mechanism, because emails are mutable and subjects are
-    not. The persons table is the allowlist — an unknown identity is denied,
-    and this must never grow into a signup path.
+    not. The persons table is still the gate, but its rows are now created by
+    invitation at runtime, not by migration. An unknown identity is denied
+    exactly as before: a token whose email no member ever invited never gets
+    in — invitation-only, never open signup. First sign-in binds the
+    provider subject and onboards a personal space with starter pages. The
+    ``email_verified`` claim must be the boolean ``True``, not merely truthy.
 
     :param claims: verified claims from the access token
     :raises AccessDenied: for missing/unknown subject with no bindable email
@@ -24,7 +29,9 @@ async def principal_from_claims(claims: dict) -> Principal:
     person = await Person.objects().where(Person.subject == subject).first()
     if person is None:
         email = claims.get("email")
-        if not email or not claims.get("email_verified"):
+        # Exactly True, not merely truthy: a provider that renders the claim
+        # as the string "false" would otherwise bind an unverified address.
+        if not email or claims.get("email_verified") is not True:
             raise AccessDenied("unknown subject and no verified email to bind")
         person = (
             await Person.objects()
@@ -35,6 +42,7 @@ async def principal_from_claims(claims: dict) -> Principal:
             raise AccessDenied(f"not on the allowlist: {email}")
         person.subject = subject
         await person.save()
+        await ensure_personal_space(person)
     return Principal(person_id=person.id, email=person.email)
 
 
