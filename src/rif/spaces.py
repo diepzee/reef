@@ -78,6 +78,37 @@ async def member_names(space_id: UUID) -> list[str]:
     )
 
 
+async def member_roster(space_id: UUID) -> list[dict]:
+    """Return a space's members as display name/email pairs, sorted by name.
+
+    The members panel in the web UI needs email addresses too: removal
+    (``DELETE /api/spaces/{s}/members/{email}``) is keyed by email, and
+    display names alone cannot drive that control. This is a separate query
+    from :func:`member_names` rather than a shared helper with an optional
+    field, because the two callers want genuinely different shapes (a flat
+    name list vs. name/email pairs) and forcing one query to serve both
+    would obscure which fields each caller actually uses.
+
+    :param space_id: the space to list
+    :returns: ``[{"display_name": str, "email": str}, ...]``, sorted by
+        display name
+    """
+    rows = (
+        await Person.select(Person.display_name, Person.email)
+        .where(
+            Person.id.is_in(
+                Membership.select(Membership.person_id).where(
+                    Membership.space_id == space_id
+                )
+            )
+        )
+        .order_by(Person.display_name)
+    )
+    return [
+        {"display_name": row["display_name"], "email": row["email"]} for row in rows
+    ]
+
+
 async def create_space(principal: Principal, slug: str) -> Space:
     """Create a shared space; the creator becomes owner and first member.
 

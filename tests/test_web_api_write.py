@@ -84,6 +84,14 @@ async def test_invite_and_members_and_remove(api, world):
     assert members["is_owner"] is True
     assert members["owner_email"] == alice.email
     assert len(members["members"]) == 3
+    assert all(
+        set(member) == {"display_name", "email"} for member in members["members"]
+    )
+    assert {member["email"] for member in members["members"]} == {
+        alice.email,
+        _bob.email,
+        "new@x.com",
+    }
     removed = await api.delete("/api/spaces/team/members/new@x.com", headers=CSRF)
     assert removed.status_code == 200
 

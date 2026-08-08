@@ -59,9 +59,15 @@ export interface Me {
   display_name: string;
 }
 
+/** One member of a shared space's roster: display name plus the email removal is keyed by. */
+export interface Member {
+  display_name: string;
+  email: string;
+}
+
 /** `GET /api/spaces/{space}/members` — a shared space's roster. */
 export interface Members {
-  members: string[];
+  members: Member[];
   owner_email: string;
   is_owner: boolean;
 }
