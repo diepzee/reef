@@ -72,9 +72,9 @@ Stack): the index read whole is the retrieval mechanism.
 
 | Table | Purpose |
 |---|---|
-| `persons` | Two rows. Email is identity. |
-| `spaces` | `kind` is `personal` or `household`. |
-| `memberships` | Person ↔ space. The entire access model. |
+| `persons` | One row per person. Email is identity; `invited_by_person_id` records who let them in. |
+| `spaces` | `kind` is `personal` (one per person) or `shared` (any number). Every space has one accountable `owner_person_id`. |
+| `memberships` | Person ↔ space, with a `role`. The entire access model. |
 | `pages` | `(space_id, path)` unique. Markdown body; title and tags as columns. |
 | `revisions` | Append-only. Prior body, author, message, timestamp. |
 | `attachments` | Image metadata plus a `description` — see below. |
@@ -140,9 +140,13 @@ sees zero content rows without a principal belongs in the boot path or the
 monitoring, because this failure is invisible from the outside — the
 application behaves identically either way, right up until it doesn't.
 
-Tools speak in **aliases** — `personal` and `household` — never space ids or
-names. The alias resolves per principal, so the same call means her personal
-space for her and his for him, and neither can name the other's.
+Tools address a space as `personal` or by its slug — never by a space id, and
+never by a personal space's own slug, which is derived from the person id and
+stays inside the server. `personal` resolves per principal, so the same call
+means her personal space for her and his for him, and neither can name the
+other's. A slug resolves only through membership, and the denial message is
+identical for a space that does not exist and one the caller is not in, so
+probing reveals nothing.
 
 ## Sharing model: extract, don't fragment
 
@@ -151,10 +155,11 @@ fragments of a page — extract the section into its own page, and share that
 page.** The unit of access stays the space. The unit of sharing becomes as
 small as you like, because a page can be as small as you like.
 
-How it works: `prepare_to_share` takes an optional `section` (the exact text
-to extract) and a `dest_path` (the new page's name). The disclosure the user
-must approve is exactly the extracted text. On confirm, one transaction
-creates the new page in the household space, replaces the section in the
+How it works: `prepare_to_share` takes a `dest_space` (which shared space, from
+`list_spaces`), an optional `section` (the exact text to extract) and a
+`dest_path` (the new page's name). The disclosure the user must approve is
+exactly the extracted text, together with the destination's current member
+list. On confirm, one transaction creates the new page in that space, replaces the section in the
 source page with a marker pointing at it, and consumes the nonce. The rest of
 the source page never leaves the personal space — and neither does its
 revision history.
@@ -197,8 +202,10 @@ less.
 | `delete_image(space, key)` | The one destructive tool, added 7 Aug 2026. Removes the row and the bytes; the ACL check runs before the object store is touched, so a denied delete cannot destroy data. Row committed first, then the object: the two stores cannot be atomic, and orphaned bytes are safer wreckage than an index entry whose image 404s. |
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
-| `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. |
-| `prepare_to_share(path, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
+| `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. Refuses any space but `personal`. |
+| `list_spaces` | Your spaces, each with its member list and whether you own it. |
+| `create_space(slug)` / `invite(space, email, ...)` / `remove_member(space, email)` | Space administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the space, past and future. |
+| `prepare_to_share(path, dest_space, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
 
 There is no demotion tool, because there is no demotion. Once a fact is in the
 household space, the other person has read it or may have. The prepare/confirm
