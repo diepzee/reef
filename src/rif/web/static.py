@@ -34,7 +34,10 @@ def _serve_or_fallback(path: str) -> Response:
     inside the resolved static root; anything outside it -- ``..`` segments,
     absolute-path tricks, symlink escapes -- is treated the same as a
     missing file and falls back to the SPA shell rather than ever serving
-    something outside the static tree.
+    something outside the static tree. A path that isn't valid on the
+    filesystem at all -- for example an embedded NUL byte from a request
+    like ``/app/foo%00.txt``, which ``Path.resolve()`` raises ``ValueError``
+    on -- is treated the same way rather than propagating as a 500.
 
     :param path: the request path under ``/app``, already URL-decoded by
         Starlette's path-converter
@@ -44,8 +47,12 @@ def _serve_or_fallback(path: str) -> Response:
     """
     base = Path(get_settings().static_dir).resolve()
     index = base / "index.html"
-    candidate = (base / path).resolve()
-    if candidate.is_relative_to(base) and candidate.is_file():
+    try:
+        candidate = (base / path).resolve()
+        valid = candidate.is_relative_to(base) and candidate.is_file()
+    except (ValueError, OSError):
+        valid = False
+    if valid:
         return FileResponse(candidate)
     if index.is_file():
         return FileResponse(index)
