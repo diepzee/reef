@@ -15,10 +15,12 @@
     "dompurify": "^3"
   },
   "devDependencies": {
+    "@types/bun": "^1",
+    "@types/jsdom": "^30.0.0",
+    "@types/markdown-it": "^14",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/markdown-it": "^14",
-    "@types/bun": "^1",
+    "jsdom": "^30.0.1",
     "typescript": "^5"
   }
 }
