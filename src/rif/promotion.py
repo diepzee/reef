@@ -7,9 +7,10 @@ through :mod:`rif.pages`, which arms RLS.
 from datetime import timedelta
 from uuid import UUID
 
-from rif.access import Principal, resolve_space
-from rif.models import Page, Promotion, utc_now
+from rif.access import AccessDenied, Principal, resolve_space
+from rif.models import Page, Promotion, Space, utc_now
 from rif.pages import get_page, save_page
+from rif.spaces import member_names
 
 NONCE_TTL = timedelta(minutes=10)
 
@@ -21,6 +22,7 @@ class PromotionError(Exception):
 async def prepare_promotion(
     principal: Principal,
     path: str,
+    dest_space: str,
     *,
     section: str | None = None,
     dest_path: str | None = None,
@@ -33,17 +35,29 @@ async def prepare_promotion(
     the rest of the source page never leaves the personal space.
 
     The disclosure is what the assistant must show the user before confirming:
-    the exact content that will become readable by the other household member,
-    permanently.
+    the exact content that will become readable by every current and future
+    member of the destination space, permanently.
 
     :param principal: the authenticated person
     :param path: page path in the personal space
+    :param dest_space: destination shared-space slug, from list_spaces
     :param section: exact span to extract; None shares the whole page
-    :param dest_path: name of the new household page; required with section
-    :raises PromotionError: if the page is missing, the section is absent or
+    :param dest_path: name of the new page in the destination; required with
+        section
+    :raises PromotionError: if the destination is not a shared space the
+        principal belongs to, the page is missing, the section is absent or
         ambiguous, or a section share names no destination
-    :returns: nonce, disclosure text, and destination
+    :returns: nonce, disclosure text, destination, and its members
     """
+    if dest_space == "personal":
+        raise PromotionError(
+            "sharing moves content out of the personal space; pick a shared "
+            "space from list_spaces as the destination"
+        )
+    try:
+        dest = await resolve_space(principal, dest_space)
+    except AccessDenied as exc:
+        raise PromotionError(str(exc)) from exc
     page = await get_page(principal, "personal", path)
     if page is None:
         raise PromotionError(f"no personal page at {path!r}")
@@ -59,7 +73,6 @@ async def prepare_promotion(
                 f"the section text must appear exactly once in {path!r}, "
                 f"found {occurrences}"
             )
-    dest = await resolve_space(principal, "household")
     staged = Promotion(
         person_id=principal.person_id,
         source_page_id=page.id,
@@ -69,20 +82,28 @@ async def prepare_promotion(
         section_text=section,
     )
     await staged.save()
+    members = await member_names(dest.id)
     return {
         "nonce": str(staged.id),
+        "dest_space": dest_space,
         "dest_path": staged.dest_path,
+        "members": members,
         "disclosure": section if section is not None else page.body,
-        "warning": "Sharing is permanent; there is no un-sharing.",
+        "warning": (
+            f"Sharing is permanent; there is no un-sharing. Everyone in "
+            f"{dest_space!r} — {', '.join(members)} — and anyone invited "
+            "later can read this forever."
+        ),
     }
 
 
 async def confirm_promotion(principal: Principal, nonce: str) -> dict:
-    """Execute a staged promotion: copy to household, stub the original.
+    """Execute a staged promotion: copy to the staged space, stub the original.
 
-    Validates ownership, expiry, source-unchanged, and destination-absent.
-    A consumed nonce reports success idempotently, so a transport retry can
-    never copy the stub over the promoted content.
+    Validates ownership, expiry, source-unchanged, continued membership in
+    the destination, and destination-absent. A consumed nonce reports success
+    idempotently, so a transport retry can never copy the stub over the
+    promoted content.
 
     :param principal: the authenticated person
     :param nonce: the id returned by prepare_promotion
@@ -95,8 +116,14 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     )
     if staged is None or staged.person_id != principal.person_id:
         raise PromotionError("unknown promotion nonce")
+    dest = await Space.objects().where(Space.id == staged.dest_space_id).first()
     if staged.consumed_at is not None:
-        return {"promoted": True, "dest_path": staged.dest_path, "already_done": True}
+        return {
+            "promoted": True,
+            "dest_space": dest.slug,
+            "dest_path": staged.dest_path,
+            "already_done": True,
+        }
     now = utc_now()
     if now - staged.created_at > NONCE_TTL:
         raise PromotionError("promotion expired; prepare it again")
@@ -104,52 +131,68 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     source = await Page.objects().where(Page.id == staged.source_page_id).first()
     if source is None or source.version != staged.source_version:
         raise PromotionError("the page changed since it was prepared; prepare again")
-    if await get_page(principal, "household", staged.dest_path) is not None:
+    try:
+        await resolve_space(principal, dest.slug)
+    except AccessDenied as exc:
+        raise PromotionError(str(exc)) from exc
+    if await get_page(principal, dest.slug, staged.dest_path) is not None:
         raise PromotionError(
-            f"{staged.dest_path!r} already exists in the household space; "
+            f"{staged.dest_path!r} already exists in the {dest.slug} space; "
             "merge through normal edits instead"
         )
 
     if staged.section_text is not None:
         await save_page(
             principal,
-            "household",
+            dest.slug,
             staged.dest_path,
             staged.section_text,
             message=f"section shared from personal by {principal.email}",
             title=staged.dest_path.removesuffix(".md"),
         )
         marker = (
-            f"*(section moved to the household space — see `{staged.dest_path}` there)*"
+            f"*(section moved to the {dest.slug} space — see "
+            f"`{staged.dest_path}` there)*"
         )
         await save_page(
             principal,
             "personal",
             source.path,
             source.body.replace(staged.section_text, marker),
-            message=f"section extracted to household as {staged.dest_path}",
+            message=f"section extracted to {dest.slug} as {staged.dest_path}",
             title=source.title,
             tags=list(source.tags),
         )
     else:
         await save_page(
             principal,
-            "household",
+            dest.slug,
             staged.dest_path,
             source.body,
             message=f"promoted from personal by {principal.email}",
             title=source.title,
             tags=list(source.tags),
         )
+        # The stub replaces the *source* page, whatever the destination is
+        # named: it is what stays behind in the personal space. Writing it to
+        # dest_path instead left the source unstubbed and destroyed any
+        # unrelated personal page of that name. expected_version pins the
+        # source that was just re-checked, so nothing is overwritten blind.
         await save_page(
             principal,
             "personal",
-            staged.dest_path,
-            f"# {source.title}\n\nMoved to the household space; "
+            source.path,
+            f"# {source.title}\n\nMoved to the {dest.slug} space; "
             f"see `{staged.dest_path}` there.",
             message="stubbed after promotion",
             title=source.title,
+            expected_version=source.version,
         )
     staged.consumed_at = now
     await staged.save()
-    return {"promoted": True, "dest_path": staged.dest_path, "already_done": False}
+    return {
+        "promoted": True,
+        "dest_space": dest.slug,
+        "dest_path": staged.dest_path,
+        "already_done": False,
+    }

@@ -53,6 +53,31 @@ async def _membership(person_id: UUID, space_id: UUID) -> Membership | None:
     )
 
 
+async def member_names(space_id: UUID) -> list[str]:
+    """Return the sorted display names of a space's members.
+
+    Two callers need this and both are consent surfaces: ``list_spaces`` tells
+    a person who is in the room, and ``prepare_promotion``'s warning names
+    every reader a share is about to reach. They must agree, so the query
+    lives once. Piccolo has no join syntax on ``select``, so membership is
+    expressed as a subquery on ``persons``.
+
+    :param space_id: the space to list
+    :returns: display names, sorted
+    """
+    return sorted(
+        await Person.select(Person.display_name)
+        .where(
+            Person.id.is_in(
+                Membership.select(Membership.person_id).where(
+                    Membership.space_id == space_id
+                )
+            )
+        )
+        .output(as_list=True)
+    )
+
+
 async def create_space(principal: Principal, slug: str) -> Space:
     """Create a shared space; the creator becomes owner and first member.
 
