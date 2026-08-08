@@ -1,9 +1,12 @@
 """Read API: membership slicing, page fetch, 401s."""
 
+import uuid
+
 from conftest import _login
 
 from rif.db import transaction_scope
 from rif.pages import save_page
+from rif.web.session import seal
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
 # test_web_api_write.py.
@@ -13,6 +16,24 @@ async def test_unauthenticated_index_is_401(api):
     """An unauthenticated request to /api/index is rejected with 401."""
     response = await api.get("/api/index")
     assert response.status_code == 401
+
+
+async def test_orphaned_session_is_401(api):
+    """A validly-signed cookie for a since-deleted person yields 401.
+
+    The cookie's signature checks out and its person id is well-formed, but
+    no ``persons`` row backs it -- as happens when the person was deleted
+    after the cookie was issued. The wrapper must reject it rather than let
+    a phantom principal reach a handler that dereferences a ``None`` lookup.
+    """
+    token = seal(uuid.uuid4(), "ghost@x.com", secret="test-secret")
+    api.cookies.set("rif_session", token)
+    me = await api.get("/api/me")
+    assert me.status_code == 401
+    assert me.json() == {"error": "unauthenticated"}
+    index = await api.get("/api/index")
+    assert index.status_code == 401
+    assert index.json() == {"error": "unauthenticated"}
 
 
 async def test_index_is_sliced_per_person(api, world):
@@ -55,3 +76,24 @@ async def test_get_page_and_404(api, world):
     assert missing.status_code == 404
     foreign = await api.get("/api/pages/other-space/notes/plan.md")
     assert foreign.status_code == 404
+
+
+async def test_get_image_missing_key_is_404_no_s3(api, world):
+    """A nonexistent attachment key 404s without ever constructing S3.
+
+    ``get_attachment`` returns ``None`` on a metadata-only lookup, and the
+    handler must check that before building an ``S3ObjectStore`` -- so this
+    path needs no S3 credentials configured, real or fake.
+    """
+    alice, _bob, _team = world
+    _login(api, alice)
+    response = await api.get("/api/images/team/nonexistent-key")
+    assert response.status_code == 404
+    assert response.json() == {"error": "not_found"}
+
+
+async def test_get_image_unauthenticated_is_401(api):
+    """An unauthenticated image fetch is rejected before any lookup."""
+    response = await api.get("/api/images/team/nonexistent-key")
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthenticated"}

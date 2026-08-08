@@ -6,7 +6,30 @@ import httpx
 import pytest_asyncio
 
 from rif.server import mcp
+from rif.web.oidc import OIDCError
 from rif.web.routes_auth import register_auth_routes
+
+
+class RaisingOIDC:
+    """A fake OIDC client whose token exchange always fails upstream."""
+
+    async def exchange(self, code, verifier, redirect_uri):
+        """Raise, simulating a failed call to the token endpoint.
+
+        :param code: the authorization code, unused
+        :param verifier: the PKCE verifier, unused
+        :param redirect_uri: the callback redirect URI, unused
+        :raises OIDCError: always
+        """
+        raise OIDCError("token endpoint unreachable")
+
+    async def userinfo(self, access_token):
+        """Never reached; exchange always raises first.
+
+        :param access_token: unused
+        :raises OIDCError: always
+        """
+        raise OIDCError("unreachable")
 
 
 class FakeOIDC:
@@ -114,3 +137,60 @@ async def test_callback_unknown_email_gets_403(web):
         "/api/auth/callback", params={"code": "c", "state": state}
     )
     assert response.status_code == 403
+
+
+async def test_login_unconfigured_is_503(monkeypatch):
+    """Login 503s cleanly when AuthKit is not configured.
+
+    Unset all three env vars ``login`` checks -- domain, client id, and base
+    URL -- rather than relying on whatever the ambient test environment
+    happens to leave unset.
+    """
+    monkeypatch.delenv("WORKOS_AUTHKIT_DOMAIN", raising=False)
+    monkeypatch.delenv("WORKOS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("RIF_BASE_URL", raising=False)
+    register_auth_routes(mcp, client_factory=lambda: FakeOIDC({}))
+    transport = httpx.ASGITransport(app=mcp.http_app())
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://rif.example"
+    ) as client:
+        response = await client.get("/api/auth/login")
+    assert response.status_code == 503
+    assert response.json() == {"error": "auth_unconfigured"}
+
+
+async def test_callback_oidc_upstream_error_is_502(web):
+    """An OIDC exchange failure maps to a 502, not a raw exception."""
+    client, _fake, _ = web
+    login = await client.get("/api/auth/login")
+    state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+    register_auth_routes(mcp, client_factory=lambda: RaisingOIDC())
+    response = await client.get(
+        "/api/auth/callback", params={"code": "c", "state": state}
+    )
+    assert response.status_code == 502
+    assert response.json() == {"error": "oidc_upstream"}
+
+
+async def test_logout_requires_csrf(web):
+    """A logout POST without the CSRF header is rejected with 403."""
+    client, _fake, _ = web
+    response = await client.post("/api/auth/logout")
+    assert response.status_code == 403
+    assert response.json() == {"error": "csrf"}
+
+
+async def test_logout_clears_session(web):
+    """A logout POST with the CSRF header succeeds and deletes the cookie."""
+    client, _fake, _ = web
+    client.cookies.set("rif_session", "some-token")
+    response = await client.post(
+        "/api/auth/logout", headers={"x-rif-csrf": "1"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    set_cookie_headers = response.headers.get_list("set-cookie")
+    assert any(
+        header.startswith("rif_session=") and "Max-Age=0" in header
+        for header in set_cookie_headers
+    )

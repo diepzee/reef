@@ -155,6 +155,17 @@ def api(handler: Callable) -> Callable:
                     if person is None:
                         raise Unauthenticated from None
                     principal = Principal(person_id=person.id, email=person.email)
+                else:
+                    # A validly-signed cookie can outlive the person it names
+                    # (deleted since sealing) -- confirm the row still exists
+                    # rather than let a phantom principal reach the handler.
+                    person = (
+                        await Person.objects()
+                        .where(Person.id == principal.person_id)
+                        .first()
+                    )
+                    if person is None:
+                        raise Unauthenticated from None
                 result = await handler(request, principal)
         except Unauthenticated:
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
