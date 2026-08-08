@@ -1,11 +1,11 @@
-"""The JSON read API: ``/api/me``, ``/api/index``, page and image fetch.
+"""The JSON API: reads (``/api/me``, ``/api/index``, page and image fetch),
+writes (page save), and space administration (create, invite, members,
+removal).
 
 Every route goes through :func:`api`, which opens the request's single
 transaction, resolves the principal (including the dev fallback), enforces
 CSRF on mutations, maps domain exceptions onto the Global Constraints error
-table, and renews the session cookie on success. Task 5 adds the write and
-admin endpoints to this same module, registered by the same
-:func:`register_api_routes`.
+table, and renews the session cookie on success.
 """
 
 from collections.abc import Callable
@@ -14,14 +14,14 @@ from dataclasses import asdict
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
-from rif.access import AccessDenied, Principal
+from rif.access import AccessDenied, Principal, resolve_space
 from rif.attachments import S3ObjectStore, get_attachment
 from rif.config import get_settings
 from rif.context import build_index
 from rif.db import transaction_scope
 from rif.models import Person
-from rif.pages import ProtectedPath, VersionConflict, get_page
-from rif.spaces import SpaceError
+from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
+from rif.spaces import SpaceError, create_space, invite, member_names, remove_member
 from rif.web.requests import (
     CsrfRejected,
     Unauthenticated,
@@ -136,6 +136,109 @@ async def _get_page(request: Request, principal: Principal) -> Response | dict:
     }
 
 
+async def _put_page(request: Request, principal: Principal) -> Response | dict:
+    """Create or overwrite a page from a JSON body.
+
+    ``expected_version`` is optional: omitted or ``null`` means create or
+    overwrite without an optimistic-lock check; an int enforces one, raising
+    ``VersionConflict`` (mapped to 409 by :func:`api`) on a stale value.
+
+    :param request: the incoming request, carrying ``space`` and ``path``
+        path params and a JSON body with ``body`` and ``message`` required,
+        and optional ``title``, ``tags``, ``expected_version``
+    :param principal: the authenticated person
+    :returns: the saved page, shaped as in Task 4's GET, or a 400 JSON
+        response if a required field is missing
+    """
+    space = request.path_params["space"]
+    path = request.path_params["path"]
+    payload = await request.json()
+    if "body" not in payload or "message" not in payload:
+        return JSONResponse({"error": "bad_request"}, status_code=400)
+    page = await save_page(
+        principal,
+        space,
+        path,
+        payload["body"],
+        message=payload["message"],
+        title=payload.get("title"),
+        tags=payload.get("tags"),
+        expected_version=payload.get("expected_version"),
+    )
+    return {
+        "space": space,
+        "path": page.path,
+        "title": page.title,
+        "tags": list(page.tags),
+        "body": page.body,
+        "version": page.version,
+        "updated": page.updated_at.isoformat(),
+    }
+
+
+async def _create_space(request: Request, principal: Principal) -> Response | dict:
+    """Create a shared space owned by the caller.
+
+    :param request: the incoming request, carrying a JSON body with ``slug``
+        required
+    :param principal: the authenticated person
+    :returns: the new space's alias and slug, or a 400 JSON response if
+        ``slug`` is missing
+    """
+    payload = await request.json()
+    if "slug" not in payload:
+        return JSONResponse({"error": "bad_request"}, status_code=400)
+    space = await create_space(principal, payload["slug"])
+    return {"alias": space.slug, "slug": space.slug}
+
+
+async def _space_members(request: Request, principal: Principal) -> dict:
+    """List a shared space's members and ownership.
+
+    :param request: the incoming request, carrying a ``space`` path param
+    :param principal: the authenticated person
+    :returns: member display names, the owner's email, and whether the
+        caller is the owner
+    """
+    slug = request.path_params["space"]
+    space = await resolve_space(principal, slug)
+    owner = await Person.objects().where(Person.id == space.owner_person_id).first()
+    return {
+        "members": await member_names(space.id),
+        "owner_email": owner.email if owner else "",
+        "is_owner": space.owner_person_id == principal.person_id,
+    }
+
+
+async def _invite(request: Request, principal: Principal) -> Response | dict:
+    """Invite an email address into a shared space the caller owns.
+
+    :param request: the incoming request, carrying a ``space`` path param
+        and a JSON body with ``email`` required and ``display_name`` optional
+    :param principal: the authenticated person
+    :returns: the invite outcome, including the disclosure text the UI must
+        show, or a 400 JSON response if ``email`` is missing
+    """
+    slug = request.path_params["space"]
+    payload = await request.json()
+    if "email" not in payload:
+        return JSONResponse({"error": "bad_request"}, status_code=400)
+    return await invite(principal, slug, payload["email"], payload.get("display_name"))
+
+
+async def _remove_member(request: Request, principal: Principal) -> dict:
+    """Remove a member from a shared space the caller owns.
+
+    :param request: the incoming request, carrying ``space`` and ``email``
+        path params
+    :param principal: the authenticated person
+    :returns: the removal outcome
+    """
+    slug = request.path_params["space"]
+    email = request.path_params["email"]
+    return await remove_member(principal, slug, email)
+
+
 async def _get_image(request: Request, principal: Principal) -> Response:
     """Redirect to a signed URL for an attachment, after checking visibility.
 
@@ -169,4 +272,13 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/me", methods=["GET"])(api(_me))
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["GET"])(api(_get_page))
+    mcp.custom_route("/api/pages/{space}/{path:path}", methods=["PUT"])(api(_put_page))
     mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_image))
+    mcp.custom_route("/api/spaces", methods=["POST"])(api(_create_space))
+    mcp.custom_route("/api/spaces/{space}/members", methods=["GET"])(
+        api(_space_members)
+    )
+    mcp.custom_route("/api/spaces/{space}/invites", methods=["POST"])(api(_invite))
+    mcp.custom_route("/api/spaces/{space}/members/{email}", methods=["DELETE"])(
+        api(_remove_member)
+    )
