@@ -1,0 +1,259 @@
+<title>rif v2 — hybrid, full screen set</title>
+<style>
+  :root {
+    --bg: #f5fafb; --surface: #ffffff; --ink: #10333d; --muted: #5b7681;
+    --line: #d8e8ec; --accent: #0d9488;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0b1d24; --surface: #102831; --ink: #e2f1f5; --muted: #8fb0ba;
+      --line: #1d3d48; --accent: #38bdd8;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b1d24; --surface: #102831; --ink: #e2f1f5; --muted: #8fb0ba;
+    --line: #1d3d48; --accent: #38bdd8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: "Seravek", "Avenir Next", "Segoe UI", system-ui, sans-serif; line-height: 1.5; }
+  main { max-width: 96rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  .eyebrow { text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; color: var(--accent); font-weight: 600; margin: 0 0 .5rem; }
+  h1 { font-size: 1.9rem; margin: 0 0 .4rem; }
+  .lede { color: var(--muted); max-width: 46rem; margin: 0 0 2rem; }
+  .framewrap { overflow-x: auto; padding-bottom: .5rem; }
+  .desktop {
+    min-width: 860px; max-width: 980px; border-radius: 14px; overflow: hidden;
+    border: 1px solid var(--line); box-shadow: 0 16px 50px rgb(6 30 40 / .14);
+  }
+  .phones { display: flex; flex-wrap: wrap; gap: 1.75rem; margin-top: 2.25rem; align-items: flex-start; }
+  .phoneblock { flex: 1 1 300px; max-width: 360px; }
+  .phoneblock h2 { font-size: 1rem; margin: 0 0 .6rem; }
+  .phoneblock h2 .tag { font-size: .68rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); margin-right: .4rem; }
+  .phone { width: 100%; border-radius: 24px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 12px 40px rgb(6 30 40 / .12); }
+  .caption { font-size: .75rem; color: var(--muted); margin-top: .6rem; }
+  .verdict { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 1.1rem 1.4rem; margin-top: 2.5rem; max-width: 62rem; }
+  .verdict p { margin: .3rem 0; }
+  h2.sect { font-size: 1.2rem; margin: 2.5rem 0 .75rem; }
+
+  /* ===== hybrid design system (mock scope) ===== */
+  .hy { font-size: 15px; background: #fbfcfd; color: #1c2b33; }
+  .hy .av { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #fff; border: 2px solid #fbfcfd; }
+  .hy .av + .av { margin-left: -8px; }
+  .hy .av.d { background: #0d9488; } .hy .av.w { background: #6366f1; } .hy .av.r { background: #f59e0b; }
+  .hy .av.sm { width: 20px; height: 20px; font-size: 9px; }
+  .serif { font-family: Georgia, "Iowan Old Style", serif; }
+
+  /* desktop shell */
+  .shell { display: grid; grid-template-columns: 250px 1fr; min-height: 560px; }
+  .side { background: #f2f7f8; border-right: 1px solid #e5edf0; padding: 16px 12px; display: flex; flex-direction: column; }
+  .side .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; padding: 2px 8px 14px; }
+  .side .lbl { font-size: 10.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #9aa8af; padding: 10px 8px 4px; }
+  .side .item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; font-size: 13.5px; color: #40525b; }
+  .side .item.active { background: #e7f9f4; color: #0b6b62; font-weight: 600; }
+  .side .item .n { margin-left: auto; font-size: 11px; color: #9aa8af; }
+  .side .item .dot { width: 8px; height: 8px; border-radius: 3px; background: #cfe0e5; }
+  .side .item.active .dot { background: #0d9488; }
+  .side .page { padding: 5px 8px 5px 24px; font-size: 13px; color: #56707b; border-radius: 8px; }
+  .side .page.active { color: #0b6b62; font-weight: 600; background: #e7f9f4; }
+  .side .newpage { padding: 6px 8px 6px 24px; font-size: 12.5px; color: #0d9488; font-weight: 600; }
+  .side .me { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 8px 2px; border-top: 1px solid #e5edf0; font-size: 13px; color: #56707b; }
+  .content { background: #fbfcfd; padding: 0; display: flex; flex-direction: column; }
+  .content .pagebar { display: flex; align-items: center; gap: 10px; padding: 14px 36px; border-bottom: 1px solid #eef3f5; }
+  .content .pagebar .crumb { font-size: 12.5px; color: #7b8a92; }
+  .content .pagebar .crumb b { color: #1c2b33; }
+  .content .pagebar .spacer { flex: 1; }
+  .content .pagebar .btn { font-size: 12.5px; font-weight: 600; color: #0b6b62; background: #e7f9f4; border-radius: 7px; padding: 6px 12px; }
+  .content .reading { padding: 26px 36px; max-width: 620px; }
+  .content .reading h3 { font-family: Georgia, serif; font-size: 30px; font-weight: 400; margin: 0 0 6px; letter-spacing: -.01em; }
+  .content .metaline { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: #7b8a92; margin-bottom: 20px; }
+  .content .reading p, .content .reading li { font-family: Georgia, serif; font-size: 16.5px; line-height: 1.65; color: #2a353b; margin: 0 0 12px; }
+  .content .reading ul { padding-left: 20px; margin: 0 0 12px; }
+  .content .tags { display: flex; gap: 6px; margin-top: 18px; }
+  .content .tags span { font-size: 11px; font-weight: 600; color: #56707b; background: #eef3f5; padding: 3px 9px; border-radius: 999px; }
+
+  /* phone frames */
+  .p-top { display: flex; align-items: center; gap: 10px; padding: 14px 18px; background: #fbfcfd; }
+  .p-crumb { font-size: 13px; color: #7b8a92; }
+  .p-crumb b { color: #1c2b33; font-weight: 600; }
+  .p-spacer { flex: 1; }
+  .p-btn { font-size: 12.5px; font-weight: 600; color: #0b6b62; background: #e7f9f4; border-radius: 7px; padding: 6px 12px; }
+
+  /* space screen */
+  .sp { background: #fbfcfd; }
+  .sp .hero { padding: 8px 20px 2px; }
+  .sp .hero h3 { font-size: 26px; margin: 0; letter-spacing: -.02em; }
+  .sp .whobar { display: flex; align-items: center; gap: 10px; padding: 8px 20px 14px; }
+  .sp .whobar .lbl { font-size: 12.5px; color: #7b8a92; }
+  .sp .whobar .manage { margin-left: auto; font-size: 12px; font-weight: 600; color: #0d9488; }
+  .sp .sectionlbl { font-size: 11px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: #9aa8af; padding: 10px 20px 6px; }
+  .sp .row { display: flex; align-items: center; gap: 12px; padding: 11px 20px; border-top: 1px solid #eef3f5; }
+  .sp .row .doc { width: 30px; height: 30px; border-radius: 7px; background: #e7f9f4; color: #0d9488; display: flex; align-items: center; justify-content: center; font-size: 14px; flex: none; }
+  .sp .row .t { font-weight: 600; font-size: 14.5px; }
+  .sp .row .d { font-size: 12.5px; color: #7b8a92; }
+  .sp .row .when { margin-left: auto; font-size: 12px; color: #b3bec4; white-space: nowrap; }
+  .sp .fab { margin: 14px 20px 20px; display: inline-flex; align-items: center; gap: 6px; background: #0d9488; color: #fff; font-size: 13.5px; font-weight: 600; padding: 9px 14px; border-radius: 8px; }
+
+  /* page reading screen */
+  .pg { background: #fbfcfd; }
+  .pg .reading { padding: 6px 22px 20px; }
+  .pg .reading h3 { font-family: Georgia, serif; font-size: 27px; font-weight: 400; margin: 0 0 6px; }
+  .pg .metaline { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #7b8a92; margin-bottom: 16px; }
+  .pg .reading p, .pg .reading li { font-family: Georgia, serif; font-size: 16px; line-height: 1.62; color: #2a353b; margin: 0 0 11px; }
+  .pg .reading ul { padding-left: 20px; margin: 0 0 11px; }
+
+  /* editor screen */
+  .ed { background: #fbfcfd; }
+  .ed .field { padding: 10px 20px 0; }
+  .ed .field label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: #9aa8af; margin-bottom: 4px; }
+  .ed .in { border: 1px solid #e0eaee; background: #fff; border-radius: 8px; padding: 9px 12px; font-size: 14px; color: #1c2b33; }
+  .ed .body { font-family: ui-monospace, "SF Mono", monospace; font-size: 13px; line-height: 1.6; height: 150px; color: #2a353b; }
+  .ed .hint { display: flex; gap: 6px; padding: 8px 20px 0; font-size: 11.5px; color: #7b8a92; }
+  .ed .hint b { color: #0b6b62; font-weight: 600; }
+  .ed .toolbar { display: flex; gap: 8px; align-items: center; padding: 14px 20px 20px; }
+  .ed .save { background: #0d9488; color: #fff; font-size: 13.5px; font-weight: 600; padding: 9px 16px; border-radius: 8px; }
+  .ed .toggle { font-size: 13px; color: #56707b; background: #eef3f5; border-radius: 8px; padding: 8px 12px; }
+
+  /* members sheet */
+  .mb { background: rgba(16, 40, 49, .35); padding: 40px 12px 0; }
+  .mb .sheet { background: #fbfcfd; border-radius: 18px 18px 0 0; padding: 6px 0 16px; box-shadow: 0 -8px 40px rgb(6 30 40 / .25); }
+  .mb .grip { width: 36px; height: 4px; border-radius: 2px; background: #d5e2e7; margin: 6px auto 10px; }
+  .mb h4 { font-size: 16px; margin: 0; padding: 0 20px 2px; }
+  .mb .sub { font-size: 12.5px; color: #7b8a92; padding: 0 20px 10px; }
+  .mb .person { display: flex; align-items: center; gap: 12px; padding: 10px 20px; border-top: 1px solid #eef3f5; }
+  .mb .person .nm { font-weight: 600; font-size: 14px; }
+  .mb .person .em { font-size: 12px; color: #7b8a92; }
+  .mb .person .rm { margin-left: auto; font-size: 12px; color: #b3554f; }
+  .mb .person .own { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: #9aa8af; }
+  .mb .invite { margin: 12px 20px 0; border: 1px dashed #cfe0e5; border-radius: 10px; padding: 12px; }
+  .mb .invite .t { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+  .mb .invite .in { border: 1px solid #e0eaee; background: #fff; border-radius: 8px; padding: 8px 11px; font-size: 13px; color: #9aa8af; margin-bottom: 6px; }
+  .mb .invite .go { display: inline-block; background: #0d9488; color: #fff; font-size: 12.5px; font-weight: 600; padding: 7px 13px; border-radius: 7px; margin-top: 2px; }
+  .mb .disclose { margin: 12px 20px 0; background: #fff7ed; border: 1px solid #fed7aa; color: #7c4a12; border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+</style>
+
+<main>
+  <p class="eyebrow">rif v2 · ui directions · round 2</p>
+  <h1>The hybrid, everywhere</h1>
+  <p class="lede">A's calm structure carrying C's reading typography: sans-serif chrome, serif pages. Desktop becomes a real two-pane app — sidebar with spaces and pages, content on the right — and the same system collapses to the phone screens below. Members are one tap from anywhere: the avatar stack in every space header and page header opens the members sheet.</p>
+
+  <h2 class="sect">Desktop — two-pane reading view</h2>
+  <div class="framewrap">
+  <div class="desktop hy">
+    <div class="shell">
+      <div class="side">
+        <div class="brand">
+          <svg width="22" height="22" viewBox="0 0 64 64"><defs><linearGradient id="gh" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#0d9488"/><stop offset="1" stop-color="#5eead4"/></linearGradient></defs><rect width="64" height="64" rx="14" fill="#e7f9f4"/><g stroke="url(#gh)" stroke-width="4" stroke-linecap="round" fill="none"><path d="M20 50C20 45.2 13 42.2 13 38"/><path d="M24 50C24 42.4 19 37.7 19 31"/><path d="M28 50C28 39.6 25 33.1 25 24"/><path d="M32 50c-2.5-11 2.5-21 0-32"/><path d="M36 50C36 39.6 39 33.1 39 24"/><path d="M40 50C40 42.4 45 37.7 45 31"/><path d="M44 50C44 45.2 51 42.2 51 38"/></g></svg>
+          rif
+        </div>
+        <div class="lbl">Spaces</div>
+        <div class="item"><span class="dot"></span> Personal <span class="n">3</span></div>
+        <div class="item active"><span class="dot"></span> reef <span class="n"><span class="av sm d">D</span><span class="av sm w">W</span><span class="av sm r">R</span></span></div>
+        <div class="page">The reef</div>
+        <div class="page active">Markdown works</div>
+        <div class="page">Groceries</div>
+        <div class="newpage">＋ New page</div>
+        <div class="item" style="margin-top:6px"><span class="dot"></span> ＋ New space</div>
+        <div class="me"><span class="av d sm">D</span> Demo · sign out</div>
+      </div>
+      <div class="content">
+        <div class="pagebar">
+          <span class="crumb">reef / <b>Markdown works</b></span>
+          <span class="spacer"></span>
+          <span><span class="av d">D</span><span class="av w">W</span><span class="av r">R</span></span>
+          <span class="btn">Edit</span>
+        </div>
+        <div class="reading">
+          <h3>Markdown works</h3>
+          <div class="metaline"><span>seen by everyone in reef</span> · <span>edited by Demo, today</span> · <span>v2</span></div>
+          <p>You can use <b>bold</b>, <i>italics</i>, and lists.</p>
+          <ul><li>First</li><li>Second</li></ul>
+          <p style="border-left:3px solid #e0eaee; padding-left:12px; color:#56707b;">Blockquotes too.</p>
+          <div class="tags"><span>guide</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <p class="caption">Sidebar = spaces with member stacks + the open space's pages. Page header carries the audience; clicking the avatar stack opens members.</p>
+
+  <h2 class="sect">Mobile — the same system</h2>
+  <div class="phones hy">
+    <div class="phoneblock">
+      <h2><span class="tag">M1</span>Space</h2>
+      <div class="phone sp">
+        <div class="p-top"><span class="p-crumb">‹ Spaces</span><span class="p-spacer"></span><span class="av sm d">D</span></div>
+        <div class="hero"><h3>reef</h3></div>
+        <div class="whobar">
+          <span><span class="av d">D</span><span class="av w">W</span><span class="av r">R</span></span>
+          <span class="lbl">3 members see everything</span>
+          <span class="manage">Manage</span>
+        </div>
+        <div class="sectionlbl">Pages</div>
+        <div class="row"><div class="doc">☰</div><div><div class="t">The reef</div><div class="d">A shared space you can invite people into.</div></div><div class="when">2 h</div></div>
+        <div class="row"><div class="doc">☰</div><div><div class="t">Markdown works</div><div class="d">You can use bold, italics, and lists.</div></div><div class="when">2 h</div></div>
+        <div class="row"><div class="doc">☰</div><div><div class="t">Groceries</div><div class="d">Standing list for the week.</div></div><div class="when">now</div></div>
+        <span class="fab">＋ New page</span>
+      </div>
+      <p class="caption">"Manage" and the avatar stack both open the members sheet (M4).</p>
+    </div>
+
+    <div class="phoneblock">
+      <h2><span class="tag">M2</span>Page (reading)</h2>
+      <div class="phone pg">
+        <div class="p-top"><span class="p-crumb">‹ reef</span><span class="p-spacer"></span><span><span class="av sm d">D</span><span class="av sm w">W</span><span class="av sm r">R</span></span><span class="p-btn">Edit</span></div>
+        <div class="reading">
+          <h3>The reef</h3>
+          <div class="metaline"><span>everyone in reef</span> · <span>Wouter, 2 h</span></div>
+          <p>A shared space you can invite people into.</p>
+          <ul><li>Everything here is visible to every member.</li><li>Owners can invite by email and remove members.</li></ul>
+        </div>
+      </div>
+      <p class="caption">Serif reading view — C's typography inside A's shell.</p>
+    </div>
+
+    <div class="phoneblock">
+      <h2><span class="tag">M3</span>Editor</h2>
+      <div class="phone ed">
+        <div class="p-top"><span class="p-crumb">‹ Markdown works</span><span class="p-spacer"></span><span class="toggle">Preview</span></div>
+        <div class="field"><label>Title</label><div class="in">Markdown works</div></div>
+        <div class="field"><label>Body</label><div class="in body"># Markdown works
+
+You can use **bold**, *italics*, and lists.
+
+1. First
+2. Second</div></div>
+        <div class="hint"><b>Index line:</b> You can use bold, italics, and lists.</div>
+        <div class="field"><label>Why this change? (optional)</label><div class="in" style="color:#9aa8af">tightened the intro</div></div>
+        <div class="toolbar"><span class="save">Save</span><span style="font-size:12px;color:#7b8a92">v2 · saves as v3</span></div>
+      </div>
+      <p class="caption">Monospace writing, live index-description line, quiet versioning.</p>
+    </div>
+
+    <div class="phoneblock">
+      <h2><span class="tag">M4</span>Members sheet</h2>
+      <div class="phone mb">
+        <div class="sheet">
+          <div class="grip"></div>
+          <h4>People in reef</h4>
+          <div class="sub">Everyone sees everything — past and future. There is no per-page hiding.</div>
+          <div class="person"><span class="av d">D</span><div><div class="nm">Demo</div><div class="em">demo@rif.app</div></div><span class="own">owner</span></div>
+          <div class="person"><span class="av w">W</span><div><div class="nm">Wouter</div><div class="em">wouter@rugvin.be</div></div><span class="rm">Remove…</span></div>
+          <div class="person"><span class="av r">R</span><div><div class="nm">Roos</div><div class="em">roos@rugvin.be</div></div><span class="rm">Remove…</span></div>
+          <div class="invite">
+            <div class="t">Invite someone</div>
+            <div class="in">email address</div>
+            <div class="in">display name (optional)</div>
+            <span class="go">Send invite</span>
+          </div>
+          <div class="disclose">⚠ roos@rugvin.be will permanently see everything in 'reef', past and future — 3 pages today. There is no un-sharing what they read.</div>
+        </div>
+      </div>
+      <p class="caption">Bottom sheet from any avatar stack. Disclosure stays loud. Non-owners see the roster, no controls.</p>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <p class="eyebrow">What this settles, if approved</p>
+    <p><strong>Organization:</strong> desktop two-pane with a spaces+pages sidebar; members reachable from every screen via the avatar stack (space header, page header, sidebar) opening one members sheet; home screen dissolves into the sidebar on desktop and stays as the space list on mobile. <strong>Visuals:</strong> A-shell (soft surfaces, #fbfcfd ground, seafoam accents, avatar presence) + C-reading (Georgia serif for page bodies and titles, 1.6 line height, quiet metadata sentences). <strong>Everything stays space-level</strong> — members are per space, surfaced everywhere. Anything to change before I write this up as the v2 spec?</p>
+  </div>
+</main>
