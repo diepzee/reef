@@ -167,40 +167,6 @@ textarea {
   color: var(--ink);
 }
 
-.members-panel {
-  margin-top: 2rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--hairline);
-}
-
-.member-list {
-  list-style: none;
-  margin: 0.5rem 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.member-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.member-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-button.danger {
-  background: var(--danger-bg);
-  border-color: var(--danger-border);
-  color: var(--danger-ink);
-}
-
 /*
  * The editor's 409-conflict banner. Styled with the --warn-* tokens
  * (mockup has no literal reference for it, but it's the same "loud but
@@ -424,6 +390,12 @@ button.danger {
   width: 20px;
   height: 20px;
   font-size: 9px;
+}
+
+.avatar-stack:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 50%;
 }
 
 /*

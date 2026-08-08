@@ -75,6 +75,7 @@ export default function PageView() {
           <AvatarStack
             names={members.members.map((member) => member.display_name)}
             onClick={() => openMembers(space)}
+            ariaLabel={`Members of ${space}`}
           />
         )}
         {!isProtected && (

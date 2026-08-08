@@ -33,6 +33,8 @@ interface AvatarStackProps {
   size?: "md" | "sm";
   /** Click handler for the entire stack. */
   onClick?: () => void;
+  /** Accessible label for screen readers (default "Members"). */
+  ariaLabel?: string;
 }
 
 /**
@@ -43,14 +45,33 @@ export function AvatarStack({
   max = 4,
   size = "md",
   onClick,
+  ariaLabel = "Members",
 }: AvatarStackProps): React.ReactNode {
   const shown = names.slice(0, max);
   const overflow = names.length - max;
   const stackClassName = `avatar-stack ${size === "sm" ? "avatar-stack-sm" : ""}`.trim();
   const moreClassName = `avatar-more ${size === "sm" ? "avatar-more-sm" : ""}`.trim();
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      if (e.key === " ") {
+        e.preventDefault();
+      }
+      onClick?.();
+    }
+  };
+
+  const stackProps = onClick
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        "aria-label": ariaLabel,
+        onKeyDown: handleKeyDown,
+      }
+    : {};
+
   return (
-    <div className={stackClassName} onClick={onClick}>
+    <div className={stackClassName} onClick={onClick} {...stackProps}>
       {shown.map((name) => (
         <Avatar key={name} name={name} size={size} />
       ))}

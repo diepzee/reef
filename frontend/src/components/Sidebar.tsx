@@ -102,6 +102,7 @@ export function Sidebar({ me }: { me: Me | null }) {
                       names={members.members.map((member) => member.display_name)}
                       size="sm"
                       onClick={() => openMembers(space.alias)}
+                      ariaLabel={`Members of ${space.alias}`}
                     />
                   </span>
                 )
