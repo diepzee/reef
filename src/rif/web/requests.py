@@ -66,6 +66,24 @@ def require_csrf(request: Request) -> None:
         raise CsrfRejected
 
 
+def cookie_secure() -> bool:
+    """Return whether session-family cookies should be marked ``Secure``.
+
+    Railway terminates TLS at a proxy in front of the app; uvicorn's
+    proxy-header trust is not configured, so every request the app sees
+    arrives as plain ``http`` regardless of what the browser used. That
+    makes ``request.url.scheme`` unreliable as a security signal -- deriving
+    ``Secure`` from it means the flag silently never fires in production.
+    Instead, ``Secure`` is tied to the same escape hatch that already gates
+    the plaintext-HTTP boot guard in ``rif.server.main``: on by default, and
+    off only when ``RIF_DEV_INSECURE=1`` deliberately opts into local
+    development over plain HTTP.
+
+    :returns: True unless ``RIF_DEV_INSECURE=1`` is set
+    """
+    return os.environ.get("RIF_DEV_INSECURE") != "1"
+
+
 def set_session_cookie(
     response: Response, principal: Principal, *, secure: bool
 ) -> None:

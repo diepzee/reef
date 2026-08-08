@@ -32,6 +32,7 @@ from rif.web.oidc import (
 from rif.web.requests import (
     SESSION_COOKIE,
     CsrfRejected,
+    cookie_secure,
     require_csrf,
     set_session_cookie,
 )
@@ -103,7 +104,7 @@ def register_auth_routes(
             max_age=OAUTH_COOKIE_TTL_SECONDS,
             httponly=True,
             samesite="lax",
-            secure=request.url.scheme == "https",
+            secure=cookie_secure(),
         )
         return response
 
@@ -145,7 +146,7 @@ def register_auth_routes(
             return HTMLResponse(_DENIED_HTML, status_code=403)
 
         response = RedirectResponse("/app", status_code=303)
-        set_session_cookie(response, principal, secure=request.url.scheme == "https")
+        set_session_cookie(response, principal, secure=cookie_secure())
         response.delete_cookie(OAUTH_COOKIE)
         return response
 

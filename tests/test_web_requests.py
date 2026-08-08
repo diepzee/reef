@@ -11,6 +11,7 @@ from rif.config import get_settings
 from rif.web.requests import (
     CsrfRejected,
     Unauthenticated,
+    cookie_secure,
     principal_from_request,
     require_csrf,
     set_session_cookie,
@@ -58,6 +59,22 @@ def test_csrf_required_on_mutation():
         require_csrf(_request(method="PUT"))
     require_csrf(_request({"x-rif-csrf": "1"}, method="PUT"))  # no raise
     require_csrf(_request(method="GET"))  # reads never need it
+
+
+def test_cookie_secure_default_true():
+    """Secure is on by default -- it must not depend on request scheme.
+
+    Regression test: callers used to derive ``secure`` from
+    ``request.url.scheme``, which is always ``"http"`` behind Railway's
+    TLS-terminating proxy.
+    """
+    assert cookie_secure() is True
+
+
+def test_cookie_secure_false_with_dev_insecure(monkeypatch):
+    """RIF_DEV_INSECURE=1 is the only thing that turns Secure off."""
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    assert cookie_secure() is False
 
 
 def test_set_session_cookie():

@@ -27,6 +27,7 @@ from rif.web.requests import (
     CsrfRejected,
     Unauthenticated,
     _DevFallback,
+    cookie_secure,
     principal_from_request,
     require_csrf,
     set_session_cookie,
@@ -182,7 +183,7 @@ def api(handler: Callable) -> Callable:
                 {"error": "space_error", "detail": str(error)}, status_code=400
             )
         response = result if isinstance(result, Response) else JSONResponse(result)
-        set_session_cookie(response, principal, secure=request.url.scheme == "https")
+        set_session_cookie(response, principal, secure=cookie_secure())
         return response
 
     return endpoint
@@ -300,18 +301,31 @@ async def _create_space(request: Request, principal: Principal) -> dict:
 async def _space_members(request: Request, principal: Principal) -> dict:
     """List a shared space's members and ownership.
 
+    Email addresses go out only to the owner. The members panel that
+    consumes this is owner-only in the frontend, and a non-owner member has
+    no legitimate need to see other members' addresses, so a non-owner's
+    roster keeps the same shape with each ``email`` blanked to ``""``
+    rather than the field dropped.
+
     :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
-    :returns: member display name/email pairs, the owner's email, and
-        whether the caller is the owner
+    :returns: member display name/email pairs (email blank for
+        non-owners), the owner's email, and whether the caller is the owner
     """
     slug = request.path_params["space"]
     space = await resolve_space(principal, slug)
     owner = await Person.objects().where(Person.id == space.owner_person_id).first()
+    is_owner = space.owner_person_id == principal.person_id
+    roster = await member_roster(space.id)
+    if not is_owner:
+        roster = [
+            {"display_name": member["display_name"], "email": ""}
+            for member in roster
+        ]
     return {
-        "members": await member_roster(space.id),
+        "members": roster,
         "owner_email": owner.email if owner else "",
-        "is_owner": space.owner_person_id == principal.person_id,
+        "is_owner": is_owner,
     }
 
 
