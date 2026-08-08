@@ -104,7 +104,12 @@ export default function SpaceView() {
       )}
 
       {!isPersonal && (
+        // `key={space}` forces a remount on navigation between two shared
+        // spaces: MembersPanel owns local state (pendingRemove, disclosure,
+        // the invite form) that must not survive from one space to another
+        // — a stale disclosure naming the wrong space/email is a trust bug.
         <MembersPanel
+          key={space}
           space={space}
           members={members}
           error={membersError}
