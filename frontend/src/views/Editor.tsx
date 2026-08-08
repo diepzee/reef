@@ -167,88 +167,116 @@ export function PageEditor({
 
       {saveError && <div className="notice">{saveError}</div>}
       {conflict && (
-        <div className="warning">
+        <div className="ed-conflict">
           Someone saved this page while you were editing (now v{conflict.version}).
           Your text is kept below; the latest version is shown for comparison.
         </div>
       )}
 
       <form onSubmit={handleSave}>
-        <label htmlFor="editor-title">Title</label>
-        <input
-          id="editor-title"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          autoComplete="off"
-        />
+        <div className="ed-field">
+          <label htmlFor="editor-title" className="ed-label">
+            Title
+          </label>
+          <input
+            id="editor-title"
+            className="ed-input"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
 
-        <label htmlFor="editor-tags">Tags</label>
-        <input
-          id="editor-tags"
-          value={tagsText}
-          onChange={(event) => setTagsText(event.target.value)}
-          placeholder="comma, separated, tags"
-          autoComplete="off"
-        />
+        <div className="ed-field">
+          <label htmlFor="editor-tags" className="ed-label">
+            Tags
+          </label>
+          <input
+            id="editor-tags"
+            className="ed-input"
+            value={tagsText}
+            onChange={(event) => setTagsText(event.target.value)}
+            placeholder="comma, separated, tags"
+            autoComplete="off"
+          />
+        </div>
 
         <div className="editor-actions">
-          <button type="button" onClick={() => setPreview((value) => !value)}>
+          <button
+            type="button"
+            className="ed-toggle"
+            onClick={() => setPreview((value) => !value)}
+          >
             {preview ? "Edit" : "Preview"}
           </button>
         </div>
 
-        <label htmlFor="editor-body">Body</label>
-        {preview ? (
-          <div
-            className="page-body editor-preview"
-            // Safe: renderMarkdown always runs its output through DOMPurify.
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(body, space) }}
-          />
-        ) : (
-          <textarea
-            id="editor-body"
-            ref={bodyRef}
-            className="editor-textarea"
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            spellCheck={false}
-            required
-          />
-        )}
-
-        <div className="index-description">
-          <p>
-            <strong>Index description:</strong> {indexDescription(body) || "(none yet)"}
-          </p>
-          <p className="muted">
-            The first prose line becomes this page's one-line description in the index.
-          </p>
+        <div className="ed-field">
+          <label htmlFor="editor-body" className="ed-label">
+            Body
+          </label>
+          {preview ? (
+            <div
+              className="page-body ed-input editor-preview"
+              // Safe: renderMarkdown always runs its output through DOMPurify.
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(body, space) }}
+            />
+          ) : (
+            <textarea
+              id="editor-body"
+              ref={bodyRef}
+              className="ed-input editor-textarea"
+              value={body}
+              onChange={(event) => setBody(event.target.value)}
+              spellCheck={false}
+              required
+            />
+          )}
         </div>
 
+        <div className="ed-hint">
+          <b>Index line:</b> {indexDescription(body) || "(none yet)"}
+        </div>
+        <p className="muted">
+          The first prose line becomes this page's one-line description in the index.
+        </p>
+
         {conflict && (
-          <>
-            <label htmlFor="editor-latest">Latest version (read-only)</label>
+          <div className="ed-field">
+            <label htmlFor="editor-latest" className="ed-label">
+              Latest version (read-only)
+            </label>
             <textarea
               id="editor-latest"
-              className="editor-textarea compare-textarea"
+              className="ed-input editor-textarea compare-textarea"
               value={conflict.body}
               readOnly
             />
-          </>
+          </div>
         )}
 
-        <label htmlFor="editor-message">Why this change? (optional)</label>
-        <input
-          id="editor-message"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-          autoComplete="off"
-        />
+        <div className="ed-field">
+          <label htmlFor="editor-message" className="ed-label">
+            Why this change? (optional)
+          </label>
+          <input
+            id="editor-message"
+            className="ed-input"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
 
-        <div className="editor-actions">
-          <button type="submit" disabled={saving || !body}>
+        <div className="ed-toolbar">
+          <button type="submit" className="ed-save" disabled={saving || !body}>
             {saving ? "Saving…" : "Save"}
           </button>
+          {mode === "edit" && expectedVersion !== null && (
+            <span className="ed-version-caption">
+              v{expectedVersion} · saves as v{expectedVersion + 1}
+            </span>
+          )}
         </div>
       </form>
     </div>

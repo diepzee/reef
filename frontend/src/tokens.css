@@ -16,6 +16,14 @@
   --warn-bg: #fff7ed;
   --warn-border: #fed7aa;
   --warn-ink: #7c4a12;
+  /* Input/textarea fill — distinct from --panel so form fields stay
+     legible against panel-colored surroundings (e.g. the editor). */
+  --field: #ffffff;
+  /* Error banners/buttons (.notice, button.danger, member-removal
+     confirm) — same bg/border/ink triad shape as --warn-*. */
+  --danger-bg: #fdecea;
+  --danger-border: #c0392b;
+  --danger-ink: #8b1f11;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +42,10 @@
     --warn-bg: #3a2a12;
     --warn-border: #7c4a12;
     --warn-ink: #fbd9a5;
+    --field: #0f2129;
+    --danger-bg: #3a1a16;
+    --danger-border: #e57368;
+    --danger-ink: #f6b4ac;
   }
 }
 
@@ -52,4 +64,8 @@
   --warn-bg: #3a2a12;
   --warn-border: #7c4a12;
   --warn-ink: #fbd9a5;
+  --field: #0f2129;
+  --danger-bg: #3a1a16;
+  --danger-border: #e57368;
+  --danger-ink: #f6b4ac;
 }

@@ -44,21 +44,28 @@ export default function NewSpace() {
       <h1>New space</h1>
       {error && <div className="notice">{error}</div>}
       <form onSubmit={handleSubmit}>
-        <label htmlFor="slug">Name</label>
-        <input
-          id="slug"
-          name="slug"
-          value={slug}
-          onChange={(event) => setSlug(event.target.value)}
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          required
-        />
+        <div className="ed-field">
+          <label htmlFor="slug" className="ed-label">
+            Name
+          </label>
+          <input
+            id="slug"
+            name="slug"
+            className="ed-input"
+            value={slug}
+            onChange={(event) => setSlug(event.target.value)}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            required
+          />
+        </div>
         <p className="muted">Lowercase letters, digits, and hyphens — e.g. "trip".</p>
-        <button type="submit" disabled={submitting || !slug}>
-          {submitting ? "Creating…" : "Create space"}
-        </button>
+        <div className="ed-toolbar">
+          <button type="submit" className="ed-save" disabled={submitting || !slug}>
+            {submitting ? "Creating…" : "Create space"}
+          </button>
+        </div>
       </form>
     </div>
   );
