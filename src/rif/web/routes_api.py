@@ -22,7 +22,7 @@ from rif.context import build_index
 from rif.db import transaction_scope
 from rif.models import Person
 from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
-from rif.spaces import SpaceError, create_space, invite, member_names, remove_member
+from rif.spaces import SpaceError, create_space, invite, member_roster, remove_member
 from rif.web.requests import (
     CsrfRejected,
     Unauthenticated,
@@ -291,14 +291,14 @@ async def _space_members(request: Request, principal: Principal) -> dict:
 
     :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
-    :returns: member display names, the owner's email, and whether the
-        caller is the owner
+    :returns: member display name/email pairs, the owner's email, and
+        whether the caller is the owner
     """
     slug = request.path_params["space"]
     space = await resolve_space(principal, slug)
     owner = await Person.objects().where(Person.id == space.owner_person_id).first()
     return {
-        "members": await member_names(space.id),
+        "members": await member_roster(space.id),
         "owner_email": owner.email if owner else "",
         "is_owner": space.owner_person_id == principal.person_id,
     }
