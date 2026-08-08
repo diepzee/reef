@@ -82,6 +82,18 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
     }
   }, [open]);
 
+  // Escape closes the sheet — the natural keyboard pairing for the ×
+  // button and scrim click, and only wired while open so it doesn't
+  // shadow Escape elsewhere in the app.
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   async function confirmRemove(memberEmail: string) {
     setRemoving(true);
     setRemoveError(null);
@@ -135,7 +147,15 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         role="dialog"
         aria-modal="true"
         aria-label={`People in ${space}`}
-        aria-hidden={!open}
+        // `inert` (not `aria-hidden`) while closed: `aria-hidden` on a
+        // container is purely an AT hint — it does not stop a descendant
+        // (e.g. the × button, right after a click) from *keeping* DOM
+        // focus, and Chrome flags that combination as a violation
+        // ("Blocked aria-hidden on an element because its descendant
+        // retained focus"). `inert` actually removes the subtree from
+        // both focus and the accessibility tree, so the browser moves
+        // focus off the close button itself when the sheet closes.
+        inert={!open}
       >
         {!isDesktop && <div className="mbs-grip" aria-hidden="true" />}
         <div className="mbs-head">
