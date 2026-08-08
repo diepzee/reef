@@ -1,1 +1,1 @@
-"""rif: long-term memory for the household, exposed as a remote MCP server."""
+"""rif: long-term memory shared through named spaces, as a remote MCP server."""
