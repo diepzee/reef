@@ -48,3 +48,15 @@ async def test_traversal_blocked(static_client):
     response = await static_client.get("/app/..%2F..%2Fetc%2Fpasswd")
     assert response.status_code == 200  # falls back to index, never the file
     assert "<title>rif</title>" in response.text
+
+
+async def test_embedded_nul_falls_back(static_client):
+    """A path with an embedded NUL byte never 500s; it falls back to index.
+
+    ``Path.resolve()`` raises ``ValueError`` on an embedded NUL, which must
+    be caught and treated like any other invalid candidate rather than
+    escaping as an unhandled exception.
+    """
+    response = await static_client.get("/app/foo%00.txt")
+    assert response.status_code == 200
+    assert "<title>rif</title>" in response.text
