@@ -10,8 +10,6 @@ from uuid import UUID
 
 from rif.models import Membership, Space, SpaceKind
 
-_ALIASES = {"personal": SpaceKind.PERSONAL, "household": SpaceKind.SHARED}
-
 
 class AccessDenied(Exception):
     """Raised whenever a principal may not reach the requested space."""
@@ -41,40 +39,61 @@ async def arm(principal: Principal) -> None:
     )
 
 
-async def resolve_space(principal: Principal, alias: str) -> Space:
-    """Resolve a space alias for a principal, arming RLS as a side effect.
+def space_alias(space: Space) -> str:
+    """Return the name a space goes by at the tool boundary.
 
-    Personal aliases resolve through ownership, not just membership, so
+    The principal's own personal space is always addressed as ``personal``;
+    every shared space is addressed by its slug. Piccolo stores the kind as
+    the enum's string value, so the comparison is against ``.value`` rather
+    than the member.
+
+    :param space: the space to name
+    :returns: ``personal`` or the space's slug
+    """
+    return "personal" if space.kind == SpaceKind.PERSONAL.value else space.slug
+
+
+async def resolve_space(principal: Principal, alias: str) -> Space:
+    """Resolve a space name for a principal, arming RLS as a side effect.
+
+    ``personal`` resolves through ownership, not just membership, so
     malformed membership rows cannot hand someone another person's space.
+    Any other name is a shared-space slug, resolved through membership. The
+    denial message is identical for a missing slug and a slug the principal
+    is not a member of, so probing cannot reveal which spaces exist.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
-    :raises AccessDenied: if the alias is unknown or resolves to no unique space
+    :param alias: ``personal`` or a shared-space slug
+    :raises AccessDenied: if no such space is reachable by this principal
     :returns: the resolved space
     """
-    kind = _ALIASES.get(alias)
-    if kind is None:
-        raise AccessDenied(f"unknown space alias: {alias!r}")
     await arm(principal)
-
     query = Space.objects().where(
         Space.id.is_in(
             Membership.select(Membership.space_id).where(
                 Membership.person_id == principal.person_id
             )
-        ),
-        Space.kind == kind.value,
+        )
     )
-    if kind is SpaceKind.PERSONAL:
-        query = query.where(Space.owner_person_id == principal.person_id)
-    spaces = await query
-    if len(spaces) != 1:
-        raise AccessDenied(f"no unique {alias} space for {principal.email}")
-    return spaces[0]
+    if alias == "personal":
+        query = query.where(
+            Space.kind == SpaceKind.PERSONAL.value,
+            Space.owner_person_id == principal.person_id,
+        )
+    else:
+        query = query.where(Space.kind == SpaceKind.SHARED.value, Space.slug == alias)
+    space = await query.first()
+    if space is None:
+        raise AccessDenied(f"no space {alias!r} for {principal.email}")
+    return space
 
 
 async def accessible_spaces(principal: Principal) -> list[Space]:
     """Return every space the principal is a member of, arming RLS.
+
+    Ordered by ``Space.kind``, which Piccolo stores as text: ``'personal'``
+    sorts before ``'shared'`` lexically, so the personal space always comes
+    first.
 
     :param principal: the authenticated person
     :returns: spaces, personal first

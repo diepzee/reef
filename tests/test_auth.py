@@ -33,6 +33,41 @@ async def test_unverified_email_cannot_bind(tx, household):
         )
 
 
+async def test_only_a_boolean_true_counts_as_a_verified_email(tx, household):
+    """Truthy stand-ins for the flag must not bind; the check has to be exact.
+
+    ``email_verified`` is the entire binding mechanism for an unbound person
+    row, and providers differ in how they serialize it. ``not "false"`` is
+    ``False``, so a truthiness test would let an unverified address claim
+    someone else's pending invite — permanently, since binding is one-way.
+    """
+    for value in ("false", "False", "0", 1, "true"):
+        with pytest.raises(AccessDenied):
+            await principal_from_claims(
+                {
+                    "sub": "auth0|z",
+                    "email": "wouter@example.test",
+                    "email_verified": value,
+                }
+            )
+    unbound = await Person.objects().where(Person.id == household["wouter"].id).first()
+    assert unbound.subject is None
+
+
+async def test_first_bind_onboards_a_personal_space(tx, household):
+    from rif.access import Principal
+    from rif.pages import get_page
+    from rif.spaces import invite
+
+    owner = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
+    await invite(owner, "household", "anna@example.test", display_name="Anna")
+    claims = {"sub": "auth0|anna", "email": "anna@example.test", "email_verified": True}
+    principal = await principal_from_claims(claims)
+    protocol = await get_page(principal, "personal", "meta/protocol.md")
+    persona = await get_page(principal, "personal", "meta/persona.md")
+    assert protocol is not None and persona is not None
+
+
 async def test_stranger_is_denied(tx, household):
     with pytest.raises(AccessDenied):
         await principal_from_claims(

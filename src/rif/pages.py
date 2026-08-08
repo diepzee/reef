@@ -28,7 +28,7 @@ async def list_pages(principal: Principal, alias: str) -> list[Page]:
     """List every page in one of the principal's spaces.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :returns: pages ordered by path
     """
     space = await resolve_space(principal, alias)
@@ -39,7 +39,7 @@ async def get_page(principal: Principal, alias: str, path: str) -> Page | None:
     """Fetch a single page by path.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param path: page path, for example ``house.md``
     :returns: the page, or None if absent from that space
     """
@@ -64,7 +64,7 @@ async def save_page(
     """Create or overwrite a page: snapshot a revision, bump page and space versions.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param path: page path
     :param body: full markdown body
     :param message: why this write happened, stored on the revision
@@ -140,7 +140,7 @@ async def edit_section(
     """Replace an exact, unique span of a page, leaving the rest untouched.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param path: page path
     :param old_text: exact text to replace; must occur exactly once
     :param new_text: replacement text
