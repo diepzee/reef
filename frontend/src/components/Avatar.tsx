@@ -29,6 +29,8 @@ interface AvatarStackProps {
   names: string[];
   /** Maximum avatars to show before adding a +N chip (default 4). */
   max?: number;
+  /** Avatar size for every avatar in the stack (default "md"). */
+  size?: "md" | "sm";
   /** Click handler for the entire stack. */
   onClick?: () => void;
 }
@@ -39,18 +41,21 @@ interface AvatarStackProps {
 export function AvatarStack({
   names,
   max = 4,
+  size = "md",
   onClick,
 }: AvatarStackProps): React.ReactNode {
   const shown = names.slice(0, max);
   const overflow = names.length - max;
+  const stackClassName = `avatar-stack ${size === "sm" ? "avatar-stack-sm" : ""}`.trim();
+  const moreClassName = `avatar-more ${size === "sm" ? "avatar-more-sm" : ""}`.trim();
 
   return (
-    <div className="avatar-stack" onClick={onClick}>
+    <div className={stackClassName} onClick={onClick}>
       {shown.map((name) => (
-        <Avatar key={name} name={name} size="md" />
+        <Avatar key={name} name={name} size={size} />
       ))}
       {overflow > 0 && (
-        <div className="avatar-more" title={`${overflow} more`}>
+        <div className={moreClassName} title={`${overflow} more`}>
           +{overflow}
         </div>
       )}

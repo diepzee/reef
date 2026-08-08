@@ -34,7 +34,13 @@ body {
   line-height: 1.5;
 }
 
-#root {
+/*
+ * The reading-width column shared by the mobile stack (header + routed
+ * view) and the desktop shell's content pane, so both present the same
+ * line length — only what surrounds that column differs (a persistent
+ * sidebar vs. nothing).
+ */
+.app-stack {
   max-width: 44rem;
   margin: 0 auto;
   padding: 1rem;
@@ -320,6 +326,162 @@ button.danger {
   border: 2px solid var(--ground);
   margin-left: -8px;
   flex-shrink: 0;
+}
+
+.avatar-more-sm {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+/*
+ * Desktop two-pane shell (>=900px, see AppShell's useMediaQuery). Colors
+ * are tokens.css custom properties, mapped from the mockup's literal
+ * `.shell`/`.side` values (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html):
+ * panel #f2f7f8 -> --panel, hairline #e5edf0 -> --hairline, item text
+ * #40525b/#56707b -> --muted, faint #9aa8af -> --faint, active bg #e7f9f4
+ * -> --accent-soft, active text #0b6b62 -> --accent-deep, accent dot/link
+ * #0d9488 -> --accent.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  min-height: 100vh;
+}
+
+.side {
+  background: var(--panel);
+  border-right: 1px solid var(--hairline);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+
+.side-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 2px 8px 14px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.side-brand-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.side-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 10px 8px 4px;
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.side-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.side-item-right {
+  margin-left: auto;
+}
+
+.side-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.side-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--faint);
+  flex-shrink: 0;
+}
+
+.side-item.active .side-dot {
+  background: var(--accent);
+}
+
+.side-page {
+  display: block;
+  padding: 5px 8px 5px 24px;
+  font-size: 13px;
+  color: var(--muted);
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.side-page.active {
+  color: var(--accent-deep);
+  font-weight: 600;
+  background: var(--accent-soft);
+}
+
+.side-newpage {
+  display: block;
+  padding: 6px 8px 6px 24px;
+  font-size: 12.5px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.side-newspace {
+  margin-top: 6px;
+}
+
+.side-me {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 2px;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.side-me-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-signout {
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.content {
+  overflow-y: auto;
 }
 
 @media (prefers-color-scheme: dark) {

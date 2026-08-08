@@ -7,12 +7,13 @@
  * backend has nothing to answer.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { ApiError, apiGet, apiSend } from "../api";
+import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
+import { useMembers } from "../useMembers";
 import type { InviteResult, Members } from "../types";
 
 export default function SpaceView() {
@@ -20,42 +21,9 @@ export default function SpaceView() {
   const isPersonal = space === "personal";
 
   const { index, error: indexError } = useIndex();
-  const [members, setMembers] = useState<Members | null>(null);
-  const [membersError, setMembersError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setMembers(null);
-    setMembersError(null);
-
-    if (!isPersonal) {
-      apiGet<Members>(`/api/spaces/${space}/members`)
-        .then((payload) => {
-          if (!cancelled) setMembers(payload);
-        })
-        .catch((err: unknown) => {
-          if (cancelled) return;
-          setMembersError(
-            err instanceof ApiError ? err.message : "could not load members",
-          );
-        });
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [space, isPersonal]);
+  const { members, error: membersError, refresh: reloadMembers } = useMembers(space);
 
   const thisSpace = index?.spaces.find((entry) => entry.alias === space);
-
-  /** Re-fetch the member roster after an invite or removal changes it. */
-  function reloadMembers() {
-    apiGet<Members>(`/api/spaces/${space}/members`)
-      .then(setMembers)
-      .catch((err: unknown) => {
-        setMembersError(err instanceof ApiError ? err.message : "could not load members");
-      });
-  }
 
   return (
     <div>
