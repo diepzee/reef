@@ -8,6 +8,7 @@ CSRF on mutations, maps domain exceptions onto the Global Constraints error
 table, and renews the session cookie on success.
 """
 
+import json
 from collections.abc import Callable
 from dataclasses import asdict
 
@@ -35,6 +36,93 @@ from rif.web.requests import (
 # test that wants a fresh app) don't append duplicate Starlette routes --
 # mirrors the pattern in rif.web.routes_auth.
 _registered: set[int] = set()
+
+
+class BadRequest(Exception):
+    """Raised when a request's JSON body is malformed, absent, or mistyped.
+
+    Every write handler raises this instead of reaching into the domain
+    layer with untrusted shapes: :func:`api` maps it to a clean 400
+    ``{"error": "bad_request"}`` so a bare int, a JSON syntax error, or a
+    wrong-typed field never reaches ``save_page`` or the database driver.
+    """
+
+
+async def _json_body(request: Request) -> dict:
+    """Parse a request's JSON body and require it to be an object.
+
+    :param request: the incoming request
+    :raises BadRequest: if the body is not valid JSON, or parses to
+        anything other than a JSON object (a bare int, list, or string)
+    :returns: the parsed body
+    """
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        raise BadRequest("request body is not valid JSON") from None
+    if not isinstance(payload, dict):
+        raise BadRequest("request body must be a JSON object")
+    return payload
+
+
+def _require_str(payload: dict, key: str) -> str:
+    """Fetch a required string field from a parsed JSON body.
+
+    :param payload: the parsed request body
+    :param key: the field name
+    :raises BadRequest: if the key is absent or not a string
+    :returns: the field's value
+    """
+    if key not in payload or not isinstance(payload[key], str):
+        raise BadRequest(f"{key!r} is required and must be a string")
+    return payload[key]
+
+
+def _optional_str(payload: dict, key: str) -> str | None:
+    """Fetch an optional, nullable string field from a parsed JSON body.
+
+    :param payload: the parsed request body
+    :param key: the field name
+    :raises BadRequest: if present and neither a string nor null
+    :returns: the field's value, or None if absent or null
+    """
+    value = payload.get(key)
+    if value is not None and not isinstance(value, str):
+        raise BadRequest(f"{key!r} must be a string or null")
+    return value
+
+
+def _optional_tags(payload: dict) -> list[str] | None:
+    """Fetch the optional, nullable ``tags`` field from a page-save body.
+
+    :param payload: the parsed request body
+    :raises BadRequest: if present and not a list of strings
+    :returns: the tag list, or None if absent or null
+    """
+    tags = payload.get("tags")
+    if tags is not None and (
+        not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags)
+    ):
+        raise BadRequest("'tags' must be a list of strings or null")
+    return tags
+
+
+def _optional_int(payload: dict, key: str) -> int | None:
+    """Fetch an optional, nullable integer field from a parsed JSON body.
+
+    Booleans are rejected even though ``bool`` is a subtype of ``int`` in
+    Python -- a request body that means to send a version number never
+    means ``true``/``false``.
+
+    :param payload: the parsed request body
+    :param key: the field name
+    :raises BadRequest: if present and not an integer
+    :returns: the field's value, or None if absent or null
+    """
+    value = payload.get(key)
+    if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+        raise BadRequest(f"{key!r} must be an integer or null")
+    return value
 
 
 def api(handler: Callable) -> Callable:
@@ -70,6 +158,8 @@ def api(handler: Callable) -> Callable:
                 result = await handler(request, principal)
         except Unauthenticated:
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
+        except BadRequest:
+            return JSONResponse({"error": "bad_request"}, status_code=400)
         except AccessDenied:
             return JSONResponse({"error": "not_found"}, status_code=404)
         except VersionConflict:
@@ -136,7 +226,7 @@ async def _get_page(request: Request, principal: Principal) -> Response | dict:
     }
 
 
-async def _put_page(request: Request, principal: Principal) -> Response | dict:
+async def _put_page(request: Request, principal: Principal) -> dict:
     """Create or overwrite a page from a JSON body.
 
     ``expected_version`` is optional: omitted or ``null`` means create or
@@ -147,23 +237,27 @@ async def _put_page(request: Request, principal: Principal) -> Response | dict:
         path params and a JSON body with ``body`` and ``message`` required,
         and optional ``title``, ``tags``, ``expected_version``
     :param principal: the authenticated person
-    :returns: the saved page, shaped as in Task 4's GET, or a 400 JSON
-        response if a required field is missing
+    :raises BadRequest: for malformed JSON, a non-object body, a missing
+        ``body``/``message``, or any field of the wrong type
+    :returns: the saved page, shaped as in Task 4's GET
     """
     space = request.path_params["space"]
     path = request.path_params["path"]
-    payload = await request.json()
-    if "body" not in payload or "message" not in payload:
-        return JSONResponse({"error": "bad_request"}, status_code=400)
+    payload = await _json_body(request)
+    body = _require_str(payload, "body")
+    message = _require_str(payload, "message")
+    title = _optional_str(payload, "title")
+    tags = _optional_tags(payload)
+    expected_version = _optional_int(payload, "expected_version")
     page = await save_page(
         principal,
         space,
         path,
-        payload["body"],
-        message=payload["message"],
-        title=payload.get("title"),
-        tags=payload.get("tags"),
-        expected_version=payload.get("expected_version"),
+        body,
+        message=message,
+        title=title,
+        tags=tags,
+        expected_version=expected_version,
     )
     return {
         "space": space,
@@ -176,19 +270,19 @@ async def _put_page(request: Request, principal: Principal) -> Response | dict:
     }
 
 
-async def _create_space(request: Request, principal: Principal) -> Response | dict:
+async def _create_space(request: Request, principal: Principal) -> dict:
     """Create a shared space owned by the caller.
 
     :param request: the incoming request, carrying a JSON body with ``slug``
         required
     :param principal: the authenticated person
-    :returns: the new space's alias and slug, or a 400 JSON response if
-        ``slug`` is missing
+    :raises BadRequest: for malformed JSON, a non-object body, a missing
+        ``slug``, or a non-string ``slug``
+    :returns: the new space's alias and slug
     """
-    payload = await request.json()
-    if "slug" not in payload:
-        return JSONResponse({"error": "bad_request"}, status_code=400)
-    space = await create_space(principal, payload["slug"])
+    payload = await _json_body(request)
+    slug = _require_str(payload, "slug")
+    space = await create_space(principal, slug)
     return {"alias": space.slug, "slug": space.slug}
 
 
@@ -210,20 +304,22 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     }
 
 
-async def _invite(request: Request, principal: Principal) -> Response | dict:
+async def _invite(request: Request, principal: Principal) -> dict:
     """Invite an email address into a shared space the caller owns.
 
     :param request: the incoming request, carrying a ``space`` path param
         and a JSON body with ``email`` required and ``display_name`` optional
     :param principal: the authenticated person
+    :raises BadRequest: for malformed JSON, a non-object body, a missing
+        ``email``, or any field of the wrong type
     :returns: the invite outcome, including the disclosure text the UI must
-        show, or a 400 JSON response if ``email`` is missing
+        show
     """
     slug = request.path_params["space"]
-    payload = await request.json()
-    if "email" not in payload:
-        return JSONResponse({"error": "bad_request"}, status_code=400)
-    return await invite(principal, slug, payload["email"], payload.get("display_name"))
+    payload = await _json_body(request)
+    email = _require_str(payload, "email")
+    display_name = _optional_str(payload, "display_name")
+    return await invite(principal, slug, email, display_name)
 
 
 async def _remove_member(request: Request, principal: Principal) -> dict:
