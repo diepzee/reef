@@ -41,7 +41,8 @@ architecture, same Bun+React toolchain, same protections.
 ## Organization
 
 - **Desktop (≥ 900 px): two-pane shell.** Left sidebar: brand; Spaces list
-  (each space row shows its member avatar stack — personal shows none);
+  (the open space's row shows its member avatar stack; other rows show
+  their page count — one members fetch, not one per space);
   the open space's pages nested beneath it; "New page" / "New space";
   account row (display name + sign out) pinned at the bottom. Right pane:
   the current page in reading view, or the space's page list when no page
