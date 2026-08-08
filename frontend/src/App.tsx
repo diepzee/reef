@@ -1,5 +1,6 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 
+import reefIcon from "../public/reef.svg";
 import Editor from "./views/Editor";
 import Home from "./views/Home";
 import NewPage from "./views/NewPage";
@@ -13,7 +14,7 @@ export default function App() {
       <header className="app-header">
         <Link to="/" className="app-header-link">
           <img
-            src="./public/reef.svg"
+            src={reefIcon}
             alt="rif"
             className="app-header-icon"
             width="26"
