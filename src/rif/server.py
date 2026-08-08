@@ -5,7 +5,14 @@ from datetime import UTC, datetime
 
 from fastmcp import FastMCP
 
-from rif.access import Principal, accessible_spaces, resolve_space, space_alias
+from rif import spaces as space_admin
+from rif.access import (
+    AccessDenied,
+    Principal,
+    accessible_spaces,
+    resolve_space,
+    space_alias,
+)
 from rif.attachments import (
     S3ObjectStore,
     add_attachment,
@@ -27,6 +34,7 @@ from rif.pages import (
 )
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import build_instructions
+from rif.spaces import SpaceError, member_names
 
 
 def _build_auth():
@@ -54,8 +62,9 @@ mcp = FastMCP(
     "rif",
     auth=_build_auth(),
     instructions=(
-        "Long-term memory for this household. Start every conversation by "
-        "calling load_index, then get_operating_protocol. The index lists "
+        "Long-term memory shared between you and the people in your spaces. "
+        "Start every conversation by calling load_index, then "
+        "get_operating_protocol. The index lists "
         "every page with a one-line description; fetch the entries the "
         "conversation needs with read_pages, and fetch again as topics come "
         "up rather than guessing from the index alone. Page bodies are the "
@@ -92,7 +101,7 @@ async def tool_read_pages(
     """Fetch several pages in one call, preserving order.
 
     :param principal: the authenticated person
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param paths: page paths to fetch
     :returns: one result per path; missing pages get a not_found marker
     """
@@ -103,7 +112,7 @@ async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
     """Fetch one page as a dict, or a not_found marker.
 
     :param principal: the authenticated person
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param path: page path
     :returns: page fields, or ``{"error": "not_found"}``
     """
@@ -121,20 +130,83 @@ async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
 
 
 async def tool_list_spaces(principal: Principal) -> list[dict]:
-    """List the spaces the principal can see, split from the tool for testability.
+    """List the principal's spaces with names, members, and ownership.
 
-    Only the alias each space is addressed by and its version cross the tool
-    boundary. A personal space's own ``slug`` — derived from the person id —
-    never does; a shared space's alias *is* its slug, which is how members
-    name it in every other call.
+    Member display names are part of the payload on purpose: with open
+    invites, knowing who is in the room is the informed-consent property,
+    and it must be one call away.
+
+    The name is the alias each space is addressed by, never a personal
+    space's own ``slug`` — that is derived from the person id and stays
+    inside the server; a shared space's alias *is* its slug, which is how
+    members name it in every other call.
 
     :param principal: the authenticated person
-    :returns: one dict per accessible space, alias and version only
+    :returns: one dict per accessible space
     """
     return [
-        {"alias": space_alias(s), "version": s.version}
+        {
+            "name": space_alias(s),
+            "version": s.version,
+            "members": await member_names(s.id),
+            "you_are_owner": s.owner_person_id == principal.person_id,
+        }
         for s in await accessible_spaces(principal)
     ]
+
+
+async def tool_create_space(principal: Principal, slug: str) -> dict:
+    """Create a shared space; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param slug: the new space's name
+    :returns: name, members, ownership — or an error dict
+    """
+    try:
+        space = await space_admin.create_space(principal, slug)
+    except SpaceError as exc:
+        return {"error": "space_error", "detail": str(exc)}
+    return {
+        "name": space.slug,
+        "members": await member_names(space.id),
+        "you_are_owner": True,
+    }
+
+
+async def tool_invite(
+    principal: Principal,
+    space: str,
+    email: str,
+    display_name: str | None = None,
+) -> dict:
+    """Invite an email into a space; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param space: the shared space name
+    :param email: the invitee's sign-in email
+    :param display_name: how members will see them
+    :returns: the invite outcome with disclosure, or an error dict
+    """
+    try:
+        return await space_admin.invite(
+            principal, space, email, display_name=display_name
+        )
+    except (SpaceError, AccessDenied) as exc:
+        return {"error": "space_error", "detail": str(exc)}
+
+
+async def tool_remove_member(principal: Principal, space: str, email: str) -> dict:
+    """Remove a member from a space; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param space: the shared space name
+    :param email: the member's email
+    :returns: the removal outcome, or an error dict
+    """
+    try:
+        return await space_admin.remove_member(principal, space, email)
+    except (SpaceError, AccessDenied) as exc:
+        return {"error": "space_error", "detail": str(exc)}
 
 
 _INBOX = "inbox.md"
@@ -152,7 +224,7 @@ async def tool_remember(
 
     :param principal: the authenticated person
     :param fact: the text to record
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :returns: what was written, with a duplicate flag
     """
     resolved = await resolve_space(principal, space)
@@ -192,7 +264,7 @@ async def load_index() -> dict:
 async def read_pages(space: str, paths: list[str]) -> list[dict]:
     """Read several pages in one call.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param paths: page paths from the index, for example ["house.md", "money.md"]
     """
     async with transaction_scope():
@@ -228,7 +300,7 @@ async def get_operating_protocol() -> str:
 async def read_page(space: str, path: str) -> dict:
     """Read one page by path; needed when load_all_context was truncated.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param path: page path, for example ``house.md``
     """
     async with transaction_scope():
@@ -238,21 +310,67 @@ async def read_page(space: str, path: str) -> dict:
 
 @mcp.tool
 async def list_spaces() -> list[dict]:
-    """List the spaces you can see."""
+    """List your spaces: name, members, whether you own it, and a version counter."""
     async with transaction_scope():
         principal = await current_principal()
         return await tool_list_spaces(principal)
 
 
 @mcp.tool
+async def create_space(slug: str) -> dict:
+    """Create a new shared space that you own.
+
+    You become the only member; use invite to bring people in. Names are
+    lowercase letters, digits, and hyphens, like "school" or "trip-2027".
+
+    :param slug: the space's name
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_create_space(principal, slug)
+
+
+@mcp.tool
+async def invite(space: str, email: str, display_name: str | None = None) -> dict:
+    """Invite a person into a shared space you own. Owner only.
+
+    Tell the user exactly what this grants before calling: the invitee will
+    permanently see everything in the space, past and future. They get in by
+    signing in with this exact email address, verified.
+
+    :param space: the space name, from list_spaces
+    :param email: the address the invitee will sign in with
+    :param display_name: how members will see them
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_invite(principal, space, email, display_name=display_name)
+
+
+@mcp.tool
+async def remove_member(space: str, email: str) -> dict:
+    """Remove a member from a shared space you own. Owner only.
+
+    Removal stops future access. It cannot unshare what they already read.
+
+    :param space: the space name, from list_spaces
+    :param email: the member's email
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_remove_member(principal, space, email)
+
+
+@mcp.tool
 async def remember(fact: str, space: str = "personal") -> dict:
     """Record a fact. Defaults to the private personal space.
 
-    Only pass space="household" when the fact concerns a jointly-owned thing,
-    a joint decision, or a shared obligation. Anything ambiguous is personal.
+    Only pass a space name when the fact clearly concerns that group — a
+    jointly-owned thing, a joint decision, a shared obligation. Anything
+    ambiguous is personal.
 
     :param fact: the text to record
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     """
     async with transaction_scope():
         principal = await current_principal()
@@ -274,7 +392,7 @@ async def write_page(
     Pass expected_version (from the loaded context) when replacing an existing
     page; a conflict means someone else wrote first — reload before retrying.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param path: page path
     :param body: full markdown body
     :param message: why this change is being made
@@ -313,7 +431,7 @@ async def edit_page_section(
 ) -> dict:
     """Replace an exact span of a page; the old text must occur exactly once.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param path: page path
     :param old_text: exact text to replace
     :param new_text: replacement text
@@ -337,52 +455,95 @@ async def edit_page_section(
         return {"space": space, "path": page.path, "version": page.version}
 
 
-@mcp.tool
-async def update_meta_page(
-    space: str, path: str, body: str, message: str, confirm: bool = False
+async def tool_update_meta_page(
+    principal: Principal,
+    space: str,
+    path: str,
+    body: str,
+    message: str,
+    confirm: bool = False,
 ) -> dict:
-    """Update the operating protocol or persona. These pages steer the assistant.
+    """Write a protocol or persona page; split from the tool for testability.
 
-    Only call after telling the user exactly what will change and receiving
-    their agreement in this conversation; pass confirm=True to proceed.
+    The personal-only rule is a security boundary, not a convenience. This is
+    the one sanctioned bypass of the ``meta/`` write guard, and
+    ``build_instructions`` reads the protocol and persona only from the
+    caller's own personal space — so a ``meta/`` page in a shared space
+    steers nobody, while the context loader still ranks ``meta/`` first and
+    would put instruction-shaped text at the top of every other member's
+    loaded context.
 
-    :param space: ``personal`` or ``household``
+    :param principal: the authenticated person
+    :param space: must be ``personal``
     :param path: must start with ``meta/``
     :param body: the full new body
     :param message: why this change is being made
     :param confirm: True only after the user has explicitly agreed
+    :returns: what was written, or an error dict
     """
     if not path.startswith("meta/"):
         return {"error": "not_meta", "detail": "use write_page for ordinary pages"}
+    if space != "personal":
+        return {
+            "error": "not_personal",
+            "detail": (
+                "the protocol and persona are per-person; they live in your "
+                "personal space and nowhere else"
+            ),
+        }
     if not confirm:
         return {
             "error": "not_confirmed",
             "detail": "describe the change to the user first, then confirm",
         }
+    page = await save_page(
+        principal, space, path, body, message=message, allow_protected=True
+    )
+    return {"space": space, "path": page.path, "version": page.version}
+
+
+@mcp.tool
+async def update_meta_page(
+    space: str, path: str, body: str, message: str, confirm: bool = False
+) -> dict:
+    """Update your operating protocol or persona. These pages steer the assistant.
+
+    They are per-person and live in your personal space only; a shared space
+    is refused. Only call after telling the user exactly what will change and
+    receiving their agreement in this conversation; pass confirm=True to
+    proceed.
+
+    :param space: must be ``personal``
+    :param path: must start with ``meta/``
+    :param body: the full new body
+    :param message: why this change is being made
+    :param confirm: True only after the user has explicitly agreed
+    """
     async with transaction_scope():
         principal = await current_principal()
-        page = await save_page(
-            principal, space, path, body, message=message, allow_protected=True
+        return await tool_update_meta_page(
+            principal, space, path, body, message, confirm=confirm
         )
-        return {"space": space, "path": page.path, "version": page.version}
 
 
 @mcp.tool
 async def prepare_to_share(
-    path: str, section: str | None = None, dest_path: str | None = None
+    path: str, dest_space: str, section: str | None = None, dest_path: str | None = None
 ) -> dict:
-    """Stage sharing a personal page — or one section of it. Step 1 of 2.
+    """Stage sharing a personal page — or one section — into a shared space.
 
-    Whole page: pass only path. One section: pass the exact text to extract
-    as section, and name the new page it becomes with dest_path — the rest of
-    the page stays private, and the extracted text must make sense on its own
-    (the reader will not see what surrounded it).
+    Step 1 of 2. Whole page: pass path and dest_space. One section: also
+    pass the exact text to extract as section, and name the new page it
+    becomes with dest_path — the rest of the page stays private, and the
+    extracted text must make sense on its own.
 
-    Show the user the returned disclosure and warning, and only call
-    confirm_share after they explicitly agree in this conversation. Sharing is
-    permanent: the other household member can then read the content forever.
+    Show the user the returned disclosure, members, and warning, and only
+    call confirm_share after they explicitly agree in this conversation.
+    Sharing is permanent: every member of the destination space — current
+    and future — can then read the content forever.
 
     :param path: page path in the personal space
+    :param dest_space: destination space name, from list_spaces
     :param section: exact span to extract; omit to share the whole page
     :param dest_path: name for the extracted page; required with section
     """
@@ -390,7 +551,7 @@ async def prepare_to_share(
         principal = await current_principal()
         try:
             return await prepare_promotion(
-                principal, path, section=section, dest_path=dest_path
+                principal, path, dest_space, section=section, dest_path=dest_path
             )
         except PromotionError as exc:
             return {"error": "promotion_failed", "detail": str(exc)}
@@ -424,7 +585,7 @@ async def add_image(
     conversations see in loaded context ("photo of the boiler's model plate,
     reading Vaillant ecoTEC VU 246/5-5"), so put the facts in it.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param data_base64: the image bytes, base64-encoded
     :param mime: content type, e.g. image/jpeg
     :param description: concrete text description; required
@@ -455,7 +616,7 @@ async def read_image(space: str, key: str) -> dict:
     """Return a short-lived URL for an image. Only when the pixels matter —
     descriptions are already in your loaded context.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param key: the image key from the context payload
     """
     async with transaction_scope():
@@ -480,7 +641,7 @@ async def delete_image(space: str, key: str) -> dict:
     photo added to the wrong space. Confirm with the person first: nothing
     else in this system deletes, and the bytes do not come back.
 
-    :param space: ``personal`` or ``household``
+    :param space: ``personal`` or a space name from list_spaces
     :param key: the image key from the index
     """
     async with transaction_scope():

@@ -121,7 +121,7 @@ async def add_attachment(
     **Must not be called inside an open transaction** — it opens two.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param data: image bytes
     :param mime: content type
     :param description: text description, always required
@@ -193,7 +193,7 @@ async def delete_attachment(
     The second is strictly the safer wreckage, so the row goes first.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param key: object key
     :param store: object store to delete the bytes from
     :returns: True if an attachment was removed, False if it was not found
@@ -222,7 +222,7 @@ async def get_attachment(
     """Fetch attachment metadata, scoped to a space the principal can see.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or ``household``
+    :param alias: ``personal`` or a shared-space slug
     :param key: object key
     :returns: the attachment, or None
     """
