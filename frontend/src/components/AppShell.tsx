@@ -7,40 +7,45 @@
  * `Sidebar`'s account row — the mobile header doesn't need it, so the
  * fetch result is simply unused on that branch rather than skipped, since
  * a resize across the breakpoint must not trigger a fresh fetch.
+ *
+ * Also owns the single shared `MembersSheet` instance: the space header
+ * (`SpaceView`'s whobar), the sidebar's active-space avatar stack, and
+ * (from Task 6) the page header all need to open "the" members sheet for
+ * whatever space they're showing, and there must only ever be one sheet
+ * mounted at a time. `MembersSheetContext` (its own module — see
+ * `useMembersSheet.ts` — so `Sidebar.tsx` can import the hook without an
+ * `AppShell` <-> `Sidebar` circular import) hands every descendant an
+ * `openMembers(space)` callback; the sheet itself renders here, keyed by
+ * the space it's showing so switching spaces resets its local state (the
+ * v1 stale-disclosure lesson — see `MembersSheet`'s docstring). Closing
+ * only flips `sheetOpen`, leaving `sheetSpace` in place, so the sheet's
+ * content stays put while it animates away instead of vanishing.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import reefIcon from "../../public/reef.svg";
 import { ApiError, apiGet } from "../api";
 import type { Me } from "../types";
+import { useMediaQuery } from "../useMediaQuery";
+import { MembersSheetContext } from "../useMembersSheet";
+import { MembersSheet } from "./MembersSheet";
 import { Sidebar } from "./Sidebar";
-
-/**
- * Tracks whether a CSS media query currently matches, updating live via
- * `MediaQueryList`'s `change` event as the viewport crosses the breakpoint.
- *
- * :param query: a media query string, e.g. ``"(min-width: 900px)"``
- * :returns: whether `query` currently matches
- */
-function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
-
-  useEffect(() => {
-    const mql = window.matchMedia(query);
-    setMatches(mql.matches);
-    const onChange = (event: MediaQueryListEvent) => setMatches(event.matches);
-    mql.addEventListener("change", onChange);
-    return () => mql.removeEventListener("change", onChange);
-  }, [query]);
-
-  return matches;
-}
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isDesktop = useMediaQuery("(min-width: 900px)");
   const [me, setMe] = useState<Me | null>(null);
+
+  const [sheetSpace, setSheetSpace] = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const openMembers = useCallback((space: string) => {
+    setSheetSpace(space);
+    setSheetOpen(true);
+  }, []);
+  const closeMembers = useCallback(() => setSheetOpen(false), []);
+  const sheetContextValue = useMemo(() => ({ openMembers }), [openMembers]);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,32 +65,42 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const sheet = sheetSpace !== null && (
+    <MembersSheet key={sheetSpace} space={sheetSpace} open={sheetOpen} onClose={closeMembers} />
+  );
+
   if (isDesktop) {
     return (
-      <div className="shell">
-        <Sidebar me={me} />
-        <div className="content">
-          <div className="app-stack">{children}</div>
+      <MembersSheetContext.Provider value={sheetContextValue}>
+        <div className="shell">
+          <Sidebar me={me} />
+          <div className="content">
+            <div className="app-stack">{children}</div>
+          </div>
         </div>
-      </div>
+        {sheet}
+      </MembersSheetContext.Provider>
     );
   }
 
   return (
-    <div className="app-stack">
-      <header className="app-header">
-        <Link to="/" className="app-header-link">
-          <img
-            src={reefIcon}
-            alt="rif"
-            className="app-header-icon"
-            width="26"
-            height="26"
-          />
-          <span className="app-header-wordmark">rif</span>
-        </Link>
-      </header>
-      {children}
-    </div>
+    <MembersSheetContext.Provider value={sheetContextValue}>
+      <div className="app-stack">
+        <header className="app-header">
+          <Link to="/" className="app-header-link">
+            <img
+              src={reefIcon}
+              alt="rif"
+              className="app-header-icon"
+              width="26"
+              height="26"
+            />
+            <span className="app-header-wordmark">rif</span>
+          </Link>
+        </header>
+        {children}
+      </div>
+      {sheet}
+    </MembersSheetContext.Provider>
   );
 }

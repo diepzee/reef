@@ -1,27 +1,28 @@
 /**
- * A single space: its pages, and — for the owner of a shared space — the
- * member roster and invite form.
+ * A single space: its pages, and — for a shared space — a "whobar" summarizing
+ * who can see it, whose avatar stack and "Manage" link open the shared
+ * `MembersSheet` (owned by `AppShell`, reached via `useMembersSheet`).
  *
  * The personal space has no membership to administer, so the members
- * fetch is skipped entirely for it rather than firing a request the
- * backend has nothing to answer.
+ * fetch is skipped entirely for it (`useMembers` already treats "personal"
+ * as no-space) and the whobar shows a plain "only you" instead.
  */
 
-import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { ApiError, apiSend } from "../api";
+import { AvatarStack } from "../components/Avatar";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
 import { useMembers } from "../useMembers";
-import type { InviteResult, Members } from "../types";
+import { useMembersSheet } from "../useMembersSheet";
 
 export default function SpaceView() {
   const { space = "" } = useParams<{ space: string }>();
   const isPersonal = space === "personal";
 
   const { index, error: indexError } = useIndex();
-  const { members, error: membersError, refresh: reloadMembers } = useMembers(space);
+  const { members, error: membersError } = useMembers(space);
+  const { openMembers } = useMembersSheet();
 
   const thisSpace = index?.spaces.find((entry) => entry.alias === space);
 
@@ -31,6 +32,42 @@ export default function SpaceView() {
 
       {indexError && <div className="notice">{indexError}</div>}
       {!indexError && index === null && <p className="muted">Loading…</p>}
+
+      {!isPersonal && (
+        <div className="whobar">
+          {membersError && <span className="notice">{membersError}</span>}
+          {!membersError && members === null && (
+            <span className="muted">Loading…</span>
+          )}
+          {members && (
+            <>
+              <AvatarStack
+                names={members.members.map((member) => member.display_name)}
+                onClick={() => openMembers(space)}
+              />
+              <span className="whobar-lbl">
+                {members.members.length}{" "}
+                {members.members.length === 1 ? "member" : "members"} see
+                everything
+              </span>
+              {members.is_owner && (
+                <button
+                  type="button"
+                  className="whobar-manage"
+                  onClick={() => openMembers(space)}
+                >
+                  Manage
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+      {isPersonal && (
+        <div className="whobar">
+          <span className="whobar-lbl">only you</span>
+        </div>
+      )}
 
       {thisSpace && (
         <>
@@ -59,168 +96,6 @@ export default function SpaceView() {
           </p>
         </>
       )}
-
-      {!isPersonal && (
-        // `key={space}` forces a remount on navigation between two shared
-        // spaces: MembersPanel owns local state (pendingRemove, disclosure,
-        // the invite form) that must not survive from one space to another
-        // — a stale disclosure naming the wrong space/email is a trust bug.
-        <MembersPanel
-          key={space}
-          space={space}
-          members={members}
-          error={membersError}
-          onChanged={reloadMembers}
-        />
-      )}
     </div>
-  );
-}
-
-/** Props for {@link MembersPanel}. */
-interface MembersPanelProps {
-  space: string;
-  members: Members | null;
-  error: string | null;
-  onChanged: () => void;
-}
-
-/**
- * The member roster and invite form — owner-only.
- *
- * The members fetch itself always runs for a shared space (it is how
- * `is_owner` gets known in the first place), but the panel renders
- * nothing once loaded unless the caller owns the space.
- */
-function MembersPanel({ space, members, error, onChanged }: MembersPanelProps) {
-  const [pendingRemove, setPendingRemove] = useState<string | null>(null);
-  const [removeError, setRemoveError] = useState<string | null>(null);
-  const [removing, setRemoving] = useState(false);
-
-  const [email, setEmail] = useState("");
-  const [displayName, setDisplayName] = useState("");
-  const [inviting, setInviting] = useState(false);
-  const [inviteError, setInviteError] = useState<string | null>(null);
-  const [disclosure, setDisclosure] = useState<string | null>(null);
-
-  async function confirmRemove(memberEmail: string) {
-    setRemoving(true);
-    setRemoveError(null);
-    try {
-      await apiSend("DELETE", `/api/spaces/${space}/members/${encodeURIComponent(memberEmail)}`);
-      setPendingRemove(null);
-      onChanged();
-    } catch (err) {
-      setRemoveError(err instanceof ApiError ? err.message : "could not remove member");
-    } finally {
-      setRemoving(false);
-    }
-  }
-
-  async function handleInvite(event: React.FormEvent) {
-    event.preventDefault();
-    setInviting(true);
-    setInviteError(null);
-    try {
-      const result = await apiSend<InviteResult>(
-        "POST",
-        `/api/spaces/${space}/invites`,
-        { email, display_name: displayName || null },
-      );
-      setDisclosure(result.disclosure);
-      setEmail("");
-      setDisplayName("");
-      onChanged();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setInviteError(err.detail ?? err.message);
-      } else {
-        setInviteError("could not send the invite");
-      }
-    } finally {
-      setInviting(false);
-    }
-  }
-
-  if (error) {
-    return <div className="notice">{error}</div>;
-  }
-  if (members === null) {
-    return <p className="muted">Loading members…</p>;
-  }
-  if (!members.is_owner) {
-    return null;
-  }
-
-  return (
-    <section className="members-panel">
-      <h2>Members</h2>
-      {removeError && <div className="notice">{removeError}</div>}
-      <ul className="member-list">
-        {members.members.map((member) => {
-          const isOwnerRow = member.email === members.owner_email;
-          return (
-            <li key={member.email} className="member-row">
-              <div>
-                <div>{member.display_name}</div>
-                <div className="muted">{member.email}</div>
-              </div>
-              {!isOwnerRow && (
-                <div className="member-actions">
-                  {pendingRemove === member.email ? (
-                    <>
-                      <button
-                        type="button"
-                        className="danger"
-                        disabled={removing}
-                        onClick={() => confirmRemove(member.email)}
-                      >
-                        Confirm remove
-                      </button>
-                      <button
-                        type="button"
-                        disabled={removing}
-                        onClick={() => setPendingRemove(null)}
-                      >
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <button type="button" onClick={() => setPendingRemove(member.email)}>
-                      Remove
-                    </button>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-
-      <h3>Invite someone</h3>
-      {inviteError && <div className="notice">{inviteError}</div>}
-      {disclosure && <div className="disclosure">{disclosure}</div>}
-      <form onSubmit={handleInvite}>
-        <label htmlFor="invite-email">Email</label>
-        <input
-          id="invite-email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="off"
-          required
-        />
-        <label htmlFor="invite-name">Display name (optional)</label>
-        <input
-          id="invite-name"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.target.value)}
-          autoComplete="off"
-        />
-        <button type="submit" disabled={inviting || !email}>
-          {inviting ? "Inviting…" : "Invite"}
-        </button>
-      </form>
-    </section>
   );
 }

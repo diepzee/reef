@@ -310,6 +310,7 @@ button.danger {
 .avatar-stack {
   display: inline-flex;
   align-items: center;
+  cursor: pointer;
 }
 
 .avatar-more {
@@ -484,6 +485,271 @@ button.danger {
   overflow-y: auto;
 }
 
+/* Visually hidden but still reachable by screen readers/labels. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * SpaceView's whobar: the avatar stack + audience sentence + (owner-only)
+ * Manage link that sits under the space title and opens the shared
+ * MembersSheet. Mirrors the mockup's `.sp .whobar`
+ * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html).
+ */
+.whobar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 14px;
+  flex-wrap: wrap;
+}
+
+.whobar-lbl {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.whobar-manage {
+  margin-left: auto;
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/*
+ * MembersSheet: a scrim + sheet pair, mobile-first as a bottom sheet
+ * (translateY, per the mockup's M4 phone block) that becomes a 380px
+ * right-side panel (translateX) at the AppShell desktop breakpoint. Both
+ * transforms animate over the same 160ms ease; `prefers-reduced-motion`
+ * turns the transition off so open/close is instant instead.
+ */
+.mbs-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(16 40 49 / 35%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.mbs-scrim-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mbs-sheet {
+  position: fixed;
+  z-index: 91;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--ground);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 40px rgb(6 30 40 / 25%);
+  padding: 6px 0 20px;
+  transform: translateY(100%);
+  transition: transform 160ms ease;
+}
+
+.mbs-sheet-open {
+  transform: translateY(0);
+}
+
+.mbs-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--faint);
+  margin: 6px auto 10px;
+}
+
+.mbs-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 20px 10px;
+}
+
+.mbs-title {
+  font-size: 16px;
+  margin: 0;
+}
+
+.mbs-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.mbs-close {
+  margin-left: auto;
+  min-height: auto;
+  min-width: auto;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mbs-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mbs-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.mbs-person-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.mbs-person-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mbs-person-email {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mbs-owner-tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mbs-person-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mbs-remove {
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.mbs-confirm-remove {
+  min-height: auto;
+  padding: 0.35rem 0.6rem;
+  background: #fdecea;
+  border-color: #c0392b;
+  color: #8b1f11;
+  font-size: 12px;
+}
+
+.mbs-cancel-remove {
+  min-height: auto;
+  padding: 0.35rem 0.6rem;
+  font-size: 12px;
+}
+
+.mbs-invite {
+  margin: 12px 20px 0;
+  border: 1px dashed var(--hairline);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mbs-invite-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.mbs-invite button[type="submit"] {
+  align-self: flex-start;
+  min-height: auto;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border: none;
+  border-radius: 7px;
+  margin-top: 2px;
+}
+
+.mbs-disclose {
+  margin: 12px 20px 0;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+@media (min-width: 900px) {
+  .mbs-sheet {
+    left: auto;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: -8px 0 40px rgb(6 30 40 / 25%);
+    transform: translateX(100%);
+  }
+
+  .mbs-sheet-open {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mbs-scrim,
+  .mbs-sheet {
+    transition: none;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #121212;
@@ -509,5 +775,11 @@ button.danger {
     border-color: #d9a441;
     background: #3a2e12;
     color: #f0c975;
+  }
+
+  .mbs-confirm-remove {
+    background: #3a1a16;
+    border-color: #e57368;
+    color: #f6b4ac;
   }
 }
