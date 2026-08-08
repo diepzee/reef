@@ -806,9 +806,7 @@ def api(handler):
                 {"error": "space_error", "detail": str(error)}, status_code=400
             )
         response = result if isinstance(result, Response) else JSONResponse(result)
-        set_session_cookie(
-            response, principal, secure=request.url.scheme == "https"
-        )
+        set_session_cookie(response, principal, secure=request.url.scheme == "https")
         return response
 
     return endpoint
@@ -990,9 +988,7 @@ async def static_client(monkeypatch, tmp_path):
     (tmp_path / "app.js").write_text("console.log(1)")
     monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))
     transport = httpx.ASGITransport(app=mcp.http_app())
-    async with httpx.AsyncClient(
-        transport=transport, base_url="http://test"
-    ) as client:
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 
