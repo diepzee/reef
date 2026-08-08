@@ -1173,7 +1173,9 @@ The same file serves as favicon (`<link rel="icon" type="image/svg+xml" href="/r
 - [ ] **Step 2: Verify** — `bun run build`; open the dev server; icon renders crisply at 16px (favicon) and 26px (header); check both color schemes.
 - [ ] **Step 3: Commit** — `git commit -m "feat: reef branding — seafoam colony mark, favicon, header"`
 
----### Task 9: Views — Home and Space
+---
+
+### Task 9: Views — Home and Space
 
 **Files:**
 - Create: `frontend/src/views/Home.tsx`, `frontend/src/views/SpaceView.tsx`, `frontend/src/views/NewSpace.tsx`
