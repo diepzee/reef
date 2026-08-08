@@ -18,6 +18,7 @@ export interface PageMeta {
   updated: string;
   size: number;
   version: number;
+  last_editor: string | null;
 }
 
 /** One attachment's metadata within a space's index. */
@@ -50,6 +51,7 @@ export interface Page {
   body: string;
   version: number;
   updated: string;
+  last_editor: string | null;
 }
 
 /** `GET /api/me` — the logged-in person's identity. */
