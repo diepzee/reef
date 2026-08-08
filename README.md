@@ -41,6 +41,10 @@ sharing, protocol delivery, images, import, backup, and export. 64 tests
 pass against a real Postgres. The connector gate passed, the real service is
 deployed, and the personal corpus is imported.
 
+**Browser frontend** ships in the same image. Members can browse and edit pages
+at `/app`, and owners can manage spaces from there — a React app built with Bun,
+served by the same service. The MCP surface is unchanged; the web UI is additive.
+
 **Multi-user spaces** landed next: spaces are named groups rather than a fixed
 household tier, each with an accountable owner who invites people by email
 (`create_space`, `invite`, `remove_member`), sharing targets any space the
