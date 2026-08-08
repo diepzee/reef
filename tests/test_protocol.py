@@ -11,7 +11,7 @@ async def test_concatenates_protocol_and_persona(tx, household):
     me = principal_for(household["wouter"])
     await save_page(
         me,
-        "household",
+        "personal",
         "meta/protocol.md",
         "Compile, do not dump.",
         message="x",

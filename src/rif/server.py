@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from fastmcp import FastMCP
 
-from rif.access import Principal, accessible_spaces, resolve_space
+from rif.access import Principal, accessible_spaces, resolve_space, space_alias
 from rif.attachments import (
     S3ObjectStore,
     add_attachment,
@@ -14,7 +14,7 @@ from rif.attachments import (
 )
 from rif.auth import current_principal
 from rif.config import get_settings
-from rif.context import ALIAS_BY_KIND, build_index, load_context
+from rif.context import build_index, load_context
 from rif.db import transaction_scope
 from rif.models import Page
 from rif.pages import (
@@ -123,15 +123,16 @@ async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
 async def tool_list_spaces(principal: Principal) -> list[dict]:
     """List the spaces the principal can see, split from the tool for testability.
 
-    Only the space alias (``personal``/``household``) and version cross the
-    tool boundary. The underlying ``Space.slug`` — and thus another person's
-    space name, e.g. a shared space slug like ``school`` — never does.
+    Only the alias each space is addressed by and its version cross the tool
+    boundary. A personal space's own ``slug`` — derived from the person id —
+    never does; a shared space's alias *is* its slug, which is how members
+    name it in every other call.
 
     :param principal: the authenticated person
     :returns: one dict per accessible space, alias and version only
     """
     return [
-        {"alias": ALIAS_BY_KIND[s.kind], "version": s.version}
+        {"alias": space_alias(s), "version": s.version}
         for s in await accessible_spaces(principal)
     ]
 
