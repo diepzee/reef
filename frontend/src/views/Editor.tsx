@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, apiGet, apiSend } from "../api";
+import { useIndex } from "../IndexProvider";
 import { renderMarkdown } from "../markdown";
 import { indexDescription } from "../summary";
 import type { Page } from "../types";
@@ -101,6 +102,7 @@ export function PageEditor({
   initialVersion,
 }: PageEditorProps) {
   const navigate = useNavigate();
+  const { refresh } = useIndex();
 
   const [title, setTitle] = useState(initialTitle);
   const [tagsText, setTagsText] = useState(initialTags.join(", "));
@@ -134,6 +136,7 @@ export function PageEditor({
         message,
         expected_version: expectedVersion,
       });
+      await refresh();
       navigate(`/s/${space}/p/${path}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {

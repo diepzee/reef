@@ -10,12 +10,14 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
+import { useIndex } from "../IndexProvider";
 
 export default function NewSpace() {
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const { refresh } = useIndex();
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -25,6 +27,7 @@ export default function NewSpace() {
       await apiSend<{ alias: string; slug: string }>("POST", "/api/spaces", {
         slug,
       });
+      await refresh();
       navigate(`/s/${slug}`);
     } catch (err) {
       setSubmitting(false);
