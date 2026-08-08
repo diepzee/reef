@@ -62,23 +62,30 @@ export default function NewPage() {
       <h1>New page</h1>
       {pathError && <div className="notice">{pathError}</div>}
       <form onSubmit={handleSubmit}>
-        <label htmlFor="new-page-path">Path</label>
-        <input
-          id="new-page-path"
-          value={path}
-          onChange={(event) => setPath(event.target.value)}
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          required
-        />
+        <div className="ed-field">
+          <label htmlFor="new-page-path" className="ed-label">
+            Path
+          </label>
+          <input
+            id="new-page-path"
+            className="ed-input"
+            value={path}
+            onChange={(event) => setPath(event.target.value)}
+            autoComplete="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            required
+          />
+        </div>
         <p className="muted">
           Lowercase letters, digits, "-", "_", ".", "/" — must end in ".md",
           e.g. "trip/packing-list.md". Paths starting with "meta/" are reserved.
         </p>
-        <button type="submit" disabled={!path}>
-          Continue
-        </button>
+        <div className="ed-toolbar">
+          <button type="submit" className="ed-save" disabled={!path}>
+            Continue
+          </button>
+        </div>
       </form>
     </div>
   );
