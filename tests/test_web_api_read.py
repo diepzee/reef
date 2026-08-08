@@ -72,6 +72,7 @@ async def test_get_page_and_404(api, world):
     page = (await api.get("/api/pages/team/notes/plan.md")).json()
     assert page["body"].startswith("# Plan")
     assert page["version"] == 1
+    assert page["last_editor"] == "Alice"
     missing = await api.get("/api/pages/team/notes/absent.md")
     assert missing.status_code == 404
     foreign = await api.get("/api/pages/other-space/notes/plan.md")
