@@ -9,7 +9,7 @@ to stand the service up again.
 | Phase | State |
 |---|---|
 | 1 — Prove the connection works | **Done** on desktop, 6 Aug 2026. Phones untested |
-| 2 — Identity seeds | **Partly done** — one person seeded; the second member is not |
+| 2 — Who is allowed in | **Partly done** — one person seeded; nobody invited yet |
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
 | 4 — Storage and safety nets | **Mostly done**, 7 Aug 2026 — R2 live, images working, one verified backup and a passed restore drill. The *schedule* is missing |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
@@ -34,8 +34,9 @@ assumed: it has no command for cron schedules or start commands)
 
 **Waiting on information or a decision**
 
-- [ ] **Nathalie's row.** rif is single-user until this exists, and it is the
-      deadline on everything privacy-related. Needs her exact email. Phase 2.
+- [ ] **Nathalie's invite.** rif is single-user until it goes out, and it is
+      the deadline on everything privacy-related. Needs her exact email, then
+      one `invite` call — no longer a migration. Phase 2.
 - [ ] **`meta/persona.md`.** Still the 157-byte placeholder from the first
       smoke test, while every other page got real content. `mark.md` already
       holds much of what belongs in it. Phase 6, step 2.
@@ -86,7 +87,7 @@ scheduling and content.
 > **Desktop is confirmed (7 Aug 2026). Steps 5 and 6 are not:** the connector
 > has not been tried on a phone, and her account and tier have not been tried
 > at all. Step 6 is blocked behind Phase 2 regardless — an authenticated
-> stranger is denied until she is on the allowlist.
+> stranger is denied until she has been invited.
 >
 > The phone check still matters even though desktop works. The mobile app is
 > the whole reason for the remote-MCP design, and mobile hosts are the ones
@@ -231,44 +232,46 @@ fallback is a web app for her, not a redesign.
 
 ---
 
-## Phase 2 — Identity seeds
+## Phase 2 — Who is allowed in
 
-**Why this table matters:** `persons` is the allowlist. WorkOS will
-authenticate anyone who signs up; this table is what turns "authenticated"
-into "allowed". An authenticated stranger is denied by
+**Why this matters:** WorkOS authenticates anyone who signs up. Something else
+has to turn "authenticated" into "allowed", and that something is now the
+`invite` tool, not a hand-edited migration. Inviting an email address creates
+the person's row (if new) and their membership row *before* they have ever
+signed in; an authenticated stranger nobody invited is denied by
 `principal_from_claims`, and RLS denies them rows even if that check were
 bypassed.
 
-**Already done.** The seed migration creates one person -- Wouter -- his
-personal space, and the household space. You can deploy and use the system
+**Already done.** The seed migrations create one person — Wouter — his personal
+space, and the `school` shared space he owns. You can deploy and use the system
 solo today.
 
-### Adding the second member
+### Bringing anyone else in
 
-Her row is deliberately absent rather than a placeholder. Her email is the
-key her first login binds against, and a placeholder would put an unusable
-address in production that no later run of the seed would correct, because
-migrations do not re-run.
+As the space's owner, from any connected assistant:
 
-When her address is settled, add a new migration alongside the others:
-
-```sql
-INSERT INTO persons (id, email, display_name)
-VALUES ('<new-uuid>', '<her-email>', '<her-name>');
-
-INSERT INTO spaces (id, slug, kind, owner_person_id, version)
-VALUES ('<new-uuid>', 'partner', 'personal', '<her-person-id>', 0);
-
-INSERT INTO memberships (person_id, space_id) VALUES
-  ('<her-person-id>', '<her-space-id>'),
-  ('<her-person-id>', '55555555-5555-5555-5555-555555555555');
+```
+invite(space="school", email="<their-email>", display_name="<their-name>")
 ```
 
-That last id is the household space, seeded already.
+Then the person signs in to AuthKit with that exact address. On that first
+sign-in `rif` binds their provider subject, creates their own personal space,
+and seeds `meta/protocol.md` and `meta/persona.md` there for them. Nothing else
+is needed — no migration, no restart.
 
-**Get the address exactly right**, including which Gmail if she has more
-than one. `rif` binds to the provider's subject on first login, so changing
-her account afterwards means clearing her `subject` column by hand.
+Two things to get right:
+
+- **The address must match exactly**, including which Gmail if they have more
+  than one, and the provider must report it verified. `rif` binds to the
+  provider's subject on first login, so changing their account afterwards means
+  clearing their `subject` column by hand.
+- **Say out loud what an invite grants** before you call it. The invitee will
+  permanently see everything in that space, past and future; the tool returns a
+  disclosure line with today's page count for exactly this reason. Removal
+  (`remove_member`) stops future access — it cannot unshare what was read.
+
+If you typo an address, `remove_member` on the invite you never got to use also
+erases the orphaned person row, so the mistake leaves nothing behind.
 
 ---
 
@@ -276,7 +279,8 @@ her account afterwards means clearing her `subject` column by hand.
 
 > **Done, 6 Aug 2026.** The real service runs at
 > `rif-app-production.up.railway.app`, and step 3's check passes: `list_spaces`
-> returns exactly `personal` and `household` as aliases, with no space names
+> returned exactly `personal` and the shared space (then aliased `household`,
+> now the slug `school`), with no internal space identifiers
 > and nothing belonging to anyone else.
 
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
@@ -289,15 +293,34 @@ endpoint), and the store is empty anyway until Phase 5.
    ```
    The Dockerfile runs `scripts/migrate.py` on boot (advisory-locked), which
    applies the schema, RLS policies, and your Phase 2 seed.
-2. **Swap the connector** on both accounts from the spike URL to the real
+2. **Verify the shared-space owner the multi-user-spaces migration backfilled**
+   (`rif_2026_08_08t10_00_00_000000`). For a space that predates ownership it
+   assigns `owner_person_id` to the member with the lowest person id — an
+   arbitrary pick, not necessarily the right one. Check it:
+
+   ```sql
+   SELECT s.slug, p.email
+   FROM spaces s JOIN persons p ON p.id = s.owner_person_id
+   WHERE s.kind = 'shared';
+   ```
+
+   If the wrong person came out owner, reassign before anyone relies on
+   owner-only tools (`invite`, `remove_member`):
+
+   ```sql
+   UPDATE spaces SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
+   WHERE slug = '<the-space>';
+   ```
+3. **Swap the connector** on both accounts from the spike URL to the real
    `/mcp` URL (same domain if you reused the service — then nothing to swap).
-3. **Verify, on each phone:** `list_spaces` returns exactly that person's
-   `personal` + `household` — never the other person's space, never the word
-   `school` (aliases only; that's a tested invariant, but see it once with
-   your own eyes).
-4. **Verify the lock:** `curl -i https://<domain>/mcp` from anywhere →
+4. **Verify, on each phone:** `list_spaces` returns that person's `personal`
+   space plus every shared space they belong to, with each space's member list
+   — never a space they were never invited to, never anyone else's `personal`
+   space (addressing is `personal` or a slug, and membership decides the rest;
+   that's a tested invariant, but see it once with your own eyes).
+5. **Verify the lock:** `curl -i https://<domain>/mcp` from anywhere →
    rejected, not a tool listing.
-5. Commit ticking Task 6's deploy checkboxes — the code commit deliberately
+6. Commit ticking Task 6's deploy checkboxes — the code commit deliberately
    didn't claim the deploy was live.
 
 ---
@@ -427,19 +450,21 @@ of which alone meant no backup:**
 
 ## Phase 5 — Content: the import
 
-> **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 household
-> pages. The final disposition differs from the sketch in step 2 below: the
-> household layer came out as `house.md`, `future-home.md` and `travel.md`
+> **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared
+> space (`school` — the space the old `household` alias resolved to).
+ The final disposition differs from the sketch in step 2 below: the
+> shared layer came out as `house.md`, `future-home.md` and `travel.md`
 > rather than the `money.md` / `family-film.md` split proposed here, and
 > `health.md` and `finances.md` both stayed personal.
 >
 > **Step 4's cross-check has not happened** — verifying from her phone that
-> household pages are visible and personal ones are not needs Phase 2 first.
+> the shared space's pages are visible and personal ones are not needs an
+> invited second person first.
 > That check is the moment the privacy design faces reality, and it is still
 > outstanding.
 
 **Why the ceremony:** this is the one step that moves your actual life into
-the system, and the disposition (what's household vs private) is a set of
+the system, and the disposition (what's shared vs private) is a set of
 judgment calls only you can make. The importer takes explicit filename lists —
 nothing moves by inference.
 
@@ -449,7 +474,8 @@ nothing moves by inference.
      deserves an actual decision (a shared summary is possible without moving
      the investigation notes).
    - `finances.md` — the proposed split sends joint account/2034 plan/family
-     loan to household and keeps pension+insurance private (it references the
+     loan to the shared space and keeps pension+insurance private (it
+     references the
      cardiac story).
 2. **Prepare the split files** by hand in a scratch directory: `money.md`,
    `family-film.md`, trimmed `finances.md`/`film-taste.md`. Check
@@ -463,32 +489,42 @@ nothing moves by inference.
    ```
 
 4. **Verify from both sides:** your phone — `load_all_context` shows
-   everything; her phone — household pages visible, none of yours. This is the
+   everything; her phone — the shared space's pages visible, none of yours.
+   This is the
    moment the privacy design faces reality; look at it directly.
 
 ---
 
 ## Phase 6 — Protocol and personas
 
-> **Step 1 done, 6 Aug 2026** — `meta/protocol.md` is written in the household
-> space. **Step 2 is not:** `meta/persona.md` is still the 157-byte
-> placeholder from the first end-to-end test, while every other page got real
-> content. It is the page that steers the assistant's voice, and `mark.md` in
-> the personal space already holds much of what belongs in it. Step 3 waits
-> on Phase 2.
+> **Step 1 done, 6 Aug 2026** — but written in the shared space, which no
+> longer works: `update_meta_page` now refuses any space but `personal`, and
+> `get_operating_protocol` never read the shared copy in the first place.
+> **Rewrite it in your personal space.** **Step 2 is not done either:**
+> `meta/persona.md` is still the 157-byte placeholder from the first end-to-end
+> test, while every other page got real content. It is the page that steers the
+> assistant's voice, and `mark.md` in the personal space already holds much of
+> what belongs in it. Step 3 waits on Phase 2.
 
 The code ships a built-in fallback protocol, but the real thing is content:
 
-1. Write `meta/protocol.md` in the household space (via `update_meta_page` or
-   ask any connected assistant): the operating rules — load context first,
-   compile don't dump, private-by-default routing, promote-only-with-consent —
-   plus the **onboarding behavior**: an assistant meeting an empty personal
-   space introduces itself, asks what to call itself, and interviews gently to
-   seed the persona.
-2. Write your own `meta/persona.md` (Mark's tone lives in
-   `mark/wiki/mark.md` today — port it).
+1. **The protocol lives in each person's own personal space, not a shared one.**
+   `get_operating_protocol` reads `meta/protocol.md` only from the personal
+   space it is called for, never from `school` or any other shared space — the
+   protocol and the persona are per-person. Anyone invited after go-live gets
+   both pages created for them at first sign-in, seeded from the built-in
+   template. You were seeded by migration rather than by invite, so write your
+   own: `update_meta_page` in your **personal** space (or ask any connected
+   assistant) with the operating rules — load context first, compile don't
+   dump, private-by-default routing, promote-only-with-consent — plus the
+   **onboarding behavior**: an assistant meeting an empty personal space
+   introduces itself, asks what to call itself, and interviews gently to seed
+   the persona.
+2. Write your own `meta/persona.md`, also in your **personal** space (Mark's
+   tone lives in `mark/wiki/mark.md` today — port it).
 3. **Hers is not yours to write.** Her first conversation, via the onboarding
-   behavior, creates it. She names her own assistant.
+   behavior, fills in the `meta/persona.md` waiting in her own personal space.
+   She names her own assistant.
 
 ---
 

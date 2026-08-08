@@ -355,18 +355,24 @@ railway up   # again, so the vars take</code></pre></li>
 
 <section class="phase" id="p2">
   <span class="marker" aria-hidden="true">2</span>
-  <h2>Identity seeds</h2>
-  <p class="why">The <code>persons</code> table is the allowlist — the only two
-  people who can ever get in. Her row is a deliberate placeholder: her email is
-  her identity to give, not something an agent guesses. WorkOS authenticates
-  anyone who signs up; this table is what turns <em>authenticated</em> into
-  <em>allowed</em>.</p>
+  <h2>Who is allowed in</h2>
+  <p class="why">WorkOS authenticates anyone who signs up. The
+  <code>invite</code> tool is what turns <em>authenticated</em> into
+  <em>allowed</em> — no migration edit, no signup form. Inviting an email
+  creates that person's row and their membership row before they have ever
+  signed in; anyone nobody invited is denied by
+  <code>principal_from_claims</code>.</p>
   <ol class="steps">
-    <li>Edit <code>migrations/versions/d8567d9ee6dc_seed_persons_and_spaces.py</code>:
-      replace <code>&lt;HER-EMAIL&gt;</code> and <code>&lt;HER-NAME&gt;</code>.
-      Exact email match matters — it's how her first login binds to her row.</li>
-    <li>Commit. Optional local check: <code>uv run alembic upgrade head</code>
-      against the docker Postgres.</li>
+    <li>As the space's owner, from any connected assistant:
+      <pre><code>invite(space="school", email="&lt;her-email&gt;",
+       display_name="&lt;her-name&gt;")</code></pre>
+      Say out loud what it grants first: permanent access to everything in that
+      space, past and future.</li>
+    <li>She signs in to AuthKit with that exact address, verified. Her personal
+      space and its two starter pages appear on that first sign-in. The email
+      must match exactly — it is what her first login binds to.
+      <p class="done">she calls <code>list_spaces</code> and sees her own
+      <code>personal</code> space plus <code>school</code>.</p></li>
   </ol>
 </section>
 
@@ -379,15 +385,23 @@ railway up   # again, so the vars take</code></pre></li>
   <ol class="steps">
     <li><pre><code>railway add --database postgres
 railway up</code></pre>
-      Boot runs <code>alembic upgrade head</code> (advisory-locked): schema,
-      RLS policies, your phase-2 seed.</li>
+      Boot runs <code>scripts/migrate.py</code> (advisory-locked): schema,
+      RLS policies, the seed.</li>
+    <li><strong>Check the owner the multi-user-spaces migration backfilled.</strong>
+      It picks each pre-existing shared space's lowest-person-id member —
+      deterministic, but arbitrary.
+      <pre><code>SELECT s.slug, p.email FROM spaces s
+  JOIN persons p ON p.id = s.owner_person_id
+ WHERE s.kind = 'shared';</code></pre>
+      Reassign with one <code>UPDATE</code> if it came out wrong, before anyone
+      relies on <code>invite</code> or <code>remove_member</code>.</li>
     <li>Swap the connector on both accounts to the real <code>/mcp</code> URL
       (nothing to swap if you reused the service).</li>
     <li>On each phone: <code>list_spaces</code>.
-      <p class="done">each person sees exactly their own
-      <code>personal</code> + <code>household</code> — never the other's
-      space, never the word <em>school</em>. It's a tested invariant; see it
-      once with your own eyes anyway.</p></li>
+      <p class="done">each person sees their own <code>personal</code> space
+      plus every shared space they belong to, with its member list — never a
+      space they were not invited to, never anyone else's <code>personal</code>
+      space. It's a tested invariant; see it once with your own eyes anyway.</p></li>
     <li><code>curl -i https://&lt;domain&gt;/mcp</code> from anywhere →
       rejected, not a tool listing.</li>
     <li>Commit ticking Task 6's deploy checkboxes — the code commit
@@ -441,7 +455,7 @@ railway up</code></pre></li>
   <span class="marker" aria-hidden="true">5</span>
   <h2>Content: the import</h2>
   <p class="why">The one step that moves your actual life into the system. The
-  disposition — household vs private — is a set of judgment calls only you can
+  disposition — shared vs private — is a set of judgment calls only you can
   make, so the importer takes <strong>explicit filename lists</strong>; nothing
   moves by inference.</p>
   <ol class="steps">
@@ -450,7 +464,7 @@ railway up</code></pre></li>
       <strong>health.md</strong> — private by default, but this page deserves a
       conscious decision (a shared summary is possible without moving the
       investigation notes); <strong>finances.md</strong> — proposed split
-      sends joint account / 2034 plan / family loan to household, keeps
+      sends joint account / 2034 plan / family loan to the shared space, keeps
       pension + insurance private.</li>
     <li>Prepare the split files by hand in a scratch dir
       (<code>money.md</code>, <code>family-film.md</code>, trimmed originals).
@@ -460,7 +474,8 @@ railway up</code></pre></li>
     <li><pre><code>railway run uv run python scripts/import_mark.py \
   &lt;scratch-dir&gt; wouter@rugvin.be</code></pre></li>
     <li>Verify from both sides — your phone: <code>load_all_context</code>
-      shows everything; her phone: household pages visible, none of yours.
+      shows everything; her phone: the shared space's pages visible, none of
+      yours.
       <p class="done">the privacy design has faced reality and held. Look at
       it directly.</p></li>
   </ol>
@@ -472,16 +487,23 @@ railway up</code></pre></li>
   <p class="why">The code ships a fallback protocol, but the real thing is
   content, editable like any page and versioned like any page.</p>
   <ol class="steps">
-    <li>Write <code>meta/protocol.md</code> in the household space (via
-      <code>update_meta_page</code>, or just ask a connected assistant): load
-      context first · compile, don't dump · private-by-default routing ·
-      promote only with consent — plus the <strong>onboarding behavior</strong>:
-      an assistant meeting an empty personal space introduces itself, asks
-      what to call itself, and interviews gently to seed the persona.</li>
-    <li>Write your own <code>meta/persona.md</code> — Mark's tone lives in
-      <code>mark/wiki/mark.md</code> today; port it.</li>
-    <li><strong>Hers is not yours to write.</strong> Her first conversation
-      creates it, via onboarding. She names her own assistant.</li>
+    <li>Write <code>meta/protocol.md</code> <strong>in your personal
+      space</strong> (via <code>update_meta_page</code>, or just ask a
+      connected assistant): load context first · compile, don't dump ·
+      private-by-default routing · promote only with consent — plus the
+      <strong>onboarding behavior</strong>: an assistant meeting an empty
+      personal space introduces itself, asks what to call itself, and
+      interviews gently to seed the persona.
+      The protocol and the persona are per-person:
+      <code>update_meta_page</code> refuses any space but
+      <code>personal</code>, and <code>get_operating_protocol</code> never
+      reads a shared space's copy.</li>
+    <li>Write your own <code>meta/persona.md</code>, also in your personal
+      space — Mark's tone lives in <code>mark/wiki/mark.md</code> today; port
+      it.</li>
+    <li><strong>Hers is not yours to write.</strong> Anyone invited gets both
+      pages seeded in their own personal space at first sign-in; her first
+      conversation fills the persona in. She names her own assistant.</li>
   </ol>
 </section>
 
@@ -547,7 +569,7 @@ railway up</code></pre></li>
 </section>
 
 <footer>
-  rif — a remote MCP memory for the household. Store: Postgres + RLS. Surface:
+  rif — a remote MCP memory shared through named spaces. Store: Postgres + RLS. Surface:
   the Claude app. Exit: always markdown.
 </footer>
 
