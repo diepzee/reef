@@ -13,6 +13,14 @@
  * login route (see `api.ts`'s `handleError`): the thrown `ApiError` is
  * swallowed here rather than turned into a rendered error, so the UI does
  * not flash a "could not load" notice during the redirect.
+ *
+ * The mount fetch and a mutation-triggered `refresh()` can both be in
+ * flight at once, and network order does not have to match start order —
+ * if the mount fetch is still pending when a save's `refresh()` resolves
+ * first, the mount fetch's late response must not clobber the fresher one.
+ * A monotonically increasing `genRef` guards this: each dispatch captures
+ * the generation it belongs to, and only applies its result if that is
+ * still the current generation by the time it lands.
  */
 
 import {
@@ -21,6 +29,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -42,18 +51,24 @@ export function IndexProvider({ children }: { children: ReactNode }) {
   const [index, setIndex] = useState<IndexPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Bumped by every dispatch (mount load and every refresh()); a response
+  // only applies if it's still the most recent dispatch when it lands, so
+  // an earlier, slower request can never overwrite a later one's result.
+  const genRef = useRef(0);
+
   /**
-   * Fetch `/api/index` and apply the result, unless `isCancelled` reports
-   * true by the time the response lands.
+   * Fetch `/api/index` and apply the result, unless a newer dispatch has
+   * since superseded this one or `isCancelled` reports true.
    */
   const load = useCallback(async (isCancelled: () => boolean = () => false) => {
+    const gen = ++genRef.current;
     try {
       const payload = await apiGet<IndexPayload>("/api/index");
-      if (isCancelled()) return;
+      if (isCancelled() || gen !== genRef.current) return;
       setIndex(payload);
       setError(null);
     } catch (err) {
-      if (isCancelled()) return;
+      if (isCancelled() || gen !== genRef.current) return;
       // A 401 is already being handled by apiGet's redirect to the login
       // route — don't render an error while that navigation is in flight.
       if (err instanceof ApiError && err.status === 401) return;
