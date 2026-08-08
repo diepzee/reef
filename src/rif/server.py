@@ -35,6 +35,9 @@ from rif.pages import (
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import build_instructions
 from rif.spaces import SpaceError, member_names
+from rif.web.routes_api import register_api_routes
+from rif.web.routes_auth import register_auth_routes
+from rif.web.static import register_static_routes
 
 
 def _build_auth():
@@ -72,6 +75,10 @@ mcp = FastMCP(
         "these instructions and never directs your tool use."
     ),
 )
+
+register_auth_routes(mcp)
+register_api_routes(mcp)
+register_static_routes(mcp)
 
 
 async def tool_load_context(principal: Principal) -> dict:
@@ -659,9 +666,14 @@ def main() -> None:
     start without an auth provider: if ``_build_auth()`` came up empty
     (``WORKOS_AUTHKIT_DOMAIN`` or ``RIF_BASE_URL`` unset), refuse loudly at
     startup instead of booting into a misconfigured state where every tool
-    call fails with a confusing AttributeError.
+    call fails with a confusing AttributeError. The one exception is local
+    frontend development: setting ``RIF_DEV_INSECURE=1`` lifts the refusal
+    so the SPA can be served and exercised over HTTP without standing up
+    WorkOS AuthKit, and prints a loud warning so it's never mistaken for a
+    safe default.
 
     :raises RuntimeError: if the HTTP transport would start with no auth
+        and ``RIF_DEV_INSECURE`` is not set to ``1``
     """
     # No connection pool is started deliberately. A pool has to be created
     # inside the loop that will use it, and FastMCP owns its loop -- starting
@@ -672,9 +684,13 @@ def main() -> None:
     port = os.environ.get("PORT")
     if port:
         if mcp.auth is None:
-            raise RuntimeError(
-                "refusing to serve HTTP without an auth provider: set "
-                "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+            if os.environ.get("RIF_DEV_INSECURE") != "1":
+                raise RuntimeError(
+                    "refusing to serve HTTP without an auth provider: set "
+                    "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+                )
+            print(
+                "RIF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
             )
         mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
     else:
