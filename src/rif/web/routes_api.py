@@ -18,9 +18,9 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 from rif.access import AccessDenied, Principal, resolve_space
 from rif.attachments import S3ObjectStore, get_attachment
 from rif.config import get_settings
-from rif.context import build_index
+from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
-from rif.models import Person
+from rif.models import Page, Person
 from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
 from rif.spaces import SpaceError, create_space, invite, member_roster, remove_member
 from rif.web.requests import (
@@ -214,6 +214,31 @@ async def _index(request: Request, principal: Principal) -> dict:
     return asdict(await build_index(principal))
 
 
+async def _page_payload(space: str, page: Page) -> dict:
+    """Shape a page row into the JSON API's page representation.
+
+    Shared by the GET and PUT handlers so both carry the same fields,
+    including the newest revision's author -- a one-page batch through
+    :func:`latest_editors`, resolved fresh on every request rather than
+    denormalized onto the page row.
+
+    :param space: the space alias the page was fetched through
+    :param page: the saved or fetched page row
+    :returns: the page, shaped for the API response
+    """
+    editors = await latest_editors([page.id])
+    return {
+        "space": space,
+        "path": page.path,
+        "title": page.title,
+        "tags": list(page.tags),
+        "body": page.body,
+        "version": page.version,
+        "updated": page.updated_at.isoformat(),
+        "last_editor": editors.get(page.id),
+    }
+
+
 async def _get_page(request: Request, principal: Principal) -> Response | dict:
     """Fetch a single page by space and path.
 
@@ -227,15 +252,7 @@ async def _get_page(request: Request, principal: Principal) -> Response | dict:
     page = await get_page(principal, space, path)
     if page is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    return {
-        "space": space,
-        "path": page.path,
-        "title": page.title,
-        "tags": list(page.tags),
-        "body": page.body,
-        "version": page.version,
-        "updated": page.updated_at.isoformat(),
-    }
+    return await _page_payload(space, page)
 
 
 async def _put_page(request: Request, principal: Principal) -> dict:
@@ -271,15 +288,7 @@ async def _put_page(request: Request, principal: Principal) -> dict:
         tags=tags,
         expected_version=expected_version,
     )
-    return {
-        "space": space,
-        "path": page.path,
-        "title": page.title,
-        "tags": list(page.tags),
-        "body": page.body,
-        "version": page.version,
-        "updated": page.updated_at.isoformat(),
-    }
+    return await _page_payload(space, page)
 
 
 async def _create_space(request: Request, principal: Principal) -> dict:

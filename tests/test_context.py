@@ -1,5 +1,7 @@
-from rif.access import Principal
-from rif.context import load_context
+from rif.access import Principal, arm
+from rif.context import build_index, load_context
+from rif.db import transaction_scope
+from rif.models import Revision
 from rif.pages import save_page
 
 
@@ -137,3 +139,49 @@ async def test_index_carries_attachment_descriptions(tx, household):
     assert house.attachments == [
         {"key": "k1", "mime": "image/png", "description": "the boiler's model plate"}
     ]
+
+
+async def test_index_rows_carry_last_editor(graph):
+    """Each index page row names the newest revision's author."""
+    alice = await graph.person("alice@x.com", "Alice")
+    bob = await graph.person("bob@x.com", "Bob")
+    await graph.personal_space(alice)
+    await graph.shared_space("team", alice, bob)
+    a = Principal(person_id=alice.id, email=alice.email)
+    b = Principal(person_id=bob.id, email=bob.email)
+    async with transaction_scope():
+        await save_page(a, "team", "n.md", "First line.\n", message="one")
+    async with transaction_scope():
+        await save_page(
+            b, "team", "n.md", "Second line.\n", message="two", expected_version=1
+        )
+    async with transaction_scope():
+        payload = await build_index(a)
+    team = next(s for s in payload.spaces if s.alias == "team")
+    page = next(p for p in team.pages if p["path"] == "n.md")
+    assert page["last_editor"] == "Bob"
+
+
+async def test_last_editor_none_when_author_erased(graph):
+    """A vanished author row degrades to None, never an error.
+
+    The update runs inside its own transaction and must ``arm`` RLS itself:
+    ``set_config``'s binding is transaction-local (see ``rif.db``), so the
+    prior ``save_page`` transaction's arming does not carry over here -- an
+    unarmed ``Revision.update`` would silently touch zero rows and leave the
+    author un-erased, masking the very case this test exists to cover.
+    """
+    alice = await graph.person("alice@x.com", "Alice")
+    await graph.personal_space(alice)
+    a = Principal(person_id=alice.id, email=alice.email)
+    async with transaction_scope():
+        await save_page(a, "personal", "n.md", "Line.\n", message="one")
+    async with transaction_scope():
+        await arm(a)
+        await Revision.update({Revision.author_id: None}).where(
+            Revision.author_id == alice.id
+        )
+        payload = await build_index(a)
+    personal = next(s for s in payload.spaces if s.alias == "personal")
+    row = next(p for p in personal.pages if p["path"] == "n.md")
+    assert row["last_editor"] is None

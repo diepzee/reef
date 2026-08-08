@@ -19,6 +19,7 @@ async def test_put_creates_then_conflicts(api, world):
     )
     assert created.status_code == 200
     assert created.json()["version"] == 1
+    assert created.json()["last_editor"] == "Alice"
     stale = await api.put(
         "/api/pages/team/notes/a.md",
         json={"body": "x", "message": "stale", "expected_version": 0},
