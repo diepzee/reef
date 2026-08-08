@@ -1,15 +1,18 @@
 # rif
 
-A remote MCP server that gives a household long-term assistant memory.
+A remote MCP server that gives a group long-term assistant memory.
 
-Two people, three spaces: a private space each, plus one they share. Both
-reach it from surfaces that have no filesystem and no GitHub account —
+Memory lives in **spaces**: one private space per person, created at first
+sign-in, plus any number of **named shared spaces** — a household, a school
+circle, an accountant, a small project. A space is a group of people, started
+by whoever needs it, joined by email invitation from its owner. Everyone
+reaches it from surfaces that have no filesystem and no GitHub account —
 chiefly the Claude mobile app — by adding this server as a custom connector.
 
 The store is Postgres. Row-Level Security is the privacy boundary, so a
-forgotten filter in application code fails closed rather than leaking. Tools
-speak in aliases (`personal`, `household`) that resolve per principal, so
-neither person can name the other's space.
+forgotten filter in application code fails closed rather than leaking. A space
+is addressed by `personal` or by its slug, resolved per principal, so nobody
+can name anybody else's private space.
 
 That boundary only holds if the app connects as an ordinary role: a superuser
 carries `BYPASSRLS` and ignores every policy. The app therefore runs as
@@ -38,6 +41,14 @@ sharing, protocol delivery, images, import, backup, and export. 64 tests
 pass against a real Postgres. The connector gate passed, the real service is
 deployed, and the personal corpus is imported.
 
+**Multi-user spaces** landed next: spaces are named groups rather than a fixed
+household tier, each with an accountable owner who invites people by email
+(`create_space`, `invite`, `remove_member`), sharing targets any space the
+person belongs to and discloses that space's member list, and a new person's
+personal space plus starter pages appear at their first sign-in. Read-only
+memberships are enforced by the RLS policies from day one, though nothing yet
+creates one.
+
 **Everything still outstanding is tracked in one place: the "Open items"
 list at the top of [`docs/runbook.md`](docs/runbook.md)**, grouped by what
 each item is waiting on. The headlines:
@@ -46,8 +57,9 @@ each item is waiting on. The headlines:
   restore drill passed against it — counts matched production and RLS
   survived. The daily cron service is not created yet, so nothing is
   automatic. See Phase 4 of [`docs/runbook.md`](docs/runbook.md).
-- **Only one person is seeded**, so rif is single-user in practice. Adding
-  the second member is a migration plus her exact email.
+- **Only one person is seeded**, so rif is single-user in practice until the
+  first invite goes out. That is now a tool call by the space's owner, not a
+  migration.
 - `meta/persona.md` is still the placeholder written during the first
   end-to-end test.
 - The context ceiling has not been measured from a phone.
@@ -66,8 +78,8 @@ The local Postgres deliberately does not run the app as a superuser — see the
 comment in `docker-compose.yml`. Superusers carry `BYPASSRLS`, which would
 make the security tests pass without proving anything.
 
-The last migration in `src/rif/piccolo_migrations/` seeds one person, his
-personal space, and the household space. The second member is deliberately
-absent rather than a placeholder: her email is the key her first login binds
-against, and migrations do not re-run to correct a guess. Adding her is a
-new migration — see Phase 2 of [`docs/runbook.md`](docs/runbook.md).
+The migrations in `src/rif/piccolo_migrations/` seed one person, his personal
+space, and the `school` shared space he owns. Nobody else is seeded, by design:
+an email is the key a first login binds against, and migrations do not re-run
+to correct a guess. Everyone after this first person arrives through `invite` —
+see Phase 2 of [`docs/runbook.md`](docs/runbook.md).

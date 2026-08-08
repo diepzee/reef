@@ -1,11 +1,13 @@
 """Piccolo table definitions for the rif store.
 
-Two schema facts Piccolo cannot express in a table definition, and which
+Three schema facts Piccolo cannot express in a table definition, and which
 ``rif.rls.constraint_statements`` therefore emits as raw DDL: the composite
-key on ``memberships`` (Piccolo gives every table one surrogate primary key)
-and the ``(space_id, path)`` uniqueness of a page. Both are constraints the
-database must hold whatever the ORM believes, so they live next to the RLS
-policy DDL rather than being dropped.
+key on ``memberships`` (Piccolo gives every table one surrogate primary key),
+the ``(space_id, path)`` uniqueness of a page, and the one-personal-space-per
+-person invariant (a *partial* unique index on ``spaces.owner_person_id``,
+which Piccolo has no syntax for). All three are constraints the database must
+hold whatever the ORM believes, so they live next to the RLS policy DDL
+rather than being dropped.
 """
 
 from datetime import UTC, datetime
@@ -45,10 +47,17 @@ def utc_now() -> datetime:
 
 
 class SpaceKind(StrEnum):
-    """The two kinds of space a person can belong to."""
+    """The two kinds of space: one private per person, any number shared."""
 
     PERSONAL = "personal"
-    HOUSEHOLD = "household"
+    SHARED = "shared"
+
+
+class MemberRole(StrEnum):
+    """What a membership grants. VIEWER is dormant until invites can grant it."""
+
+    MEMBER = "member"
+    VIEWER = "viewer"
 
 
 class AttachmentStatus(StrEnum):
@@ -66,20 +75,22 @@ class Person(Table, tablename="persons", db=DB):
     email = Varchar(unique=True)
     subject = Varchar(null=True, unique=True, default=None)
     display_name = Varchar()
+    invited_by_person_id = ForeignKey("self", null=True, default=None)
+    created_at = Timestamp(default=TimestampNow())
 
 
 class Space(Table, tablename="spaces", db=DB):
-    """A knowledge layer. Personal spaces have exactly one owner."""
+    """A named group of people. Every space has one accountable owner."""
 
     id = UUID(primary_key=True, default=uuid4)
     slug = Varchar(unique=True)
     kind = Varchar(choices=SpaceKind)
-    owner_person_id = ForeignKey(Person, null=True, unique=True, default=None)
+    owner_person_id = ForeignKey(Person)
     version = Integer(default=0)
 
 
 class Membership(Table, tablename="memberships", db=DB):
-    """Who may see which space.
+    """Who may see which space, and what the membership grants.
 
     The real key is ``(person_id, space_id)``; Piccolo's surrogate ``id`` is
     an artefact, and the composite uniqueness is enforced by a raw
@@ -88,6 +99,7 @@ class Membership(Table, tablename="memberships", db=DB):
 
     person_id = ForeignKey(Person)
     space_id = ForeignKey(Space)
+    role = Varchar(choices=MemberRole, default=MemberRole.MEMBER.value)
 
 
 class Page(Table, tablename="pages", db=DB):
@@ -144,6 +156,7 @@ class Promotion(Table, tablename="promotions", db=DB):
     person_id = ForeignKey(Person)
     source_page_id = ForeignKey(Page)
     source_version = Integer()
+    dest_space_id = ForeignKey(Space)
     dest_path = Varchar()
     section_text = Varchar(length=None, null=True, default=None)
     created_at = Timestamp(default=utc_now)

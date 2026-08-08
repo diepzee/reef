@@ -57,7 +57,11 @@ async def main(source: Path, email: str) -> None:
     async with transaction_scope():
         person = await Person.objects().where(Person.email == email).first()
         principal = Principal(person_id=person.id, email=person.email)
-        for name, alias in [(n, "household") for n in sorted(HOUSEHOLD)] + [
+        # One-shot importer targeting the production shared space: the old
+        # "household" alias no longer resolves post-migration (spaces are
+        # named groups, addressed by slug), so this points at "school", the
+        # shared space the former household space became.
+        for name, alias in [(n, "school") for n in sorted(HOUSEHOLD)] + [
             (n, "personal") for n in sorted(PERSONAL)
         ]:
             path = source / name
