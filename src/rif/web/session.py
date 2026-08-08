@@ -27,14 +27,17 @@ class SessionData:
 
 
 def _b64(data: bytes) -> str:
+    """Encode bytes as URL-safe base64 without padding."""
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
 
 def _unb64(text: str) -> bytes:
+    """Decode URL-safe base64 string (with or without padding) to bytes."""
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
 def _sign(payload: bytes, secret: str) -> str:
+    """Produce a URL-safe base64-encoded HMAC-SHA256 signature."""
     return _b64(hmac.new(secret.encode(), payload, sha256).digest())
 
 
@@ -79,14 +82,19 @@ def unseal(token: str, *, secret: str, now: float | None = None) -> SessionData 
         return None
     try:
         payload = _unb64(parts[0])
-    except (ValueError, UnicodeDecodeError):
+    except ValueError:
         return None
     if not hmac.compare_digest(_sign(payload, secret), parts[1]):
         return None
     try:
         doc = json.loads(payload)
-        data = SessionData(UUID(doc["pid"]), doc["email"], float(doc["exp"]))
-    except (ValueError, KeyError, TypeError):
+        pid_str = doc["pid"]
+        email = doc["email"]
+        exp = doc["exp"]
+        if not isinstance(pid_str, str) or not isinstance(email, str):
+            return None
+        data = SessionData(UUID(pid_str), email, float(exp))
+    except (ValueError, KeyError, TypeError, AttributeError):
         return None
     current = time.time() if now is None else now
     if current >= data.expires_at:
