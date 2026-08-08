@@ -96,3 +96,79 @@ async def test_non_owner_cannot_invite(api, world):
         "/api/spaces/team/invites", json={"email": "e@x.com"}, headers=CSRF
     )
     assert response.status_code == 400
+
+
+async def test_put_non_dict_json_body_is_bad_request(api, world):
+    """A JSON body that parses to a bare int, not an object, 400s cleanly.
+
+    Regression test: this used to reach ``if "body" not in payload`` with an
+    int, raising an unhandled ``TypeError`` ("argument of type 'int' is not
+    iterable") instead of a clean 400.
+    """
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.put("/api/pages/team/notes/a.md", json=42, headers=CSRF)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+
+
+async def test_put_malformed_json_is_bad_request(api, world):
+    """Syntactically invalid JSON 400s instead of raising a decode error."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.put(
+        "/api/pages/team/notes/a.md",
+        content=b"{not valid json",
+        headers={**CSRF, "Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+
+
+async def test_put_wrong_typed_body_is_bad_request(api, world):
+    """A non-string ``body`` 400s instead of reaching the database driver.
+
+    Regression test: this used to reach ``save_page`` and die inside
+    asyncpg with a ``DataError`` (expected str, got int) instead of a clean
+    400.
+    """
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.put(
+        "/api/pages/team/notes/a.md",
+        json={"body": 42, "message": "m"},
+        headers=CSRF,
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+
+
+async def test_put_wrong_typed_tags_is_bad_request(api, world):
+    """A ``tags`` field that is a string, not a list, 400s cleanly."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.put(
+        "/api/pages/team/notes/a.md",
+        json={"body": "x", "message": "m", "tags": "not-a-list"},
+        headers=CSRF,
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+
+
+async def test_post_spaces_non_dict_json_body_is_bad_request(api, world):
+    """A JSON body that parses to a bare list, not an object, 400s cleanly."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.post("/api/spaces", json=["trip"], headers=CSRF)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
+
+
+async def test_invite_non_dict_json_body_is_bad_request(api, world):
+    """A JSON body that parses to a bare string, not an object, 400s cleanly."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.post("/api/spaces/team/invites", json="e@x.com", headers=CSRF)
+    assert response.status_code == 400
+    assert response.json()["error"] == "bad_request"
