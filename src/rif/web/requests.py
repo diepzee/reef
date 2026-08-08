@@ -43,7 +43,7 @@ def principal_from_request(request: Request) -> Principal:
         email = os.environ.get("RIF_DEV_PRINCIPAL_EMAIL")
         if email:
             # Local dev only: person lookup happens in the handler's
-            # transaction via principal_for_dev_email below.
+            # transaction, in the api() wrapper in routes_api.py.
             raise _DevFallback(email)
     raise Unauthenticated
 
