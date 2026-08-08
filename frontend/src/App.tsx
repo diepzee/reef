@@ -1,5 +1,9 @@
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 
+import Home from "./views/Home";
+import NewSpace from "./views/NewSpace";
+import SpaceView from "./views/SpaceView";
+
 export default function App() {
   return (
     <BrowserRouter basename="/app">
@@ -16,9 +20,9 @@ export default function App() {
         </Link>
       </header>
       <Routes>
-        <Route path="/" element={<p>home</p>} />
-        <Route path="/spaces/new" element={<p>new space</p>} />
-        <Route path="/s/:space" element={<p>space</p>} />
+        <Route path="/" element={<Home />} />
+        <Route path="/spaces/new" element={<NewSpace />} />
+        <Route path="/s/:space" element={<SpaceView />} />
         <Route path="/s/:space/new" element={<p>new page</p>} />
         <Route path="/s/:space/p/*" element={<p>page</p>} />
         <Route path="/s/:space/e/*" element={<p>editor</p>} />
