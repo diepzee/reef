@@ -207,6 +207,76 @@ button.danger {
   color: #8b1f11;
 }
 
+.warning {
+  padding: 0.75rem;
+  margin-block: 0.75rem;
+  border: 1px solid #b7791f;
+  border-radius: 0.375rem;
+  background: #fdf6e3;
+  color: #7a5210;
+}
+
+.page-body {
+  overflow-wrap: break-word;
+}
+
+.page-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+}
+
+.page-body pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  background: var(--accent-soft);
+  border-radius: 0.375rem;
+}
+
+.page-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.page-body blockquote {
+  margin: 0.75rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.editor-preview {
+  padding: 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.375rem;
+  min-height: 12rem;
+}
+
+.editor-textarea {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  resize: none;
+  overflow: hidden;
+  min-height: 12rem;
+  line-height: 1.5;
+}
+
+.compare-textarea {
+  background: var(--accent-soft);
+  color: var(--color-muted);
+}
+
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-block: 0.75rem;
+}
+
+.index-description {
+  margin-block: 0.75rem;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --color-bg: #121212;
@@ -226,5 +296,11 @@ button.danger {
     background: #3a1a16;
     border-color: #e57368;
     color: #f6b4ac;
+  }
+
+  .warning {
+    border-color: #d9a441;
+    background: #3a2e12;
+    color: #f0c975;
   }
 }
