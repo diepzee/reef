@@ -1,3 +1,10 @@
+FROM oven/bun:1 AS frontend
+WORKDIR /fe
+COPY frontend/package.json frontend/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY frontend/ ./
+RUN bun run build
+
 FROM python:3.13-slim
 # postgresql-client-18, not Debian's default. pg_dump refuses to dump from a
 # server newer than itself ("aborting because of server version mismatch"),
@@ -22,6 +29,7 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
+COPY --from=frontend /fe/dist ./frontend/dist
 COPY scripts ./scripts
 COPY piccolo_conf.py ./
 # The Phase 1 auth spike ships in the same image so the gate can be tested

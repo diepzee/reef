@@ -21,6 +21,16 @@ to stand the service up again.
 The single list. Grouped by what each one is waiting on, because that is what
 determines when it can happen — not by priority.
 
+**Waiting on the operator's Web frontend setup**
+
+- [ ] **Web frontend environment and redirect.** Set `WORKOS_CLIENT_ID`
+      (from WorkOS dashboard), `RIF_SESSION_SECRET` (generate with `python -c
+      "import secrets; print(secrets.token_hex(32))"`), and add the
+      redirect URI `{RIF_BASE_URL}/api/auth/callback` in the AuthKit
+      application settings. Until both are set, `/api/auth/login` returns 503
+      and the MCP surface is unaffected. `RIF_DEV_INSECURE=1` is local-dev
+      only and must never be set in production.
+
 **Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
 assumed: it has no command for cron schedules or start commands)
 
@@ -550,6 +560,37 @@ budget must come from measurement on the real device, not arithmetic.
    `RIF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
    misbehaved; `railway up`.
 4. Clean up: `scripts/measure_context.py wouter@rugvin.be 0`.
+
+---
+
+## Web frontend
+
+A browser UI ships in the same Docker image, served at `/app` by the same
+service. Members can browse and edit pages; owners can create and manage
+spaces. Built with React and Bun, compiled to `frontend/dist` during the
+image build. The frontend redirects unauthenticated requests to
+`/api/auth/login`, which requires two environment variables and a redirect
+URI configuration.
+
+**Setup:**
+
+The operator must set three things. Until all three are done, `/api/auth/login`
+returns 503 and the MCP surface is unaffected.
+
+1. **Environment variables:**
+   - `WORKOS_CLIENT_ID` — from the WorkOS dashboard, the application's
+     client id.
+   - `RIF_SESSION_SECRET` — a 64-character hex string, generated with:
+     ```bash
+     python -c "import secrets; print(secrets.token_hex(32))"
+     ```
+2. **Redirect URI.** In the WorkOS dashboard, open the AuthKit application
+   configuration and add the callback URL:
+   ```
+   {RIF_BASE_URL}/api/auth/callback
+   ```
+3. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
+   for local testing only. Never set it in production.
 
 ---
 
