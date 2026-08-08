@@ -22,6 +22,7 @@ import reefIcon from "../../public/reef.svg";
 import { apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
+import { useMembersSheet } from "../useMembersSheet";
 import type { Me } from "../types";
 import { Avatar, AvatarStack } from "./Avatar";
 
@@ -42,6 +43,7 @@ export function Sidebar({ me }: { me: Me | null }) {
   const { space: activeSpace, page: activePage } = parseLocation(location.pathname);
 
   const { members } = useMembers(activeSpace);
+  const { openMembers } = useMembersSheet();
   const [signingOut, setSigningOut] = useState(false);
 
   async function handleSignOut() {
@@ -77,10 +79,29 @@ export function Sidebar({ me }: { me: Me | null }) {
               <span>{isPersonal ? "Personal" : space.alias}</span>
               {isActive && !isPersonal ? (
                 members && (
-                  <span className="side-item-right">
+                  // This sits inside the space's own <Link>, and opening
+                  // the sheet should not also navigate. preventDefault is
+                  // required alongside stopPropagation: stopPropagation
+                  // alone stops the event from ever reaching the Link's
+                  // own onClick (the one that would normally call
+                  // preventDefault + client-side navigate), which leaves
+                  // the browser's native anchor-click behavior
+                  // unprevented — the tab hard-reloads the href instead,
+                  // wiping all React state including the sheet that had
+                  // just opened. Confirmed live: without preventDefault
+                  // here, clicking this stack opened the sheet for one
+                  // render and then a full page reload silently closed it.
+                  <span
+                    className="side-item-right"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                  >
                     <AvatarStack
                       names={members.members.map((member) => member.display_name)}
                       size="sm"
+                      onClick={() => openMembers(space.alias)}
                     />
                   </span>
                 )

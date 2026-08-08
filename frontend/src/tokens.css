@@ -13,6 +13,9 @@
   --accent-soft: #e7f9f4;
   --danger: #b3554f;
   --serif: Georgia, "Iowan Old Style", serif;
+  --warn-bg: #fff7ed;
+  --warn-border: #fed7aa;
+  --warn-ink: #7c4a12;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -28,6 +31,9 @@
     --accent-deep: #7ce3d3;
     --accent-soft: #123a35;
     --danger: #e0847e;
+    --warn-bg: #3a2a12;
+    --warn-border: #7c4a12;
+    --warn-ink: #fbd9a5;
   }
 }
 
@@ -43,4 +49,7 @@
   --accent-deep: #7ce3d3;
   --accent-soft: #123a35;
   --danger: #e0847e;
+  --warn-bg: #3a2a12;
+  --warn-border: #7c4a12;
+  --warn-ink: #fbd9a5;
 }
