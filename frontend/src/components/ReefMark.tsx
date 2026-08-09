@@ -10,13 +10,19 @@
 import { useId } from "react";
 
 /**
- * The seabed bar plus seven frond paths shared by {@link ReefMark} and
- * {@link FrondGlyph}, copied from `public/reef.svg`. The bar is first so
- * the fronds layer over it, fusing their rounded bases into one closed
- * base instead of reading as separate "toes" at small sizes.
+ * The seabed bar that fuses the fronds' rounded bases into one closed
+ * base instead of separate "toes". Kept OUT of any gradient-stroked
+ * group: the bar is a zero-height horizontal line, and objectBoundingBox
+ * gradients degenerate on a zero-height bbox (Chrome paints nothing), so
+ * it must be stroked with the gradient's literal base color instead.
+ */
+const SEABED_PATH = "M18 50h28";
+
+/**
+ * The seven frond paths shared by {@link ReefMark} and {@link FrondGlyph},
+ * copied from `public/reef.svg`.
  */
 const FROND_PATHS = [
-  "M18 50h28",
   "M20 50C20 45.2 13 42.2 13 38",
   "M24 50C24 42.4 19 37.7 19 31",
   "M28 50C28 39.6 25 33.1 25 24",
@@ -56,6 +62,13 @@ export function ReefMark({ size = 30, className }: ReefMarkProps) {
         </linearGradient>
       </defs>
       <rect width="64" height="64" rx="14" fill="var(--mark-tile)" />
+      <path
+        d={SEABED_PATH}
+        stroke="#0d9488"
+        strokeWidth={4}
+        strokeLinecap="round"
+        fill="none"
+      />
       <g stroke={`url(#${gradientId})`} strokeWidth={4} strokeLinecap="round" fill="none">
         {FROND_PATHS.map((d) => (
           <path key={d} d={d} />
@@ -80,6 +93,7 @@ export function FrondGlyph({ color, size = 20 }: FrondGlyphProps) {
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} aria-hidden="true">
       <g stroke={color} strokeWidth={4} strokeLinecap="round" fill="none">
+        <path d={SEABED_PATH} />
         {FROND_PATHS.map((d) => (
           <path key={d} d={d} />
         ))}
