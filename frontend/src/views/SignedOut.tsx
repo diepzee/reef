@@ -4,12 +4,15 @@
  * `/api/auth/login` and undo the sign-out.
  */
 
-import { ReefMark } from "../components/ReefMark";
+import { FrondGlyph } from "../components/ReefMark";
 
 export default function SignedOut() {
   return (
     <main className="signed-out">
-      <ReefMark size={44} />
+      <div className="lockup-c" aria-label="reef">
+        <FrondGlyph color="var(--accent)" size={26} />
+        <span>reef</span>
+      </div>
       <h1>Signed out</h1>
       <p>Your session has ended on this device.</p>
       <a className="button" href="/api/auth/login">

@@ -608,6 +608,29 @@ textarea {
   font-size: inherit;
 }
 
+/* Lockup C — splash-only: coral + wordmark growing from a shared accent "seabed" rule. */
+.lockup-c {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28em;
+  position: relative;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+
+.lockup-c::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.14em;
+  height: 0.09em;
+  border-radius: 0.05em;
+  background: var(--accent);
+}
+
 .signed-out {
   min-height: 100dvh;
   display: flex;
