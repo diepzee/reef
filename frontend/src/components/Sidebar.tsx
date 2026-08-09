@@ -55,8 +55,15 @@ export function Sidebar({ me }: { me: Me | null }) {
   async function handleSignOut() {
     setSigningOut(true);
     try {
-      await apiSend("POST", "/api/auth/logout");
-      window.location.href = "/app";
+      // The backend hands back a WorkOS logout URL when it knows the
+      // upstream AuthKit session id; navigating there ends that session
+      // too. Without it, only rif's cookie is gone and the next login
+      // redirect would silently sign the user right back in.
+      const result = await apiSend<{ ok: boolean; logout_url?: string }>(
+        "POST",
+        "/api/auth/logout",
+      );
+      window.location.href = result.logout_url ?? "/app/signed-out";
     } catch {
       setSigningOut(false);
     }

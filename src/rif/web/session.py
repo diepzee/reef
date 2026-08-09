@@ -24,6 +24,7 @@ class SessionData:
     person_id: UUID
     email: str
     expires_at: float
+    sid: str | None = None
 
 
 def _b64(data: bytes) -> str:
@@ -48,6 +49,7 @@ def seal(
     secret: str,
     now: float | None = None,
     ttl_seconds: int = SESSION_TTL_SECONDS,
+    sid: str | None = None,
 ) -> str:
     """Produce a signed session token.
 
@@ -56,13 +58,15 @@ def seal(
     :param secret: the signing secret
     :param now: clock override for tests; defaults to wall time
     :param ttl_seconds: lifetime from now
+    :param sid: the upstream AuthKit session id, when known; carried so
+        logout can end that session too
     :returns: the token string
     """
     issued = time.time() if now is None else now
-    payload = json.dumps(
-        {"pid": str(person_id), "email": email, "exp": issued + ttl_seconds},
-        separators=(",", ":"),
-    ).encode()
+    doc: dict = {"pid": str(person_id), "email": email, "exp": issued + ttl_seconds}
+    if sid is not None:
+        doc["sid"] = sid
+    payload = json.dumps(doc, separators=(",", ":")).encode()
     return f"{_b64(payload)}.{_sign(payload, secret)}"
 
 
@@ -91,9 +95,12 @@ def unseal(token: str, *, secret: str, now: float | None = None) -> SessionData 
         pid_str = doc["pid"]
         email = doc["email"]
         exp = doc["exp"]
+        sid = doc.get("sid")
         if not isinstance(pid_str, str) or not isinstance(email, str):
             return None
-        data = SessionData(UUID(pid_str), email, float(exp))
+        if sid is not None and not isinstance(sid, str):
+            return None
+        data = SessionData(UUID(pid_str), email, float(exp), sid)
     except (ValueError, KeyError, TypeError, AttributeError):
         return None
     current = time.time() if now is None else now

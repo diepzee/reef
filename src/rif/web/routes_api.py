@@ -30,6 +30,7 @@ from rif.web.requests import (
     cookie_secure,
     principal_from_request,
     require_csrf,
+    session_sid,
     set_session_cookie,
 )
 
@@ -183,7 +184,9 @@ def api(handler: Callable) -> Callable:
                 {"error": "space_error", "detail": str(error)}, status_code=400
             )
         response = result if isinstance(result, Response) else JSONResponse(result)
-        set_session_cookie(response, principal, secure=cookie_secure())
+        set_session_cookie(
+            response, principal, secure=cookie_secure(), sid=session_sid(request)
+        )
         return response
 
     return endpoint
