@@ -31,6 +31,7 @@ knowledge outlives the deployment. One-way, app to files.
 Design: [`docs/spec.md`](docs/spec.md).
 Going live: [`docs/runbook.md`](docs/runbook.md).
 Backup and restore: [`docs/restore.md`](docs/restore.md).
+Market landscape: [`docs/competitor-research.md`](docs/competitor-research.md).
 
 ## Status
 
