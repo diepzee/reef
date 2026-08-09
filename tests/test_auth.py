@@ -1,7 +1,7 @@
 import pytest
 
 from rif.access import AccessDenied
-from rif.auth import principal_from_claims
+from rif.auth import current_principal, principal_from_claims
 from rif.models import Person
 
 
@@ -73,6 +73,58 @@ async def test_stranger_is_denied(tx, household):
         await principal_from_claims(
             {"sub": "auth0|y", "email": "stranger@example.test", "email_verified": True}
         )
+
+
+async def test_http_without_token_is_denied_by_default(tx, monkeypatch):
+    """A tokenless HTTP connection is refused, not treated as stdio dev mode.
+
+    ``get_access_token()`` returns ``None`` whenever the server runs HTTP
+    without an auth provider wired up (the ``RIF_DEV_INSECURE=1`` local-dev
+    path). Without the flag set, that must raise ``AccessDenied`` -- never
+    fall through to the dev-email lookup, and never surface the unguarded
+    ``AttributeError`` from ``None.claims``.
+    """
+    import fastmcp.server.dependencies
+
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.delenv("RIF_DEV_INSECURE", raising=False)
+    monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
+    with pytest.raises(AccessDenied):
+        await current_principal()
+
+
+async def test_http_without_token_falls_back_when_insecure(tx, household, monkeypatch):
+    """``RIF_DEV_INSECURE=1`` makes a tokenless HTTP connection behave like stdio.
+
+    This is the local-dev path: MCP-over-HTTP with no auth provider wired
+    up still needs to resolve a principal, so it falls through to the same
+    ``RIF_DEV_PRINCIPAL_EMAIL`` lookup stdio mode uses.
+    """
+    import fastmcp.server.dependencies
+
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
+    monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
+    principal = await current_principal()
+    assert principal.person_id == household["wouter"].id
+
+
+async def test_http_insecure_fallback_denies_unknown_email(tx, household, monkeypatch):
+    """The insecure-HTTP fallback still gates on the persons table.
+
+    Falling through to the dev-email lookup does not mean any email is
+    accepted -- an email nobody seeded is denied exactly as stdio mode
+    denies it.
+    """
+    import fastmcp.server.dependencies
+
+    monkeypatch.setenv("PORT", "8080")
+    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", "stranger@example.test")
+    monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
+    with pytest.raises(AccessDenied):
+        await current_principal()
 
 
 def test_http_transport_refuses_to_start_without_auth(monkeypatch):
