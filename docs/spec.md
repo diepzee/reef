@@ -202,6 +202,7 @@ less.
 | `delete_image(space, key)` | The one destructive tool, added 7 Aug 2026. Removes the row and the bytes; the ACL check runs before the object store is touched, so a denied delete cannot destroy data. Row committed first, then the object: the two stores cannot be atomic, and orphaned bytes are safer wreckage than an index entry whose image 404s. |
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
+| `write_pages(space, pages, message="")` | Batched `write_page`, up to 20 items, one approval tap. One transaction for the whole batch: any item failing (stale `expected_version`, `meta/` path, malformed item, oversize/empty batch) rolls back every write, including earlier items that looked fine. |
 | `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. Refuses any space but `personal`. |
 | `list_spaces` | Your spaces, each with its member list and whether you own it. |
 | `create_space(slug)` / `invite(space, email, ...)` / `remove_member(space, email)` | Space administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the space, past and future. |

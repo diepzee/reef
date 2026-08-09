@@ -1,0 +1,26 @@
+{
+  "name": "rif-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run dev.ts",
+    "build": "bun build ./index.html --outdir dist --minify && cp public/reef.svg public/reef-icon.png dist/",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "react": "^19",
+    "react-dom": "^19",
+    "react-router-dom": "^7",
+    "markdown-it": "^14",
+    "dompurify": "^3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1",
+    "@types/jsdom": "^30.0.0",
+    "@types/markdown-it": "^14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "jsdom": "^30.0.1",
+    "typescript": "^5"
+  }
+}

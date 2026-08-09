@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- The SPA is served under /app; this makes the build's relative asset
+         URLs resolve under /app/ at any route depth, not against the page's
+         own path. Without it, a bookmark of /app/s/reef 404s every asset. -->
+    <base href="/app/" />
+    <link rel="icon" type="image/svg+xml" href="./public/reef.svg" />
+    <title>rif</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>
