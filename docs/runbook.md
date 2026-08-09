@@ -592,6 +592,25 @@ returns 503 and the MCP surface is unaffected.
 3. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
    for local testing only. Never set it in production.
 
+**Custom domain (planned: `rif.rugvin.be`):**
+
+The service can serve a branded domain instead of the railway.app one.
+Order matters — the base URL drives the OAuth audience, so flip it last.
+
+1. Railway → the service → Settings → Public Networking → add
+   `rif.rugvin.be`; copy the CNAME target Railway shows.
+2. In rugvin.be's DNS, add `CNAME rif → <that target>`. Wait for Railway
+   to show the domain as issued (TLS is automatic).
+3. WorkOS dashboard → the AuthKit application → add
+   `https://rif.rugvin.be/api/auth/callback` as a redirect URI. Keep the
+   railway.app callback too until the switch is done.
+4. Set `RIF_BASE_URL=https://rif.rugvin.be` and redeploy. From here the
+   MCP resource is advertised under the new domain; access tokens are
+   audience-bound to `{RIF_BASE_URL}/mcp`, so connectors added against
+   the old URL will need to re-authenticate — re-adding the connector at
+   `https://rif.rugvin.be/mcp` is the clean path. Both hostnames keep
+   answering; the old one can be removed once every member has switched.
+
 ---
 
 ## Reference
