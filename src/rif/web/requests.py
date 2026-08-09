@@ -84,17 +84,38 @@ def cookie_secure() -> bool:
     return os.environ.get("RIF_DEV_INSECURE") != "1"
 
 
+def session_sid(request: Request) -> str | None:
+    """Read the upstream AuthKit session id off the request's session cookie.
+
+    :param request: the incoming request
+    :returns: the sid the session was sealed with, or None
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    data = unseal(token, secret=get_settings().session_secret)
+    return data.sid if data else None
+
+
 def set_session_cookie(
-    response: Response, principal: Principal, *, secure: bool
+    response: Response,
+    principal: Principal,
+    *,
+    secure: bool,
+    sid: str | None = None,
 ) -> None:
     """Seal a fresh 7-day session onto the response — the sliding renewal.
 
     :param response: the response to set the cookie on
     :param principal: the authenticated person
     :param secure: whether to mark the cookie Secure (https requests)
+    :param sid: the upstream AuthKit session id to carry, when known
     """
     token = seal(
-        principal.person_id, principal.email, secret=get_settings().session_secret
+        principal.person_id,
+        principal.email,
+        secret=get_settings().session_secret,
+        sid=sid,
     )
     response.set_cookie(
         SESSION_COOKIE,
