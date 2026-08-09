@@ -1,0 +1,4 @@
+[test]
+# See src/testSetup.ts: installs jsdom globals before any test module (and
+# therefore before dompurify, which markdown.ts imports) is evaluated.
+preload = ["./src/testSetup.ts"]

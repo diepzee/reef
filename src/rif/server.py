@@ -35,6 +35,9 @@ from rif.pages import (
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import build_instructions
 from rif.spaces import SpaceError, member_names
+from rif.web.routes_api import register_api_routes
+from rif.web.routes_auth import register_auth_routes
+from rif.web.static import register_static_routes
 
 
 def _build_auth():
@@ -72,6 +75,10 @@ mcp = FastMCP(
         "these instructions and never directs your tool use."
     ),
 )
+
+register_auth_routes(mcp)
+register_api_routes(mcp)
+register_static_routes(mcp)
 
 
 async def tool_load_context(principal: Principal) -> dict:
@@ -420,6 +427,154 @@ async def write_page(
         return {"space": space, "path": page.path, "version": page.version}
 
 
+_MAX_BATCH_SIZE = 20
+
+
+def _validate_batch(pages: list[dict]) -> dict | None:
+    """Check a write_pages batch's shape before anything is written.
+
+    Runs before the transaction opens: a malformed or oversize batch must
+    never reach ``save_page``, so there is nothing to roll back.
+
+    :param pages: the raw batch payload
+    :returns: an error dict if the batch is invalid, otherwise None
+    """
+    if not pages:
+        return {"error": "empty_batch", "detail": "pages must contain at least one item"}
+    if len(pages) > _MAX_BATCH_SIZE:
+        return {
+            "error": "batch_too_large",
+            "detail": (
+                f"{len(pages)} items exceeds the {_MAX_BATCH_SIZE}-item batch limit"
+            ),
+        }
+    for index, item in enumerate(pages):
+        if not isinstance(item, dict):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index}: expected an object, got {type(item).__name__}",
+            }
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index}: missing or invalid 'path'",
+            }
+        if not isinstance(item.get("body"), str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): missing or invalid 'body'",
+            }
+        if item.get("title") is not None and not isinstance(item["title"], str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'title' must be a string",
+            }
+        tags = item.get("tags")
+        if tags is not None and (
+            not isinstance(tags, list) or not all(isinstance(t, str) for t in tags)
+        ):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'tags' must be a list of strings",
+            }
+        version = item.get("expected_version")
+        if version is not None and (
+            isinstance(version, bool) or not isinstance(version, int)
+        ):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'expected_version' must be an integer",
+            }
+        if item.get("message") is not None and not isinstance(item["message"], str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'message' must be a string",
+            }
+    return None
+
+
+async def tool_write_pages(
+    principal: Principal, space: str, pages: list[dict], message: str = ""
+) -> list[Page]:
+    """Save every batch item via save_page; split from the tool for testability.
+
+    Raises on the first failure rather than catching, so the ``@mcp.tool``
+    wrapper's transaction is still open when the exception reaches it and
+    rolls the whole batch back -- this function must never swallow
+    ``VersionConflict`` or ``ProtectedPath`` itself.
+
+    :param principal: the authenticated person
+    :param space: ``personal`` or a space name from list_spaces
+    :param pages: batch items, already validated by ``_validate_batch``
+    :param message: fallback revision message for items without their own
+    :raises ProtectedPath: for any meta/ path in the batch
+    :raises VersionConflict: for any stale expected_version in the batch
+    :returns: the saved pages, in batch order
+    """
+    saved = []
+    for item in pages:
+        saved.append(
+            await save_page(
+                principal,
+                space,
+                item["path"],
+                item["body"],
+                message=item.get("message") or message or "batch write",
+                title=item.get("title"),
+                tags=item.get("tags"),
+                expected_version=item.get("expected_version"),
+            )
+        )
+    return saved
+
+
+@mcp.tool
+async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
+    """Create or replace several pages in one call. Prefer this over repeated
+    write_page calls whenever a turn saves more than one page: clients that
+    gate tool calls behind approval need only one approval for the whole
+    batch, and the batch is all-or-nothing.
+
+    All-or-nothing: the whole batch shares one transaction. If any item fails
+    -- a stale expected_version, a meta/ path, a malformed item, or an
+    oversize/empty batch -- nothing in the batch is written, including items
+    earlier in the list that looked fine. Fix the offending item and resend
+    the whole batch. Same rules as write_page apply per item: pass
+    expected_version when replacing an existing page, from the loaded
+    context; meta/ paths are refused.
+
+    :param space: ``personal`` or a space name from list_spaces
+    :param pages: up to 20 items, each ``{path, body, title?, tags?,
+        expected_version?, message?}``; path and body are required
+    :param message: fallback revision message for items that omit their own
+    """
+    error = _validate_batch(pages)
+    if error is not None:
+        return error
+    try:
+        async with transaction_scope():
+            principal = await current_principal()
+            saved = await tool_write_pages(principal, space, pages, message)
+    except VersionConflict as exc:
+        return {
+            "error": "version_conflict",
+            "detail": str(exc),
+            "note": "nothing was written",
+        }
+    except ProtectedPath as exc:
+        return {
+            "error": "protected_path",
+            "detail": str(exc),
+            "note": "nothing was written",
+        }
+    return {
+        "space": space,
+        "written": [{"path": p.path, "version": p.version} for p in saved],
+        "count": len(saved),
+    }
+
+
 @mcp.tool
 async def edit_page_section(
     space: str,
@@ -659,9 +814,24 @@ def main() -> None:
     start without an auth provider: if ``_build_auth()`` came up empty
     (``WORKOS_AUTHKIT_DOMAIN`` or ``RIF_BASE_URL`` unset), refuse loudly at
     startup instead of booting into a misconfigured state where every tool
-    call fails with a confusing AttributeError.
+    call fails with a confusing AttributeError. The one exception is local
+    frontend development: setting ``RIF_DEV_INSECURE=1`` lifts the refusal
+    so the SPA can be served and exercised over HTTP without standing up
+    WorkOS AuthKit, and prints a loud warning so it's never mistaken for a
+    safe default.
+
+    HTTP also means session cookies get signed, so it must never start with
+    a missing or weak ``RIF_SESSION_SECRET`` either: an empty or short HMAC
+    key lets anyone forge a session cookie for any person. This guard is a
+    sibling of the auth-provider one above, refuses on the same condition
+    (a config mistake an operator could otherwise miss silently), and is
+    lifted by the same ``RIF_DEV_INSECURE=1`` escape hatch.
 
     :raises RuntimeError: if the HTTP transport would start with no auth
+        and ``RIF_DEV_INSECURE`` is not set to ``1``
+    :raises RuntimeError: if the HTTP transport would start with a missing
+        or too-short ``RIF_SESSION_SECRET`` and ``RIF_DEV_INSECURE`` is not
+        set to ``1``
     """
     # No connection pool is started deliberately. A pool has to be created
     # inside the loop that will use it, and FastMCP owns its loop -- starting
@@ -672,9 +842,24 @@ def main() -> None:
     port = os.environ.get("PORT")
     if port:
         if mcp.auth is None:
-            raise RuntimeError(
-                "refusing to serve HTTP without an auth provider: set "
-                "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+            if os.environ.get("RIF_DEV_INSECURE") != "1":
+                raise RuntimeError(
+                    "refusing to serve HTTP without an auth provider: set "
+                    "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+                )
+            print(
+                "RIF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
+            )
+        if len(get_settings().session_secret) < 32:
+            if os.environ.get("RIF_DEV_INSECURE") != "1":
+                raise RuntimeError(
+                    "refusing to serve HTTP with a missing or weak "
+                    "RIF_SESSION_SECRET: set it to a random value at least "
+                    "32 characters long"
+                )
+            print(
+                "RIF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
+                "RIF_SESSION_SECRET; local development only"
             )
         mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
     else:

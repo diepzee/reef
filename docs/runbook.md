@@ -21,6 +21,16 @@ to stand the service up again.
 The single list. Grouped by what each one is waiting on, because that is what
 determines when it can happen — not by priority.
 
+**Waiting on the operator's Web frontend setup**
+
+- [ ] **Web frontend environment and redirect.** Set `WORKOS_CLIENT_ID`
+      (from WorkOS dashboard), `RIF_SESSION_SECRET` (generate with `python -c
+      "import secrets; print(secrets.token_hex(32))"`), and add the
+      redirect URI `{RIF_BASE_URL}/api/auth/callback` in the AuthKit
+      application settings. Until both are set, `/api/auth/login` returns 503
+      and the MCP surface is unaffected. `RIF_DEV_INSECURE=1` is local-dev
+      only and must never be set in production.
+
 **Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
 assumed: it has no command for cron schedules or start commands)
 
@@ -550,6 +560,56 @@ budget must come from measurement on the real device, not arithmetic.
    `RIF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
    misbehaved; `railway up`.
 4. Clean up: `scripts/measure_context.py wouter@rugvin.be 0`.
+
+---
+
+## Web frontend
+
+A browser UI ships in the same Docker image, served at `/app` by the same
+service. Members can browse and edit pages; owners can create and manage
+spaces. Built with React and Bun, compiled to `frontend/dist` during the
+image build. The frontend redirects unauthenticated requests to
+`/api/auth/login`, which requires two environment variables and a redirect
+URI configuration.
+
+**Setup:**
+
+The operator must set three things. Until all three are done, `/api/auth/login`
+returns 503 and the MCP surface is unaffected.
+
+1. **Environment variables:**
+   - `WORKOS_CLIENT_ID` — from the WorkOS dashboard, the application's
+     client id.
+   - `RIF_SESSION_SECRET` — a 64-character hex string, generated with:
+     ```bash
+     python -c "import secrets; print(secrets.token_hex(32))"
+     ```
+2. **Redirect URI.** In the WorkOS dashboard, open the AuthKit application
+   configuration and add the callback URL:
+   ```
+   {RIF_BASE_URL}/api/auth/callback
+   ```
+3. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
+   for local testing only. Never set it in production.
+
+**Custom domain (planned: `rif.rugvin.be`):**
+
+The service can serve a branded domain instead of the railway.app one.
+Order matters — the base URL drives the OAuth audience, so flip it last.
+
+1. Railway → the service → Settings → Public Networking → add
+   `rif.rugvin.be`; copy the CNAME target Railway shows.
+2. In rugvin.be's DNS, add `CNAME rif → <that target>`. Wait for Railway
+   to show the domain as issued (TLS is automatic).
+3. WorkOS dashboard → the AuthKit application → add
+   `https://rif.rugvin.be/api/auth/callback` as a redirect URI. Keep the
+   railway.app callback too until the switch is done.
+4. Set `RIF_BASE_URL=https://rif.rugvin.be` and redeploy. From here the
+   MCP resource is advertised under the new domain; access tokens are
+   audience-bound to `{RIF_BASE_URL}/mcp`, so connectors added against
+   the old URL will need to re-authenticate — re-adding the connector at
+   `https://rif.rugvin.be/mcp` is the clean path. Both hostnames keep
+   answering; the old one can be removed once every member has switched.
 
 ---
 

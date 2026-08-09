@@ -1,0 +1,93 @@
+/**
+ * The landing view: every space the principal can see, as tappable cards.
+ *
+ * `GET /api/index` already orders the personal space first, so this view
+ * only renders what comes back — no client-side sort.
+ *
+ * Each card carries the identity pass's per-space hue: a gradient stripe
+ * across the top, a tinted frond chip, and (for shared spaces) a small
+ * avatar stack of that space's members via `useMembers`. `useMembers` is
+ * module-cached per space alias (see its docstring), so one call per card
+ * here dedupes against any other mounted consumer of the same space
+ * (Sidebar, SpaceView, PageView) rather than issuing a fresh fetch — an
+ * explicitly accepted per-card call, not an N+1 (space counts are small).
+ * The personal space has no membership to administer, so its card shows
+ * "only you" instead of a stack, matching every other "only you" surface.
+ */
+
+import type { CSSProperties } from "react";
+import { Link } from "react-router-dom";
+
+import { AvatarStack } from "../components/Avatar";
+import { FrondGlyph } from "../components/ReefMark";
+import { spaceColor } from "../components/spaceColor";
+import { useIndex } from "../IndexProvider";
+import { useMembers } from "../useMembers";
+import type { SpaceIndex } from "../types";
+
+/** One space's card: hue stripe, tinted frond chip, alias, subline, and (shared spaces) its member stack. */
+function SpaceCard({ space }: { space: SpaceIndex }) {
+  const isPersonal = space.alias === "personal";
+  const hue = spaceColor(space.alias);
+  const { members } = useMembers(space.alias);
+  const pageCount = space.pages.length;
+
+  return (
+    <Link
+      to={`/s/${space.alias}`}
+      className="card space-card"
+      style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
+    >
+      <span className="space-card-stripe" aria-hidden="true" />
+      <span className="space-card-row">
+        <span className="space-card-chip" aria-hidden="true">
+          <FrondGlyph color={hue.light} />
+        </span>
+        <span className="space-card-text">
+          <span className="space-card-alias">
+            {isPersonal ? "Personal" : space.alias}
+          </span>
+          <span className="space-card-sub muted">
+            {pageCount} page{pageCount === 1 ? "" : "s"}
+            {isPersonal ? " · only you" : ""}
+          </span>
+        </span>
+        {!isPersonal && members && (
+          <AvatarStack
+            names={members.members.map((member) => member.display_name)}
+            size="sm"
+            ariaLabel={`Members of ${space.alias}`}
+          />
+        )}
+      </span>
+    </Link>
+  );
+}
+
+export default function Home() {
+  const { index, error } = useIndex();
+  const spaces = index?.spaces ?? null;
+
+  return (
+    <div>
+      <h1>Spaces</h1>
+      {error && <div className="notice">{error}</div>}
+      {!error && spaces === null && <p className="muted">Loading…</p>}
+      {spaces !== null && spaces.length === 0 && (
+        <p className="muted">No spaces yet.</p>
+      )}
+      <ul className="card-list">
+        {spaces?.map((space) => (
+          <li key={space.alias}>
+            <SpaceCard space={space} />
+          </li>
+        ))}
+      </ul>
+      <p>
+        <Link to="/spaces/new" className="button">
+          New space
+        </Link>
+      </p>
+    </div>
+  );
+}

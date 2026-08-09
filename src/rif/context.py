@@ -5,9 +5,10 @@ Both entry points assume they run inside :func:`rif.db.transaction_scope`;
 """
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from rif.access import Principal, accessible_spaces, space_alias
-from rif.models import Attachment, AttachmentStatus, Page
+from rif.models import Attachment, AttachmentStatus, Page, Revision
 
 
 @dataclass
@@ -78,6 +79,34 @@ def _summary(body: str) -> str:
     return ""
 
 
+async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
+    """Return each page's newest revision author, as a display name.
+
+    One query for the whole batch: newest-first revisions joined to
+    persons, first row per page wins. Pages without revisions, or whose
+    author row was erased, map to None.
+
+    :param page_ids: the pages to resolve
+    :returns: page id to display name, None where unresolvable
+    """
+    if not page_ids:
+        return {}
+    rows = (
+        await Revision.select(Revision.page_id, Revision.author_id.display_name)
+        .where(Revision.page_id.is_in(page_ids))
+        .order_by(Revision.created_at, ascending=False)
+    )
+    editors: dict[UUID, str | None] = {pid: None for pid in page_ids}
+    seen: set[UUID] = set()
+    for row in rows:
+        pid = row["page_id"]
+        if pid in seen or pid not in editors:
+            continue
+        seen.add(pid)
+        editors[pid] = row["author_id.display_name"]
+    return editors
+
+
 async def build_index(principal: Principal) -> IndexPayload:
     """Return the index of every space the principal can see — no bodies.
 
@@ -91,6 +120,7 @@ async def build_index(principal: Principal) -> IndexPayload:
         Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
+    editors = await latest_editors([page.id for page in pages])
 
     # Keyed by space id: Piccolo Table instances are unhashable, so the row
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
@@ -113,6 +143,7 @@ async def build_index(principal: Principal) -> IndexPayload:
                 "updated": page.updated_at.isoformat(),
                 "size": len(page.body),
                 "version": page.version,
+                "last_editor": editors.get(page.id),
             }
         )
     for attachment in attachments:

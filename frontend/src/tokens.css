@@ -1,0 +1,94 @@
+/* Design tokens for rif v2 */
+
+:root {
+  --ground: #fbfcfd;
+  --panel: #f2f7f8;
+  --hairline: #e5edf0;
+  --hairline-soft: #eef3f5;
+  --ink: #1c2b33;
+  --muted: #7b8a92;
+  --faint: #b3bec4;
+  --accent: #0d9488;
+  --accent-deep: #0b6b62;
+  --accent-soft: #e7f9f4;
+  --danger: #b3554f;
+  --serif: Georgia, "Iowan Old Style", serif;
+  --warn-bg: #fff7ed;
+  --warn-border: #fed7aa;
+  --warn-ink: #7c4a12;
+  /* Input/textarea fill — distinct from --panel so form fields stay
+     legible against panel-colored surroundings (e.g. the editor). */
+  --field: #ffffff;
+  /* Error banners/buttons (.notice, button.danger, member-removal
+     confirm) — same bg/border/ink triad shape as --warn-*. */
+  --danger-bg: #fdecea;
+  --danger-border: #c0392b;
+  --danger-ink: #8b1f11;
+  /* ReefMark's tile fill — light seafoam here, but dark teal in both dark
+     blocks below, since the light tile clashes on a bioluminescent-dark
+     ground. Keeps one SVG asset correct in both themes. */
+  --mark-tile: #e7f9f4;
+  /* The app's body background (see app.css's `body` rule). Light mode is
+     just the solid --ground it always was; only the dark blocks below
+     swap it for the "night-dive" radial gradient, so this token is the
+     one place `body` needs to read regardless of theme. */
+  --night-ground: var(--ground);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1a20;
+    --panel: #0f2129;
+    --hairline: #1c333d;
+    --hairline-soft: #16292f;
+    --ink: #e2f1f5;
+    --muted: #8fb0ba;
+    --faint: #5b7681;
+    --accent: #38bdd8;
+    --accent-deep: #7ce3d3;
+    --accent-soft: #123a35;
+    --danger: #e0847e;
+    --warn-bg: #3a2a12;
+    --warn-border: #7c4a12;
+    --warn-ink: #fbd9a5;
+    --field: #0f2129;
+    --danger-bg: #3a1a16;
+    --danger-border: #e57368;
+    --danger-ink: #f6b4ac;
+    --mark-tile: #10312e;
+    --night-ground: radial-gradient(
+      120% 80% at 80% -10%,
+      #0e3140,
+      #0a1b23 45%,
+      #081217
+    );
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: #0d1a20;
+  --panel: #0f2129;
+  --hairline: #1c333d;
+  --hairline-soft: #16292f;
+  --ink: #e2f1f5;
+  --muted: #8fb0ba;
+  --faint: #5b7681;
+  --accent: #38bdd8;
+  --accent-deep: #7ce3d3;
+  --accent-soft: #123a35;
+  --danger: #e0847e;
+  --warn-bg: #3a2a12;
+  --warn-border: #7c4a12;
+  --warn-ink: #fbd9a5;
+  --field: #0f2129;
+  --danger-bg: #3a1a16;
+  --danger-border: #e57368;
+  --danger-ink: #f6b4ac;
+  --mark-tile: #10312e;
+  --night-ground: radial-gradient(
+    120% 80% at 80% -10%,
+    #0e3140,
+    #0a1b23 45%,
+    #081217
+  );
+}

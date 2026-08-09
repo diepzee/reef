@@ -1,0 +1,1202 @@
+/*
+ * Mobile-first baseline. Color comes entirely from tokens.css (loaded
+ * before this file, see main.tsx) — every rule below reaches for a
+ * `--token`, never a literal color, so the whole app tracks
+ * prefers-color-scheme/data-theme automatically. This file used to carry
+ * its own placeholder --accent/--accent-soft/--color-* set; those have
+ * been removed now that tokens.css is the single source of truth (the
+ * leftover --accent/--accent-soft here were shadowing tokens.css's
+ * dark-mode values, since an unguarded :root rule in a later stylesheet
+ * always wins the cascade over a dark-only media block in an earlier one).
+ */
+
+:root {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  /* --night-ground: the solid --ground in light mode, unchanged; the
+     bioluminescent night-dive radial gradient in dark mode only (see
+     tokens.css). */
+  background: var(--night-ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+/*
+ * The reading-width column shared by the mobile stack (header + routed
+ * view) and the desktop shell's content pane, so both present the same
+ * line length — only what surrounds that column differs (a persistent
+ * sidebar vs. nothing).
+ */
+.app-stack {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+a {
+  color: var(--accent);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+button,
+a.button {
+  display: inline-block;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: 0.375rem;
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+
+input,
+textarea {
+  min-height: 44px;
+  padding: 0.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: 0.375rem;
+  /*
+   * --field (not --ground) so fields stay visibly distinct from the page
+   * background — a plain white/panel-dark fill in both themes, tracked
+   * via tokens.css the same way --ground is.
+   */
+  background: var(--field);
+  width: 100%;
+}
+
+.app-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.app-header-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  color: var(--accent);
+}
+
+.app-header-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.app-header-wordmark {
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+}
+
+/* Identity pass: the serif tagline under the mobile header's brand row, Home only (see AppShell). */
+.app-header-tagline {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.notice {
+  padding: 0.75rem;
+  margin-block: 0.75rem;
+  border: 1px solid var(--danger-border);
+  border-radius: 0.375rem;
+  background: var(--danger-bg);
+  color: var(--danger-ink);
+}
+
+.disclosure {
+  padding: 0.75rem;
+  margin-block: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 0.375rem;
+  background: var(--accent-soft);
+}
+
+.card-list {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/*
+ * Home's space cards. Tokenized to the seafoam palette (mockup has no
+ * literal reference for this screen — it dissolves into the sidebar on
+ * desktop — so this borrows --panel/--hairline/--ink from the shell
+ * chrome those cards route into). The old `text-transform: capitalize`
+ * is gone: the alias is spoken and stored lowercase (Sidebar and
+ * SpaceView already render it that way), so capitalizing it here was a
+ * cosmetic inconsistency, not a deliberate title-case choice.
+ */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--panel);
+  text-decoration: none;
+  color: inherit;
+}
+
+/*
+ * Identity pass: each space card carries its `spaceColor(alias)` pair via
+ * the `--hue-base`/`--hue-light` inline custom properties Home sets per
+ * card (see Home.tsx's `SpaceCard`) — every rule below just reads those,
+ * so the CSS itself has no per-space knowledge.
+ */
+.space-card {
+  position: relative;
+  overflow: hidden;
+  padding-top: calc(1rem + 4px);
+}
+
+.space-card-stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--hue-base), var(--hue-light));
+}
+
+.space-card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.space-card-chip {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--hue-base) 12%, white);
+}
+
+.space-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.space-card-alias {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.space-card-sub {
+  font-size: 12.5px;
+}
+
+/*
+ * The editor's 409-conflict banner. Styled with the --warn-* tokens
+ * (mockup has no literal reference for it, but it's the same "loud but
+ * not an error" register as `.mbs-disclose` — orange/amber, not red)
+ * rather than reusing `.notice`'s danger palette: a conflict isn't a
+ * failure, it's information the author must act on before saving again.
+ */
+.ed-conflict {
+  padding: 10px 12px;
+  margin-block: 0.75rem;
+  border: 1px solid var(--warn-border);
+  border-radius: 10px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.page-body {
+  overflow-wrap: break-word;
+}
+
+.page-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+}
+
+.page-body pre {
+  overflow-x: auto;
+  padding: 0.75rem;
+  background: var(--accent-soft);
+  border-radius: 0.375rem;
+}
+
+.page-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.page-body blockquote {
+  margin: 0.75rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--hairline);
+  color: var(--muted);
+}
+
+/*
+ * The editor form (Editor/NewPage/NewSpace): per the mockup's `.ed` block
+ * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html) —
+ * uppercase faint labels above bordered fields on a --field fill, a
+ * monospace body, a quiet toggle chip, and an accent Save button with a
+ * version caption beside it.
+ */
+.ed-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-block: 14px;
+}
+
+.ed-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.ed-input {
+  display: block;
+  border: 1px solid var(--hairline);
+  background: var(--field);
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 14px;
+  color: var(--ink);
+  width: 100%;
+}
+
+.editor-preview {
+  min-height: 150px;
+}
+
+.editor-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  resize: none;
+  overflow: hidden;
+  min-height: 150px;
+  line-height: 1.6;
+}
+
+.compare-textarea {
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.ed-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-block: 14px;
+}
+
+/* Keeps the old class name for the Preview/Edit toggle's layout wrapper. */
+.editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-block: 0.75rem;
+}
+
+.ed-toggle {
+  min-height: auto;
+  min-width: auto;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--panel);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.ed-save {
+  min-height: auto;
+  background: var(--accent);
+  /*
+   * --ground, not a literal white: --accent turns into a bright cyan in
+   * dark mode (#38bdd8), and white text on it computes to ~2.2:1 contrast
+   * — well under WCAG AA. --ground is near-white in light mode (so this
+   * looks identical to the old literal there) and near-black in dark
+   * mode, landing ~8:1 against dark --accent. Same fix applied to
+   * .page-new and .mbs-invite's submit button below, the other two
+   * buttons on an --accent fill.
+   */
+  color: var(--ground);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 16px;
+  border: none;
+  border-radius: 8px;
+}
+
+.ed-save:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ed-version-caption {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ed-hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.ed-hint b {
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.index-description {
+  margin-block: 0.75rem;
+}
+
+.avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid var(--ground);
+  flex-shrink: 0;
+}
+
+.avatar + .avatar {
+  margin-left: -8px;
+}
+
+.avatar-sm {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+.avatar-stack {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.avatar-more {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--faint);
+  color: var(--ink);
+  border: 2px solid var(--ground);
+  margin-left: -8px;
+  flex-shrink: 0;
+}
+
+.avatar-more-sm {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+
+.avatar-stack:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+
+/*
+ * Desktop two-pane shell (>=900px, see AppShell's useMediaQuery). Colors
+ * are tokens.css custom properties, mapped from the mockup's literal
+ * `.shell`/`.side` values (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html):
+ * panel #f2f7f8 -> --panel, hairline #e5edf0 -> --hairline, item text
+ * #40525b/#56707b -> --muted, faint #9aa8af -> --faint, active bg #e7f9f4
+ * -> --accent-soft, active text #0b6b62 -> --accent-deep, accent dot/link
+ * #0d9488 -> --accent.
+ */
+
+.shell {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  min-height: 100vh;
+}
+
+.side {
+  background: var(--panel);
+  border-right: 1px solid var(--hairline);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+}
+
+.side-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 2px 8px 14px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.side-brand-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.side-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 10px 8px 4px;
+}
+
+.side-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.side-item.active {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.side-item-right {
+  margin-left: auto;
+}
+
+.side-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+/*
+ * Base fallback only — every rendered dot sets its own `background` inline
+ * from `spaceColor(alias).base` (identity pass), so this value never
+ * actually shows; it exists so the element isn't invisible if that ever
+ * changes. The old `.side-item.active .side-dot { background: var(--accent) }`
+ * override is gone: per the spec, the dot keeps the space's own hue even
+ * when active — only the row's background goes accent-soft.
+ */
+.side-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: var(--faint);
+  flex-shrink: 0;
+}
+
+.side-page {
+  display: block;
+  padding: 5px 8px 5px 24px;
+  font-size: 13px;
+  color: var(--muted);
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+.side-page.active {
+  color: var(--accent-deep);
+  font-weight: 600;
+  background: var(--accent-soft);
+}
+
+.side-newpage {
+  display: block;
+  padding: 6px 8px 6px 24px;
+  font-size: 12.5px;
+  color: var(--accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.side-newspace {
+  margin-top: 6px;
+}
+
+.side-me {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 2px;
+  border-top: 1px solid var(--hairline);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.side-me-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-signout {
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  text-decoration: underline;
+  font-size: inherit;
+}
+
+.content {
+  overflow-y: auto;
+}
+
+/* Visually hidden but still reachable by screen readers/labels. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * SpaceView's whobar: the avatar stack + audience sentence + (owner-only)
+ * Manage link that sits under the space title and opens the shared
+ * MembersSheet. Mirrors the mockup's `.sp .whobar`
+ * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html).
+ */
+.whobar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 14px;
+  flex-wrap: wrap;
+}
+
+.whobar-lbl {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.whobar-manage {
+  margin-left: auto;
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/*
+ * SpaceView's hero title, "PAGES" section label, and doc-icon page rows.
+ * Mirrors the mockup's `.sp .hero`, `.sp .sectionlbl`, `.sp .row`, `.sp
+ * .fab` (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html):
+ * hero color inherits --ink, sectionlbl faint #9aa8af -> --faint (same
+ * mapping Sidebar's --side-label already uses), row icon bg #e7f9f4 ->
+ * --accent-soft / glyph #0d9488 -> --accent, row title inherits --ink,
+ * row description #7b8a92 -> --muted, row timestamp #b3bec4 -> --faint.
+ */
+.hero {
+  padding: 8px 0 2px;
+}
+
+.hero-title {
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 10px 0 6px;
+}
+
+.page-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.page-rows-empty {
+  padding: 11px 0;
+}
+
+.page-row {
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.page-row-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.page-row-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex: none;
+}
+
+.page-row-text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.page-row-title {
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.page-row-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-row-when {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+  flex: none;
+}
+
+.page-new {
+  margin: 14px 0 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 9px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+}
+
+/*
+ * PageView's page bar: back-to-space crumb, member avatar stack (opens
+ * MembersSheet, same mechanism as the whobar above), and an Edit link —
+ * hidden for meta/ pages, which show a `.disclosure` note instead. Mirrors
+ * the mockup's `.content .pagebar` / `.p-top`.
+ */
+.page-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 14px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+/* Identity pass: the space hue dot before the crumb (see PageView). */
+.page-bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.page-bar-crumb {
+  font-size: 13px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.page-bar-crumb b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.page-bar-spacer {
+  flex: 1;
+}
+
+.page-bar-edit {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+  border-radius: 7px;
+  padding: 6px 12px;
+  text-decoration: none;
+}
+
+/*
+ * PageView's serif reading pane — title, meta sentence, and body. Mirrors
+ * the mockup's `.pg .reading` (mobile, 16px/1.62) and `.content .reading`
+ * (desktop >=900px, 16.5px/1.65), both capped at the same 620px measure.
+ */
+.reading {
+  max-width: 620px;
+}
+
+.reading-title {
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  margin: 20px 0 6px;
+}
+
+.reading-meta {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+.reading-body {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.62;
+  color: var(--ink);
+}
+
+.reading-body p,
+.reading-body li {
+  margin: 0 0 11px;
+}
+
+@media (min-width: 900px) {
+  .reading-title {
+    font-size: 30px;
+  }
+
+  .reading-body {
+    font-size: 16.5px;
+    line-height: 1.65;
+  }
+}
+
+.reading-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.reading-tag {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--hairline-soft);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+
+/*
+ * MembersSheet: a scrim + sheet pair, mobile-first as a bottom sheet
+ * (translateY, per the mockup's M4 phone block) that becomes a 380px
+ * right-side panel (translateX) at the AppShell desktop breakpoint. Both
+ * transforms animate over the same 160ms ease; `prefers-reduced-motion`
+ * turns the transition off so open/close is instant instead.
+ */
+.mbs-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(16 40 49 / 35%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+
+.mbs-scrim-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mbs-sheet {
+  position: fixed;
+  z-index: 91;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--ground);
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -8px 40px rgb(6 30 40 / 25%);
+  padding: 6px 0 20px;
+  transform: translateY(100%);
+  transition: transform 160ms ease;
+}
+
+.mbs-sheet-open {
+  transform: translateY(0);
+}
+
+.mbs-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--faint);
+  margin: 6px auto 10px;
+}
+
+.mbs-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 0 20px 10px;
+}
+
+.mbs-title {
+  font-size: 16px;
+  margin: 0;
+}
+
+.mbs-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+
+.mbs-close {
+  margin-left: auto;
+  min-height: auto;
+  min-width: auto;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.mbs-roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mbs-person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--hairline-soft);
+}
+
+.mbs-person-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.mbs-person-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.mbs-person-email {
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mbs-owner-tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mbs-person-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mbs-remove {
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12px;
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.mbs-confirm-remove {
+  min-height: auto;
+  padding: 0.35rem 0.6rem;
+  background: var(--danger-bg);
+  border-color: var(--danger-border);
+  color: var(--danger-ink);
+  font-size: 12px;
+}
+
+.mbs-cancel-remove {
+  min-height: auto;
+  padding: 0.35rem 0.6rem;
+  font-size: 12px;
+}
+
+.mbs-invite {
+  margin: 12px 20px 0;
+  border: 1px dashed var(--hairline);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mbs-invite-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.mbs-invite button[type="submit"] {
+  align-self: flex-start;
+  min-height: auto;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border: none;
+  border-radius: 7px;
+  margin-top: 2px;
+}
+
+.mbs-disclose {
+  margin: 12px 20px 0;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+@media (min-width: 900px) {
+  .mbs-sheet {
+    left: auto;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 380px;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: -8px 0 40px rgb(6 30 40 / 25%);
+    transform: translateX(100%);
+  }
+
+  .mbs-sheet-open {
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mbs-scrim,
+  .mbs-sheet {
+    transition: none;
+  }
+}
+
+/*
+ * Every rule above this point resolves through tokens.css custom
+ * properties (including body's background, now --night-ground), so it
+ * never needs its own dark-mode block. The section below is the one
+ * deliberate exception: the identity pass's "bioluminescent dark mode"
+ * (spec "Identity pass (rev 2)") adds glow/gradient *rules*, not just
+ * token substitutions — a fixed glowing surface line, inset highlights,
+ * outer glows, and gradient-pill buttons — that have no light-mode
+ * equivalent at all, so they can't be expressed as a token swap the way
+ * --night-ground was. Each block below is duplicated under both of
+ * tokens.css's own dark guards (the OS-preference media query, unless
+ * overridden to light, and the explicit data-theme="dark" toggle) so a
+ * manually-toggled theme gets the same treatment as prefers-color-scheme —
+ * exactly the discipline tokens.css itself uses for every token.
+ * Light mode is untouched by every rule below, per the spec's explicit
+ * "no glow in light mode" rejection. Nothing here animates, so
+ * prefers-reduced-motion needs no extra handling — every glow is a static
+ * box-shadow.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #2dd4bf, #5eead4, #2dd4bf);
+      filter: blur(0.5px);
+      pointer-events: none;
+      z-index: 200;
+    }
+
+    .card,
+    .side-item,
+    .side-page,
+    .page-row,
+    .mbs-person {
+      box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
+    }
+
+    .side-item.active {
+      box-shadow:
+        inset 0 1px 0 rgb(94 234 212 / 0.07),
+        0 0 18px rgb(45 212 191 / 0.12);
+    }
+
+    .page-new,
+    .ed-save,
+    .mbs-invite button[type="submit"] {
+      background: linear-gradient(90deg, #2dd4bf, #5eead4);
+      color: #051e1b;
+      box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
+    }
+
+    /* Home card chip: same --hue-base, darker mix target (see Home.tsx). */
+    .space-card-chip {
+      background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
+    }
+  }
+}
+
+:root[data-theme="dark"] {
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #2dd4bf, #5eead4, #2dd4bf);
+    filter: blur(0.5px);
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  .card,
+  .side-item,
+  .side-page,
+  .page-row,
+  .mbs-person {
+    box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
+  }
+
+  .side-item.active {
+    box-shadow:
+      inset 0 1px 0 rgb(94 234 212 / 0.07),
+      0 0 18px rgb(45 212 191 / 0.12);
+  }
+
+  .page-new,
+  .ed-save,
+  .mbs-invite button[type="submit"] {
+    background: linear-gradient(90deg, #2dd4bf, #5eead4);
+    color: #051e1b;
+    box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
+  }
+
+  .space-card-chip {
+    background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
+  }
+}

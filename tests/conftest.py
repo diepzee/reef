@@ -11,6 +11,7 @@ from rif.config import get_settings
 
 os.environ["DATABASE_URL"] = get_settings().test_database_url
 
+import httpx
 import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
@@ -148,3 +149,57 @@ async def household(graph: Graph) -> dict:
         "p_personal": p_personal,
         "shared": shared,
     }
+
+
+@pytest_asyncio.fixture
+async def api(monkeypatch, graph):
+    """Stand up an HTTP client against the web JSON API with a fixed secret.
+
+    Shared by ``test_web_api_read.py`` and ``test_web_api_write.py`` so both
+    exercise the same registered routes and cookie-sealing secret.
+
+    :param monkeypatch: pytest's monkeypatch fixture
+    :param graph: the topology-builder fixture, pulled in for fixture ordering
+    :returns: an async client bound to the FastMCP ASGI app
+    """
+    from rif.server import mcp
+    from rif.web.routes_api import register_api_routes
+
+    monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
+    register_api_routes(mcp)
+    transport = httpx.ASGITransport(app=mcp.http_app())
+    async with httpx.AsyncClient(
+        transport=transport, base_url="https://rif.example"
+    ) as client:
+        yield client
+
+
+def _login(client: httpx.AsyncClient, person) -> None:
+    """Seal a session token for ``person`` and attach it to the client's cookies.
+
+    :param client: the HTTP client to log in
+    :param person: the person to seal a session for
+    """
+    from rif.web.session import seal
+
+    token = seal(person.id, person.email, secret="test-secret")
+    client.cookies.set("rif_session", token)
+
+
+@pytest_asyncio.fixture
+async def world(graph: Graph):
+    """Two people; alice owns 'team' with bob.
+
+    Builders run outside a transaction so the seeded rows are committed
+    before any HTTP request runs -- the handlers under test open their own
+    ``transaction_scope()`` and would not see uncommitted work.
+
+    :param graph: the topology-builder fixture
+    :returns: a tuple of ``(alice, bob, team)``
+    """
+    alice = await graph.person("alice@x.com", "Alice")
+    bob = await graph.person("bob@x.com", "Bob")
+    await graph.personal_space(alice)
+    await graph.personal_space(bob)
+    team = await graph.shared_space("team", alice, bob)
+    return alice, bob, team
