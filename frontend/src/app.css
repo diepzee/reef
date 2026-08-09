@@ -27,7 +27,10 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--ground);
+  /* --night-ground: the solid --ground in light mode, unchanged; the
+     bioluminescent night-dive radial gradient in dark mode only (see
+     tokens.css). */
+  background: var(--night-ground);
   color: var(--ink);
   font-family: var(--font-sans);
   font-size: 16px;
@@ -110,6 +113,15 @@ textarea {
   color: var(--ink);
 }
 
+/* Identity pass: the serif tagline under the mobile header's brand row, Home only (see AppShell). */
+.app-header-tagline {
+  margin: 4px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .muted {
   color: var(--muted);
 }
@@ -161,10 +173,60 @@ textarea {
   color: inherit;
 }
 
+/*
+ * Identity pass: each space card carries its `spaceColor(alias)` pair via
+ * the `--hue-base`/`--hue-light` inline custom properties Home sets per
+ * card (see Home.tsx's `SpaceCard`) — every rule below just reads those,
+ * so the CSS itself has no per-space knowledge.
+ */
+.space-card {
+  position: relative;
+  overflow: hidden;
+  padding-top: calc(1rem + 4px);
+}
+
+.space-card-stripe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--hue-base), var(--hue-light));
+}
+
+.space-card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.space-card-chip {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--hue-base) 12%, white);
+}
+
+.space-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
 .space-card-alias {
   font-weight: 600;
   font-size: 14.5px;
   color: var(--ink);
+}
+
+.space-card-sub {
+  font-size: 12.5px;
 }
 
 /*
@@ -476,16 +538,20 @@ textarea {
   color: var(--faint);
 }
 
+/*
+ * Base fallback only — every rendered dot sets its own `background` inline
+ * from `spaceColor(alias).base` (identity pass), so this value never
+ * actually shows; it exists so the element isn't invisible if that ever
+ * changes. The old `.side-item.active .side-dot { background: var(--accent) }`
+ * override is gone: per the spec, the dot keeps the space's own hue even
+ * when active — only the row's background goes accent-soft.
+ */
 .side-dot {
   width: 8px;
   height: 8px;
   border-radius: 3px;
   background: var(--faint);
   flex-shrink: 0;
-}
-
-.side-item.active .side-dot {
-  background: var(--accent);
 }
 
 .side-page {
@@ -714,6 +780,14 @@ textarea {
   padding-bottom: 14px;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--hairline-soft);
+}
+
+/* Identity pass: the space hue dot before the crumb (see PageView). */
+.page-bar-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .page-bar-crumb {
@@ -1024,11 +1098,105 @@ textarea {
 }
 
 /*
- * No dark-mode overrides live here anymore: every rule above resolves
- * through tokens.css custom properties, which already carry both the
- * prefers-color-scheme media query and the data-theme="dark" override
- * (see tokens.css). A local @media (prefers-color-scheme: dark) block
- * would only fight that — it can't see data-theme at all, so a
- * manually-toggled dark theme would fall back to these literals while
- * every token-based rule around it stayed dark-correct.
+ * Every rule above this point resolves through tokens.css custom
+ * properties (including body's background, now --night-ground), so it
+ * never needs its own dark-mode block. The section below is the one
+ * deliberate exception: the identity pass's "bioluminescent dark mode"
+ * (spec "Identity pass (rev 2)") adds glow/gradient *rules*, not just
+ * token substitutions — a fixed glowing surface line, inset highlights,
+ * outer glows, and gradient-pill buttons — that have no light-mode
+ * equivalent at all, so they can't be expressed as a token swap the way
+ * --night-ground was. Each block below is duplicated under both of
+ * tokens.css's own dark guards (the OS-preference media query, unless
+ * overridden to light, and the explicit data-theme="dark" toggle) so a
+ * manually-toggled theme gets the same treatment as prefers-color-scheme —
+ * exactly the discipline tokens.css itself uses for every token.
+ * Light mode is untouched by every rule below, per the spec's explicit
+ * "no glow in light mode" rejection. Nothing here animates, so
+ * prefers-reduced-motion needs no extra handling — every glow is a static
+ * box-shadow.
  */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    body::before {
+      content: "";
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, #2dd4bf, #5eead4, #2dd4bf);
+      filter: blur(0.5px);
+      pointer-events: none;
+      z-index: 200;
+    }
+
+    .card,
+    .side-item,
+    .side-page,
+    .page-row,
+    .mbs-person {
+      box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
+    }
+
+    .side-item.active {
+      box-shadow:
+        inset 0 1px 0 rgb(94 234 212 / 0.07),
+        0 0 18px rgb(45 212 191 / 0.12);
+    }
+
+    .page-new,
+    .ed-save,
+    .mbs-invite button[type="submit"] {
+      background: linear-gradient(90deg, #2dd4bf, #5eead4);
+      color: #051e1b;
+      box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
+    }
+
+    /* Home card chip: same --hue-base, darker mix target (see Home.tsx). */
+    .space-card-chip {
+      background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
+    }
+  }
+}
+
+:root[data-theme="dark"] {
+  body::before {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, #2dd4bf, #5eead4, #2dd4bf);
+    filter: blur(0.5px);
+    pointer-events: none;
+    z-index: 200;
+  }
+
+  .card,
+  .side-item,
+  .side-page,
+  .page-row,
+  .mbs-person {
+    box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
+  }
+
+  .side-item.active {
+    box-shadow:
+      inset 0 1px 0 rgb(94 234 212 / 0.07),
+      0 0 18px rgb(45 212 191 / 0.12);
+  }
+
+  .page-new,
+  .ed-save,
+  .mbs-invite button[type="submit"] {
+    background: linear-gradient(90deg, #2dd4bf, #5eead4);
+    color: #051e1b;
+    box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
+  }
+
+  .space-card-chip {
+    background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
+  }
+}

@@ -13,18 +13,24 @@
  * *active* space's stack is fetched and shown; every other space row (and
  * the personal space, which has no membership to administer) shows its
  * page count instead.
+ *
+ * Each space row's dot is tinted with that space's `spaceColor(alias).base`
+ * (the identity pass's per-space hue), same discipline `Home`'s cards and
+ * `PageView`'s page-bar dot use — so a space's color reads consistently
+ * everywhere it appears.
  */
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import reefIcon from "../../public/reef.svg";
 import { apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 import type { Me } from "../types";
 import { Avatar, AvatarStack } from "./Avatar";
+import { ReefMark } from "./ReefMark";
+import { spaceColor } from "./spaceColor";
 
 /** Parse the active space alias and (if on a page route) active page path from a pathname. */
 function parseLocation(pathname: string): { space: string | null; page: string | null } {
@@ -59,7 +65,7 @@ export function Sidebar({ me }: { me: Me | null }) {
   return (
     <nav className="side">
       <Link to="/" className="side-brand">
-        <img src={reefIcon} alt="" className="side-brand-icon" width="22" height="22" />
+        <ReefMark size={30} className="side-brand-icon" />
         rif
       </Link>
 
@@ -68,6 +74,7 @@ export function Sidebar({ me }: { me: Me | null }) {
       {index?.spaces.map((space) => {
         const isActive = space.alias === activeSpace;
         const isPersonal = space.alias === "personal";
+        const hue = spaceColor(space.alias);
 
         return (
           <div key={space.alias}>
@@ -75,7 +82,7 @@ export function Sidebar({ me }: { me: Me | null }) {
               to={`/s/${space.alias}`}
               className={`side-item ${isActive ? "active" : ""}`}
             >
-              <span className="side-dot" />
+              <span className="side-dot" style={{ background: hue.base }} />
               <span>{isPersonal ? "Personal" : space.alias}</span>
               {isActive && !isPersonal ? (
                 members && (

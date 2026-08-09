@@ -24,6 +24,15 @@
   --danger-bg: #fdecea;
   --danger-border: #c0392b;
   --danger-ink: #8b1f11;
+  /* ReefMark's tile fill — light seafoam here, but dark teal in both dark
+     blocks below, since the light tile clashes on a bioluminescent-dark
+     ground. Keeps one SVG asset correct in both themes. */
+  --mark-tile: #e7f9f4;
+  /* The app's body background (see app.css's `body` rule). Light mode is
+     just the solid --ground it always was; only the dark blocks below
+     swap it for the "night-dive" radial gradient, so this token is the
+     one place `body` needs to read regardless of theme. */
+  --night-ground: var(--ground);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,6 +55,13 @@
     --danger-bg: #3a1a16;
     --danger-border: #e57368;
     --danger-ink: #f6b4ac;
+    --mark-tile: #10312e;
+    --night-ground: radial-gradient(
+      120% 80% at 80% -10%,
+      #0e3140,
+      #0a1b23 45%,
+      #081217
+    );
   }
 }
 
@@ -68,4 +84,11 @@
   --danger-bg: #3a1a16;
   --danger-border: #e57368;
   --danger-ink: #f6b4ac;
+  --mark-tile: #10312e;
+  --night-ground: radial-gradient(
+    120% 80% at 80% -10%,
+    #0e3140,
+    #0a1b23 45%,
+    #081217
+  );
 }
