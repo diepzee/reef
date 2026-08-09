@@ -16,7 +16,7 @@ import { useId } from "react";
  * gradients degenerate on a zero-height bbox (Chrome paints nothing), so
  * it must be stroked with the gradient's literal base color instead.
  */
-const SEABED_PATH = "M18 50h28";
+const SEABED_PATH = "M20 50h24";
 
 /**
  * The seven frond paths shared by {@link ReefMark} and {@link FrondGlyph},
