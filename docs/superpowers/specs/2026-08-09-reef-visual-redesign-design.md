@@ -54,9 +54,10 @@ traced path). It replaces the seven-frond colony everywhere:
   in `:root`).
 - Remove `--serif` from `tokens.css`; remove serif `font-family` from `.app-tagline`(if any),
   `.reading-title`, `.reading-body` in `app.css`.
-- Introduce a **type scale** as tokens (in `tokens.css` `:root`): `--text-xs: 0.76rem`,
-  `--text-sm: 0.84rem`, `--text-base: 0.95rem`, `--text-md: 1.02rem`, `--text-lg: 1.25rem`,
-  `--text-xl: 1.8rem`, `--text-2xl: 2.1rem`. Migrate `app.css` font-size literals to the
+- Introduce a **type scale** as tokens (in `tokens.css` `:root`): `--text-xs: 0.72rem`,
+  `--text-sm: 0.8rem`, `--text-base: 0.86rem`, `--text-md: 0.95rem`, `--text-lg: 1.05rem`,
+  `--text-xl: 1.7rem`, `--text-2xl: 1.95rem` — calibrated to Nunito's large x-height so
+  migrated sizes stay optically close to today's. Migrate `app.css` font-size literals to the
   nearest step (judgment calls allowed; the scale is the point, not pixel-perfect parity).
 - Wordmark: lowercase `reef`, weight 800, letter-spacing `-0.005em`.
 - Reading view: body 1.02rem/1.65, measure ≤ 36rem, title weight 800.
