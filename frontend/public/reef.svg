@@ -6,8 +6,11 @@
     </linearGradient>
   </defs>
   <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+  <!-- Seabed bar: outside the gradient group on purpose. A zero-height
+       horizontal line has a degenerate objectBoundingBox, so the gradient
+       paints nothing on it; solid base color matches the gradient at y=50. -->
+  <path d="M18 50h28" stroke="#0d9488" stroke-width="4" stroke-linecap="round" fill="none"/>
   <g stroke="url(#g)" stroke-width="4" stroke-linecap="round" fill="none">
-    <path d="M18 50h28"/>
     <path d="M20 50C20 45.2 13 42.2 13 38"/>
     <path d="M24 50C24 42.4 19 37.7 19 31"/>
     <path d="M28 50C28 39.6 25 33.1 25 24"/>
