@@ -19,7 +19,7 @@ import { useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
-import { FrondGlyph } from "../components/ReefMark";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { spaceColor } from "../components/spaceColor";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
@@ -42,7 +42,7 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
       <span className="space-card-stripe" aria-hidden="true" />
       <span className="space-card-row">
         <span className="space-card-chip" aria-hidden="true">
-          <FrondGlyph color={hue.light} />
+          <SpaceGlyph alias={space.alias} color={hue.base} />
         </span>
         <span className="space-card-text">
           <span className="space-card-alias">
@@ -79,7 +79,7 @@ function SpaceTile({ space }: { space: SpaceIndex }) {
       style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
     >
       <span className="space-tile-pool" aria-hidden="true">
-        <FrondGlyph color={hue.light} size={24} />
+        <SpaceGlyph alias={space.alias} color={hue.base} size={24} />
       </span>
       <span className="space-card-alias">{isPersonal ? "Personal" : space.alias}</span>
       <span className="space-card-sub muted">
