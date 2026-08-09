@@ -328,8 +328,7 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     roster = await member_roster(space.id)
     if not is_owner:
         roster = [
-            {"display_name": member["display_name"], "email": ""}
-            for member in roster
+            {"display_name": member["display_name"], "email": ""} for member in roster
         ]
     return {
         "members": roster,
