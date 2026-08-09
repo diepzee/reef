@@ -80,6 +80,22 @@ traced path). It replaces the seven-frond colony everywhere:
   on the text baseline. No manual nudges.
 - SignedOut page gets lockup C (the seabed rule) at display size.
 
+## Main screen (Spaces)
+
+- The noun stays **Spaces** — the theme lives in the visuals, not the vocabulary.
+- The Spaces screen ships **two switchable views** (approved as mockups V1 + V2):
+  - **List** — today's structure: hue-striped cards (space gradient stripe, coral glyph in
+    space hue, name, meta, whobar avatars).
+  - **Tiles** — a 2-column grid: each space is a tile with its coral glyph in a circular
+    hue-tinted "pool", name, meta; the last tile is a dashed-border "+ New space".
+- A **segmented icon picker** sits right-aligned beside the "Spaces" heading: pill-shaped
+  control, two icon segments (list = three horizontal lines, grid = 2×2 rounded squares),
+  active segment gets a raised `--field` background and accent-colored icon, so the selected
+  view is visible at a glance.
+- The chosen view persists per user (`localStorage`, key `reef.spacesView`, values
+  `"list" | "grid"`; default `list`).
+- The V3 "Cove" branded-header direction was reviewed and not chosen.
+
 ## Out of scope for this spec
 
 - Spacing/radius/shadow token system and the full shell/view restyle pass (next spec — this
