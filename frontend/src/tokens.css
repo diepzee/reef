@@ -15,6 +15,15 @@
   --font-sans:
     "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
+  /* Type scale — the only font sizes app.css may use (body's 16px rem
+     root and .mbs-close's icon-sized × are the two exceptions). */
+  --text-xs: 0.72rem;
+  --text-sm: 0.8rem;
+  --text-base: 0.86rem;
+  --text-md: 0.95rem;
+  --text-lg: 1.05rem;
+  --text-xl: 1.7rem;
+  --text-2xl: 1.95rem;
   --warn-bg: #fff7ed;
   --warn-border: #fed7aa;
   --warn-ink: #7c4a12;
