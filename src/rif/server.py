@@ -479,7 +479,9 @@ def _validate_batch(pages: list[dict]) -> dict | None:
                 "detail": f"item {index} ({path!r}): 'tags' must be a list of strings",
             }
         version = item.get("expected_version")
-        if version is not None and not isinstance(version, int):
+        if version is not None and (
+            isinstance(version, bool) or not isinstance(version, int)
+        ):
             return {
                 "error": "malformed_item",
                 "detail": f"item {index} ({path!r}): 'expected_version' must be an integer",
@@ -529,10 +531,10 @@ async def tool_write_pages(
 
 @mcp.tool
 async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
-    """Create or replace several pages in one call. Prefer this over write_page
-    whenever a turn saves more than one page: claude.ai asks for approval on
-    every tool call, so batching multi-page writes here means one approval
-    instead of several.
+    """Create or replace several pages in one call. Prefer this over repeated
+    write_page calls whenever a turn saves more than one page: clients that
+    gate tool calls behind approval need only one approval for the whole
+    batch, and the batch is all-or-nothing.
 
     All-or-nothing: the whole batch shares one transaction. If any item fails
     -- a stale expected_version, a meta/ path, a malformed item, or an

@@ -197,3 +197,29 @@ async def test_write_pages_malformed_item_names_it_and_writes_nothing(
 
     async with transaction_scope():
         assert await get_page(me, "household", "a.md") is None
+
+
+async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, household):
+    """``expected_version: True`` is rejected, not silently accepted as ``int(1)``.
+
+    ``isinstance(True, int)`` is True in Python, so a naive ``isinstance``
+    check on ``expected_version`` would let a JSON boolean slip through as a
+    version number.
+
+    :param monkeypatch: pytest's monkeypatch fixture
+    :param household: two people sharing a household space
+    """
+    wouter = household["wouter"]
+    me = principal_for(wouter)
+    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+
+    result = await write_pages(
+        "household",
+        [{"path": "a.md", "body": "ok", "expected_version": True}],
+    )
+
+    assert result["error"] == "malformed_item"
+    assert "expected_version" in result["detail"]
+
+    async with transaction_scope():
+        assert await get_page(me, "household", "a.md") is None
