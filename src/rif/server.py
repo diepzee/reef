@@ -427,6 +427,152 @@ async def write_page(
         return {"space": space, "path": page.path, "version": page.version}
 
 
+_MAX_BATCH_SIZE = 20
+
+
+def _validate_batch(pages: list[dict]) -> dict | None:
+    """Check a write_pages batch's shape before anything is written.
+
+    Runs before the transaction opens: a malformed or oversize batch must
+    never reach ``save_page``, so there is nothing to roll back.
+
+    :param pages: the raw batch payload
+    :returns: an error dict if the batch is invalid, otherwise None
+    """
+    if not pages:
+        return {"error": "empty_batch", "detail": "pages must contain at least one item"}
+    if len(pages) > _MAX_BATCH_SIZE:
+        return {
+            "error": "batch_too_large",
+            "detail": (
+                f"{len(pages)} items exceeds the {_MAX_BATCH_SIZE}-item batch limit"
+            ),
+        }
+    for index, item in enumerate(pages):
+        if not isinstance(item, dict):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index}: expected an object, got {type(item).__name__}",
+            }
+        path = item.get("path")
+        if not isinstance(path, str) or not path:
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index}: missing or invalid 'path'",
+            }
+        if not isinstance(item.get("body"), str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): missing or invalid 'body'",
+            }
+        if item.get("title") is not None and not isinstance(item["title"], str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'title' must be a string",
+            }
+        tags = item.get("tags")
+        if tags is not None and (
+            not isinstance(tags, list) or not all(isinstance(t, str) for t in tags)
+        ):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'tags' must be a list of strings",
+            }
+        version = item.get("expected_version")
+        if version is not None and not isinstance(version, int):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'expected_version' must be an integer",
+            }
+        if item.get("message") is not None and not isinstance(item["message"], str):
+            return {
+                "error": "malformed_item",
+                "detail": f"item {index} ({path!r}): 'message' must be a string",
+            }
+    return None
+
+
+async def tool_write_pages(
+    principal: Principal, space: str, pages: list[dict], message: str = ""
+) -> list[Page]:
+    """Save every batch item via save_page; split from the tool for testability.
+
+    Raises on the first failure rather than catching, so the ``@mcp.tool``
+    wrapper's transaction is still open when the exception reaches it and
+    rolls the whole batch back -- this function must never swallow
+    ``VersionConflict`` or ``ProtectedPath`` itself.
+
+    :param principal: the authenticated person
+    :param space: ``personal`` or a space name from list_spaces
+    :param pages: batch items, already validated by ``_validate_batch``
+    :param message: fallback revision message for items without their own
+    :raises ProtectedPath: for any meta/ path in the batch
+    :raises VersionConflict: for any stale expected_version in the batch
+    :returns: the saved pages, in batch order
+    """
+    saved = []
+    for item in pages:
+        saved.append(
+            await save_page(
+                principal,
+                space,
+                item["path"],
+                item["body"],
+                message=item.get("message") or message or "batch write",
+                title=item.get("title"),
+                tags=item.get("tags"),
+                expected_version=item.get("expected_version"),
+            )
+        )
+    return saved
+
+
+@mcp.tool
+async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
+    """Create or replace several pages in one call. Prefer this over write_page
+    whenever a turn saves more than one page: claude.ai asks for approval on
+    every tool call, so batching multi-page writes here means one approval
+    instead of several.
+
+    All-or-nothing: the whole batch shares one transaction. If any item fails
+    -- a stale expected_version, a meta/ path, a malformed item, or an
+    oversize/empty batch -- nothing in the batch is written, including items
+    earlier in the list that looked fine. Fix the offending item and resend
+    the whole batch. Same rules as write_page apply per item: pass
+    expected_version when replacing an existing page, from the loaded
+    context; meta/ paths are refused.
+
+    :param space: ``personal`` or a space name from list_spaces
+    :param pages: up to 20 items, each ``{path, body, title?, tags?,
+        expected_version?, message?}``; path and body are required
+    :param message: fallback revision message for items that omit their own
+    """
+    error = _validate_batch(pages)
+    if error is not None:
+        return error
+    try:
+        async with transaction_scope():
+            principal = await current_principal()
+            saved = await tool_write_pages(principal, space, pages, message)
+    except VersionConflict as exc:
+        return {
+            "error": "version_conflict",
+            "detail": str(exc),
+            "note": "nothing was written",
+        }
+    except ProtectedPath as exc:
+        return {
+            "error": "protected_path",
+            "detail": str(exc),
+            "note": "nothing was written",
+        }
+    return {
+        "space": space,
+        "written": [{"path": p.path, "version": p.version} for p in saved],
+        "count": len(saved),
+    }
+
+
 @mcp.tool
 async def edit_page_section(
     space: str,
