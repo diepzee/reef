@@ -35,7 +35,7 @@ import type { Me } from "../types";
 import { useMediaQuery } from "../useMediaQuery";
 import { MembersSheetContext } from "../useMembersSheet";
 import { MembersSheet } from "./MembersSheet";
-import { ReefMark } from "./ReefMark";
+import { FrondGlyph } from "./ReefMark";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -95,8 +95,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="app-stack">
         <header className="app-header">
           <Link to="/" className="app-header-link">
-            <ReefMark size={30} className="app-header-icon" />
-            <span className="app-header-wordmark">rif</span>
+            <FrondGlyph color="var(--accent)" size={17} />
+            <span className="app-header-wordmark">reef</span>
           </Link>
           {isHome && (
             <p className="app-header-tagline">memory that grows like a reef</p>
