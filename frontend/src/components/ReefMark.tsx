@@ -31,7 +31,7 @@ const GLYPH_VIEWBOX = "11 15.5 42 34.5";
 export const GLYPH_ASPECT = 42 / 34.5;
 
 /** The coral geometry, paint inherited from the parent (`fill` cascades into the path). */
-function CoralPaths() {
+export function CoralPaths() {
   return (
     <g transform={OUTER_TRANSFORM}>
       <g transform={INNER_TRANSFORM}>
