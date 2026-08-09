@@ -104,21 +104,16 @@ textarea {
 
 .app-header-link {
   display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: baseline;
+  gap: 6px;
   text-decoration: none;
   color: var(--accent);
 }
 
-.app-header-icon {
-  display: block;
-  flex-shrink: 0;
-}
-
 .app-header-wordmark {
   font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: 800;
+  letter-spacing: -0.005em;
   color: var(--ink);
 }
 
@@ -495,18 +490,14 @@ textarea {
 
 .side-brand {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 800;
   font-size: var(--text-md);
+  letter-spacing: -0.005em;
   padding: 2px 8px 14px;
   text-decoration: none;
   color: var(--ink);
-}
-
-.side-brand-icon {
-  display: block;
-  flex-shrink: 0;
 }
 
 .side-label {
