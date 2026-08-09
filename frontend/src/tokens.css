@@ -12,7 +12,9 @@
   --accent-deep: #0b6b62;
   --accent-soft: #e7f9f4;
   --danger: #b3554f;
-  --serif: Georgia, "Iowan Old Style", serif;
+  --font-sans:
+    "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
   --warn-bg: #fff7ed;
   --warn-border: #fed7aa;
   --warn-ink: #7c4a12;
