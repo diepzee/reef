@@ -7,6 +7,7 @@
   </defs>
   <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
   <g stroke="url(#g)" stroke-width="4" stroke-linecap="round" fill="none">
+    <path d="M18 50h28"/>
     <path d="M20 50C20 45.2 13 42.2 13 38"/>
     <path d="M24 50C24 42.4 19 37.7 19 31"/>
     <path d="M28 50C28 39.6 25 33.1 25 24"/>
