@@ -13,7 +13,7 @@ to stand the service up again.
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
 | 4 — Storage and safety nets | **Mostly done**, 7 Aug 2026 — R2 live, images working, one verified backup and a passed restore drill. The *schedule* is missing |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
-| 6 — Protocol and personas | **Partly done** — `meta/protocol.md` written; `meta/persona.md` is still the smoke-test placeholder |
+| 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/rif/protocol.md`), no longer a page; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
 
 ## Open items
@@ -268,8 +268,15 @@ invite(space="school", email="<their-email>", display_name="<their-name>")
 
 Then the person signs in to AuthKit with that exact address. On that first
 sign-in `rif` binds their provider subject, creates their own personal space,
-and seeds `meta/protocol.md` and `meta/persona.md` there for them. Nothing else
-is needed — no migration, no restart.
+and seeds `meta/persona.md` there for them. Nothing else is needed — no
+migration, no restart. (The operating protocol is not seeded: since 9 Aug
+2026 it ships with the product in `src/rif/protocol.md`, versioned with the
+code so improvements reach every member on deploy. `update_meta_page`
+accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
+One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
+Wouter's personal space and the shared space were deleted, and the shared
+space's stale `school` slug was renamed to `household` — backup first, via
+`RIF_MIGRATION_DATABASE_URL`.)
 
 Two things to get right:
 

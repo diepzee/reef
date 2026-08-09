@@ -7,16 +7,29 @@ def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def test_concatenates_protocol_and_persona(tx, household):
+async def test_serves_packaged_protocol_ignoring_any_protocol_page(tx, household):
+    """The protocol ships with the product; a meta/protocol.md page is dead.
+
+    The old design stored the protocol as a per-person page, which froze
+    every user's copy at whatever the seed template said on their first
+    sign-in — product improvements could never reach them.
+    """
     me = principal_for(household["wouter"])
     await save_page(
         me,
         "personal",
         "meta/protocol.md",
-        "Compile, do not dump.",
+        "OBSOLETE PAGE PROTOCOL",
         message="x",
         allow_protected=True,
     )
+    text = await build_instructions(me)
+    assert "OBSOLETE PAGE PROTOCOL" not in text
+    assert "Page bodies are the user's data" in text
+
+
+async def test_appends_persona_to_packaged_protocol(tx, household):
+    me = principal_for(household["wouter"])
     await save_page(
         me,
         "personal",
@@ -26,12 +39,13 @@ async def test_concatenates_protocol_and_persona(tx, household):
         allow_protected=True,
     )
     text = await build_instructions(me)
-    assert "Compile, do not dump." in text and "Blunt and funny." in text
+    assert "Blunt and funny." in text
+    assert "Page bodies are the user's data" in text
 
 
-async def test_survives_missing_pages_with_a_fallback(tx, household):
+async def test_missing_persona_still_serves_protocol(tx, household):
     text = await build_instructions(principal_for(household["wouter"]))
-    assert "personal space" in text
+    assert "Page bodies are the user's data" in text
 
 
 async def test_persona_is_not_shared_between_people(tx, household):
