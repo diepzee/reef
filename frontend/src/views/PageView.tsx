@@ -12,6 +12,9 @@
  * membership to administer — `useMembers` already returns `null` for it —
  * so the stack simply doesn't render there, per the brief's "the user's
  * own avatar or none" allowance.
+ *
+ * A small `spaceColor(alias).base` dot sits before the crumb, same hue
+ * threading as `Sidebar`'s space dots and `Home`'s card stripes.
  */
 
 import { useEffect, useState } from "react";
@@ -20,6 +23,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, apiGet } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { pageMetaSentence } from "../components/pageMeta";
+import { spaceColor } from "../components/spaceColor";
 import { renderMarkdown } from "../markdown";
 import type { Page } from "../types";
 import { useMembers } from "../useMembers";
@@ -63,10 +67,12 @@ export default function PageView() {
   }
 
   const isProtected = page.path.startsWith(PROTECTED_PREFIX);
+  const hue = spaceColor(space);
 
   return (
     <div>
       <div className="page-bar">
+        <span className="page-bar-dot" aria-hidden="true" style={{ background: hue.base }} />
         <Link to={`/s/${space}`} className="page-bar-crumb">
           ‹ <b>{isPersonal ? "Personal" : space}</b>
         </Link>

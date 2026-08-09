@@ -20,21 +20,28 @@
  * v1 stale-disclosure lesson — see `MembersSheet`'s docstring). Closing
  * only flips `sheetOpen`, leaving `sheetSpace` in place, so the sheet's
  * content stays put while it animates away instead of vanishing.
+ *
+ * The mobile header's brand row also carries the identity pass's serif
+ * tagline, but only while Home (`/`) is the routed view — every other
+ * mobile screen keeps the plain brand row, matching the spec's "Home gets
+ * the serif tagline ... under the brand row".
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 
-import reefIcon from "../../public/reef.svg";
 import { ApiError, apiGet } from "../api";
 import type { Me } from "../types";
 import { useMediaQuery } from "../useMediaQuery";
 import { MembersSheetContext } from "../useMembersSheet";
 import { MembersSheet } from "./MembersSheet";
+import { ReefMark } from "./ReefMark";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell({ children }: { children: ReactNode }) {
   const isDesktop = useMediaQuery("(min-width: 900px)");
+  const location = useLocation();
+  const isHome = location.pathname === "/";
   const [me, setMe] = useState<Me | null>(null);
 
   const [sheetSpace, setSheetSpace] = useState<string | null>(null);
@@ -88,15 +95,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className="app-stack">
         <header className="app-header">
           <Link to="/" className="app-header-link">
-            <img
-              src={reefIcon}
-              alt="rif"
-              className="app-header-icon"
-              width="26"
-              height="26"
-            />
+            <ReefMark size={30} className="app-header-icon" />
             <span className="app-header-wordmark">rif</span>
           </Link>
+          {isHome && (
+            <p className="app-header-tagline">memory that grows like a reef</p>
+          )}
         </header>
         {children}
       </div>
