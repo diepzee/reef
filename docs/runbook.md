@@ -255,7 +255,7 @@ signed in; an authenticated stranger nobody invited is denied by
 bypassed.
 
 **Already done.** The seed migrations create one person — Wouter — his personal
-space, and the `school` shared space he owns. You can deploy and use the system
+space, and the `household` shared space he owns (slug `school` until the 9 Aug 2026 cleanup renamed it). You can deploy and use the system
 solo today.
 
 ### Bringing anyone else in
@@ -263,7 +263,7 @@ solo today.
 As the space's owner, from any connected assistant:
 
 ```
-invite(space="school", email="<their-email>", display_name="<their-name>")
+invite(space="household", email="<their-email>", display_name="<their-name>")
 ```
 
 Then the person signs in to AuthKit with that exact address. On that first
@@ -299,7 +299,7 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 > **Done, 6 Aug 2026.** The real service runs at
 > `rif-app-production.up.railway.app`, and step 3's check passes: `list_spaces`
 > returned exactly `personal` and the shared space (then aliased `household`,
-> now the slug `school`), with no internal space identifiers
+> briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal space identifiers
 > and nothing belonging to anyone else.
 
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
@@ -470,7 +470,7 @@ of which alone meant no backup:**
 ## Phase 5 — Content: the import
 
 > **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared
-> space (`school` — the space the old `household` alias resolved to).
+> space (now slugged `household`; called `school` at the time).
  The final disposition differs from the sketch in step 2 below: the
 > shared layer came out as `house.md`, `future-home.md` and `travel.md`
 > rather than the `money.md` / `family-film.md` split proposed here, and
@@ -529,7 +529,7 @@ The code ships a built-in fallback protocol, but the real thing is content:
 
 1. **The protocol lives in each person's own personal space, not a shared one.**
    `get_operating_protocol` reads `meta/protocol.md` only from the personal
-   space it is called for, never from `school` or any other shared space — the
+   space it is called for, never from `household` or any other shared space — the
    protocol and the persona are per-person. Anyone invited after go-live gets
    both pages created for them at first sign-in, seeded from the built-in
    template. You were seeded by migration rather than by invite, so write your
