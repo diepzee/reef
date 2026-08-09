@@ -60,6 +60,30 @@ def authkit_domain() -> str:
     return domain.rstrip("/")
 
 
+def token_sid(access_token: str) -> str | None:
+    """Peek the ``sid`` claim out of a JWT access token, if there is one.
+
+    No signature check: the token just arrived over TLS straight from the
+    token endpoint, and the claim is only used to build the upstream logout
+    URL — WorkOS validates the session id on its own side. Opaque or
+    malformed tokens simply yield None, which downgrades logout to
+    clearing the local session only.
+
+    :param access_token: the bearer token from the code exchange
+    :returns: the sid claim, or None when absent or unreadable
+    """
+    parts = access_token.split(".")
+    if len(parts) != 3:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        claims = json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+    sid = claims.get("sid") if isinstance(claims, dict) else None
+    return sid if isinstance(sid, str) else None
+
+
 def pkce_pair() -> tuple[str, str]:
     """Return a fresh (verifier, challenge) PKCE pair.
 

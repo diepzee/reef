@@ -23,13 +23,15 @@ determines when it can happen — not by priority.
 
 **Waiting on the operator's Web frontend setup**
 
-- [ ] **Web frontend environment and redirect.** Set `WORKOS_CLIENT_ID`
-      (from WorkOS dashboard), `RIF_SESSION_SECRET` (generate with `python -c
-      "import secrets; print(secrets.token_hex(32))"`), and add the
-      redirect URI `{RIF_BASE_URL}/api/auth/callback` in the AuthKit
-      application settings. Until both are set, `/api/auth/login` returns 503
-      and the MCP surface is unaffected. `RIF_DEV_INSECURE=1` is local-dev
-      only and must never be set in production.
+- [x] **Web frontend environment and redirect.** Done 2026-08-09. The working
+      configuration was non-obvious — see "Web frontend → Setup" for the full
+      picture. Short version: `WORKOS_CLIENT_ID` must be the client id of a
+      **WorkOS Connect OAuth application** ("Rif Web", PKCE, managed-by-you),
+      not the environment/default application's client id — the AuthKit
+      domain's `/oauth2/authorize` only resolves Connect applications, and
+      anything else 302s to `oauth2/error?error=application_not_found`. The
+      redirect URI lives on that Connect app (Connect → Applications → Rif
+      Web → Sign-in callback).
 
 **Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
 assumed: it has no command for cron schedules or start commands)
@@ -572,25 +574,52 @@ image build. The frontend redirects unauthenticated requests to
 `/api/auth/login`, which requires two environment variables and a redirect
 URI configuration.
 
-**Setup:**
+**Setup** (done 2026-08-09; kept for rebuild-from-scratch):
 
-The operator must set three things. Until all three are done, `/api/auth/login`
-returns 503 and the MCP surface is unaffected.
+The WorkOS account layout, established the hard way: everything lives in the
+WorkOS **Production** environment of "Haai's Project" — the AuthKit domain
+`thankful-origami-62.authkit.app`, the user records, and the Claude
+connector's DCR-registered clients. The **Staging** environment is empty and
+unused (0 users; its similarly-named client ids are a trap). Sign-in method
+in Production is Google OAuth; Email+Password is disabled.
 
-1. **Environment variables:**
-   - `WORKOS_CLIENT_ID` — from the WorkOS dashboard, the application's
-     client id.
+The AuthKit domain's `/oauth2/*` endpoints are WorkOS **Connect** (the OAuth
+server MCP clients register against via DCR). Its `/oauth2/authorize` only
+resolves **Connect applications** — the environment/default application's
+client id is not one, and using it 302s to
+`oauth2/error?error=application_not_found`. So the browser login needs its
+own static Connect app:
+
+1. **Connect application.** WorkOS → Production → Connect → Applications →
+   Create application → OAuth application, "Managed by you" (no consent
+   screen), **Use PKCE** checked (rif's web login is a public client — no
+   secret). Ours is "Rif Web", `client_01KZK71Z2R7PYWWS9WBNG9BEBD`.
+2. **Redirect URI.** On that Connect app → Sign-in callback → add
+   `{RIF_BASE_URL}/api/auth/callback`.
+3. **Environment variables:**
+   - `WORKOS_CLIENT_ID` — the Connect app's client id (see above).
    - `RIF_SESSION_SECRET` — a 64-character hex string, generated with:
      ```bash
      python -c "import secrets; print(secrets.token_hex(32))"
      ```
-2. **Redirect URI.** In the WorkOS dashboard, open the AuthKit application
-   configuration and add the callback URL:
-   ```
-   {RIF_BASE_URL}/api/auth/callback
-   ```
-3. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
+   Until these are set, `/api/auth/login` returns 503 and the MCP surface
+   is unaffected. The MCP path never reads `WORKOS_CLIENT_ID` (only
+   `WORKOS_AUTHKIT_DOMAIN` + `RIF_BASE_URL`), so changing it cannot break
+   connectors.
+4. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
    for local testing only. Never set it in production.
+
+**Sign-out:** clearing rif's own cookie is not enough — the SPA bounces any
+unauthenticated visit into `/api/auth/login`, and a live AuthKit session
+silently re-issues a code, signing the user straight back in. So the
+callback stores the access token's `sid` claim in the sealed session, and
+`POST /api/auth/logout` returns a `logout_url`
+(`https://api.workos.com/user_management/sessions/logout?session_id=…&return_to=…/app/signed-out`)
+that the frontend navigates to, ending the AuthKit session too, before
+landing on `/app/signed-out`. Sessions sealed before this change carry no
+sid; those sign out locally and land on `/app/signed-out` directly. If the
+WorkOS hop ever refuses the `return_to`, configure the sign-out /
+homepage URI on the WorkOS side to allow it.
 
 **Custom domain (planned: `rif.rugvin.be`):**
 
@@ -601,9 +630,9 @@ Order matters — the base URL drives the OAuth audience, so flip it last.
    `rif.rugvin.be`; copy the CNAME target Railway shows.
 2. In rugvin.be's DNS, add `CNAME rif → <that target>`. Wait for Railway
    to show the domain as issued (TLS is automatic).
-3. WorkOS dashboard → the AuthKit application → add
-   `https://rif.rugvin.be/api/auth/callback` as a redirect URI. Keep the
-   railway.app callback too until the switch is done.
+3. WorkOS dashboard → Production → Connect → Applications → Rif Web →
+   Sign-in callback → add `https://rif.rugvin.be/api/auth/callback` as a
+   redirect URI. Keep the railway.app callback too until the switch is done.
 4. Set `RIF_BASE_URL=https://rif.rugvin.be` and redeploy. From here the
    MCP resource is advertised under the new domain; access tokens are
    audience-bound to `{RIF_BASE_URL}/mcp`, so connectors added against
@@ -619,7 +648,9 @@ Order matters — the base URL drives the OAuth audience, so flip it last.
 
 | Var | Purpose |
 |---|---|
-| `WORKOS_AUTHKIT_DOMAIN` | AuthKit app domain; auth refuses to boot without it |
+| `WORKOS_AUTHKIT_DOMAIN` | AuthKit app domain (`thankful-origami-62.authkit.app`, owned by the WorkOS **Production** environment); auth refuses to boot without it |
+| `WORKOS_CLIENT_ID` | Client id of the "Rif Web" **Connect OAuth application** (browser login only; the MCP path never reads it). Not the environment/default application client id — that one gets `application_not_found` |
+| `RIF_SESSION_SECRET` | 64-char hex; seals the browser session + OAuth state cookies |
 | `RIF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
 | `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
 | `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server |

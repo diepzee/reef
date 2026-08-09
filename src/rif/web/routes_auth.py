@@ -28,14 +28,23 @@ from rif.web.oidc import (
     _unseal_oauth,
     authkit_domain,
     pkce_pair,
+    token_sid,
 )
 from rif.web.requests import (
     SESSION_COOKIE,
     CsrfRejected,
     cookie_secure,
     require_csrf,
+    session_sid,
     set_session_cookie,
 )
+
+# WorkOS's session-logout endpoint: ends the AuthKit session named by the
+# sid claim, then redirects the browser to ``return_to``. Ending only rif's
+# own cookie is not enough — the SPA bounces any unauthenticated visit
+# straight back into /api/auth/login, where a live AuthKit session silently
+# re-issues a code and signs the user right back in.
+WORKOS_LOGOUT_URL = "https://api.workos.com/user_management/sessions/logout"
 
 OAUTH_COOKIE = "rif_oauth"
 
@@ -146,21 +155,37 @@ def register_auth_routes(
             return HTMLResponse(_DENIED_HTML, status_code=403)
 
         response = RedirectResponse("/app", status_code=303)
-        set_session_cookie(response, principal, secure=cookie_secure())
+        set_session_cookie(
+            response, principal, secure=cookie_secure(), sid=token_sid(access_token)
+        )
         response.delete_cookie(OAUTH_COOKIE)
         return response
 
     async def logout(request: Request) -> Response:
-        """Clear the session cookie.
+        """Clear the session cookie and hand back the upstream logout URL.
 
         :param request: the incoming request; must carry the CSRF header
-        :returns: ``{"ok": true}``, or 403 if the CSRF header is missing
+        :returns: ``{"ok": true}`` plus, when the session carries a sid,
+            a ``logout_url`` the browser must navigate to so the AuthKit
+            session ends too; 403 if the CSRF header is missing
         """
         try:
             require_csrf(request)
         except CsrfRejected:
             return JSONResponse({"error": "csrf"}, status_code=403)
-        response = JSONResponse({"ok": True})
+        body: dict = {"ok": True}
+        sid = session_sid(request)
+        if sid:
+            query = urlencode(
+                {
+                    "session_id": sid,
+                    "return_to": (
+                        f"{os.environ.get('RIF_BASE_URL', '')}/app/signed-out"
+                    ),
+                }
+            )
+            body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"
+        response = JSONResponse(body)
         response.delete_cookie(SESSION_COOKIE)
         return response
 
