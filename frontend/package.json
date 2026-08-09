@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun run dev.ts",
-    "build": "bun build ./index.html --outdir dist --minify",
+    "build": "bun build ./index.html --outdir dist --minify && cp public/reef.svg public/reef-icon.png dist/",
     "test": "bun test"
   },
   "dependencies": {
