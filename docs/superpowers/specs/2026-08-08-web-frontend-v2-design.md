@@ -113,3 +113,36 @@ Refactor v1's per-screen CSS into a small token + component layer:
 - Presence/live editing, comments, notifications.
 - Revision history UI (still deferred; `last_editor` is metadata only).
 - Search, keyboard command bar (direction B ideas — later).
+
+## Identity pass (rev 2 — decided 9 Aug 2026, mockup round 3)
+
+The v2 system stays; this pass turns the brand up. Chosen mix: **per-space
+color identity** + **bioluminescent dark mode**. No background watermark.
+
+- **Per-space hue.** `spaceColor(alias)` returns a `{base, light}` gradient
+  pair from a fixed sea palette. `personal` is always seafoam
+  (`#0d9488/#5eead4`); shared spaces hash (same char-code-sum discipline as
+  `avatarColor`) across seven pairs: amber `#f59e0b/#fbbf24`, indigo
+  `#6366f1/#a5b4fc`, pink `#ec4899/#f9a8d4`, sky `#0284c7/#7dd3fc`, lime
+  `#84cc16/#bef264`, violet `#8b5cf6/#c4b5fd`, orange `#f97316/#fdba74`.
+  The hue appears: home-card stripe (gradient base→light) + tinted frond
+  glyph on a tinted chip; the sidebar space dot; a small hue dot beside the
+  page bar's crumb. Avatars keep their own name-hashed colors.
+- **Home cards** carry the space's people (small avatar stack) and a
+  subline "N pages · only you" for personal.
+- **Bioluminescent dark mode only** (light mode keeps the calm hybrid
+  ground): night-dive radial ground (`radial-gradient(120% 80% at 80% -10%,
+  #0e3140, #0a1b23 45%, #081217)`), a 3px glowing surface line under the
+  app's top edge (teal gradient, slight blur), cards with an inset teal
+  top-highlight, the active/current space card with a soft outer glow, and
+  primary action buttons as gradient pills (`#2dd4bf→#5eead4`, dark ink
+  text, soft glow shadow). Implemented via dark-block token/rule overrides —
+  light mode's values unchanged.
+- **Brand row**: larger mark (~30px) + wordmark; in dark mode the mark's
+  tile must be dark (`#10312e`) — the light seafoam tile clashes on dark
+  ground. Ship the mark as a small React component (`ReefMark`) whose tile
+  fill uses a token (`--mark-tile`: light `#e7f9f4`, dark `#10312e`) so one
+  asset serves both themes; the favicon keeps the light tile. Home gets the
+  serif tagline "memory that grows like a reef" under the brand row.
+- **Explicitly rejected:** the corner frond watermark (round-3 I1) and
+  glow effects in light mode.

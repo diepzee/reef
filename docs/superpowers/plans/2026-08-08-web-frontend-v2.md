@@ -95,10 +95,10 @@ async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
     """
     if not page_ids:
         return {}
-    rows = await Revision.select(
-        Revision.page_id, Revision.author_id.display_name
-    ).where(Revision.page_id.is_in(page_ids)).order_by(
-        Revision.created_at, ascending=False
+    rows = (
+        await Revision.select(Revision.page_id, Revision.author_id.display_name)
+        .where(Revision.page_id.is_in(page_ids))
+        .order_by(Revision.created_at, ascending=False)
     )
     editors: dict[UUID, str | None] = {pid: None for pid in page_ids}
     for row in rows:

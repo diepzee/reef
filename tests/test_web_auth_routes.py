@@ -150,9 +150,7 @@ async def test_login_sets_secure_oauth_cookie_by_default(web):
     client, _fake, _ = web
     response = await client.get("/api/auth/login")
     set_cookie = next(
-        h
-        for h in response.headers.get_list("set-cookie")
-        if h.startswith("rif_oauth=")
+        h for h in response.headers.get_list("set-cookie") if h.startswith("rif_oauth=")
     )
     assert "Secure" in set_cookie
 
@@ -163,9 +161,7 @@ async def test_login_omits_secure_oauth_cookie_with_dev_insecure(monkeypatch, we
     client, _fake, _ = web
     response = await client.get("/api/auth/login")
     set_cookie = next(
-        h
-        for h in response.headers.get_list("set-cookie")
-        if h.startswith("rif_oauth=")
+        h for h in response.headers.get_list("set-cookie") if h.startswith("rif_oauth=")
     )
     assert "Secure" not in set_cookie
 
@@ -186,9 +182,7 @@ async def test_callback_sets_secure_session_cookie_by_default(web):
     assert "Secure" in set_cookie
 
 
-async def test_callback_omits_secure_session_cookie_with_dev_insecure(
-    monkeypatch, web
-):
+async def test_callback_omits_secure_session_cookie_with_dev_insecure(monkeypatch, web):
     """RIF_DEV_INSECURE=1 also drops Secure from the renewed session cookie."""
     client, _fake, _person = web
     login = await client.get("/api/auth/login")
@@ -250,9 +244,7 @@ async def test_logout_clears_session(web):
     """A logout POST with the CSRF header succeeds and deletes the cookie."""
     client, _fake, _ = web
     client.cookies.set("rif_session", "some-token")
-    response = await client.post(
-        "/api/auth/logout", headers={"x-rif-csrf": "1"}
-    )
+    response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     set_cookie_headers = response.headers.get_list("set-cookie")
