@@ -63,9 +63,10 @@ async def test_first_bind_onboards_a_personal_space(tx, household):
     await invite(owner, "household", "anna@example.test", display_name="Anna")
     claims = {"sub": "auth0|anna", "email": "anna@example.test", "email_verified": True}
     principal = await principal_from_claims(claims)
-    protocol = await get_page(principal, "personal", "meta/protocol.md")
     persona = await get_page(principal, "personal", "meta/persona.md")
-    assert protocol is not None and persona is not None
+    assert persona is not None
+    # The protocol ships with the product; it is no longer seeded as a page.
+    assert await get_page(principal, "personal", "meta/protocol.md") is None
 
 
 async def test_stranger_is_denied(tx, household):

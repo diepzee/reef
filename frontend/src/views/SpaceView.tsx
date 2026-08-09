@@ -29,7 +29,7 @@ export default function SpaceView() {
   return (
     <div>
       <div className="hero">
-        <h1 className="hero-title">{isPersonal ? "Personal" : space}</h1>
+        <h1 className="hero-title">{space}</h1>
       </div>
 
       {indexError && <div className="notice">{indexError}</div>}

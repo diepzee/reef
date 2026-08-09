@@ -125,6 +125,16 @@ async def test_update_meta_page_refuses_any_space_but_personal(tx, household):
     assert (await get_page(me, "personal", "meta/persona.md")).body == "Blunt."
 
 
+async def test_update_meta_page_refuses_the_protocol_path(tx, household):
+    """The protocol ships with rif; only the persona is an editable page."""
+    me = principal_for(household["wouter"])
+    refused = await tool_update_meta_page(
+        me, "personal", "meta/protocol.md", "MY OWN RULES", "x", confirm=True
+    )
+    assert refused["error"] == "not_persona"
+    assert await get_page(me, "personal", "meta/protocol.md") is None
+
+
 async def test_update_meta_page_still_guards_path_and_confirmation(tx, household):
     """The ordinary-path and unconfirmed refusals survive the personal-only check.
 

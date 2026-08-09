@@ -15,7 +15,7 @@ from uuid import UUID
 from rif.access import Principal, resolve_space
 from rif.models import Membership, Page, Person, Space, SpaceKind
 from rif.pages import save_page
-from rif.protocol import PERSONA_PATH, PERSONA_STUB, PROTOCOL_PATH, PROTOCOL_TEMPLATE
+from rif.protocol import PERSONA_PATH, PERSONA_STUB
 
 _SLUG_RE = re.compile(r"[a-z][a-z0-9-]{1,63}\Z")
 _RESERVED_PREFIXES = ("personal",)
@@ -258,15 +258,6 @@ async def ensure_personal_space(person: Person) -> None:
     await space.save()
     await Membership(person_id=person.id, space_id=space.id).save()
     principal = Principal(person_id=person.id, email=person.email)
-    await save_page(
-        principal,
-        "personal",
-        PROTOCOL_PATH,
-        PROTOCOL_TEMPLATE,
-        message="seeded at first sign-in",
-        title="Operating protocol",
-        allow_protected=True,
-    )
     await save_page(
         principal,
         "personal",
