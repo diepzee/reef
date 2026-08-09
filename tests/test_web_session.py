@@ -20,6 +20,39 @@ def test_round_trip():
     assert data.expires_at == 1000.0 + SESSION_TTL_SECONDS
 
 
+def test_sid_round_trip():
+    """A token sealed with a sid carries it back out on unseal."""
+    token = seal(uuid4(), "a@b.com", secret=SECRET, now=1000.0, sid="ses_123")
+    data = unseal(token, secret=SECRET, now=1000.0)
+    assert data is not None
+    assert data.sid == "ses_123"
+
+
+def test_sid_absent_is_none():
+    """A token sealed without a sid (incl. pre-sid legacy tokens) has sid None."""
+    token = seal(uuid4(), "a@b.com", secret=SECRET, now=1000.0)
+    data = unseal(token, secret=SECRET, now=1000.0)
+    assert data is not None
+    assert data.sid is None
+
+
+def test_non_string_sid_rejected():
+    """Payload with a numeric sid is rejected."""
+    issued = 1000.0
+    payload = json.dumps(
+        {
+            "pid": str(uuid4()),
+            "email": "a@b.com",
+            "exp": issued + SESSION_TTL_SECONDS,
+            "sid": 7,
+        },
+        separators=(",", ":"),
+    ).encode()
+    sig = _sign(payload, SECRET)
+    token = base64.urlsafe_b64encode(payload).rstrip(b"=").decode() + "." + sig
+    assert unseal(token, secret=SECRET, now=issued) is None
+
+
 def test_tampered_signature_rejected():
     """Tampered signature fails verification."""
     token = seal(uuid4(), "a@b.com", secret=SECRET, now=1000.0)

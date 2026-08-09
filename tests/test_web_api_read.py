@@ -55,6 +55,20 @@ async def test_me(api, world):
     assert body["display_name"] == "Alice"
 
 
+async def test_sliding_renewal_preserves_sid(api, world):
+    """The per-request cookie renewal carries the AuthKit sid forward."""
+    from rif.web.session import unseal
+
+    alice, _, _ = world
+    token = seal(alice.id, alice.email, secret="test-secret", sid="ses_abc")
+    api.cookies.set("rif_session", token)
+    response = await api.get("/api/me")
+    assert response.status_code == 200
+    renewed = unseal(response.cookies["rif_session"], secret="test-secret")
+    assert renewed is not None
+    assert renewed.sid == "ses_abc"
+
+
 async def test_get_page_and_404(api, world):
     """A page fetch returns the body; missing paths and foreign spaces 404."""
     from rif.access import Principal
