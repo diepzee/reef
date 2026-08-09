@@ -15,7 +15,7 @@
  * "only you" instead of a stack, matching every other "only you" surface.
  */
 
-import type { CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
@@ -23,6 +23,7 @@ import { FrondGlyph } from "../components/ReefMark";
 import { spaceColor } from "../components/spaceColor";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
+import { getSpacesView, setSpacesView, type SpacesView } from "../spacesView";
 import type { SpaceIndex } from "../types";
 
 /** One space's card: hue stripe, tinted frond chip, alias, subline, and (shared spaces) its member stack. */
@@ -64,30 +65,127 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
   );
 }
 
+/** One space as a grid tile: coral glyph in a circular hue "pool", alias, subline. */
+function SpaceTile({ space }: { space: SpaceIndex }) {
+  const isPersonal = space.alias === "personal";
+  const hue = spaceColor(space.alias);
+  const { members } = useMembers(space.alias);
+  const pageCount = space.pages.length;
+
+  return (
+    <Link
+      to={`/s/${space.alias}`}
+      className="card space-tile"
+      style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
+    >
+      <span className="space-tile-pool" aria-hidden="true">
+        <FrondGlyph color={hue.light} size={24} />
+      </span>
+      <span className="space-card-alias">{isPersonal ? "Personal" : space.alias}</span>
+      <span className="space-card-sub muted">
+        {pageCount} page{pageCount === 1 ? "" : "s"}
+        {isPersonal ? " · only you" : ""}
+      </span>
+      {!isPersonal && members && (
+        <AvatarStack
+          names={members.members.map((member) => member.display_name)}
+          size="sm"
+          ariaLabel={`Members of ${space.alias}`}
+        />
+      )}
+    </Link>
+  );
+}
+
 export default function Home() {
   const { index, error } = useIndex();
   const spaces = index?.spaces ?? null;
+  const [view, setView] = useState<SpacesView>(getSpacesView);
+
+  function pick(next: SpacesView) {
+    setView(next);
+    setSpacesView(next);
+  }
 
   return (
     <div>
-      <h1>Spaces</h1>
+      <div className="spaces-head">
+        <h1>Spaces</h1>
+        <div className="segview" role="tablist" aria-label="View">
+          <button
+            type="button"
+            role="tab"
+            className={`seg ${view === "list" ? "seg-active" : ""}`}
+            aria-selected={view === "list"}
+            aria-label="List view"
+            onClick={() => pick("list")}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M2 4h12M2 8h12M2 12h12"
+                stroke="currentColor"
+                strokeWidth="1.9"
+                strokeLinecap="round"
+                fill="none"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`seg ${view === "grid" ? "seg-active" : ""}`}
+            aria-selected={view === "grid"}
+            aria-label="Tile view"
+            onClick={() => pick("grid")}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <g fill="currentColor">
+                <rect x="2" y="2" width="5.2" height="5.2" rx="1.4" />
+                <rect x="8.8" y="2" width="5.2" height="5.2" rx="1.4" />
+                <rect x="2" y="8.8" width="5.2" height="5.2" rx="1.4" />
+                <rect x="8.8" y="8.8" width="5.2" height="5.2" rx="1.4" />
+              </g>
+            </svg>
+          </button>
+        </div>
+      </div>
       {error && <div className="notice">{error}</div>}
       {!error && spaces === null && <p className="muted">Loading…</p>}
       {spaces !== null && spaces.length === 0 && (
         <p className="muted">No spaces yet.</p>
       )}
-      <ul className="card-list">
-        {spaces?.map((space) => (
-          <li key={space.alias}>
-            <SpaceCard space={space} />
+      {view === "list" ? (
+        <>
+          <ul className="card-list">
+            {spaces?.map((space) => (
+              <li key={space.alias}>
+                <SpaceCard space={space} />
+              </li>
+            ))}
+          </ul>
+          <p>
+            <Link to="/spaces/new" className="button">
+              New space
+            </Link>
+          </p>
+        </>
+      ) : (
+        <ul className="tile-grid">
+          {spaces?.map((space) => (
+            <li key={space.alias}>
+              <SpaceTile space={space} />
+            </li>
+          ))}
+          <li>
+            <Link to="/spaces/new" className="card space-tile space-tile-new">
+              <span className="space-tile-plus" aria-hidden="true">
+                +
+              </span>
+              New space
+            </Link>
           </li>
-        ))}
-      </ul>
-      <p>
-        <Link to="/spaces/new" className="button">
-          New space
-        </Link>
-      </p>
+        </ul>
+      )}
     </div>
   );
 }

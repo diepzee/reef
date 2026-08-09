@@ -29,7 +29,7 @@ import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 import type { Me } from "../types";
 import { Avatar, AvatarStack } from "./Avatar";
-import { ReefMark } from "./ReefMark";
+import { FrondGlyph } from "./ReefMark";
 import { spaceColor } from "./spaceColor";
 
 /** Parse the active space alias and (if on a page route) active page path from a pathname. */
@@ -57,7 +57,7 @@ export function Sidebar({ me }: { me: Me | null }) {
     try {
       // The backend hands back a WorkOS logout URL when it knows the
       // upstream AuthKit session id; navigating there ends that session
-      // too. Without it, only rif's cookie is gone and the next login
+      // too. Without it, only reef's cookie is gone and the next login
       // redirect would silently sign the user right back in.
       const result = await apiSend<{ ok: boolean; logout_url?: string }>(
         "POST",
@@ -72,8 +72,8 @@ export function Sidebar({ me }: { me: Me | null }) {
   return (
     <nav className="side">
       <Link to="/" className="side-brand">
-        <ReefMark size={30} className="side-brand-icon" />
-        rif
+        <FrondGlyph color="var(--accent)" size={15} />
+        reef
       </Link>
 
       <div className="side-label">Spaces</div>

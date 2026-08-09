@@ -10,10 +10,12 @@
  * always wins the cascade over a dark-only media block in an earlier one).
  */
 
-:root {
-  --font-sans:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+@font-face {
+  font-family: "Nunito";
+  src: url("./fonts/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
 }
 
 * {
@@ -22,6 +24,13 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+}
+
+h1,
+h2,
+h3 {
+  font-weight: 800;
+  letter-spacing: -0.005em;
 }
 
 body {
@@ -95,30 +104,23 @@ textarea {
 
 .app-header-link {
   display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: baseline;
+  gap: 6px;
   text-decoration: none;
   color: var(--accent);
 }
 
-.app-header-icon {
-  display: block;
-  flex-shrink: 0;
-}
-
 .app-header-wordmark {
-  font-size: 1.125rem;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: -0.005em;
   color: var(--ink);
 }
 
-/* Identity pass: the serif tagline under the mobile header's brand row, Home only (see AppShell). */
+/* The tagline under the mobile header's brand row, Home only (see AppShell). */
 .app-header-tagline {
   margin: 4px 0 0;
-  font-family: var(--serif);
-  font-style: italic;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -221,12 +223,99 @@ textarea {
 
 .space-card-alias {
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: var(--text-md);
   color: var(--ink);
 }
 
 .space-card-sub {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
+}
+
+/* Spaces heading row: title left, view picker right (spec: "Main screen"). */
+.spaces-head {
+  display: flex;
+  align-items: center;
+}
+
+.spaces-head h1 {
+  margin-right: auto;
+}
+
+/* Segmented icon picker — pill track, raised active segment. */
+.segview {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+}
+
+.seg {
+  min-height: auto;
+  min-width: auto;
+  width: 34px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.seg-active {
+  background: var(--field);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgb(10 30 40 / 0.15);
+}
+
+.seg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Tile view: 2-up grid of habitat tiles. */
+.tile-grid {
+  list-style: none;
+  margin: 1rem 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.space-tile {
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-height: 7.5rem;
+}
+
+.space-tile-pool {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--hue-base) 12%, white);
+}
+
+.space-tile-new {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: var(--text-base);
+}
+
+.space-tile-plus {
+  font-size: 1.5rem;
+  color: var(--accent);
+  line-height: 1;
 }
 
 /*
@@ -243,7 +332,7 @@ textarea {
   border-radius: 10px;
   background: var(--warn-bg);
   color: var(--warn-ink);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -290,7 +379,7 @@ textarea {
 }
 
 .ed-label {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -303,7 +392,7 @@ textarea {
   background: var(--field);
   border-radius: 8px;
   padding: 9px 12px;
-  font-size: 14px;
+  font-size: var(--text-base);
   color: var(--ink);
   width: 100%;
 }
@@ -314,7 +403,7 @@ textarea {
 
 .editor-textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--text-sm);
   resize: none;
   overflow: hidden;
   min-height: 150px;
@@ -346,7 +435,7 @@ textarea {
 .ed-toggle {
   min-height: auto;
   min-width: auto;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted);
   background: var(--panel);
   border: none;
@@ -367,7 +456,7 @@ textarea {
    * buttons on an --accent fill.
    */
   color: var(--ground);
-  font-size: 13.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   padding: 9px 16px;
   border: none;
@@ -380,7 +469,7 @@ textarea {
 }
 
 .ed-version-caption {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -389,7 +478,7 @@ textarea {
   flex-wrap: wrap;
   gap: 6px;
   padding: 8px 0 0;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 
@@ -409,7 +498,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   color: #fff;
   border: 2px solid var(--ground);
@@ -439,7 +528,7 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 700;
   background: var(--faint);
   color: var(--ink);
@@ -488,22 +577,18 @@ textarea {
 
 .side-brand {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 15px;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 800;
+  font-size: var(--text-md);
+  letter-spacing: -0.005em;
   padding: 2px 8px 14px;
   text-decoration: none;
   color: var(--ink);
 }
 
-.side-brand-icon {
-  display: block;
-  flex-shrink: 0;
-}
-
 .side-label {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -517,7 +602,7 @@ textarea {
   gap: 8px;
   padding: 7px 8px;
   border-radius: 8px;
-  font-size: 13.5px;
+  font-size: var(--text-base);
   color: var(--muted);
   text-decoration: none;
 }
@@ -534,7 +619,7 @@ textarea {
 
 .side-count {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 
@@ -557,7 +642,7 @@ textarea {
 .side-page {
   display: block;
   padding: 5px 8px 5px 24px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted);
   border-radius: 8px;
   text-decoration: none;
@@ -572,7 +657,7 @@ textarea {
 .side-newpage {
   display: block;
   padding: 6px 8px 6px 24px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--accent);
   font-weight: 600;
   text-decoration: none;
@@ -589,7 +674,7 @@ textarea {
   gap: 8px;
   padding: 10px 8px 2px;
   border-top: 1px solid var(--hairline);
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -608,6 +693,29 @@ textarea {
   color: inherit;
   text-decoration: underline;
   font-size: inherit;
+}
+
+/* Lockup C — splash-only: coral + wordmark growing from a shared accent "seabed" rule. */
+.lockup-c {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.28em;
+  position: relative;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  color: var(--ink);
+}
+
+.lockup-c::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.14em;
+  height: 0.09em;
+  border-radius: 0.05em;
+  background: var(--accent);
 }
 
 .signed-out {
@@ -653,7 +761,7 @@ textarea {
 }
 
 .whobar-lbl {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--muted);
 }
 
@@ -664,7 +772,7 @@ textarea {
   padding: 0;
   border: none;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--accent);
   cursor: pointer;
@@ -684,13 +792,13 @@ textarea {
 }
 
 .hero-title {
-  font-size: 26px;
+  font-size: var(--text-xl);
   letter-spacing: -0.02em;
   margin: 0;
 }
 
 .section-label {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -730,7 +838,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--text-base);
   flex: none;
 }
 
@@ -744,12 +852,12 @@ textarea {
 
 .page-row-title {
   font-weight: 600;
-  font-size: 14.5px;
+  font-size: var(--text-md);
   color: var(--ink);
 }
 
 .page-row-desc {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -758,7 +866,7 @@ textarea {
 
 .page-row-when {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--faint);
   white-space: nowrap;
   flex: none;
@@ -771,7 +879,7 @@ textarea {
   gap: 6px;
   background: var(--accent);
   color: var(--ground);
-  font-size: 13.5px;
+  font-size: var(--text-base);
   font-weight: 600;
   padding: 9px 14px;
   border-radius: 8px;
@@ -802,7 +910,7 @@ textarea {
 }
 
 .page-bar-crumb {
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--muted);
   text-decoration: none;
 }
@@ -817,7 +925,7 @@ textarea {
 }
 
 .page-bar-edit {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--accent-deep);
   background: var(--accent-soft);
@@ -832,26 +940,24 @@ textarea {
  * (desktop >=900px, 16.5px/1.65), both capped at the same 620px measure.
  */
 .reading {
-  max-width: 620px;
+  max-width: 36rem;
 }
 
 .reading-title {
-  font-family: var(--serif);
-  font-size: 27px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-size: var(--text-xl);
+  font-weight: 800;
+  letter-spacing: -0.005em;
   margin: 20px 0 6px;
 }
 
 .reading-meta {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--muted);
   margin: 0 0 20px;
 }
 
 .reading-body {
-  font-family: var(--serif);
-  font-size: 16px;
+  font-size: var(--text-lg);
   line-height: 1.62;
   color: var(--ink);
 }
@@ -863,11 +969,10 @@ textarea {
 
 @media (min-width: 900px) {
   .reading-title {
-    font-size: 30px;
+    font-size: var(--text-2xl);
   }
 
   .reading-body {
-    font-size: 16.5px;
     line-height: 1.65;
   }
 }
@@ -880,7 +985,7 @@ textarea {
 }
 
 .reading-tag {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--muted);
   background: var(--hairline-soft);
@@ -946,12 +1051,12 @@ textarea {
 }
 
 .mbs-title {
-  font-size: 16px;
+  font-size: var(--text-lg);
   margin: 0;
 }
 
 .mbs-sub {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   color: var(--muted);
   margin: 4px 0 0;
 }
@@ -990,11 +1095,11 @@ textarea {
 
 .mbs-person-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 .mbs-person-email {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1003,7 +1108,7 @@ textarea {
 
 .mbs-owner-tag {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1023,7 +1128,7 @@ textarea {
   padding: 0;
   border: none;
   background: none;
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: var(--danger);
   cursor: pointer;
 }
@@ -1034,13 +1139,13 @@ textarea {
   background: var(--danger-bg);
   border-color: var(--danger-border);
   color: var(--danger-ink);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .mbs-cancel-remove {
   min-height: auto;
   padding: 0.35rem 0.6rem;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .mbs-invite {
@@ -1054,7 +1159,7 @@ textarea {
 }
 
 .mbs-invite-title {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   margin-bottom: 2px;
 }
@@ -1064,7 +1169,7 @@ textarea {
   min-height: auto;
   background: var(--accent);
   color: var(--ground);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 600;
   padding: 7px 13px;
   border: none;
@@ -1079,7 +1184,7 @@ textarea {
   color: var(--warn-ink);
   border-radius: 10px;
   padding: 10px 12px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -1164,8 +1269,9 @@ textarea {
       box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
     }
 
-    /* Home card chip: same --hue-base, darker mix target (see Home.tsx). */
-    .space-card-chip {
+    /* Home card chip + tile pool: same --hue-base, darker mix target (see Home.tsx). */
+    .space-card-chip,
+    .space-tile-pool {
       background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
     }
   }
@@ -1207,7 +1313,8 @@ textarea {
     box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
   }
 
-  .space-card-chip {
+  .space-card-chip,
+  .space-tile-pool {
     background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
   }
 }
