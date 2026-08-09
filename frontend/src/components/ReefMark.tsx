@@ -9,8 +9,14 @@
 
 import { useId } from "react";
 
-/** The seven frond paths shared by {@link ReefMark} and {@link FrondGlyph}, copied from `public/reef.svg`. */
+/**
+ * The seabed bar plus seven frond paths shared by {@link ReefMark} and
+ * {@link FrondGlyph}, copied from `public/reef.svg`. The bar is first so
+ * the fronds layer over it, fusing their rounded bases into one closed
+ * base instead of reading as separate "toes" at small sizes.
+ */
 const FROND_PATHS = [
+  "M18 50h28",
   "M20 50C20 45.2 13 42.2 13 38",
   "M24 50C24 42.4 19 37.7 19 31",
   "M28 50C28 39.6 25 33.1 25 24",
