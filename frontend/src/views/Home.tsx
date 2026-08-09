@@ -45,7 +45,7 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
         </span>
         <span className="space-card-text">
           <span className="space-card-alias">
-            {isPersonal ? "Personal" : space.alias}
+            {space.alias}
           </span>
           <span className="space-card-sub muted">
             {pageCount} page{pageCount === 1 ? "" : "s"}

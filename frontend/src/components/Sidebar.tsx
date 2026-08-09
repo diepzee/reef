@@ -90,7 +90,7 @@ export function Sidebar({ me }: { me: Me | null }) {
               className={`side-item ${isActive ? "active" : ""}`}
             >
               <span className="side-dot" style={{ background: hue.base }} />
-              <span>{isPersonal ? "Personal" : space.alias}</span>
+              <span>{space.alias}</span>
               {isActive && !isPersonal ? (
                 members && (
                   // This sits inside the space's own <Link>, and opening
