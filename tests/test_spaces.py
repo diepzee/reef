@@ -85,7 +85,7 @@ async def test_onboarding_survives_an_attempted_slug_squat(tx, household, graph)
         await create_space(attacker, f"personal-{victim.id.hex}")
     await ensure_personal_space(victim)
     assert (
-        await get_page(principal_for(victim), "personal", "meta/protocol.md")
+        await get_page(principal_for(victim), "personal", "meta/persona.md")
         is not None
     )
 
@@ -149,14 +149,15 @@ async def test_removing_unbound_invitee_erases_the_orphan_person(tx, household):
     )
 
 
-async def test_ensure_personal_space_seeds_protocol_and_persona_once(tx, graph):
+async def test_ensure_personal_space_seeds_only_the_persona_once(tx, graph):
+    """The protocol ships with the product; only the persona is seeded."""
     anna = await graph.person("anna@example.test", "Anna")
     await ensure_personal_space(anna)
     await ensure_personal_space(anna)  # idempotent
     me = principal_for(anna)
-    protocol = await get_page(me, "personal", "meta/protocol.md")
     persona = await get_page(me, "personal", "meta/persona.md")
-    assert protocol is not None and persona is not None
-    assert protocol.version == 1  # seeded once, not twice
+    assert persona is not None
+    assert persona.version == 1  # seeded once, not twice
+    assert await get_page(me, "personal", "meta/protocol.md") is None
     spaces = await Space.objects().where(Space.owner_person_id == anna.id)
     assert len(spaces) == 1

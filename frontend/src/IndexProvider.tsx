@@ -65,7 +65,15 @@ export function IndexProvider({ children }: { children: ReactNode }) {
     try {
       const payload = await apiGet<IndexPayload>("/api/index");
       if (isCancelled() || gen !== genRef.current) return;
-      setIndex(payload);
+      // meta/* pages steer the assistant (persona); they're not content,
+      // so they don't belong in space listings or page counts.
+      setIndex({
+        ...payload,
+        spaces: payload.spaces.map((space) => ({
+          ...space,
+          pages: space.pages.filter((page) => !page.path.startsWith("meta/")),
+        })),
+      });
       setError(null);
     } catch (err) {
       if (isCancelled() || gen !== genRef.current) return;

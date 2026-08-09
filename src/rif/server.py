@@ -33,7 +33,7 @@ from rif.pages import (
     save_page,
 )
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
-from rif.protocol import build_instructions
+from rif.protocol import PERSONA_PATH, build_instructions
 from rif.spaces import SpaceError, member_names
 from rif.web.routes_api import register_api_routes
 from rif.web.routes_auth import register_auth_routes
@@ -618,19 +618,21 @@ async def tool_update_meta_page(
     message: str,
     confirm: bool = False,
 ) -> dict:
-    """Write a protocol or persona page; split from the tool for testability.
+    """Write the persona page; split from the tool for testability.
 
     The personal-only rule is a security boundary, not a convenience. This is
     the one sanctioned bypass of the ``meta/`` write guard, and
-    ``build_instructions`` reads the protocol and persona only from the
-    caller's own personal space — so a ``meta/`` page in a shared space
-    steers nobody, while the context loader still ranks ``meta/`` first and
-    would put instruction-shaped text at the top of every other member's
-    loaded context.
+    ``build_instructions`` reads the persona only from the caller's own
+    personal space — so a ``meta/`` page in a shared space steers nobody,
+    while the context loader still ranks ``meta/`` first and would put
+    instruction-shaped text at the top of every other member's loaded
+    context. The operating protocol is not writable at all: it ships with
+    rif itself, so product improvements reach everyone instead of freezing
+    per person at whatever a seed template once said.
 
     :param principal: the authenticated person
     :param space: must be ``personal``
-    :param path: must start with ``meta/``
+    :param path: must be ``meta/persona.md``
     :param body: the full new body
     :param message: why this change is being made
     :param confirm: True only after the user has explicitly agreed
@@ -642,8 +644,16 @@ async def tool_update_meta_page(
         return {
             "error": "not_personal",
             "detail": (
-                "the protocol and persona are per-person; they live in your "
-                "personal space and nowhere else"
+                "the persona is per-person; it lives in your personal "
+                "space and nowhere else"
+            ),
+        }
+    if path != PERSONA_PATH:
+        return {
+            "error": "not_persona",
+            "detail": (
+                "the operating protocol is part of rif and cannot be edited "
+                "as a page; only meta/persona.md is writable"
             ),
         }
     if not confirm:
@@ -661,15 +671,16 @@ async def tool_update_meta_page(
 async def update_meta_page(
     space: str, path: str, body: str, message: str, confirm: bool = False
 ) -> dict:
-    """Update your operating protocol or persona. These pages steer the assistant.
+    """Update your persona page. It steers how the assistant works with you.
 
-    They are per-person and live in your personal space only; a shared space
-    is refused. Only call after telling the user exactly what will change and
-    receiving their agreement in this conversation; pass confirm=True to
-    proceed.
+    The persona is per-person and lives in your personal space only; a
+    shared space is refused, and the operating protocol is part of rif
+    itself and cannot be edited. Only call after telling the user exactly
+    what will change and receiving their agreement in this conversation;
+    pass confirm=True to proceed.
 
     :param space: must be ``personal``
-    :param path: must start with ``meta/``
+    :param path: must be ``meta/persona.md``
     :param body: the full new body
     :param message: why this change is being made
     :param confirm: True only after the user has explicitly agreed
