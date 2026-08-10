@@ -17,16 +17,8 @@ const EXPECTED_ANCHOR: Record<string, string> = {
   nudibranch: "grounded",
 };
 
-/** The families implemented so far — grows task by task until it equals FAMILIES. */
-const IMPLEMENTED = [
-  "sunAnemone",
-  "flower",
-  "spiral",
-  "tubes",
-  "seagrass",
-  "bubbles",
-  "staghorn",
-] as const;
+/** All eleven body plans — every family must generate. */
+const IMPLEMENTED = FAMILIES;
 
 describe("generateFamily", () => {
   test("families are deterministic and emit valid paths", () => {
@@ -44,6 +36,11 @@ describe("generateFamily", () => {
         }
       }
     }
+  });
+
+  test("every family is reachable", () => {
+    const seen = new Set(FAMILIES.map((f) => generateFamily(f, 7).family));
+    expect(seen.size).toEqual(11);
   });
 });
 

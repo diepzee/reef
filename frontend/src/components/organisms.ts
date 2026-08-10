@@ -286,6 +286,90 @@ function staghorn(rng: Rng): OrganismPath[] {
   return [{ d, stroke: 5 }];
 }
 
+/** Dome with capsule groove cutouts — grooves shrink near the rim so they stay inside. */
+function brain(rng: Rng): OrganismPath[] {
+  const rw = lerp(rng, 17, 20);
+  const rh = lerp(rng, 13, 16);
+  let d = `M${r2(32 - rw)} 54A${r2(rw)} ${r2(rh)} 0 0 1 ${r2(32 + rw)} 54Z`;
+  const grooves = int(rng, 4, 6);
+  for (let i = 0; i < grooves; i++) {
+    const th = lerp(rng, 0.3, Math.PI - 0.3);
+    const rad = lerp(rng, 0.2, 0.55);
+    const x = 32 - Math.cos(th) * rw * rad;
+    const y = 54 - Math.sin(th) * rh * rad - 2.5;
+    d += slot(x, y, lerp(rng, 5, 9) * (1 - rad * 0.5), 1.6, lerp(rng, -0.9, 0.9));
+  }
+  return [{ d, evenodd: true }];
+}
+
+/** Ray fan on a stem foot. */
+function scallop(rng: Rng): OrganismPath[] {
+  const n = int(rng, 7, 9);
+  const len = lerp(rng, 13, 16);
+  const spreadRad = (lerp(rng, 150, 190) * Math.PI) / 180;
+  const baseY = 44;
+  let rays = "";
+  for (let i = 0; i < n; i++) {
+    const th = -Math.PI / 2 + (i / (n - 1) - 0.5) * spreadRad;
+    rays += `M32 ${baseY}L${r2(32 + Math.cos(th) * len)} ${r2(baseY + Math.sin(th) * len)}`;
+  }
+  const foot = `M27 54C27 49 29 46 29.5 ${r2(baseY)}L34.5 ${r2(baseY)}C35 46 37 49 37 54Z`;
+  return [{ d: rays, stroke: lerp(rng, 3.4, 4.2) }, { d: foot }];
+}
+
+/** Scallop-rimmed clam fan with radial rib slots. */
+function shell(rng: Rng): OrganismPath[] {
+  const k = int(rng, 5, 7);
+  const rad = lerp(rng, 15, 18);
+  const spreadRad = lerp(rng, 1.9, 2.3);
+  const start = -Math.PI / 2 - spreadRad / 2;
+  let d = `M32 52L${r2(32 + Math.cos(start) * rad)} ${r2(52 + Math.sin(start) * rad)}`;
+  for (let i = 1; i <= k; i++) {
+    const th = start + (i / k) * spreadRad;
+    const bump = r2((rad * spreadRad) / k / 1.6);
+    d += `A${bump} ${bump} 0 0 1 ${r2(32 + Math.cos(th) * rad)} ${r2(52 + Math.sin(th) * rad)}`;
+  }
+  d += "Z";
+  const ribs = int(rng, 3, 5);
+  for (let i = 1; i <= ribs; i++) {
+    const th = start + (i / (ribs + 1)) * spreadRad;
+    d += slot(32 + Math.cos(th) * rad * 0.55, 52 + Math.sin(th) * rad * 0.55, rad * 0.55, 1.1, th);
+  }
+  return [{ d, evenodd: true }];
+}
+
+/** Slug with humped back, two rhinophores, and spot cutouts; faces left or right. */
+function nudibranch(rng: Rng): OrganismPath[] {
+  const flip = rng() < 0.5 ? -1 : 1;
+  const len = lerp(rng, 14, 17);
+  const h = lerp(rng, 10, 13);
+  const tailY = 54 - lerp(rng, 4, 7);
+  const hx = 32 + flip * len;
+  const tx = 32 - flip * len;
+  const body =
+    `M${r2(tx)} 54` +
+    `C${r2(tx)} ${r2(tailY)} ${r2(32 - flip * len * 0.5)} ${r2(54 - h)} 32 ${r2(54 - h)}` +
+    `C${r2(32 + flip * len * 0.55)} ${r2(54 - h)} ${r2(hx)} ${r2(54 - h * 0.55)} ${r2(hx)} ${r2(54 - h * 0.3)}` +
+    `C${r2(hx)} ${r2(54 - h * 0.05)} ${r2(32 + flip * len * 0.6)} 54 32 54Z`;
+  let dots = "";
+  const nDots = int(rng, 2, 4);
+  for (let i = 0; i < nDots; i++) {
+    dots += circle(
+      32 - flip * len * 0.5 + flip * (i / nDots) * len * 0.9,
+      54 - h * lerp(rng, 0.35, 0.6),
+      lerp(rng, 1.1, 1.7),
+    );
+  }
+  const hb = 32 + flip * len * 0.72;
+  let horns = "";
+  for (const off of [0, flip * 4]) {
+    const bx = hb - off;
+    const by = 54 - h * 0.78;
+    horns += `M${r2(bx)} ${r2(by)}C${r2(bx + flip)} ${r2(by - 3)} ${r2(bx + flip * 2)} ${r2(by - 4)} ${r2(bx + flip * 2.5)} ${r2(by - 6)}`;
+  }
+  return [{ d: body + dots, evenodd: true }, { d: horns, stroke: 2.2 }];
+}
+
 const GENERATORS: Partial<Record<Family, Generator>> = {
   sunAnemone,
   flower,
@@ -294,6 +378,10 @@ const GENERATORS: Partial<Record<Family, Generator>> = {
   seagrass,
   bubbles,
   staghorn,
+  brain,
+  scallop,
+  shell,
+  nudibranch,
 };
 
 /** Grow one family member from a seed — the gallery's and organismFor's shared entry. */
@@ -306,8 +394,3 @@ export function generateFamily(family: Exclude<Family, "coral">, seed: number): 
     paths: gen(mulberry32(seed)),
   };
 }
-
-// Consumed by the remaining family generators (Tasks 3–4).
-void blade;
-void tube;
-void slot;
