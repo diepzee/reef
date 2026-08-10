@@ -203,7 +203,7 @@ function spiral(rng: Rng): OrganismPath[] {
       `Q${r2(32 + Math.cos(thMid) * mid)} ${r2(32 + Math.sin(thMid) * mid)}` +
       ` ${r2(32 + Math.cos(thEnd) * outer)} ${r2(32 + Math.sin(thEnd) * outer)}`;
   }
-  return [{ d, stroke: lerp(rng, 2.8, 3.4) }];
+  return [{ d, stroke: Math.round(lerp(rng, 2.8, 3.4) * 100) / 100 }];
 }
 
 const RADIAL: ReadonlySet<string> = new Set(["sunAnemone", "flower", "spiral"]);
@@ -331,7 +331,7 @@ function scallop(rng: Rng): OrganismPath[] {
     rays += `M32 ${baseY}Q${r2(mx)} ${r2(my)} ${r2(ex)} ${r2(ey)}`;
   }
   const foot = `M27.5 54C27.5 49 29.5 47 30 ${r2(baseY)}L34 ${r2(baseY)}C34.5 47 36.5 49 36.5 54Z`;
-  return [{ d: rays, stroke: lerp(rng, 3.2, 3.6) }, { d: foot }];
+  return [{ d: rays, stroke: Math.round(lerp(rng, 3.2, 3.6) * 100) / 100 }, { d: foot }];
 }
 
 /** Scallop-rimmed clam fan with radial rib slots. */
