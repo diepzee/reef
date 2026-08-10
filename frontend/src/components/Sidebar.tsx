@@ -76,7 +76,7 @@ export function Sidebar({ me }: { me: Me | null }) {
         reef
       </Link>
 
-      <div className="side-label">Spaces</div>
+      <div className="side-label">Reef</div>
 
       {index?.spaces.map((space) => {
         const isActive = space.alias === activeSpace;
@@ -147,7 +147,7 @@ export function Sidebar({ me }: { me: Me | null }) {
 
       <Link to="/spaces/new" className="side-item side-newspace">
         <span className="side-dot" />
-        <span>＋ New space</span>
+        <span>＋ New cove</span>
       </Link>
 
       <div className="side-me">

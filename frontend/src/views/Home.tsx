@@ -110,7 +110,7 @@ export default function Home() {
   return (
     <div>
       <div className="spaces-head">
-        <h1>Spaces</h1>
+        <h1>Reef</h1>
         <div className="segview" role="tablist" aria-label="View">
           <button
             type="button"
@@ -165,7 +165,7 @@ export default function Home() {
           </ul>
           <p>
             <Link to="/spaces/new" className="button">
-              New space
+              New cove
             </Link>
           </p>
         </>
@@ -181,7 +181,7 @@ export default function Home() {
               <span className="space-tile-plus" aria-hidden="true">
                 +
               </span>
-              New space
+              New cove
             </Link>
           </li>
         </ul>
