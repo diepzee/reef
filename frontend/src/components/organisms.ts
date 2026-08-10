@@ -90,10 +90,10 @@ function tube(x: number, y0: number, h: number, w: number, lean: number): string
   const rx = w / 2;
   const ry = rx * 0.45;
   return (
-    `M${r2(x - rx * 1.12)} ${r2(y0)}L${r2(topX - rx)} ${r2(topY)}` +
+    `M${r2(x - rx * 0.95)} ${r2(y0)}L${r2(topX - rx)} ${r2(topY)}` +
     `A${r2(rx)} ${r2(ry)} 0 0 1 ${r2(topX + rx)} ${r2(topY)}` +
-    `L${r2(x + rx * 1.12)} ${r2(y0)}Z` +
-    ellipse(topX, topY, rx * 0.55, ry * 0.55)
+    `L${r2(x + rx * 0.95)} ${r2(y0)}Z` +
+    ellipse(topX, topY, rx * 0.6, ry * 0.6)
   );
 }
 
@@ -213,12 +213,12 @@ type Generator = (rng: Rng) => OrganismPath[];
 /** 3–5 leaning tube sponges; separate paths so overlaps don't XOR-cancel. */
 function tubes(rng: Rng): OrganismPath[] {
   const n = int(rng, 3, 5);
-  const spread = 34 / n;
+  const spread = 38 / n;
   const paths: OrganismPath[] = [];
   for (let i = 0; i < n; i++) {
-    const x = 32 + (i - (n - 1) / 2) * spread + lerp(rng, -2, 2);
+    const x = 32 + (i - (n - 1) / 2) * spread + lerp(rng, -1.2, 1.2);
     paths.push({
-      d: tube(x, 54, lerp(rng, 16, 30), lerp(rng, 9, 12), lerp(rng, -3.5, 3.5)),
+      d: tube(x, 54, lerp(rng, 14, 32), lerp(rng, 7, 9.5), lerp(rng, -2.5, 2.5)),
       evenodd: true,
     });
   }
@@ -228,13 +228,13 @@ function tubes(rng: Rng): OrganismPath[] {
 /** Blades all swept by the same current, taller blades swaying further. */
 function seagrass(rng: Rng): OrganismPath[] {
   const n = int(rng, 4, 6);
-  const sway = lerp(rng, 4, 9) * (rng() < 0.5 ? -1 : 1);
+  const sway = lerp(rng, 7, 12) * (rng() < 0.5 ? -1 : 1);
   const spread = 36 / n;
   let d = "";
   for (let i = 0; i < n; i++) {
     const x = 32 + (i - (n - 1) / 2) * spread + lerp(rng, -1.5, 1.5);
-    const h = lerp(rng, 16, 30);
-    d += blade(x, 54, h, sway * (h / 30), lerp(rng, 2.2, 3.4));
+    const h = lerp(rng, 18, 32);
+    d += blade(x, 54, h, sway * (h / 32), lerp(rng, 2.8, 4));
   }
   return [{ d }];
 }
@@ -263,58 +263,75 @@ function bubbles(rng: Rng): OrganismPath[] {
   return [{ d }];
 }
 
-/** Forking antler stems, thick round-capped strokes. */
+/** One antler coral: short trunk fanning into curved arms, each twice-forked. */
 function staghorn(rng: Rng): OrganismPath[] {
-  const stems = int(rng, 2, 3);
-  const spread = stems === 2 ? 16 : 13;
-  const mid = Math.floor(stems / 2);
-  let d = "";
-  for (let s = 0; s < stems; s++) {
-    const x = 32 + (s - (stems - 1) / 2) * spread + lerp(rng, -1.5, 1.5);
-    const h = s === mid ? lerp(rng, 24, 32) : lerp(rng, 14, 20);
-    d += `M${r2(x)} 54V${r2(54 - h)}`;
-    const forks = int(rng, 1, 2);
-    for (let f = 0; f < forks; f++) {
-      const fy = 54 - h * lerp(rng, 0.35, 0.75);
-      const dir = f % 2 === 0 ? 1 : -1;
+  const trunkH = lerp(rng, 6, 9);
+  const y0 = 54 - trunkH;
+  let d = `M32 54V${r2(y0)}`;
+  const arms = int(rng, 2, 3);
+  const fan = lerp(rng, 1.5, 1.9);
+  for (let a = 0; a < arms; a++) {
+    const t = arms === 1 ? 0.5 : a / (arms - 1);
+    const ang = -Math.PI / 2 + (t - 0.5) * fan + lerp(rng, -0.08, 0.08);
+    const len = lerp(rng, 18, 27);
+    const ex = 32 + Math.cos(ang) * len * 0.85;
+    const ey = y0 + Math.sin(ang) * len;
+    const cx = 32 + Math.cos(ang) * len * 0.3 - Math.sin(ang) * 3;
+    const cy = y0 + Math.sin(ang) * len * 0.4;
+    d += `M32 ${r2(y0)}Q${r2(cx)} ${r2(cy)} ${r2(ex)} ${r2(ey)}`;
+    for (const ff of [0.4, 0.7]) {
+      const f = ff + lerp(rng, -0.06, 0.06);
+      const fx = 32 + (ex - 32) * f;
+      const fy = y0 + (ey - y0) * f;
+      const side = (a + (ff > 0.5 ? 1 : 0)) % 2 === 0 ? 1 : -1;
+      const fang = ang + side * lerp(rng, 0.55, 0.85);
       const fl = lerp(rng, 6, 10);
       d +=
-        `M${r2(x)} ${r2(fy)}` +
-        `C${r2(x)} ${r2(fy - fl * 0.5)} ${r2(x + dir * fl * 0.7)} ${r2(fy - fl * 0.5)} ${r2(x + dir * fl * 0.8)} ${r2(fy - fl)}`;
+        `M${r2(fx)} ${r2(fy)}` +
+        `Q${r2(fx + Math.cos(fang) * fl * 0.6)} ${r2(fy + Math.sin(fang) * fl * 0.6)}` +
+        ` ${r2(fx + Math.cos(fang) * fl)} ${r2(fy + Math.sin(fang) * fl)}`;
     }
   }
-  return [{ d, stroke: 5 }];
+  return [{ d, stroke: 4 }];
 }
 
-/** Dome with capsule groove cutouts — grooves shrink near the rim so they stay inside. */
+/** Dome with three clean horizontal grooves, longest near the base. */
 function brain(rng: Rng): OrganismPath[] {
-  const rw = lerp(rng, 17, 20);
-  const rh = lerp(rng, 13, 16);
+  const rw = lerp(rng, 16, 19);
+  const rh = lerp(rng, 14, 17);
   let d = `M${r2(32 - rw)} 54A${r2(rw)} ${r2(rh)} 0 0 1 ${r2(32 + rw)} 54Z`;
-  const grooves = int(rng, 4, 6);
-  for (let i = 0; i < grooves; i++) {
-    const th = lerp(rng, 0.3, Math.PI - 0.3);
-    const rad = lerp(rng, 0.2, 0.55);
-    const x = 32 - Math.cos(th) * rw * rad;
-    const y = 54 - Math.sin(th) * rh * rad - 2.5;
-    d += slot(x, y, lerp(rng, 5, 9) * (1 - rad * 0.5), 1.6, lerp(rng, -0.9, 0.9));
+  const fys = [0.3, 0.55, 0.78] as const;
+  const lens = [lerp(rng, 12, 16), lerp(rng, 9, 12), lerp(rng, 5, 7)] as const;
+  for (let i = 0; i < 3; i++) {
+    const fy = fys[i]! + lerp(rng, -0.04, 0.04);
+    const y = 54 - rh * fy;
+    const halfW = rw * Math.sqrt(Math.max(0.05, 1 - fy * fy));
+    const x = 32 + (i % 2 === 0 ? -1 : 1) * lerp(rng, 2, 5) * (1.2 - fy);
+    const len = Math.min(lens[i]!, 2 * (halfW * 0.8 - Math.abs(x - 32)));
+    d += slot(x, y, len, 1.7, lerp(rng, -0.12, 0.12));
   }
   return [{ d, evenodd: true }];
 }
 
-/** Ray fan on a stem foot. */
+/** Fan of gently bowed rays on a stem foot — domed tips, edges flaring out. */
 function scallop(rng: Rng): OrganismPath[] {
-  const n = int(rng, 7, 9);
-  const len = lerp(rng, 13, 16);
-  const spreadRad = (lerp(rng, 150, 190) * Math.PI) / 180;
-  const baseY = 44;
+  const n = int(rng, 5, 7);
+  const spreadRad = (lerp(rng, 140, 170) * Math.PI) / 180;
+  const maxLen = lerp(rng, 14, 17);
+  const baseY = 45;
   let rays = "";
   for (let i = 0; i < n; i++) {
-    const th = -Math.PI / 2 + (i / (n - 1) - 0.5) * spreadRad;
-    rays += `M32 ${baseY}L${r2(32 + Math.cos(th) * len)} ${r2(baseY + Math.sin(th) * len)}`;
+    const t = i / (n - 1);
+    const th = -Math.PI / 2 + (t - 0.5) * spreadRad;
+    const len = maxLen * (0.68 + 0.32 * Math.sin(Math.PI * t));
+    const ex = 32 + Math.cos(th) * len;
+    const ey = baseY + Math.sin(th) * len;
+    const mx = 32 + Math.cos(th) * len * 0.55 + (t - 0.5) * 5;
+    const my = baseY + Math.sin(th) * len * 0.55;
+    rays += `M32 ${baseY}Q${r2(mx)} ${r2(my)} ${r2(ex)} ${r2(ey)}`;
   }
-  const foot = `M27 54C27 49 29 46 29.5 ${r2(baseY)}L34.5 ${r2(baseY)}C35 46 37 49 37 54Z`;
-  return [{ d: rays, stroke: lerp(rng, 3.4, 4.2) }, { d: foot }];
+  const foot = `M27.5 54C27.5 49 29.5 47 30 ${r2(baseY)}L34 ${r2(baseY)}C34.5 47 36.5 49 36.5 54Z`;
+  return [{ d: rays, stroke: lerp(rng, 3.2, 3.6) }, { d: foot }];
 }
 
 /** Scallop-rimmed clam fan with radial rib slots. */
@@ -404,14 +421,21 @@ export function generateFamily(family: Exclude<Family, "coral">, seed: number): 
 export const CORAL_PATHS: readonly OrganismPath[] = [
   {
     d:
-      "M32 54V40" +
-      "M32 46C32 40 24 40 22 30C21 26 20 24 18 22" +
-      "M22 30C23 26 26 25 27 20" +
-      "M32 44C32 37 39 38 42 28C43 25 45 23 47 22" +
-      "M42 28C41 24 38 24 37 19" +
-      "M32 42C31 34 32 30 32 24C32 21 31 18 29 15" +
-      "M32 24C33 21 35 20 36 16",
-    stroke: 5.2,
+      // trunk, then seven branches radiating from the crown (32, 46) —
+      // tips trace a dome, edge branches flatten toward the seabed
+      "M32 54V46" +
+      "M32 46Q23.5 44.2 17.9 40.9" +
+      "M32 46Q23.1 40.8 17.2 31.2" +
+      "M32 46Q26.2 37.6 22.3 21.9" +
+      "M32 46Q32 35.8 32 17" +
+      "M32 46Q37.8 37.6 41.7 21.9" +
+      "M32 46Q40.9 40.8 46.8 31.2" +
+      "M32 46Q40.5 44.2 46.1 40.9" +
+      // small forks on the mid and center branches
+      "M23.1 37.1Q19.5 36.2 16.5 34.7" +
+      "M40.9 37.1Q44.5 36.2 47.5 34.7" +
+      "M32 27Q34.2 23.5 35.5 20.9",
+    stroke: 4.4,
   },
 ];
 
