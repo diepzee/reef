@@ -1,14 +1,17 @@
-"""Static SPA serving: ``/`` redirects to ``/app``, which serves the built frontend.
+"""Static serving: the marketing site at ``/``, the built SPA under ``/app``.
 
 Plain Starlette routes, registered onto the FastMCP server via
-``custom_route``: ``GET /`` bounces to ``/app``, and ``GET /app`` /
-``GET /app/{path:path}`` serve files out of ``Settings.static_dir``, falling
-back to ``index.html`` for any path that isn't a real file on disk -- which is
-how a client-side router gets to own everything under ``/app``. Alongside
-those, ``GET /favicon.ico``, ``GET /favicon.svg``, and
-``GET /apple-touch-icon.png`` serve the reef mark at the origin root, since
-favicon fetchers -- including MCP clients like claude.ai's connector list --
-request those paths outside ``/app`` and nothing else answers them there.
+``custom_route``: ``GET /`` serves the marketing page out of
+``Settings.site_dir`` (falling back to a redirect into ``/app`` if the site
+isn't present, e.g. a stripped deployment), ``GET /site/{path:path}`` serves
+the site's few assets, and ``GET /app`` / ``GET /app/{path:path}`` serve
+files out of ``Settings.static_dir``, falling back to ``index.html`` for any
+path that isn't a real file on disk -- which is how a client-side router gets
+to own everything under ``/app``. Alongside those, ``GET /favicon.ico``,
+``GET /favicon.svg``, and ``GET /apple-touch-icon.png`` serve the reef mark
+at the origin root, since favicon fetchers -- including MCP clients like
+claude.ai's connector list -- request those paths outside ``/app`` and
+nothing else answers them there.
 """
 
 from pathlib import Path
@@ -63,6 +66,29 @@ def _serve_or_fallback(path: str) -> Response:
     return PlainTextResponse("frontend not built", status_code=503)
 
 
+def _serve_site_asset(path: str) -> Response:
+    """Serve ``path`` from ``site_dir`` if it is a real file inside it, else 404.
+
+    Same traversal guard as :func:`_serve_or_fallback`, but with no SPA
+    fallback: the site is a flat page plus a handful of assets, so a miss
+    is a plain 404 rather than ``index.html``.
+
+    :param path: the request path under ``/site``, already URL-decoded by
+        Starlette's path-converter
+    :returns: a :class:`FileResponse` for a real file, or a 404 plain-text
+        response
+    """
+    base = Path(get_settings().site_dir).resolve()
+    try:
+        candidate = (base / path).resolve()
+        valid = candidate.is_relative_to(base) and candidate.is_file()
+    except (ValueError, OSError):
+        valid = False
+    if valid:
+        return FileResponse(candidate)
+    return PlainTextResponse("not found", status_code=404)
+
+
 def _serve_icon(filename: str, media_type: str) -> Response:
     """Serve a built icon file straight out of ``static_dir``, or 404.
 
@@ -97,12 +123,28 @@ def register_static_routes(mcp) -> None:
     _registered.add(id(mcp))
 
     async def root(request: Request) -> Response:
-        """Redirect the bare root to the SPA entry point.
+        """Serve the marketing page, or redirect into the app without one.
+
+        The redirect fallback keeps a deployment without a ``site/`` tree
+        (or a misconfigured ``site_dir``) behaving like the pre-site
+        builds did, rather than 404ing the origin root.
 
         :param request: the incoming request
-        :returns: a 307 redirect to ``/app``
+        :returns: the site's ``index.html``, or a 307 redirect to ``/app``
         """
+        index = Path(get_settings().site_dir) / "index.html"
+        if index.is_file():
+            return FileResponse(index)
         return RedirectResponse("/app", status_code=307)
+
+    async def site_asset(request: Request) -> Response:
+        """Serve one of the marketing site's assets.
+
+        :param request: the incoming request; ``path`` is the matched
+            ``{path:path}`` route parameter
+        :returns: see :func:`_serve_site_asset`
+        """
+        return _serve_site_asset(request.path_params["path"])
 
     async def favicon_ico(request: Request) -> Response:
         """Serve the reef mark for ``/favicon.ico``.
@@ -150,6 +192,7 @@ def register_static_routes(mcp) -> None:
         return _serve_or_fallback(request.path_params["path"])
 
     mcp.custom_route("/", methods=["GET"])(root)
+    mcp.custom_route("/site/{path:path}", methods=["GET"])(site_asset)
     mcp.custom_route("/favicon.ico", methods=["GET"])(favicon_ico)
     mcp.custom_route("/apple-touch-icon.png", methods=["GET"])(apple_touch_icon)
     mcp.custom_route("/favicon.svg", methods=["GET"])(favicon_svg)

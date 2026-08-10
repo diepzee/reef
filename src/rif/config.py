@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     signed_url_ttl_seconds: int = 300
     session_secret: str = ""
     static_dir: str = "frontend/dist"
+    site_dir: str = "site"
 
     @property
     def dsn(self) -> str:

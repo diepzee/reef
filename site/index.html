@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reef — memory you grow together</title>
+<meta name="description" content="reef is a shared, living memory for you and your people — one your AI assistant can read and write. Spaces for your household, your plans, your life.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0; --hairline-soft: #eef3f5;
+  --ink: #1c2b33; --muted: #7b8a92; --faint: #b3bec4;
+  --accent: #0d9488; --accent-deep: #0b6b62; --accent-soft: #e7f9f4;
+  --field: #ffffff; --night: var(--ground);
+  --cta-ink: #ffffff;
+  --seafoam: #0d9488; --amber: #f59e0b; --indigo: #6366f1; --pink: #ec4899;
+  --sky: #0284c7; --lime: #84cc16; --violet: #8b5cf6;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d; --hairline-soft: #16292f;
+    --ink: #e2f1f5; --muted: #8fb0ba; --faint: #5b7681;
+    --accent: #38bdd8; --accent-deep: #7ce3d3; --accent-soft: #123a35;
+    --field: #0f2129;
+    --night: radial-gradient(120% 80% at 80% -10%, #0e3140, #0a1b23 45%, #081217);
+    --cta-ink: #06282e;
+    --seafoam: #2dd4bf; --amber: #fbbf24; --indigo: #a5b4fc; --pink: #f9a8d4;
+    --sky: #7dd3fc; --lime: #bef264; --violet: #c4b5fd;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--night); background-color: var(--ground);
+  color: var(--ink);
+  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px; line-height: 1.6;
+}
+a { color: var(--accent); }
+.wrap { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem; }
+
+/* nav */
+nav { display: flex; align-items: center; padding: 1.4rem 0; }
+.brand { display: inline-flex; align-items: baseline; gap: 7px; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.005em; color: var(--ink); text-decoration: none; }
+.brand svg { color: var(--accent); }
+nav .cta { margin-left: auto; }
+.btn {
+  display: inline-block; background: var(--accent); color: var(--cta-ink);
+  font-weight: 700; font-size: 0.95rem; text-decoration: none;
+  padding: 0.6rem 1.35rem; border-radius: 999px;
+}
+.btn:hover { background: var(--accent-deep); color: var(--cta-ink); }
+.btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* hero */
+.hero { padding: 4.5rem 0 0; text-align: center; }
+.hero h1 {
+  font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -0.01em;
+  line-height: 1.08; margin: 0 auto 1.1rem; max-width: 15ch; text-wrap: balance;
+}
+.hero .lede { font-size: clamp(1.05rem, 2.2vw, 1.2rem); color: var(--muted); max-width: 34rem; margin: 0 auto 2rem; }
+.hero .ctarow { display: flex; gap: 1.1rem; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.hero .btn { font-size: 1.05rem; padding: 0.75rem 1.8rem; }
+.hero .micro { font-size: 0.85rem; color: var(--faint); margin: 0; }
+
+/* seabed strip */
+.strip { display: block; width: 100%; height: auto; margin-top: 2.5rem; }
+.strip .bed { stroke: var(--accent); opacity: 0.5; }
+.sway { transform-box: fill-box; transform-origin: 50% 100%; animation: sway 5.5s ease-in-out infinite alternate; }
+@keyframes sway { from { transform: rotate(-2.4deg); } to { transform: rotate(2.4deg); } }
+@media (prefers-reduced-motion: reduce) { .sway { animation: none; } }
+
+/* sections */
+section { padding: 4.5rem 0 0; }
+.eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; }
+h2 { font-size: clamp(1.6rem, 3.6vw, 2.1rem); font-weight: 800; letter-spacing: -0.008em; margin: 0 0 0.75rem; text-wrap: balance; }
+.sub { color: var(--muted); max-width: 38rem; margin: 0 0 2rem; }
+
+.circles { display: flex; gap: 0.9rem 1.6rem; flex-wrap: wrap; }
+.circle { display: flex; align-items: center; gap: 0.7rem; font-weight: 700; font-size: 1rem; }
+.circle .pool { width: 52px; height: 52px; border-radius: 50%; background: var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; }
+
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.1rem; counter-reset: step; }
+.step { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.5rem 1.5rem 1.4rem; }
+.step::before {
+  counter-increment: step; content: counter(step);
+  display: inline-flex; width: 1.9rem; height: 1.9rem; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent-deep); font-weight: 800;
+  align-items: center; justify-content: center; margin-bottom: 0.9rem;
+}
+.step h3 { margin: 0 0 0.45rem; font-size: 1.12rem; font-weight: 800; }
+.step p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+.shotframe { border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field); }
+.shotbar { display: flex; gap: 6px; padding: 11px 14px; border-bottom: 1px solid var(--hairline-soft); }
+.shotbar i { width: 10px; height: 10px; border-radius: 50%; background: var(--hairline); }
+.shotframe img { display: block; width: 100%; height: auto; }
+.shotframe img.shot-dark { display: none; }
+@media (prefers-color-scheme: dark) { .shotframe img.shot-light { display: none; } .shotframe img.shot-dark { display: block; } }
+
+.trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.1rem; }
+.trust article h3 { display: flex; align-items: baseline; gap: 0.55rem; font-size: 1.05rem; font-weight: 800; margin: 0 0 0.4rem; }
+.trust article h3 svg { flex: none; }
+.trust article p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+.final { text-align: center; padding-bottom: 1rem; }
+.final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.4rem; }
+.final .lockup svg { color: var(--accent); }
+.final .lockup::after { content: ""; position: absolute; left: 0; right: 0; bottom: -0.13em; height: 0.09em; border-radius: 0.05em; background: var(--accent); }
+
+footer { margin-top: 4.5rem; border-top: 1px solid var(--hairline-soft); padding: 1.6rem 0 2.2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; color: var(--faint); font-size: 0.85rem; }
+footer .sp { margin-left: auto; }
+footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><g id="o-coral"><g fill="currentColor"><g transform="translate(3.400,13.333) scale(0.17544)"><g transform="translate(0,314) scale(0.1,-0.1)"><path d="M1441 2805 c-40 -8 -78 -18 -84 -24 -7 -7 2 -69 29 -203 37 -181 39 -204 39 -368 0 -197 -16 -264 -76 -315 -39 -32 -54 -32 -89 3 -48 49 -55 94 -52 329 2 133 -1 234 -8 270 -18 92 -50 181 -67 187 -23 9 -173 -76 -173 -99 0 -2 14 -44 30 -93 67 -200 21 -303 -75 -169 -75 103 -95 127 -107 127 -17 0 -76 -70 -126 -149 l-46 -74 40 -33 c21 -19 84 -64 139 -101 129 -88 205 -165 249 -255 85 -170 11 -184 -169 -32 -124 104 -279 194 -334 194 -23 0 -41 -51 -62 -175 -16 -96 -12 -103 81 -126 83 -21 185 -67 300 -134 41 -24 118 -60 170 -80 52 -20 113 -47 135 -60 93 -54 180 -182 209 -304 8 -33 17 -64 21 -70 4 -7 72 -11 200 -11 219 0 198 -9 210 90 10 77 60 231 105 320 122 241 339 440 633 581 60 28 111 58 114 66 10 25 -78 187 -104 191 -14 2 -55 -24 -130 -84 -155 -125 -204 -149 -219 -109 -16 39 61 187 158 306 68 84 68 84 -24 160 -91 75 -105 80 -134 44 -73 -90 -138 -252 -198 -490 -24 -95 -60 -211 -79 -257 -77 -191 -251 -441 -325 -469 -90 -35 -154 173 -104 338 28 91 81 171 202 304 121 133 179 229 224 369 54 167 84 341 62 359 -35 29 -199 61 -211 41 -4 -7 -11 -67 -16 -134 -12 -185 -46 -296 -102 -330 -41 -25 -60 53 -78 304 -6 85 -16 161 -21 168 -13 15 -41 14 -137 -3z M2640 1847 c-341 -121 -578 -377 -645 -698 -26 -122 -64 -109 315 -109 l330 0 19 31 c33 53 92 247 89 287 l-3 37 -75 -1 c-70 -2 -81 -5 -206 -69 -148 -75 -187 -81 -192 -32 -14 119 253 306 439 307 68 0 74 13 61 132 -17 156 -16 156 -132 115z M495 1478 c-14 -37 56 -301 106 -400 l19 -38 300 0 c331 0 315 -4 279 65 -38 72 -107 133 -204 179 -49 24 -119 65 -155 91 -100 74 -182 109 -267 113 -57 3 -74 1 -78 -10z"/></g></g></g></g><g id="o-anemone"><path d="M19 50c0-3.5 5.5-5.5 13-5.5s13 2 13 5.5z" fill="currentColor"/><g stroke="currentColor" stroke-width="5.2" stroke-linecap="round" fill="none"><path d="M22 45c-2-5-6-8-7-13"/><path d="M27 44c-1-6-2-10-1-16"/><path d="M32 44c0-7 0-11 0-17"/><path d="M37 44c1-6 2-10 1-16"/><path d="M42 45c2-5 6-8 7-13"/></g></g><g id="o-staghorn"><g stroke="currentColor" stroke-width="5" stroke-linecap="round" fill="none"><path d="M32 50V26"/><path d="M32 34C32 29 38 29 39 22"/><path d="M32 42C32 37 26 37 25 30"/><path d="M19 50V38"/><path d="M19 44C19 40 14 40 13 34"/><path d="M45 50V38"/><path d="M45 44C45 40 50 40 51 34"/></g></g><g id="o-kelp"><g stroke="currentColor" stroke-width="5" stroke-linecap="round" fill="none"><path d="M17 50c1-5 4-8 4-13"/><path d="M25 50c1-7 4-11 4-19"/><path d="M33 50c1-9 4-14 4-24"/><path d="M41 50c1-7 4-11 4-18"/><path d="M48 50c1-4 3-7 3-11"/></g></g><g id="o-polyps"><g stroke="currentColor" stroke-width="3.6" stroke-linecap="round" fill="none"><path d="M18 50V33"/><path d="M25 50V25"/><path d="M32 50V29"/><path d="M39 50V23"/><path d="M46 50V35"/></g><g fill="currentColor"><circle cx="18" cy="29" r="3.3"/><circle cx="25" cy="21" r="3.3"/><circle cx="32" cy="25" r="3.3"/><circle cx="39" cy="19" r="3.3"/><circle cx="46" cy="31" r="3.3"/></g></g><g id="o-seagrass"><g fill="currentColor"><path d="M15 50c-1-8 1-14 4-20c1 7 0 14-1 20z"/><path d="M23 50c-1-11 1-19 5-27c2 9 0 19-2 27z"/><path d="M31 50c-1-13 2-22 6-32c2 11-1 22-3 32z"/><path d="M40 50c-1-10 1-17 5-24c2 8 0 16-2 24z"/><path d="M48 50c-1-7 1-12 4-17c1 6 0 11-1 17z"/></g></g><g id="o-brain"><g fill="currentColor"><path d="M15 50c-0.5-6 6-9 17-9c11 0 17 3 16.5 9z"/><path d="M20 40c0-5.5 5-8 13-8c8 0 12.5 2.5 12 8z"/><path d="M25 32c0-4.5 3.5-6.5 8-6.5c4.5 0 7.5 2 7 6.5z"/></g></g></defs></svg>
+
+<div class="wrap">
+  <nav>
+    <a class="brand" href="/">
+      <svg viewBox="11 15.5 42 34.5" width="24" height="20" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
+      reef
+    </a>
+    <span class="cta"><a class="btn" href="/api/auth/login">Sign in</a></span>
+  </nav>
+
+  <header class="hero">
+    <h1>Memory you grow together.</h1>
+    <p class="lede">reef is a shared, living memory for you and your people — and for the AI you
+      both talk to. Spaces for your household, your plans, your life. Pages everyone can read.
+      An assistant that finally remembers.</p>
+    <div class="ctarow">
+      <a class="btn" href="/api/auth/login">Sign in</a>
+    </div>
+    <p class="micro">Works with Claude — add reef as a connector, on your phone too.</p>
+  </header>
+</div>
+
+<svg class="strip" viewBox="0 0 1200 78" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+  <line class="bed" x1="24" y1="64" x2="1176" y2="64" stroke-width="3" stroke-linecap="round"/>
+  <g transform="translate(60,64) scale(0.9) translate(-32,-50)" style="color:var(--sky)"><g class="sway" style="animation-delay:0s"><use href="#o-kelp"/></g></g><g transform="translate(150,64) scale(0.7) translate(-32,-50)" style="color:var(--lime)"><g class="sway" style="animation-delay:1.3s"><use href="#o-seagrass"/></g></g><g transform="translate(235,64) scale(1.0) translate(-32,-50)" style="color:var(--amber)"><g class="sway" style="animation-delay:0.6s"><use href="#o-anemone"/></g></g><g transform="translate(330,64) scale(0.8) translate(-32,-50)" style="color:var(--indigo)"><g class="sway" style="animation-delay:2.1s"><use href="#o-polyps"/></g></g><g transform="translate(430,64) scale(0.85) translate(-32,-50)" style="color:var(--violet)"><g class="sway" style="animation-delay:0s"><use href="#o-brain"/></g></g><g transform="translate(530,64) scale(1.05) translate(-32,-50)" style="color:var(--pink)"><g class="sway" style="animation-delay:1.7s"><use href="#o-staghorn"/></g></g><g transform="translate(640,64) scale(1.25) translate(-32,-50)" style="color:var(--seafoam)"><g class="sway" style="animation-delay:0.9s"><use href="#o-coral"/></g></g><g transform="translate(760,64) scale(0.75) translate(-32,-50)" style="color:var(--lime)"><g class="sway" style="animation-delay:2.4s"><use href="#o-kelp"/></g></g><g transform="translate(845,64) scale(0.85) translate(-32,-50)" style="color:var(--pink)"><g class="sway" style="animation-delay:0.3s"><use href="#o-anemone"/></g></g><g transform="translate(940,64) scale(1.0) translate(-32,-50)" style="color:var(--sky)"><g class="sway" style="animation-delay:1.5s"><use href="#o-seagrass"/></g></g><g transform="translate(1035,64) scale(0.7) translate(-32,-50)" style="color:var(--amber)"><g class="sway" style="animation-delay:2.0s"><use href="#o-polyps"/></g></g><g transform="translate(1120,64) scale(0.8) translate(-32,-50)" style="color:var(--indigo)"><g class="sway" style="animation-delay:0.8s"><use href="#o-staghorn"/></g></g>
+</svg>
+
+<div class="wrap">
+  <section>
+    <p class="eyebrow">Spaces</p>
+    <h2>A space for every circle of your life</h2>
+    <p class="sub">A space is a small group and its shared memory: the people you invite, the pages
+      you keep, its own color and creature. Start one for anything that has a "we" — and everyone
+      always keeps a private space that's theirs alone.</p>
+    <div class="circles"><div class="circle"><span class="pool"><svg viewBox="11 15 42 37" width="27" height="24" preserveAspectRatio="xMidYMax meet" style="color:var(--seafoam)" aria-hidden="true"><use href="#o-coral"/></svg></span><span>the household</span></div><div class="circle"><span class="pool"><svg viewBox="11 15 42 37" width="27" height="24" preserveAspectRatio="xMidYMax meet" style="color:var(--lime)" aria-hidden="true"><use href="#o-anemone"/></svg></span><span>school</span></div><div class="circle"><span class="pool"><svg viewBox="11 15 42 37" width="27" height="24" preserveAspectRatio="xMidYMax meet" style="color:var(--indigo)" aria-hidden="true"><use href="#o-brain"/></svg></span><span>the accountant</span></div><div class="circle"><span class="pool"><svg viewBox="11 15 42 37" width="27" height="24" preserveAspectRatio="xMidYMax meet" style="color:var(--sky)" aria-hidden="true"><use href="#o-kelp"/></svg></span><span>roadtrip</span></div><div class="circle"><span class="pool"><svg viewBox="11 15 42 37" width="27" height="24" preserveAspectRatio="xMidYMax meet" style="color:var(--violet)" aria-hidden="true"><use href="#o-polyps"/></svg></span><span>just you</span></div></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">How it works</p>
+    <h2>Tell it once</h2>
+    <div class="steps">
+      <div class="step">
+        <h3>Start a space, invite your people</h3>
+        <p>Your household, the school circle, you and the accountant. Invites go by email; whoever
+          starts a space looks after it.</p>
+      </div>
+      <div class="step">
+        <h3>Grow pages together</h3>
+        <p>Memory lives in real pages you can open and edit — not a black box. Your assistant writes
+          them mid-conversation; you garden them whenever you care to.</p>
+      </div>
+      <div class="step">
+        <h3>Every conversation starts knowing</h3>
+        <p>Add reef to Claude as a connector. The school schedule, the house quirks, the plan so far
+          — known at hello, without repeating yourself.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">The app</p>
+    <h2>Browse it like people do</h2>
+    <p class="sub">Every space and page is right there in the browser — read, edit, invite, export.
+      What your assistant knows is exactly what you can see.</p>
+    <div class="shotframe">
+      <div class="shotbar"><i></i><i></i><i></i></div>
+      <img class="shot-light" src="/site/app-light.png" alt="The reef app: spaces shown as tiles, each with its own color and reef creature" width="1400" height="933">
+      <img class="shot-dark" src="/site/app-dark.png" alt="The reef app in night-dive dark mode: glowing space tiles on a deep-water background" width="1400" height="933">
+    </div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Yours, actually</p>
+    <h2>Built to be trusted with a life</h2>
+    <div class="trust">
+      <article>
+        <h3><svg viewBox="11 15 42 37" width="20" height="18" preserveAspectRatio="xMidYMax meet" style="color:var(--indigo)" aria-hidden="true"><use href="#o-polyps"/></svg> Private by architecture</h3>
+        <p>Your personal space is invisible to everyone else — enforced row by row in the database
+          itself, not by app code promising to behave.</p>
+      </article>
+      <article>
+        <h3><svg viewBox="11 15 42 37" width="20" height="18" preserveAspectRatio="xMidYMax meet" style="color:var(--amber)" aria-hidden="true"><use href="#o-anemone"/></svg> Sharing is consent</h3>
+        <p>Nothing moves from private to shared without an explicit yes, and a shared space always
+          shows exactly who can read it.</p>
+      </article>
+      <article>
+        <h3><svg viewBox="11 15 42 37" width="20" height="18" preserveAspectRatio="xMidYMax meet" style="color:var(--lime)" aria-hidden="true"><use href="#o-seagrass"/></svg> Leave with everything</h3>
+        <p>One export turns every page into plain files on your machine. Your memory outlives any
+          service — including this one.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="lockup">
+      <svg viewBox="11 15.5 42 34.5" width="42" height="35" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
+      <span>reef</span>
+    </div>
+    <p class="sub" style="margin: 0 auto 1.6rem;">memory that grows like a reef</p>
+    <a class="btn" href="/api/auth/login">Sign in</a>
+  </section>
+
+  <footer>
+    <span>© 2026 reef</span>
+    <span class="sp"><a href="/app">Open the app</a></span>
+  </footer>
+</div>
+</body>
+</html>

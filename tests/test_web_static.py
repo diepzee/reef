@@ -17,16 +17,54 @@ async def static_client(monkeypatch, tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>rif</title>")
     (tmp_path / "app.js").write_text("console.log(1)")
     monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))
+    # Point site_dir away from the repo's real site/ so root-route tests
+    # exercise the no-site fallback unless they build a site themselves.
+    site = tmp_path / "site"
+    monkeypatch.setattr(get_settings(), "site_dir", str(site))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 
-async def test_root_redirects_to_app(static_client):
-    """``GET /`` redirects to ``/app`` with a 307."""
+async def test_root_serves_marketing_site(static_client, tmp_path):
+    """``GET /`` serves ``site_dir``'s index.html when it exists."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "index.html").write_text("<!doctype html><title>reef marketing</title>")
+    response = await static_client.get("/")
+    assert response.status_code == 200
+    assert "reef marketing" in response.text
+
+
+async def test_root_redirects_to_app_without_site(static_client):
+    """``GET /`` falls back to a 307 into ``/app`` when no site is present."""
     response = await static_client.get("/")
     assert response.status_code == 307
     assert response.headers["location"] == "/app"
+
+
+async def test_site_asset_served(static_client, tmp_path):
+    """A real file under ``site_dir`` is served via ``/site/{path}``."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "hero.png").write_bytes(b"\x89PNG fake")
+    response = await static_client.get("/site/hero.png")
+    assert response.status_code == 200
+    assert response.content.startswith(b"\x89PNG")
+
+
+async def test_site_asset_miss_is_404(static_client, tmp_path):
+    """A missing site asset 404s rather than falling back to any index."""
+    (tmp_path / "site").mkdir()
+    response = await static_client.get("/site/nope.png")
+    assert response.status_code == 404
+
+
+async def test_site_asset_traversal_blocked(static_client, tmp_path):
+    """A traversal attempt under ``/site`` never escapes ``site_dir``."""
+    (tmp_path / "site").mkdir()
+    response = await static_client.get("/site/..%2Findex.html")
+    assert response.status_code == 404
 
 
 async def test_asset_served(static_client):
