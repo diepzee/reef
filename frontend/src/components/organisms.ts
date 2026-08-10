@@ -394,3 +394,32 @@ export function generateFamily(family: Exclude<Family, "coral">, seed: number): 
     paths: gen(mulberry32(seed)),
   };
 }
+
+/**
+ * The brand fan coral as a chunky silhouette — trunk forking into a dome
+ * of thick round-capped branches. Fixed, never hashed: pinned to the
+ * personal space and reused by ReefMark/FrondGlyph as the brand mark.
+ * Keep in sync with `public/reef.svg` (the favicon carries the same path).
+ */
+export const CORAL_PATHS: readonly OrganismPath[] = [
+  {
+    d:
+      "M32 54V40" +
+      "M32 46C32 40 24 40 22 30C21 26 20 24 18 22" +
+      "M22 30C23 26 26 25 27 20" +
+      "M32 44C32 37 39 38 42 28C43 25 45 23 47 22" +
+      "M42 28C41 24 38 24 37 19" +
+      "M32 42C31 34 32 30 32 24C32 21 31 18 29 15" +
+      "M32 24C33 21 35 20 36 16",
+    stroke: 5.2,
+  },
+];
+
+/** Deterministic organism for a space's alias — the reef's genome function. */
+export function organismFor(alias: string): Organism {
+  if (alias === "personal") {
+    return { family: "coral", anchor: "grounded", paths: [...CORAL_PATHS] };
+  }
+  const seed = fnv1a(alias);
+  return generateFamily(FAMILIES[seed % FAMILIES.length]!, seed);
+}

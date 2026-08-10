@@ -1,30 +1,29 @@
-/**
- * The organism assignment must be deterministic, personal-pinned, and
- * always land inside the six-organism family — mirroring `spaceColor`'s
- * contract (personal pinned to seafoam, everything else hashed).
- */
+import { describe, expect, test } from "bun:test";
 
-import { expect, test } from "bun:test";
+import { FAMILIES, organismFor } from "./components/organisms";
 
-import { ORGANISMS, organismFor } from "./components/spaceGlyph";
+describe("organismFor", () => {
+  test("personal is always the fan coral", () => {
+    expect(organismFor("personal").family).toEqual("coral");
+  });
 
-test("personal is always the brand coral", () => {
-  expect(organismFor("personal")).toBe("coral");
-});
+  test("deterministic per alias", () => {
+    expect(organismFor("roadtrip")).toEqual(organismFor("roadtrip"));
+  });
 
-test("assignment is deterministic", () => {
-  expect(organismFor("school")).toBe(organismFor("school"));
-});
+  test("non-personal aliases stay inside the hashed families", () => {
+    for (const alias of ["roadtrip", "household", "boekenclub", "diepzee", "atelier"]) {
+      expect(FAMILIES).toContain(organismFor(alias).family as never);
+    }
+  });
 
-test("non-personal aliases stay inside the organism family", () => {
-  for (const alias of ["school", "roadtrip", "recipes", "thesis", "garden", "crew"]) {
-    expect(ORGANISMS).toContain(organismFor(alias));
-  }
-});
-
-test("different aliases can land on different organisms", () => {
-  const kinds = new Set(
-    ["school", "roadtrip", "recipes", "thesis", "garden", "crew"].map(organismFor),
-  );
-  expect(kinds.size).toBeGreaterThan(1);
+  test("a realistic corpus reaches many families", () => {
+    const corpus = [
+      "roadtrip", "household", "boekenclub", "diepzee", "atelier", "garden",
+      "budget", "recipes", "wedding", "band", "chess", "surf", "lab", "crew",
+      "tribe", "nest",
+    ];
+    const seen = new Set(corpus.map((a) => organismFor(a).family));
+    expect(seen.size).toBeGreaterThanOrEqual(7);
+  });
 });
