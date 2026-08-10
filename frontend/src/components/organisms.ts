@@ -126,11 +126,104 @@ function slot(x: number, y: number, len: number, hw: number, ang: number): strin
   );
 }
 
-// The helpers below are consumed by the family generators (Tasks 2–4);
-// referencing them here keeps `bun build`'s unused-symbol checks quiet
-// until those land.
-void lobe;
+/** The body plans a non-personal space can hash to. */
+export const FAMILIES = [
+  "sunAnemone",
+  "tubes",
+  "staghorn",
+  "brain",
+  "flower",
+  "scallop",
+  "spiral",
+  "bubbles",
+  "seagrass",
+  "shell",
+  "nudibranch",
+] as const;
+
+/** One kind of reef life: a hashed family, or the brand coral (personal only). */
+export type Family = (typeof FAMILIES)[number] | "coral";
+
+/** A grown individual: its family, how it anchors, and its renderable paths. */
+export interface Organism {
+  family: Family;
+  anchor: Anchor;
+  paths: OrganismPath[];
+}
+
+/** Ring of fat petals around an open annulus center. */
+function sunAnemone(rng: Rng): OrganismPath[] {
+  const n = int(rng, 10, 14);
+  const inner = lerp(rng, 6, 8);
+  const len = lerp(rng, 11, 14.5);
+  const w = lerp(rng, 3.4, 4.6);
+  const phase = rng() * Math.PI * 2;
+  let petals = "";
+  for (let i = 0; i < n; i++) {
+    const th = phase + (i / n) * Math.PI * 2;
+    petals += lobe(32 + Math.cos(th) * inner, 32 + Math.sin(th) * inner, th, len, w);
+  }
+  const hole = lerp(rng, 2.6, 4);
+  return [
+    { d: petals },
+    { d: circle(32, 32, inner + 1.5) + circle(32, 32, hole), evenodd: true },
+  ];
+}
+
+/** 5–7 fat overlapping flower lobes with a pierced center disc. */
+function flower(rng: Rng): OrganismPath[] {
+  const n = int(rng, 5, 7);
+  const len = lerp(rng, 14, 17);
+  const w = lerp(rng, 7.5, 10) - n * 0.35;
+  const phase = rng() * Math.PI * 2;
+  let petals = "";
+  for (let i = 0; i < n; i++) {
+    const th = phase + (i / n) * Math.PI * 2;
+    petals += lobe(32 + Math.cos(th) * 3, 32 + Math.sin(th) * 3, th, len, w);
+  }
+  const hole = lerp(rng, 2.5, 3.6);
+  return [{ d: petals }, { d: circle(32, 32, 6) + circle(32, 32, hole), evenodd: true }];
+}
+
+/** Swirl of one-direction curled tentacle strokes. */
+function spiral(rng: Rng): OrganismPath[] {
+  const n = int(rng, 11, 15);
+  const inner = lerp(rng, 3, 4.5);
+  const outer = lerp(rng, 13, 16);
+  const curl = lerp(rng, 0.9, 1.4) * (rng() < 0.5 ? -1 : 1);
+  const phase = rng() * Math.PI * 2;
+  let d = "";
+  for (let i = 0; i < n; i++) {
+    const th = phase + (i / n) * Math.PI * 2;
+    const thMid = th + curl * 0.45;
+    const thEnd = th + curl;
+    const mid = inner + (outer - inner) * 0.55;
+    d +=
+      `M${r2(32 + Math.cos(th) * inner)} ${r2(32 + Math.sin(th) * inner)}` +
+      `Q${r2(32 + Math.cos(thMid) * mid)} ${r2(32 + Math.sin(thMid) * mid)}` +
+      ` ${r2(32 + Math.cos(thEnd) * outer)} ${r2(32 + Math.sin(thEnd) * outer)}`;
+  }
+  return [{ d, stroke: lerp(rng, 2.8, 3.4) }];
+}
+
+const RADIAL: ReadonlySet<string> = new Set(["sunAnemone", "flower", "spiral"]);
+
+type Generator = (rng: Rng) => OrganismPath[];
+
+const GENERATORS: Partial<Record<Family, Generator>> = { sunAnemone, flower, spiral };
+
+/** Grow one family member from a seed — the gallery's and organismFor's shared entry. */
+export function generateFamily(family: Exclude<Family, "coral">, seed: number): Organism {
+  const gen = GENERATORS[family];
+  if (!gen) throw new Error(`no generator for family: ${family}`);
+  return {
+    family,
+    anchor: RADIAL.has(family) ? "radial" : "grounded",
+    paths: gen(mulberry32(seed)),
+  };
+}
+
+// Consumed by the remaining family generators (Tasks 3–4).
 void blade;
 void tube;
-void circle;
 void slot;
