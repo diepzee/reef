@@ -210,7 +210,91 @@ const RADIAL: ReadonlySet<string> = new Set(["sunAnemone", "flower", "spiral"]);
 
 type Generator = (rng: Rng) => OrganismPath[];
 
-const GENERATORS: Partial<Record<Family, Generator>> = { sunAnemone, flower, spiral };
+/** 3–5 leaning tube sponges; separate paths so overlaps don't XOR-cancel. */
+function tubes(rng: Rng): OrganismPath[] {
+  const n = int(rng, 3, 5);
+  const spread = 34 / n;
+  const paths: OrganismPath[] = [];
+  for (let i = 0; i < n; i++) {
+    const x = 32 + (i - (n - 1) / 2) * spread + lerp(rng, -2, 2);
+    paths.push({
+      d: tube(x, 54, lerp(rng, 16, 30), lerp(rng, 9, 12), lerp(rng, -3.5, 3.5)),
+      evenodd: true,
+    });
+  }
+  return paths;
+}
+
+/** Blades all swept by the same current, taller blades swaying further. */
+function seagrass(rng: Rng): OrganismPath[] {
+  const n = int(rng, 4, 6);
+  const sway = lerp(rng, 4, 9) * (rng() < 0.5 ? -1 : 1);
+  const spread = 36 / n;
+  let d = "";
+  for (let i = 0; i < n; i++) {
+    const x = 32 + (i - (n - 1) / 2) * spread + lerp(rng, -1.5, 1.5);
+    const h = lerp(rng, 16, 30);
+    d += blade(x, 54, h, sway * (h / 30), lerp(rng, 2.2, 3.4));
+  }
+  return [{ d }];
+}
+
+/** Mound of tangent bubbles; single nonzero path unions overlaps cleanly. */
+function bubbles(rng: Rng): OrganismPath[] {
+  const rows: Array<[number, number]> = [
+    [3, 6.5],
+    [int(rng, 2, 3), 5.5],
+    [int(rng, 1, 2), 4.5],
+  ];
+  let d = "";
+  let y = 54;
+  for (const [count, baseR] of rows) {
+    const rad = baseR + lerp(rng, -0.8, 0.8);
+    y -= rad;
+    for (let i = 0; i < count; i++) {
+      d += circle(
+        32 + (i - (count - 1) / 2) * rad * 1.7 + lerp(rng, -1, 1),
+        y + lerp(rng, -1, 1),
+        rad,
+      );
+    }
+    y -= rad * 0.6;
+  }
+  return [{ d }];
+}
+
+/** Forking antler stems, thick round-capped strokes. */
+function staghorn(rng: Rng): OrganismPath[] {
+  const stems = int(rng, 2, 3);
+  const spread = stems === 2 ? 16 : 13;
+  const mid = Math.floor(stems / 2);
+  let d = "";
+  for (let s = 0; s < stems; s++) {
+    const x = 32 + (s - (stems - 1) / 2) * spread + lerp(rng, -1.5, 1.5);
+    const h = s === mid ? lerp(rng, 24, 32) : lerp(rng, 14, 20);
+    d += `M${r2(x)} 54V${r2(54 - h)}`;
+    const forks = int(rng, 1, 2);
+    for (let f = 0; f < forks; f++) {
+      const fy = 54 - h * lerp(rng, 0.35, 0.75);
+      const dir = f % 2 === 0 ? 1 : -1;
+      const fl = lerp(rng, 6, 10);
+      d +=
+        `M${r2(x)} ${r2(fy)}` +
+        `C${r2(x)} ${r2(fy - fl * 0.5)} ${r2(x + dir * fl * 0.7)} ${r2(fy - fl * 0.5)} ${r2(x + dir * fl * 0.8)} ${r2(fy - fl)}`;
+    }
+  }
+  return [{ d, stroke: 5 }];
+}
+
+const GENERATORS: Partial<Record<Family, Generator>> = {
+  sunAnemone,
+  flower,
+  spiral,
+  tubes,
+  seagrass,
+  bubbles,
+  staghorn,
+};
 
 /** Grow one family member from a seed — the gallery's and organismFor's shared entry. */
 export function generateFamily(family: Exclude<Family, "coral">, seed: number): Organism {

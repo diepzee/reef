@@ -18,7 +18,15 @@ const EXPECTED_ANCHOR: Record<string, string> = {
 };
 
 /** The families implemented so far — grows task by task until it equals FAMILIES. */
-const IMPLEMENTED = ["sunAnemone", "flower", "spiral"] as const;
+const IMPLEMENTED = [
+  "sunAnemone",
+  "flower",
+  "spiral",
+  "tubes",
+  "seagrass",
+  "bubbles",
+  "staghorn",
+] as const;
 
 describe("generateFamily", () => {
   test("families are deterministic and emit valid paths", () => {
