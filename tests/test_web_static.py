@@ -148,3 +148,19 @@ async def test_favicon_404_when_frontend_not_built(static_client):
     """
     response = await static_client.get("/favicon.ico")
     assert response.status_code == 404
+
+
+async def test_privacy_page_is_served_at_the_root(static_client, tmp_path):
+    """The footer links /privacy from every page, so it must resolve."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "privacy.html").write_text("<!doctype html><title>reef privacy</title>")
+    response = await static_client.get("/privacy")
+    assert response.status_code == 200
+    assert "reef privacy" in response.text
+
+
+async def test_privacy_404s_without_a_site_tree(static_client):
+    """No site/ packaged: a clean 404 rather than a 500."""
+    response = await static_client.get("/privacy")
+    assert response.status_code == 404
