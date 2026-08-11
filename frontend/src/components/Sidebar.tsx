@@ -150,6 +150,11 @@ export function Sidebar({ me }: { me: Me | null }) {
         <span>＋ New cove</span>
       </Link>
 
+      <Link to="/invite" className="side-item side-newspace">
+        <span className="side-dot" />
+        <span>＋ Invite to reef</span>
+      </Link>
+
       <div className="side-me">
         {me && <Avatar name={me.display_name} size="sm" />}
         <span className="side-me-name">{me?.display_name ?? ""}</span>
