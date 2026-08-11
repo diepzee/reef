@@ -76,6 +76,26 @@ export function Sidebar({ me }: { me: Me | null }) {
         reef
       </Link>
 
+      <Link
+        to="/index"
+        className={`side-item ${location.pathname === "/index" ? "active" : ""}`}
+      >
+        <svg className="side-index-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M2 2.5h8M2 6h8M2 9.5h8" />
+        </svg>
+        <span>Index</span>
+      </Link>
+
+      <Link
+        to="/export"
+        className={`side-item ${location.pathname === "/export" ? "active" : ""}`}
+      >
+        <svg className="side-index-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+          <path d="M6 1.5v6M3.5 5 6 7.5 8.5 5M2 10h8" />
+        </svg>
+        <span>Export</span>
+      </Link>
+
       {/* Names what the list holds rather than repeating the wordmark two
           rows below it — and in small-caps --faint, which is not how the
           brand is set anywhere else. */}

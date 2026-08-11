@@ -1,4 +1,4 @@
-"""Image attachments: metadata in Postgres, bytes in object storage.
+"""File attachments: metadata in Postgres, bytes in object storage.
 
 :func:`add_attachment` is the one function in this codebase that manages its
 own transactions rather than running inside a caller's
@@ -28,6 +28,9 @@ class ObjectStore(Protocol):
 
     async def signed_url(self, key: str, expires_in: int) -> str:
         """Return a time-limited URL for a key."""
+
+    async def get(self, key: str) -> bytes:
+        """Return the bytes stored under a key."""
 
     async def delete(self, key: str) -> None:
         """Remove the bytes stored under a key."""
@@ -82,6 +85,23 @@ class S3ObjectStore:
             ExpiresIn=expires_in,
         )
 
+    async def get(self, key: str) -> bytes:
+        """Read an object's bytes, primarily for a full data export.
+
+        :param key: object key
+        :returns: raw stored bytes
+        """
+
+        def read() -> bytes:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+            body = response["Body"]
+            try:
+                return body.read()
+            finally:
+                body.close()
+
+        return await asyncio.to_thread(read)
+
     async def delete(self, key: str) -> None:
         """Remove the object stored under a key.
 
@@ -101,13 +121,14 @@ async def add_attachment(
     data: bytes,
     mime: str,
     *,
+    filename: str = "",
     description: str,
     store: ObjectStore,
     page_path: str | None = None,
 ) -> Attachment:
-    """Store an image: pending row committed, bytes to storage, then flip to ready.
+    """Store a file: pending row committed, bytes to storage, then flip to ready.
 
-    The mandatory description is what makes images usable in a load-everything
+    The mandatory description makes arbitrary files useful in an index-first
     design — bytes cannot go into context every turn, but descriptions can.
     The pending row is committed on its own before the bytes ever reach
     storage, so a crash at any point after that — including the narrow
@@ -122,8 +143,9 @@ async def add_attachment(
 
     :param principal: the authenticated person
     :param alias: ``personal`` or a shared-space slug
-    :param data: image bytes
+    :param data: file bytes
     :param mime: content type
+    :param filename: original human-readable filename, when known
     :param description: text description, always required
     :param store: object store to write to
     :param page_path: page in the same space to associate with, if any
@@ -155,6 +177,7 @@ async def add_attachment(
             space_id=space.id,
             page_id=page_id,
             object_key=key,
+            filename=filename,
             mime=mime,
             byte_size=len(data),
             description=description,
@@ -184,7 +207,7 @@ async def delete_attachment(
     prefer:
 
     - object first: a crash leaves a row whose bytes 404. The index advertises
-      an image that cannot be fetched, and nothing detects it until something
+      a file that cannot be fetched, and nothing detects it until something
       reaches for the pixels. This happened once by hand on 7 Aug 2026.
     - row first: a crash leaves bytes with no row. They cost storage and
       nothing else -- unreachable, since keys are opaque and only ever read

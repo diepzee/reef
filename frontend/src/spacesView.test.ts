@@ -21,6 +21,11 @@ test("round-trips grid", () => {
   expect(getSpacesView()).toBe("grid");
 });
 
+test("round-trips graph", () => {
+  setSpacesView("graph");
+  expect(getSpacesView()).toBe("graph");
+});
+
 test("round-trips back to list", () => {
   setSpacesView("grid");
   setSpacesView("list");

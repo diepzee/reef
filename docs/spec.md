@@ -35,7 +35,7 @@ One store, one write path, one enforcement point.
 
 This is the wiki pattern itself, mechanized by the MCP. The assistant's first
 call is `load_index`: every page the principal can see — path, title, tags,
-and a **one-line description** — plus image descriptions, and no bodies. The
+and a **one-line description** — plus file descriptions, and no bodies. The
 model reads the map, decides which entries the conversation needs, and fetches
 them with `read_pages`. It fetches again as topics come up. It never answers
 from the index's descriptions alone.
@@ -77,13 +77,13 @@ Stack): the index read whole is the retrieval mechanism.
 | `memberships` | Person ↔ space, with a `role`. The entire access model. |
 | `pages` | `(space_id, path)` unique. Markdown body; title and tags as columns. |
 | `revisions` | Append-only. Prior body, author, message, timestamp. |
-| `attachments` | Image metadata plus a `description` — see below. |
+| `attachments` | File metadata plus a `description` — see below. |
 
 `revisions` replaces git history and is better for this purpose because it is
 queryable: "what did we know about the boiler in March" is a `WHERE` clause
 rather than a `git log -S`.
 
-## Images
+## Files
 
 Postgres is the wrong place for blobs and the right place for everything about
 them. Bytes go to S3-compatible object storage — Tigris if hosting on Fly, R2
@@ -91,16 +91,13 @@ otherwise; metadata rows stay in Postgres.
 
 Three rules:
 
-1. **Images inherit the space ACL.** No public URLs, ever. `read_image` issues a
+1. **Files inherit the space ACL.** No public URLs, ever. `read_file` issues a
    signed URL with a short expiry, and only after the same accessor check as a
-   page read. Returning small images inline as MCP image content is a later
-   refinement, not v1.
+   page read. Images use the same storage and can still render inline in pages.
 2. **Every attachment carries a text `description`,** generated at upload time
-   and stored alongside the metadata. This is what makes images work in a
-   load-everything design: the bytes cannot go into context every turn, but the
-   descriptions can. The model sees "a photo of the boiler's model plate reading
-   Vaillant ecoTEC VU 246/5-5" in its context and calls `read_image` only when
-   the pixels actually matter.
+   and stored alongside the metadata. This makes PDFs, documents, archives,
+   audio, and images discoverable without loading their bytes every turn. The
+   model calls `read_file` when the contents actually matter.
 3. Attachments belong to a space and optionally to a page.
 
 ## Access control
@@ -195,11 +192,11 @@ less.
 
 | Tool | Notes |
 |---|---|
-| `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, and one-line description, plus image descriptions and a cache `version`. No bodies. |
+| `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, one-line description, and resolved references, plus described files and a cache `version`. No bodies. |
 | `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
-| `add_image` / `read_image` | Mandatory description in; short-lived signed URL out, behind the same ACL. |
-| `delete_image(space, key)` | The one destructive tool, added 7 Aug 2026. Removes the row and the bytes; the ACL check runs before the object store is touched, so a denied delete cannot destroy data. Row committed first, then the object: the two stores cannot be atomic, and orphaned bytes are safer wreckage than an index entry whose image 404s. |
+| `add_file` / `read_file` | Any MIME type, original filename and mandatory description in; short-lived signed URL out, behind the same ACL. The old image-named tools remain compatibility aliases. |
+| `delete_file(space, key)` | The destructive file tool. Removes the row and bytes; the ACL check runs before object storage is touched. The old `delete_image` name remains a compatibility alias. |
 | `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
 | `write_pages(space, pages, message="")` | Batched `write_page`, up to 20 items, one approval tap. One transaction for the whole batch: any item failing (stale `expected_version`, `meta/` path, malformed item, oversize/empty batch) rolls back every write, including earlier items that looked fine. |
@@ -243,11 +240,33 @@ and interviews gently to seed the persona and first pages.
 
 ## Export (the exit hatch)
 
-A manual command renders every page to markdown with frontmatter,
-import-compatible, so the knowledge survives the application — portable,
-offline-readable, restorable if the deployment is lost. **One-way, app → files.**
-Bidirectional sync was refused for Notion and is refused here for the same
-reason: the conflict-resolution problem never ends.
+The web app offers current-content exports for one cove or the whole reef as
+import-compatible Markdown or readable JSON. A separate **Dump my data** ZIP
+includes all current pages, the raw index, revision history, stored file bytes
+and metadata, membership display names, and the caller's sharing audit trail.
+The original manual Markdown command remains available for operators.
+
+These are **one-way, app → files** portability paths. Bidirectional sync was
+refused for Notion and is refused here for the same reason: the
+conflict-resolution problem never ends. The full dump is comprehensive for the
+authenticated person's visible data, but it is not a database backup: restoring
+RLS policies and the complete multi-person access topology still requires the
+Postgres/R2 backup path.
+
+## Account deletion
+
+The Export screen also owns the destructive exit. **Delete my data** is behind
+two independent guards: an acknowledgement checkbox and the exact phrase
+`DELETE`. The API enforces both again, so the UI cannot be bypassed by an
+accidental request.
+
+Deletion removes the person's account, personal cove, and any shared cove where
+they are the sole member. A shared cove with other people survives: ownership is
+transferred deterministically, the departing membership is removed, and author
+references in retained revision history are anonymised. Stored bytes belonging
+to deleted coves are removed after the database transaction commits; failures
+can leave unreachable object-store orphans but cannot leave live metadata
+pointing at missing content.
 
 **Automation is deferred, on external review:** a scheduled mirror job adds git
 credentials, durable job state, and deletion reconciliation before the write
