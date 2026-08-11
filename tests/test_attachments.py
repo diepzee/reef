@@ -33,6 +33,10 @@ class FakeStore:
         """
         return f"https://example.test/{key}?ttl={expires_in}"
 
+    async def get(self, key: str) -> bytes:
+        """Return stored bytes for export tests and object-store parity."""
+        return self.objects[key]
+
     async def delete(self, key: str) -> None:
         """Discard the bytes under a key, idempotently.
 
@@ -60,12 +64,14 @@ async def test_upload_stores_bytes_and_description_and_marks_ready(household):
         "household",
         b"\x89PNG fake",
         "image/png",
+        filename="boiler.png",
         description="the boiler's model plate",
         store=store,
         page_path="house.md",
     )
     assert attachment.status == AttachmentStatus.READY
     assert attachment.description == "the boiler's model plate"
+    assert attachment.filename == "boiler.png"
     assert store.objects[attachment.object_key] == b"\x89PNG fake"
     assert attachment.page_id is not None
 

@@ -4,6 +4,7 @@ Both entry points assume they run inside :func:`rif.db.transaction_scope`;
 :func:`rif.access.accessible_spaces` arms RLS before either reads anything.
 """
 
+import re
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -40,7 +41,7 @@ class ContextPayload:
 
 @dataclass
 class SpaceIndex:
-    """The map of one space: page metadata and image descriptions, no bodies."""
+    """The map of one space: page metadata and described files, no bodies."""
 
     alias: str
     version: int
@@ -59,6 +60,60 @@ class IndexPayload:
 
     version: str
     spaces: list[SpaceIndex]
+
+
+_WIKI_LINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
+_INLINE_CODE_RE = re.compile(r"`+[^`]*`+")
+
+
+def _page_references(body: str, source_alias: str) -> list[dict[str, str]]:
+    """Extract distinct wiki-link targets from prose in a page body.
+
+    References use the operating protocol's ``[[page.md]]`` and
+    ``[[space:page.md]]`` forms. Fenced and inline code are ignored: those
+    commonly contain examples of the syntax and must not turn into graph
+    edges. A target's existence and visibility are checked later, once the
+    complete accessible index is known.
+
+    :param body: markdown page body
+    :param source_alias: alias used to resolve same-space references
+    :returns: ordered, de-duplicated ``space`` / ``path`` target pairs
+    """
+    references: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    fence: str | None = None
+
+    for line in body.splitlines():
+        stripped = line.lstrip()
+        marker = stripped[:3]
+        if marker in {"```", "~~~"}:
+            if fence is None:
+                fence = marker
+            elif marker == fence:
+                fence = None
+            continue
+        if fence is not None:
+            continue
+
+        prose = _INLINE_CODE_RE.sub("", line)
+        for match in _WIKI_LINK_RE.finditer(prose):
+            # A pipe is a conventional optional display label. It isn't part
+            # of rif's documented form, but accepting it here is harmless and
+            # avoids treating the label as part of a page path.
+            target = match.group(1).split("|", 1)[0].strip()
+            if ":" in target:
+                alias, path = (part.strip() for part in target.split(":", 1))
+            else:
+                alias, path = source_alias, target
+            # Fragments identify a section of the same target page; the
+            # page-level index and cove graph intentionally stop at the page.
+            path = path.split("#", 1)[0]
+            key = (alias, path)
+            if not alias or not path or key in seen:
+                continue
+            seen.add(key)
+            references.append({"space": alias, "path": path})
+    return references
 
 
 def _summary(body: str) -> str:
@@ -133,7 +188,16 @@ async def build_index(principal: Principal) -> IndexPayload:
         )
         for space in spaces
     }
+    alias_by_space_id = {space.id: space_alias(space) for space in spaces}
+    visible_pages = {(alias_by_space_id[page.space_id], page.path) for page in pages}
+    page_path_by_id = {page.id: page.path for page in pages}
     for page in sorted(pages, key=lambda p: p.path):
+        source_alias = alias_by_space_id[page.space_id]
+        references = [
+            reference
+            for reference in _page_references(page.body, source_alias)
+            if (reference["space"], reference["path"]) in visible_pages
+        ]
         by_space[page.space_id].pages.append(
             {
                 "path": page.path,
@@ -144,14 +208,19 @@ async def build_index(principal: Principal) -> IndexPayload:
                 "size": len(page.body),
                 "version": page.version,
                 "last_editor": editors.get(page.id),
+                "references": references,
             }
         )
     for attachment in attachments:
         by_space[attachment.space_id].attachments.append(
             {
                 "key": attachment.object_key,
+                "filename": attachment.filename
+                or attachment.object_key.rsplit("/", 1)[-1],
                 "mime": attachment.mime,
+                "size": attachment.byte_size,
                 "description": attachment.description,
+                "page_path": page_path_by_id.get(attachment.page_id),
             }
         )
 
@@ -197,6 +266,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
 
     spent = 0
     body_by_page: dict[object, str | None] = {}
+    page_path_by_id = {page.id: page.path for page in pages}
     for page in sorted(pages, key=_priority):
         if spent + len(page.body) <= char_budget:
             body_by_page[page.id] = page.body
@@ -238,8 +308,12 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         by_space[attachment.space_id].attachments.append(
             {
                 "key": attachment.object_key,
+                "filename": attachment.filename
+                or attachment.object_key.rsplit("/", 1)[-1],
                 "mime": attachment.mime,
+                "size": attachment.byte_size,
                 "description": attachment.description,
+                "page_path": page_path_by_id.get(attachment.page_id),
             }
         )
 

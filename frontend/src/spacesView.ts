@@ -7,14 +7,15 @@
  * `window` but no top-level `localStorage` binding.
  */
 
-export type SpacesView = "list" | "grid";
+export type SpacesView = "list" | "grid" | "graph";
 
 const KEY = "reef.spacesView";
 
 /** Read the persisted view, defaulting to `"list"` for absent or junk values. */
 export function getSpacesView(): SpacesView {
   try {
-    return window.localStorage.getItem(KEY) === "grid" ? "grid" : "list";
+    const stored = window.localStorage.getItem(KEY);
+    return stored === "grid" || stored === "graph" ? stored : "list";
   } catch {
     return "list";
   }

@@ -1,4 +1,6 @@
 import base64
+import binascii
+import mimetypes
 import os
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -279,7 +281,7 @@ async def load_index() -> dict:
     """Load the memory index. Call this first, every conversation.
 
     Returns every page you can see — path, title, tags, and a one-line
-    description — plus image descriptions, per space. It contains no page
+    description — plus described files, per space. It contains no page
     bodies: read the index, decide which entries this conversation needs, and
     fetch them with read_pages. Fetch again as new topics come up; never
     answer from the index's descriptions alone.
@@ -785,29 +787,28 @@ async def confirm_share(nonce: str) -> dict:
             return {"error": "promotion_failed", "detail": str(exc)}
 
 
-@mcp.tool
-async def add_image(
+async def _store_file(
     space: str,
+    filename: str,
     data_base64: str,
     mime: str,
     description: str,
     page_path: str | None = None,
 ) -> dict:
-    """Store an image with a text description of what it shows.
-
-    Write the description yourself, concretely — it is what future
-    conversations see in loaded context ("photo of the boiler's model plate,
-    reading Vaillant ecoTEC VU 246/5-5"), so put the facts in it.
-
-    :param space: ``personal`` or a space name from list_spaces
-    :param data_base64: the image bytes, base64-encoded
-    :param mime: content type, e.g. image/jpeg
-    :param description: concrete text description; required
-    :param page_path: page in the same space this image belongs to
-    """
-    data = base64.b64decode(data_base64)
-    if len(data) > get_settings().image_max_bytes:
-        return {"error": "too_large", "max_bytes": get_settings().image_max_bytes}
+    """Validate and store one general file for the current principal."""
+    filename = filename.strip()
+    if not filename or len(filename) > 512:
+        return {"error": "invalid_filename", "max_characters": 512}
+    if not mime.strip() or len(mime) > 255:
+        return {"error": "invalid_mime"}
+    if not description.strip():
+        return {"error": "description_required"}
+    try:
+        data = base64.b64decode(data_base64, validate=True)
+    except (binascii.Error, ValueError):
+        return {"error": "invalid_base64"}
+    if len(data) > get_settings().file_max_bytes:
+        return {"error": "too_large", "max_bytes": get_settings().file_max_bytes}
     # add_attachment opens its own two transactions -- the pending row must
     # commit before the bytes are written -- so it must not be nested inside
     # one here. Only the principal lookup is wrapped.
@@ -818,21 +819,22 @@ async def add_image(
         space,
         data,
         mime,
+        filename=filename,
         description=description,
         store=S3ObjectStore(),
         page_path=page_path,
     )
-    return {"key": attachment.object_key, "status": attachment.status}
+    return {
+        "key": attachment.object_key,
+        "filename": attachment.filename,
+        "mime": attachment.mime,
+        "size": attachment.byte_size,
+        "status": attachment.status,
+    }
 
 
-@mcp.tool
-async def read_image(space: str, key: str) -> dict:
-    """Return a short-lived URL for an image. Only when the pixels matter —
-    descriptions are already in your loaded context.
-
-    :param space: ``personal`` or a space name from list_spaces
-    :param key: the image key from the context payload
-    """
+async def _read_file(space: str, key: str) -> dict:
+    """Return stored-file metadata and a temporary download URL."""
     async with transaction_scope():
         principal = await current_principal()
         attachment = await get_attachment(principal, space, key)
@@ -841,29 +843,99 @@ async def read_image(space: str, key: str) -> dict:
         ttl = get_settings().signed_url_ttl_seconds
         return {
             "url": await S3ObjectStore().signed_url(key, ttl),
+            "filename": attachment.filename or key.rsplit("/", 1)[-1],
             "mime": attachment.mime,
+            "size": attachment.byte_size,
             "description": attachment.description,
             "expires_in": ttl,
         }
 
 
-@mcp.tool
-async def delete_image(space: str, key: str) -> dict:
-    """Delete an image and its description. This cannot be undone.
-
-    For images that should never have been stored — a bad upload, a test, a
-    photo added to the wrong space. Confirm with the person first: nothing
-    else in this system deletes, and the bytes do not come back.
-
-    :param space: ``personal`` or a space name from list_spaces
-    :param key: the image key from the index
-    """
+async def _delete_file(space: str, key: str) -> dict:
+    """Delete one stored file after resolving the current principal."""
     async with transaction_scope():
         principal = await current_principal()
     removed = await delete_attachment(principal, space, key, store=S3ObjectStore())
     if not removed:
         return {"error": "not_found", "key": key}
     return {"deleted": True, "key": key}
+
+
+@mcp.tool
+async def add_file(
+    space: str,
+    filename: str,
+    data_base64: str,
+    mime: str,
+    description: str,
+    page_path: str | None = None,
+) -> dict:
+    """Store any useful file with a searchable text description.
+
+    Write the description yourself, concretely — it is what future
+    conversations see in loaded context. PDFs, text, office documents,
+    archives, audio, and images are all accepted; use ``read_file`` when the
+    actual bytes matter.
+
+    :param space: ``personal`` or a space name from list_spaces
+    :param filename: original filename, including its extension
+    :param data_base64: file bytes, base64-encoded
+    :param mime: content type, e.g. application/pdf
+    :param description: concrete text description; required
+    :param page_path: page in the same space this file belongs to
+    """
+    return await _store_file(space, filename, data_base64, mime, description, page_path)
+
+
+@mcp.tool
+async def read_file(space: str, key: str) -> dict:
+    """Return metadata and a short-lived URL for any stored file.
+
+    :param space: ``personal`` or a space name from list_spaces
+    :param key: file key from the context payload
+    """
+    return await _read_file(space, key)
+
+
+@mcp.tool
+async def delete_file(space: str, key: str) -> dict:
+    """Delete a stored file and its description. This cannot be undone.
+
+    Confirm with the person first: the bytes do not come back.
+
+    :param space: ``personal`` or a space name from list_spaces
+    :param key: file key from the index
+    """
+    return await _delete_file(space, key)
+
+
+# Compatibility aliases for clients and existing pages which still know the
+# old image-only vocabulary. New callers should use the general file tools.
+@mcp.tool
+async def add_image(
+    space: str,
+    data_base64: str,
+    mime: str,
+    description: str,
+    page_path: str | None = None,
+) -> dict:
+    """Compatibility alias for ``add_file`` when storing an image."""
+    extension = mimetypes.guess_extension(mime) or ""
+    return await _store_file(
+        space, f"image{extension}", data_base64, mime, description, page_path
+    )
+
+
+@mcp.tool
+async def read_image(space: str, key: str) -> dict:
+    """Compatibility alias for ``read_file``."""
+    return await _read_file(space, key)
+
+
+@mcp.tool
+async def delete_image(space: str, key: str) -> dict:
+    """Compatibility alias for ``delete_file``."""
+    return await _delete_file(space, key)
 
 
 def main() -> None:

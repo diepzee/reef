@@ -27,9 +27,9 @@ description, no bodies), then fetches what the conversation needs with
 `read_pages`, and keeps fetching as topics come up. The index is computed from
 the store on every call, so it cannot drift.
 
-Page bodies are Markdown from the start. A manual export renders every page as
-a plain `.md` file with frontmatter, so the knowledge outlives the deployment.
-One-way, app to files.
+Page bodies are Markdown from the start. The web app exports current content as
+Markdown or JSON and offers a full data dump with history and stored file bytes,
+so the knowledge outlives the deployment. One-way, app to files.
 
 Design: [`docs/spec.md`](docs/spec.md).
 Going live: [`docs/runbook.md`](docs/runbook.md).
@@ -41,7 +41,7 @@ Market landscape: [`docs/competitor-research.md`](docs/competitor-research.md).
 **Live since 6 Aug 2026**, deployed on Railway behind WorkOS AuthKit and in
 daily use from Claude Code. The v1 build is complete and reviewed — schema,
 access control, index and page reads, versioned writes, section-level
-sharing, protocol delivery, images, import, backup, and export. 64 tests
+sharing, protocol delivery, general file storage, import, backup, and export. Tests
 pass against a real Postgres. The connector gate passed, the real service is
 deployed, and the personal corpus is imported.
 
