@@ -239,7 +239,14 @@ function seagrass(rng: Rng): OrganismPath[] {
   return [{ d }];
 }
 
-/** Mound of tangent bubbles; single nonzero path unions overlaps cleanly. */
+/**
+ * Rising cluster of bubbles, drawn as rings.
+ *
+ * Filled discs unioned into a single blob — which is what a nonzero fill
+ * does to tangent circles — and the result read as a cloud or a mound of
+ * eggs, not as bubbles. Stroked, each circle keeps its own outline and the
+ * overlaps cross like real bubbles do.
+ */
 function bubbles(rng: Rng): OrganismPath[] {
   const rows: Array<[number, number]> = [
     [3, 6.5],
@@ -260,7 +267,7 @@ function bubbles(rng: Rng): OrganismPath[] {
     }
     y -= rad * 0.6;
   }
-  return [{ d }];
+  return [{ d, stroke: 2 }];
 }
 
 /** One antler coral: short trunk fanning into curved arms, each twice-forked. */
