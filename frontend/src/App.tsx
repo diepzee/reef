@@ -7,6 +7,7 @@ import Home from "./views/Home";
 import NewPage from "./views/NewPage";
 import NewSpace from "./views/NewSpace";
 import PageView from "./views/PageView";
+import { Gallery } from "./views/Gallery";
 import SignedOut from "./views/SignedOut";
 import SpaceView from "./views/SpaceView";
 
@@ -33,6 +34,8 @@ export default function App() {
     <BrowserRouter basename="/app">
       <Routes>
         <Route path="/signed-out" element={<SignedOut />} />
+        {/* Dev-only tuning surface — Bun inlines NODE_ENV, so prod builds tree-shake this. */}
+        {process.env.NODE_ENV !== "production" && <Route path="/gallery" element={<Gallery />} />}
         <Route path="*" element={<AuthedApp />} />
       </Routes>
     </BrowserRouter>
