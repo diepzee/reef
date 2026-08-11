@@ -76,7 +76,10 @@ export function Sidebar({ me }: { me: Me | null }) {
         reef
       </Link>
 
-      <div className="side-label">Reef</div>
+      {/* Names what the list holds rather than repeating the wordmark two
+          rows below it — and in small-caps --faint, which is not how the
+          brand is set anywhere else. */}
+      <div className="side-label">Coves</div>
 
       {index?.spaces.map((space) => {
         const isActive = space.alias === activeSpace;
@@ -148,6 +151,11 @@ export function Sidebar({ me }: { me: Me | null }) {
       <Link to="/spaces/new" className="side-item side-newspace">
         <span className="side-dot" />
         <span>＋ New cove</span>
+      </Link>
+
+      <Link to="/invite" className="side-item side-newspace">
+        <span className="side-dot" />
+        <span>＋ Invite to reef</span>
       </Link>
 
       <div className="side-me">

@@ -4,6 +4,7 @@ import { AppShell } from "./components/AppShell";
 import { IndexProvider } from "./IndexProvider";
 import Editor from "./views/Editor";
 import Home from "./views/Home";
+import InviteToReef from "./views/InviteToReef";
 import NewPage from "./views/NewPage";
 import NewSpace from "./views/NewSpace";
 import PageView from "./views/PageView";
@@ -19,6 +20,7 @@ function AuthedApp() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/spaces/new" element={<NewSpace />} />
+          <Route path="/invite" element={<InviteToReef />} />
           <Route path="/s/:space" element={<SpaceView />} />
           <Route path="/s/:space/new" element={<NewPage />} />
           <Route path="/s/:space/p/*" element={<PageView />} />

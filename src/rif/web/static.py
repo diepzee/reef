@@ -137,6 +137,22 @@ def register_static_routes(mcp) -> None:
             return FileResponse(index)
         return RedirectResponse("/app", status_code=307)
 
+    async def privacy(request: Request) -> Response:
+        """Serve the privacy page at the origin root.
+
+        A root-level path rather than ``/site/privacy.html`` because the
+        footer links to it from every page and a legal notice should have a
+        stable, guessable URL.
+
+        :param request: the incoming request
+        :returns: the site's ``privacy.html``, or a 404 if the site tree is
+            absent (same posture as :func:`_serve_site_asset`)
+        """
+        page = Path(get_settings().site_dir) / "privacy.html"
+        if page.is_file():
+            return FileResponse(page)
+        return PlainTextResponse("Not Found", status_code=404)
+
     async def site_asset(request: Request) -> Response:
         """Serve one of the marketing site's assets.
 
@@ -192,6 +208,7 @@ def register_static_routes(mcp) -> None:
         return _serve_or_fallback(request.path_params["path"])
 
     mcp.custom_route("/", methods=["GET"])(root)
+    mcp.custom_route("/privacy", methods=["GET"])(privacy)
     mcp.custom_route("/site/{path:path}", methods=["GET"])(site_asset)
     mcp.custom_route("/favicon.ico", methods=["GET"])(favicon_ico)
     mcp.custom_route("/apple-touch-icon.png", methods=["GET"])(apple_touch_icon)

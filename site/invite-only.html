@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reef — invite only</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0;
+  --ink: #1c2b33; --muted: #7b8a92;
+  --accent: #0d9488; --accent-deep: #0b6b62; --accent-soft: #e7f9f4;
+  --cta-ink: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d;
+    --ink: #e2f1f5; --muted: #8fb0ba;
+    --accent: #38bdd8; --accent-deep: #7ce3d3; --accent-soft: #123a35;
+    --cta-ink: #06282e;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; background: var(--ground); color: var(--ink);
+  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px; line-height: 1.6;
+  display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+}
+main { max-width: 34rem; }
+.brand {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  font-weight: 800; font-size: 1.25rem; color: var(--ink);
+  text-decoration: none; margin-bottom: 2rem;
+}
+h1 { font-size: 1.9rem; line-height: 1.2; letter-spacing: -0.01em; margin: 0 0 1rem; }
+p { margin: 0 0 1rem; }
+.muted { color: var(--muted); }
+.tried {
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: 12px; padding: 0.85rem 1.1rem; margin: 1.5rem 0;
+}
+.tried .label {
+  font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 0.15rem;
+}
+.tried .email { font-weight: 700; word-break: break-all; }
+.btn {
+  display: inline-block; background: var(--accent); color: var(--cta-ink);
+  font-weight: 700; font-size: 0.95rem; text-decoration: none;
+  padding: 0.6rem 1.35rem; border-radius: 999px; margin-top: 0.5rem;
+}
+.btn:hover { background: var(--accent-deep); }
+.btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <a class="brand" href="/">reef</a>
+  <h1>reef is invite&#8209;only.</h1>
+  <p>
+    There is no sign&#8209;up. You get in when someone already using reef
+    invites you — that is the only door, and it is deliberate.
+  </p>
+
+  <div class="tried">
+    <div class="label">You signed in as</div>
+    <div class="email">__EMAIL__</div>
+  </div>
+
+  <p class="muted">
+    If you have more than one account, this may simply be the wrong one. The
+    address has to match the one you were invited with, exactly.
+  </p>
+  <p class="muted">
+    Otherwise, ask whoever told you about reef to invite this address. It
+    takes them one step, and nothing reaches you until they do — reef sends
+    no email.
+  </p>
+
+  <a class="btn" href="/">Back to reef</a>
+</main>
+</body>
+</html>
