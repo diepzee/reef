@@ -41,4 +41,14 @@ RUN uv sync --frozen --no-dev
 ENV PYTHONPATH=/app/src
 # migrate.py wraps `piccolo migrations forwards` in an advisory lock, so two
 # containers booting at once cannot run the same migration concurrently.
-CMD ["sh", "-c", "uv run python scripts/migrate.py && uv run python -m rif.server"]
+#
+# The admin credential is needed for those first seconds only, so the server
+# is exec'd through `env -u`: exec replaces PID 1, meaning no live process in
+# the container retains RIF_MIGRATION_DATABASE_URL once boot completes -- not
+# in os.environ, and not in any /proc/*/environ. Unsetting inside migrate.py
+# would be weaker (the parent shell would keep it); this leaves nothing to
+# read. The backup cron is a separate Railway service with its own variables,
+# and the restore runbook pulls the credential from the Railway control
+# plane, so neither is affected. RIF_BACKUP_DATABASE_URL is scrubbed too in
+# case it is ever set here; `env -u` on an unset name is a no-op.
+CMD ["sh", "-c", "uv run python scripts/migrate.py && exec env -u RIF_MIGRATION_DATABASE_URL -u RIF_BACKUP_DATABASE_URL uv run python -m rif.server"]

@@ -743,7 +743,7 @@ the origin under a hostname Railway has no certificate for.
 | `RIF_SESSION_SECRET` | 64-char hex; seals the browser session + OAuth state cookies |
 | `RIF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
 | `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
-| `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server |
+| `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
 | `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |
 | `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |
