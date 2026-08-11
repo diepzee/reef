@@ -110,7 +110,7 @@ export default function Home() {
   return (
     <div>
       <div className="spaces-head">
-        <h1>Your reef&rsquo;s coves</h1>
+        <h1>Your <span className="reef-name">reef</span>&rsquo;s coves</h1>
         <div className="segview" role="tablist" aria-label="View">
           <button
             type="button"

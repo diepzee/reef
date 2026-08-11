@@ -155,7 +155,7 @@ export function Sidebar({ me }: { me: Me | null }) {
 
       <Link to="/invite" className="side-item side-newspace">
         <span className="side-dot" />
-        <span>＋ Invite to reef</span>
+        <span>＋ Invite to <span className="reef-name">reef</span></span>
       </Link>
 
       <div className="side-me">
