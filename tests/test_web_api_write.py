@@ -2,6 +2,8 @@
 
 from conftest import _login
 
+from rif.invitations import INVITE_BUDGET
+
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
 # test_web_api_read.py.
 
@@ -198,3 +200,65 @@ async def test_invite_non_dict_json_body_is_bad_request(api, world):
     response = await api.post("/api/spaces/team/invites", json="e@x.com", headers=CSRF)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
+
+
+async def test_invite_to_reef_allowlists_without_sharing_a_space(api, world):
+    """The reef invite grants no membership — that is its whole purpose."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.post(
+        "/api/invites", json={"email": "Curious@X.com"}, headers=CSRF
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == "curious@x.com"
+    assert body["already_known"] is False
+    assert body["invites_left"] == INVITE_BUDGET - 1
+    assert "next_step" in body
+
+    # They are on the allowlist, but in none of alice's spaces.
+    members = (await api.get("/api/spaces/team/members")).json()
+    assert "curious@x.com" not in {m["email"] for m in members["members"]}
+
+
+async def test_invites_left_is_readable_before_spending_any(api, world):
+    alice, _, _ = world
+    _login(api, alice)
+    body = (await api.get("/api/invites")).json()
+    assert body["invites_left"] == INVITE_BUDGET
+    assert body["budget"] == INVITE_BUDGET
+
+
+async def test_spent_budget_returns_429_with_the_unlock_date(api, world):
+    """429, not 400: the request is well-formed and would succeed later."""
+    alice, _, _ = world
+    _login(api, alice)
+    for n in range(INVITE_BUDGET):
+        spent = await api.post(
+            "/api/invites", json={"email": f"n{n}@x.com"}, headers=CSRF
+        )
+        assert spent.status_code == 200
+
+    refused = await api.post(
+        "/api/invites", json={"email": "one-too-many@x.com"}, headers=CSRF
+    )
+    assert refused.status_code == 429
+    assert refused.json()["error"] == "invite_budget"
+    assert "unlocks" in refused.json()["detail"]
+
+
+async def test_cove_invite_shares_the_budget_over_http(api, world):
+    """The bypass, closed at the HTTP layer too.
+
+    Spending the budget through the reef door must leave the cove door
+    refusing as well, or a junk space reopens the hole.
+    """
+    alice, _, _ = world
+    _login(api, alice)
+    for n in range(INVITE_BUDGET):
+        await api.post("/api/invites", json={"email": f"r{n}@x.com"}, headers=CSRF)
+
+    refused = await api.post(
+        "/api/spaces/team/invites", json={"email": "via-cove@x.com"}, headers=CSRF
+    )
+    assert refused.status_code == 429

@@ -152,6 +152,30 @@ async def test_callback_unknown_email_gets_403(web):
         "/api/auth/callback", params={"code": "c", "state": state}
     )
     assert response.status_code == 403
+    # The page must name the address that was refused: people hold several
+    # accounts, and "not invited" is useless without knowing which identity.
+    assert "stranger@x.com" in response.text
+    assert "invite" in response.text.lower()
+
+
+async def test_denied_page_escapes_the_address_it_reflects(web):
+    """A hostile address must not become markup in the denied page.
+
+    The value comes from verified OIDC claims, so this is defence in depth
+    rather than a known hole — but reflecting an identity string into a page
+    is not somewhere to reason about whether escaping is needed.
+    """
+    client, fake, _ = web
+    hostile = "<script>alert(1)</script>@x.com"
+    fake.claims = {"sub": "sub_x", "email": hostile, "email_verified": True}
+    login = await client.get("/api/auth/login")
+    state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
+    response = await client.get(
+        "/api/auth/callback", params={"code": "c", "state": state}
+    )
+    assert response.status_code == 403
+    assert "<script>" not in response.text
+    assert "&lt;script&gt;" in response.text
 
 
 async def test_login_sets_secure_oauth_cookie_by_default(web):
@@ -291,9 +315,7 @@ async def test_logout_clears_session(web):
 async def test_logout_returns_upstream_logout_url_when_sid_known(web):
     """With a sid in the session, logout hands back the WorkOS logout URL."""
     client, _fake, person = web
-    token = seal(
-        person.id, "member@example.com", secret="test-secret", sid="ses_abc"
-    )
+    token = seal(person.id, "member@example.com", secret="test-secret", sid="ses_abc")
     client.cookies.set("rif_session", token)
     response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
     assert response.status_code == 200

@@ -81,3 +81,24 @@ export interface InviteResult {
   already_member: boolean;
   disclosure: string;
 }
+
+/**
+ * `POST /api/invites` — the outcome of inviting someone to reef itself.
+ *
+ * No `space` and no `disclosure`, unlike `InviteResult`: this grants sight
+ * of nothing, so there is nothing to disclose. `next_step` carries the words
+ * the inviter relays, since reef sends no email.
+ */
+export interface ReefInviteResult {
+  email: string;
+  already_known: boolean;
+  invites_left: number;
+  next_step: string;
+}
+
+/** `GET /api/invites` — how many reef invites the caller has left. */
+export interface InviteBudget {
+  invites_left: number;
+  budget: number;
+  window_days: number;
+}
