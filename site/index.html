@@ -134,6 +134,28 @@ nav.handover .cta { opacity: 0; visibility: hidden; }
 .eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; }
 h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: -0.008em; margin: 0 0 0.75rem; text-wrap: balance; }
 .sub { color: var(--muted); font-size: 1.05rem; max-width: 38rem; margin: 0 0 2.5rem; }
+.setup-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 1rem 2rem; margin-bottom: 0.75rem;
+}
+.setup-head h2 { margin: 0; }
+.client-picker {
+  flex: none; display: flex; align-items: center; gap: 0.65rem;
+  color: var(--muted); font-size: 0.88rem; font-weight: 700;
+}
+.select-wrap { position: relative; display: inline-flex; }
+.select-wrap::after {
+  content: "\25BE"; position: absolute; right: 0.9rem; top: 50%; translate: 0 -52%;
+  color: var(--accent); pointer-events: none; font-size: 0.78rem;
+}
+.client-picker select {
+  appearance: none; color: var(--ink); background: var(--field); border: 1px solid var(--hairline);
+  border-radius: 999px; padding: 0.52rem 2.25rem 0.52rem 0.95rem;
+  font: inherit; font-size: 0.94rem; cursor: pointer;
+}
+.client-picker select:hover { border-color: var(--accent); }
+.client-picker select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.setup-panel .sub { margin-bottom: 2.5rem; }
 
 /* One row of five on a roomy screen, reflowing to fewer columns rather than stranding a
    single cove on a line of its own. */
@@ -204,6 +226,7 @@ footer a { color: var(--muted); }
   .panel { min-height: 0; padding-block: 4.5rem 3rem; scroll-snap-align: none; }
   .hero { min-height: 100svh; }
   .scrollcue { display: none; }
+  .setup-head { align-items: flex-start; flex-direction: column; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -240,7 +263,7 @@ footer a { color: var(--muted); }
   <h1 class="reveal d1">Memory you grow together.</h1>
   <p class="lede reveal d2">reef is a shared, living memory for you and your people — and for the
     AI you both talk to. Coves for your household, your plans, your life.</p>
-  <p class="micro reveal d3">Works with Claude — add reef as a connector, on your phone too.</p>
+  <p class="micro reveal d3">Works with Claude, ChatGPT desktop, and Codex.</p>
   <div class="scrollcue reveal d4" aria-hidden="true">
     <span>▾</span>
   </div>
@@ -277,35 +300,104 @@ footer a { color: var(--muted); }
     </div>
     <div class="step">
       <h3>Every conversation starts knowing</h3>
-      <p>Add reef to Claude as a connector. The school schedule, the house quirks, the plan so far
-        — known at hello, without repeating yourself.</p>
+      <p>Add reef to Claude, ChatGPT desktop, or Codex. The school schedule, the house quirks,
+        the plan so far — known at hello, without repeating yourself.</p>
     </div>
   </div>
 </section>
 
 <section class="panel wrap" id="add">
   <p class="eyebrow">Setup</p>
-  <h2>Add reef to Claude</h2>
-  <p class="sub">Two minutes, once. After this every conversation — desktop, web, or the phone
-    app — starts already knowing.</p>
-  <div class="steps">
-    <div class="step">
-      <h3>Open Claude's connectors</h3>
-      <p>In Claude, go to <b>Settings &rarr; Connectors</b>, then choose to add a custom
-        connector.</p>
+  <div class="setup-head">
+    <h2>Add reef to <span id="setup-client-name" aria-live="polite">Claude</span></h2>
+    <label class="client-picker" for="setup-client">
+      <span>Set up for</span>
+      <span class="select-wrap">
+        <select id="setup-client">
+          <option value="claude">Claude</option>
+          <option value="chatgpt">ChatGPT</option>
+          <option value="codex">Codex</option>
+        </select>
+      </span>
+    </label>
+  </div>
+
+  <div class="setup-panel" data-client="claude">
+    <p class="sub">Two minutes, once. After this every conversation — desktop, web, or the phone
+      app — starts already knowing.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Open Claude's connectors</h3>
+        <p>In Claude, go to <b>Settings &rarr; Connectors</b>, then choose to add a custom
+          connector.</p>
+      </div>
+      <div class="step">
+        <h3>Paste this address</h3>
+        <p>That is this site, with <code>/mcp</code> on the end.</p>
+        <p class="urlrow">
+          <code id="claude-mcp-url" data-mcp-url>/mcp</code>
+          <button type="button" class="copy-value" data-copy-target="claude-mcp-url" data-label="Copy">Copy</button>
+        </p>
+      </div>
+      <div class="step">
+        <h3>Sign in once</h3>
+        <p>Claude opens a sign-in page. Use the email you want reef to know you by — it is how
+          invitations to a cove reach you.</p>
+      </div>
     </div>
-    <div class="step">
-      <h3>Paste this address</h3>
-      <p>That is this site, with <code>/mcp</code> on the end.</p>
-      <p class="urlrow">
-        <code id="mcp-url">/mcp</code>
-        <button type="button" id="copy-url" data-label="Copy">Copy</button>
-      </p>
+  </div>
+
+  <div class="setup-panel" data-client="chatgpt" hidden>
+    <p class="sub">Connect reef in the ChatGPT desktop app. The same MCP setup is then available
+      to Codex on this computer.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Open MCP servers</h3>
+        <p>In the ChatGPT desktop app, go to <b>Settings &rarr; MCP servers</b>, then select
+          <b>Add server</b>.</p>
+      </div>
+      <div class="step">
+        <h3>Add reef</h3>
+        <p>Name it <b>reef</b>, choose <b>Streamable HTTP</b>, paste this address, and save. Then
+          select <b>Restart</b>.</p>
+        <p class="urlrow">
+          <code id="chatgpt-mcp-url" data-mcp-url>/mcp</code>
+          <button type="button" class="copy-value" data-copy-target="chatgpt-mcp-url" data-label="Copy">Copy</button>
+        </p>
+      </div>
+      <div class="step">
+        <h3>Sign in once</h3>
+        <p>Back in MCP servers, select <b>Authenticate</b>. Use the email you want reef to know
+          you by — it is how invitations to a cove reach you.</p>
+      </div>
     </div>
-    <div class="step">
-      <h3>Sign in once</h3>
-      <p>Claude opens a sign-in page. Use the email you want reef to know you by — it is how
-        invitations to a cove reach you.</p>
+  </div>
+
+  <div class="setup-panel" data-client="codex" hidden>
+    <p class="sub">Two commands, once. Codex and the ChatGPT desktop app share this MCP setup on
+      the same computer.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Open a terminal</h3>
+        <p>Make sure the Codex CLI is installed and signed in, then add reef as a remote MCP
+          server.</p>
+      </div>
+      <div class="step">
+        <h3>Add reef</h3>
+        <p>Run this command once:</p>
+        <p class="urlrow">
+          <code id="codex-add-command" data-mcp-command>codex mcp add reef --url /mcp</code>
+          <button type="button" class="copy-value" data-copy-target="codex-add-command" data-label="Copy">Copy</button>
+        </p>
+      </div>
+      <div class="step">
+        <h3>Sign in once</h3>
+        <p>Run this command, then finish signing in in your browser:</p>
+        <p class="urlrow">
+          <code id="codex-login-command">codex mcp login reef</code>
+          <button type="button" class="copy-value" data-copy-target="codex-login-command" data-label="Copy">Copy</button>
+        </p>
+      </div>
     </div>
   </div>
 </section>
@@ -543,23 +635,53 @@ footer a { color: var(--muted); }
     swayEls.forEach(function (el) { el.style.transform = ""; });
   });
 
-  // ---- the connector address ----
+  // ---- setup path and connector address ----
+  // Claude, ChatGPT desktop, and Codex each expose MCP setup in a different place. Keep one
+  // compact selector rather than making the reader scan instructions for clients they do not use.
+  var clientPicker = document.getElementById("setup-client");
+  var clientName = document.getElementById("setup-client-name");
+  var setupSection = document.getElementById("add");
+  var setupPanels = [].slice.call(document.querySelectorAll(".setup-panel"));
+  if (clientPicker && clientName) {
+    clientPicker.addEventListener("change", function () {
+      var selected = clientPicker.value;
+      clientName.textContent = clientPicker.options[clientPicker.selectedIndex].text;
+      setupPanels.forEach(function (panel) {
+        panel.hidden = panel.dataset.client !== selected;
+      });
+      // Re-anchor after the panel height changes so mandatory scroll snapping does not pull the
+      // reader into an adjacent section while they switch clients.
+      if (setupSection) setupSection.scrollIntoView({ block: "start" });
+    });
+  }
+
   // Filled from the page's own origin rather than written down: the marketing page and the
   // MCP endpoint are the same deployment, so this is right on every domain it is served from,
   // including a future custom one.
-  var urlEl = document.getElementById("mcp-url");
-  if (urlEl) urlEl.textContent = window.location.origin + "/mcp";
+  var mcpUrl = window.location.origin + "/mcp";
+  [].slice.call(document.querySelectorAll("[data-mcp-url]")).forEach(function (el) {
+    el.textContent = mcpUrl;
+  });
+  [].slice.call(document.querySelectorAll("[data-mcp-command]")).forEach(function (el) {
+    el.textContent = "codex mcp add reef --url " + mcpUrl;
+  });
 
-  var copyBtn = document.getElementById("copy-url");
-  if (copyBtn && navigator.clipboard) {
-    copyBtn.addEventListener("click", function () {
-      navigator.clipboard.writeText(urlEl.textContent).then(function () {
-        copyBtn.textContent = "Copied";
-        setTimeout(function () { copyBtn.textContent = copyBtn.dataset.label; }, 1600);
+  var copyButtons = [].slice.call(document.querySelectorAll(".copy-value"));
+  if (navigator.clipboard) {
+    copyButtons.forEach(function (button) {
+      button.addEventListener("click", function () {
+        var value = document.getElementById(button.dataset.copyTarget);
+        if (!value) return;
+        navigator.clipboard.writeText(value.textContent).then(function () {
+          button.textContent = "Copied";
+          setTimeout(function () { button.textContent = button.dataset.label; }, 1600);
+        });
       });
     });
-  } else if (copyBtn) {
-    copyBtn.hidden = true;   // no clipboard access; the address is selectable anyway
+  } else {
+    copyButtons.forEach(function (button) {
+      button.hidden = true;   // no clipboard access; the address and commands remain selectable
+    });
   }
 
   // ---- one sign-in at a time ----
