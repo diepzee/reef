@@ -102,6 +102,20 @@ function circle(cx: number, cy: number, rad: number): string {
   return ellipse(cx, cy, rad, rad);
 }
 
+/**
+ * Open arc of `rad` about (cx, cy), swept from `a0` to `a1`.
+ *
+ * Angles are radians in the drawing's own frame, where y grows downward, so an angle
+ * between pi and 1.5pi points up and to the left.
+ */
+function arc(cx: number, cy: number, rad: number, a0: number, a1: number): string {
+  const x0 = cx + Math.cos(a0) * rad;
+  const y0 = cy + Math.sin(a0) * rad;
+  const x1 = cx + Math.cos(a1) * rad;
+  const y1 = cy + Math.sin(a1) * rad;
+  return `M${r2(x0)} ${r2(y0)}A${r2(rad)} ${r2(rad)} 0 0 1 ${r2(x1)} ${r2(y1)}`;
+}
+
 function ellipse(cx: number, cy: number, rx: number, ry: number): string {
   return (
     `M${r2(cx - rx)} ${r2(cy)}` +
@@ -143,6 +157,25 @@ export const FAMILIES = [
 
 /** One kind of reef life. The brand's fan coral is a logo, not a family. */
 export type Family = (typeof FAMILIES)[number];
+
+/**
+ * Body plans withdrawn from use, each mapped onto a survivor.
+ *
+ * These three sit far flatter than the rest — median heights of 15–18 in the 64-box against
+ * 28–39 for everyone else, at aspect ratios up to 2.3:1. Rendered at a common height they
+ * would have to grow wider than the box; rendered to fit the box they read as a fraction of
+ * their neighbours' size. Either way they break the even footing the glyphs want.
+ *
+ * They stay in the hash space rather than being deleted from `FAMILIES`, because the family
+ * is chosen by `seed % FAMILIES.length`: shortening that list would deal every space a new
+ * organism. Remapping instead moves only the spaces that actually grew a retired plan.
+ * The generators remain, so the gallery can still draw them.
+ */
+const RETIRED: Partial<Record<Family, Family>> = {
+  brain: "bubbles",
+  shell: "scallop",
+  nudibranch: "seagrass",
+};
 
 /** A grown individual: its family, how it anchors, and its renderable paths. */
 export interface Organism {
@@ -239,28 +272,39 @@ function seagrass(rng: Rng): OrganismPath[] {
   return [{ d }];
 }
 
-/** Mound of tangent bubbles; single nonzero path unions overlaps cleanly. */
+/**
+ * Mound of tangent bubbles — drawn hollow, each with a glint of reflected light.
+ *
+ * Filled discs read as a bunch of grapes rather than as bubbles. Walls plus a short
+ * highlight arc up and to the left, struck at a lighter weight than the wall, is what
+ * makes them read as air rather than mass. The parameters are drawn from the PRNG in the
+ * same order as when the bubbles were solid, so existing spaces keep their arrangement.
+ */
 function bubbles(rng: Rng): OrganismPath[] {
   const rows: Array<[number, number]> = [
     [3, 6.5],
     [int(rng, 2, 3), 5.5],
     [int(rng, 1, 2), 4.5],
   ];
-  let d = "";
+  let walls = "";
+  let glints = "";
   let y = 54;
   for (const [count, baseR] of rows) {
     const rad = baseR + lerp(rng, -0.8, 0.8);
     y -= rad;
     for (let i = 0; i < count; i++) {
-      d += circle(
-        32 + (i - (count - 1) / 2) * rad * 1.7 + lerp(rng, -1, 1),
-        y + lerp(rng, -1, 1),
-        rad,
-      );
+      const cx = 32 + (i - (count - 1) / 2) * rad * 1.7 + lerp(rng, -1, 1);
+      const cy = y + lerp(rng, -1, 1);
+      walls += circle(cx, cy, rad);
+      // Struck well inside the wall so the two never touch at small sizes.
+      glints += arc(cx, cy, rad * 0.5, Math.PI * 1.08, Math.PI * 1.33);
     }
     y -= rad * 0.6;
   }
-  return [{ d }];
+  return [
+    { d: walls, stroke: 2.2 },
+    { d: glints, stroke: 1.5 },
+  ];
 }
 
 /** One antler coral: short trunk fanning into curved arms, each twice-forked. */
@@ -418,8 +462,13 @@ export function generateFamily(family: Family, seed: number): Organism {
  * Every alias hashes, `personal` included (it lands on its own staghorn):
  * the brand's traced fan coral is a logo (`ReefMark.tsx`), never a cove
  * glyph. Personal's distinction is its pinned seafoam hue (`spaceColor`).
+ *
+ * A hashed family may be one of the `RETIRED` plans, in which case its
+ * survivor grows instead — from the same seed, so the individual is still
+ * that alias's own.
  */
 export function organismFor(alias: string): Organism {
   const seed = fnv1a(alias);
-  return generateFamily(FAMILIES[seed % FAMILIES.length]!, seed);
+  const hashed = FAMILIES[seed % FAMILIES.length]!;
+  return generateFamily(RETIRED[hashed] ?? hashed, seed);
 }
