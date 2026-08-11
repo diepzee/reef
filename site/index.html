@@ -47,6 +47,7 @@ body {
   font-size: 17px; line-height: 1.6;
 }
 a { color: var(--accent); }
+.reef-name { color: var(--accent); }
 .wrap { width: 100%; max-width: 66rem; margin: 0 auto; padding: 0 1.5rem; }
 
 /* ---------- panels ----------
@@ -70,7 +71,7 @@ nav {
 .brand {
   display: inline-flex; align-items: baseline; gap: 7px;
   font-weight: 800; font-size: 1.2rem; letter-spacing: -0.005em;
-  color: var(--ink); text-decoration: none;
+  color: var(--accent); text-decoration: none;
 }
 .brand svg { color: var(--accent); }
 nav .cta { margin-left: auto; transition: opacity 0.25s ease, visibility 0.25s ease; }
@@ -208,13 +209,108 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 }
 .urlrow button:hover { border-color: var(--accent); }
 
-/* The frame shrinks to whatever the height cap leaves the image, so it is never letterboxed. */
-.shotframe { width: fit-content; max-width: 100%; margin: 0 auto; border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field); }
-.shotbar { display: flex; gap: 6px; padding: 11px 14px; border-bottom: 1px solid var(--hairline-soft); }
-.shotbar i { width: 10px; height: 10px; border-radius: 50%; background: var(--hairline); }
-.shotframe img { display: block; height: auto; width: auto; max-width: 100%; max-height: 52svh; }
-.shotframe img.shot-dark { display: none; }
-@media (prefers-color-scheme: dark) { .shotframe img.shot-light { display: none; } .shotframe img.shot-dark { display: block; } }
+/* A small, live-feeling product tour rather than a still screenshot. It mirrors the app's actual
+   tile, list, page and editor shapes, but stays HTML so it is crisp in both colour schemes. */
+.product-tour { width: min(100%, 58rem); margin: 0 auto; }
+.tour-window {
+  overflow: hidden; border: 1px solid var(--hairline); border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field);
+}
+.tour-chrome {
+  display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 9px 13px;
+  border-bottom: 1px solid var(--hairline-soft); background: var(--panel);
+}
+.tour-chrome i { width: 9px; height: 9px; border-radius: 50%; background: var(--hairline); }
+.tour-chrome span { margin-left: auto; color: var(--faint); font-size: 0.7rem; font-weight: 700; }
+.tour-shell { display: grid; grid-template-columns: minmax(9rem, 19%) 1fr; height: clamp(320px, 47svh, 420px); }
+.tour-sidebar {
+  padding: 17px 13px; border-right: 1px solid var(--hairline); background: var(--panel);
+  color: var(--muted); font-size: 0.76rem;
+}
+.tour-lockup {
+  display: flex; align-items: baseline; gap: 5px; margin: 0 3px 18px;
+  color: var(--accent); font-size: 0.93rem; font-weight: 800;
+}
+.tour-side-label {
+  margin: 0 3px 6px; color: var(--faint); font-size: 0.62rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.tour-side-item { display: flex; align-items: center; gap: 7px; padding: 5px 3px; }
+.tour-side-item.is-current { color: var(--ink); font-weight: 700; }
+.tour-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--dot, var(--accent)); }
+.tour-stage { position: relative; min-width: 0; overflow: hidden; background: var(--ground); }
+.tour-screen {
+  position: absolute; inset: 0; overflow: hidden; padding: clamp(1.2rem, 3vw, 2.4rem);
+  opacity: 0; translate: 3% 0; transition: opacity 0.5s ease, translate 0.55s cubic-bezier(.22,1,.36,1);
+  pointer-events: none;
+}
+.tour-screen.is-active { z-index: 1; opacity: 1; translate: 0 0; pointer-events: auto; }
+.tour-head { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.1rem; }
+.tour-title { margin: 0 auto 0 0; font-size: clamp(1.05rem, 2.2vw, 1.55rem); line-height: 1.15; }
+.tour-seg {
+  display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--hairline);
+  border-radius: 999px; background: var(--panel);
+}
+.tour-seg i { display: grid; width: 25px; height: 19px; place-items: center; border-radius: 999px; color: var(--muted); font-size: 0.67rem; font-style: normal; }
+.tour-seg i.is-current { background: var(--field); color: var(--accent); box-shadow: 0 1px 3px rgb(10 30 40 / 0.15); }
+.tour-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.65rem; }
+.tour-card {
+  min-width: 0; border: 1px solid var(--hairline); border-radius: 10px; background: var(--panel);
+  color: var(--ink);
+}
+.tour-tile { min-height: 6.5rem; padding: 0.8rem; }
+.tour-pool {
+  display: grid; width: 34px; height: 34px; margin-bottom: 0.55rem; place-items: center;
+  border-radius: 50%; background: color-mix(in srgb, var(--pool, var(--accent)) 12%, var(--field));
+  color: var(--pool, var(--accent));
+}
+.tour-card b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.78rem; }
+.tour-card small { display: block; margin-top: 0.16rem; color: var(--muted); font-size: 0.66rem; }
+.tour-list { display: grid; gap: 0.55rem; }
+.tour-list .tour-card { position: relative; display: flex; align-items: center; gap: 0.7rem; padding: 0.72rem; overflow: hidden; }
+.tour-list .tour-card::before { content: ""; position: absolute; inset: 0 0 auto; height: 3px; background: var(--pool, var(--accent)); }
+.tour-list .tour-pool { width: 31px; height: 31px; margin: 0; flex: none; border-radius: 9px; }
+.tour-avatar { display: inline-grid; width: 20px; height: 20px; margin-left: auto; place-items: center; border-radius: 50%; background: var(--violet); color: white; font-size: 0.55rem; font-weight: 800; }
+.tour-cove-title { margin: 0 0 0.25rem; font-size: clamp(1.25rem, 2.7vw, 1.9rem); }
+.tour-whobar { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 1.25rem; color: var(--muted); font-size: 0.68rem; }
+.tour-avatar + .tour-avatar { margin-left: -0.58rem; background: var(--lime); }
+.tour-section-label { margin-bottom: 0.35rem; color: var(--faint); font-size: 0.6rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; }
+.tour-pages { border-top: 1px solid var(--hairline); }
+.tour-page-row { display: grid; grid-template-columns: 1fr auto; gap: 0.2rem 1rem; padding: 0.62rem 0; border-bottom: 1px solid var(--hairline-soft); }
+.tour-page-row b { font-size: 0.76rem; }
+.tour-page-row span { color: var(--muted); font-size: 0.64rem; }
+.tour-page-row time { grid-row: 1 / 3; grid-column: 2; align-self: center; color: var(--faint); font-size: 0.6rem; }
+.tour-pagebar { display: flex; align-items: center; gap: 0.45rem; margin-bottom: 1rem; color: var(--muted); font-size: 0.68rem; }
+.tour-pagebar .tour-edit { margin-left: auto; padding: 0.24rem 0.62rem; border: 1px solid var(--hairline); border-radius: 999px; color: var(--accent); font-weight: 800; }
+.tour-reading { max-width: 32rem; }
+.tour-reading h3 { margin: 0 0 0.15rem; font-size: clamp(1.2rem, 2.6vw, 1.8rem); }
+.tour-reading .meta { margin: 0 0 1rem; color: var(--faint); font-size: 0.62rem; }
+.tour-reading p, .tour-reading li { color: var(--ink); font-size: 0.72rem; line-height: 1.55; }
+.tour-reading p { margin: 0 0 0.65rem; }
+.tour-reading ul { margin: 0; padding-left: 1.1rem; }
+.tour-editor { display: grid; gap: 0.55rem; }
+.tour-field label { display: block; margin-bottom: 0.18rem; color: var(--faint); font-size: 0.56rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.tour-input {
+  min-height: 30px; padding: 0.42rem 0.55rem; border: 1px solid var(--hairline);
+  border-radius: 7px; background: var(--field); color: var(--ink); font-size: 0.7rem;
+}
+.tour-input.is-body { min-height: 98px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; line-height: 1.45; white-space: pre-line; }
+.tour-editor-foot { display: flex; align-items: center; gap: 0.65rem; }
+.tour-save { padding: 0.35rem 0.78rem; border-radius: 999px; background: var(--accent); color: var(--cta-ink); font-size: 0.66rem; font-weight: 800; }
+.tour-index { color: var(--muted); font-size: 0.61rem; }
+.tour-controls { display: flex; justify-content: center; gap: 0.45rem; margin-top: 0.9rem; }
+.tour-tab {
+  position: relative; overflow: hidden; min-width: 4.5rem; padding: 0.45rem 0.8rem;
+  border: 1px solid var(--hairline); border-radius: 999px; background: var(--field);
+  color: var(--muted); font: inherit; font-size: 0.72rem; font-weight: 800; cursor: pointer;
+}
+.tour-tab[aria-selected="true"] { border-color: var(--accent); color: var(--accent); }
+.tour-tab[aria-selected="true"]::after {
+  content: ""; position: absolute; inset: auto 0 0; height: 2px; background: var(--accent);
+  transform-origin: left; animation: tour-progress 4.2s linear forwards;
+}
+.product-tour:hover .tour-tab::after, .product-tour:focus-within .tour-tab::after { animation-play-state: paused; }
+@keyframes tour-progress { from { scale: 0 1; } to { scale: 1 1; } }
 
 .trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; }
 .trust article { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
@@ -224,7 +320,7 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 
 /* ---------- closing ---------- */
 .final { text-align: center; align-items: center; justify-content: center; }
-.final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.3rem; }
+.final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.3rem; color: var(--accent); }
 .final .lockup svg { color: var(--accent); }
 .final .lockup::after { content: ""; position: absolute; left: 0; right: 0; bottom: -0.13em; height: 0.09em; border-radius: 0.05em; background: var(--accent); }
 .final .btn { font-size: 1.05rem; padding: 0.75rem 1.9rem; }
@@ -276,11 +372,18 @@ footer a { color: var(--muted); }
   .wiki-node + .wiki-node::before {
     content: "\2193"; left: 1.65rem; top: -1.1rem;
   }
+  .tour-shell { grid-template-columns: 1fr; height: 360px; }
+  .tour-sidebar { display: none; }
+  .tour-screen { padding: 1.2rem; }
+  .tour-controls { gap: 0.35rem; }
+  .tour-tab { min-width: 0; flex: 1; padding-inline: 0.4rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg { animation: none; }
   .reveal { opacity: 1; transform: none; animation: none; }
+  .tour-screen { transition: none; }
+  .tour-tab::after { animation: none !important; }
 }
 </style>
 </head>
@@ -291,7 +394,7 @@ footer a { color: var(--muted); }
 <nav>
   <a class="brand" href="/">
     <svg viewBox="11 15.5 42 34.5" width="24" height="20" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
-    reef
+    <span>reef</span>
   </a>
   <span class="cta"><a class="btn" href="/api/auth/login">Sign in</a></span>
 </nav>
@@ -310,7 +413,7 @@ footer a { color: var(--muted); }
     </div></div>
   </div>
   <h1 class="reveal d1">Memories you grow together.</h1>
-  <p class="lede reveal d2">reef is a shared, living memory for you and your people — and for the
+  <p class="lede reveal d2"><span class="reef-name">reef</span> is a shared, living memory for you and your people — and for the
     AI you both talk to. Coves for your household, your plans, your life.</p>
   <p class="micro reveal d3">Works with Claude, ChatGPT desktop, and Codex.</p>
   <div class="scrollcue reveal d4" aria-hidden="true">
@@ -349,7 +452,7 @@ footer a { color: var(--muted); }
     </div>
     <div class="step">
       <h3>Every conversation starts knowing</h3>
-      <p>Add reef to Claude, ChatGPT desktop, or Codex. The school schedule, the house quirks,
+      <p>Add <span class="reef-name">reef</span> to Claude, ChatGPT desktop, or Codex. The school schedule, the house quirks,
         the plan so far — known at hello, without repeating yourself.</p>
     </div>
   </div>
@@ -358,7 +461,7 @@ footer a { color: var(--muted); }
 <section class="panel wrap" id="memory">
   <p class="eyebrow">Under the surface</p>
   <h2>A wiki, not a memory blob</h2>
-  <p class="sub">reef gives your assistant a small, inspectable map of human-readable pages,
+  <p class="sub"><span class="reef-name">reef</span> gives your assistant a small, inspectable map of human-readable pages,
     then lets it fetch and tend the right ones.</p>
   <div class="wiki-flow">
     <article class="wiki-node">
@@ -371,7 +474,7 @@ footer a { color: var(--muted); }
       <span class="wiki-key">index</span>
       <h3>Map before memory</h3>
       <p>Your assistant first gets titles, tags, and one-line descriptions — not every page body.
-        reef rebuilds that index from the live pages, so it cannot drift.</p>
+        <span class="reef-name">reef</span> rebuilds that index from the live pages, so it cannot drift.</p>
     </article>
     <article class="wiki-node">
       <span class="wiki-key">read &rarr; write</span>
@@ -382,7 +485,7 @@ footer a { color: var(--muted); }
   </div>
   <p class="lineage">Inspired by
     <a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener">Andrej Karpathy's LLM Wiki</a>:
-    a persistent, compounding wiki maintained by an LLM. reef adapts the idea for shared,
+    a persistent, compounding wiki maintained by an LLM. <span class="reef-name">reef</span> adapts the idea for shared,
     permissioned memory and makes it available through
     <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener">MCP</a>.</p>
 </section>
@@ -390,7 +493,7 @@ footer a { color: var(--muted); }
 <section class="panel wrap" id="add">
   <p class="eyebrow">Setup</p>
   <div class="setup-head">
-    <h2>Add reef to <span id="setup-client-name" aria-live="polite">Claude</span></h2>
+    <h2>Add <span class="reef-name">reef</span> to <span id="setup-client-name" aria-live="polite">Claude</span></h2>
     <label class="client-picker" for="setup-client">
       <span>Set up for</span>
       <span class="select-wrap">
@@ -422,14 +525,14 @@ footer a { color: var(--muted); }
       </div>
       <div class="step">
         <h3>Sign in once</h3>
-        <p>Claude opens a sign-in page. Use the email you want reef to know you by — it is how
+        <p>Claude opens a sign-in page. Use the email you want <span class="reef-name">reef</span> to know you by — it is how
           invitations to a cove reach you.</p>
       </div>
     </div>
   </div>
 
   <div class="setup-panel" data-client="chatgpt" hidden>
-    <p class="sub">Connect reef in the ChatGPT desktop app. The same MCP setup is then available
+    <p class="sub">Connect <span class="reef-name">reef</span> in the ChatGPT desktop app. The same MCP setup is then available
       to Codex on this computer.</p>
     <div class="steps">
       <div class="step">
@@ -438,8 +541,8 @@ footer a { color: var(--muted); }
           <b>Add server</b>.</p>
       </div>
       <div class="step">
-        <h3>Add reef</h3>
-        <p>Name it <b>reef</b>, choose <b>Streamable HTTP</b>, paste this address, and save. Then
+        <h3>Add <span class="reef-name">reef</span></h3>
+        <p>Name it <b class="reef-name">reef</b>, choose <b>Streamable HTTP</b>, paste this address, and save. Then
           select <b>Restart</b>.</p>
         <p class="urlrow">
           <code id="chatgpt-mcp-url" data-mcp-url>/mcp</code>
@@ -448,7 +551,7 @@ footer a { color: var(--muted); }
       </div>
       <div class="step">
         <h3>Sign in once</h3>
-        <p>Back in MCP servers, select <b>Authenticate</b>. Use the email you want reef to know
+        <p>Back in MCP servers, select <b>Authenticate</b>. Use the email you want <span class="reef-name">reef</span> to know
           you by — it is how invitations to a cove reach you.</p>
       </div>
     </div>
@@ -460,14 +563,14 @@ footer a { color: var(--muted); }
     <div class="steps">
       <div class="step">
         <h3>Open a terminal</h3>
-        <p>Make sure the Codex CLI is installed and signed in, then add reef as a remote MCP
+        <p>Make sure the Codex CLI is installed and signed in, then add <span class="reef-name">reef</span> as a remote MCP
           server.</p>
       </div>
       <div class="step">
-        <h3>Add reef</h3>
+        <h3>Add <span class="reef-name">reef</span></h3>
         <p>Run this command once:</p>
         <p class="urlrow">
-          <code id="codex-add-command" data-mcp-command>codex mcp add reef --url /mcp</code>
+          <code id="codex-add-command">codex mcp add <span class="reef-name">reef</span> --url <span data-mcp-command-url>/mcp</span></code>
           <button type="button" class="copy-value" data-copy-target="codex-add-command" data-label="Copy">Copy</button>
         </p>
       </div>
@@ -475,7 +578,7 @@ footer a { color: var(--muted); }
         <h3>Sign in once</h3>
         <p>Run this command, then finish signing in in your browser:</p>
         <p class="urlrow">
-          <code id="codex-login-command">codex mcp login reef</code>
+          <code id="codex-login-command">codex mcp login <span class="reef-name">reef</span></code>
           <button type="button" class="copy-value" data-copy-target="codex-login-command" data-label="Copy">Copy</button>
         </p>
       </div>
@@ -488,10 +591,81 @@ footer a { color: var(--muted); }
   <h2>Browse it like people do</h2>
   <p class="sub">Every cove and page is right there in the browser — read, edit, invite, export.
     What your assistant knows is exactly what you can see.</p>
-  <div class="shotframe">
-    <div class="shotbar"><i></i><i></i><i></i></div>
-    <img class="shot-light" src="/site/app-light.png" alt="The reef app: coves shown as tiles, each with its own colour and reef creature" width="1400" height="933">
-    <img class="shot-dark" src="/site/app-dark.png" alt="The reef app in night-dive dark mode: glowing cove tiles on a deep-water background" width="1400" height="933">
+  <div class="product-tour" data-product-tour>
+    <div class="tour-window">
+      <div class="tour-chrome" aria-hidden="true"><i></i><i></i><i></i><span>app</span></div>
+      <div class="tour-shell">
+        <aside class="tour-sidebar" aria-hidden="true">
+          <div class="tour-lockup">
+            <svg viewBox="11 15.5 42 34.5" width="18" height="15" preserveAspectRatio="xMidYMax meet"><use href="#o-coral"/></svg>
+            <span>reef</span>
+          </div>
+          <div class="tour-side-label">Coves</div>
+          <div class="tour-side-item"><i class="tour-dot" style="--dot:var(--seafoam)"></i>personal</div>
+          <div class="tour-side-item is-current"><i class="tour-dot" style="--dot:var(--lime)"></i>the household</div>
+          <div class="tour-side-item"><i class="tour-dot" style="--dot:var(--indigo)"></i>school</div>
+          <div class="tour-side-item"><i class="tour-dot" style="--dot:var(--pink)"></i>japan trip</div>
+        </aside>
+        <div class="tour-stage">
+          <article class="tour-screen is-active" data-tour-screen role="tabpanel" aria-label="Coves in tile view" aria-hidden="false">
+            <div class="tour-head">
+              <h3 class="tour-title">Your <span class="reef-name">reef</span>&rsquo;s coves</h3>
+              <span class="tour-seg" aria-hidden="true"><i>☰</i><i class="is-current">▦</i></span>
+            </div>
+            <div class="tour-grid">
+              <div class="tour-card tour-tile" style="--pool:var(--seafoam)"><span class="tour-pool"><svg viewBox="10.31 21.55 40.70 40.70" width="22" height="22"><use href="#o-cove-personal"/></svg></span><b>Personal</b><small>18 pages · only you</small></div>
+              <div class="tour-card tour-tile" style="--pool:var(--lime)"><span class="tour-pool"><svg viewBox="8.91 15.25 47.70 47.70" width="22" height="22"><use href="#o-cove-household"/></svg></span><b>the household</b><small>9 pages · 3 members</small></div>
+              <div class="tour-card tour-tile" style="--pool:var(--indigo)"><span class="tour-pool"><svg viewBox="13.62 23.87 36.75 36.75" width="22" height="22"><use href="#o-cove-accountant"/></svg></span><b>school</b><small>5 pages · 4 members</small></div>
+              <div class="tour-card tour-tile" style="--pool:var(--pink)"><span class="tour-pool"><svg viewBox="11 11 42 42" width="22" height="22"><use href="#o-cove-japan"/></svg></span><b>japan trip</b><small>3 pages · 2 members</small></div>
+            </div>
+          </article>
+
+          <article class="tour-screen" data-tour-screen role="tabpanel" aria-label="Coves in list view" aria-hidden="true">
+            <div class="tour-head">
+              <h3 class="tour-title">Your <span class="reef-name">reef</span>&rsquo;s coves</h3>
+              <span class="tour-seg" aria-hidden="true"><i class="is-current">☰</i><i>▦</i></span>
+            </div>
+            <div class="tour-list">
+              <div class="tour-card" style="--pool:var(--seafoam)"><span class="tour-pool"><svg viewBox="10.31 21.55 40.70 40.70" width="19" height="19"><use href="#o-cove-personal"/></svg></span><span><b>Personal</b><small>18 pages · only you</small></span></div>
+              <div class="tour-card" style="--pool:var(--lime)"><span class="tour-pool"><svg viewBox="8.91 15.25 47.70 47.70" width="19" height="19"><use href="#o-cove-household"/></svg></span><span><b>the household</b><small>9 pages</small></span><i class="tour-avatar">W</i></div>
+              <div class="tour-card" style="--pool:var(--indigo)"><span class="tour-pool"><svg viewBox="13.62 23.87 36.75 36.75" width="19" height="19"><use href="#o-cove-accountant"/></svg></span><span><b>school</b><small>5 pages</small></span><i class="tour-avatar">M</i></div>
+              <div class="tour-card" style="--pool:var(--pink)"><span class="tour-pool"><svg viewBox="11 11 42 42" width="19" height="19"><use href="#o-cove-japan"/></svg></span><span><b>japan trip</b><small>3 pages</small></span><i class="tour-avatar">O</i></div>
+            </div>
+          </article>
+
+          <article class="tour-screen" data-tour-screen role="tabpanel" aria-label="Pages inside a cove" aria-hidden="true">
+            <h3 class="tour-cove-title">the household</h3>
+            <div class="tour-whobar"><i class="tour-avatar">W</i><i class="tour-avatar">O</i><span>3 members see everything</span></div>
+            <div class="tour-section-label">Pages</div>
+            <div class="tour-pages">
+              <div class="tour-page-row"><b>How our house works</b><span>Wi-Fi, bins, deliveries and the little quirks.</span><time>today · Wouter</time></div>
+              <div class="tour-page-row"><b>School rhythm</b><span>The week at a glance, pickups and recurring plans.</span><time>2d · Olga</time></div>
+              <div class="tour-page-row"><b>People we call</b><span>Neighbours, doctors, tradespeople and why.</span><time>5d · Wouter</time></div>
+              <div class="tour-page-row"><b>Summer plans</b><span>Ideas, dates and the choices we have already made.</span><time>1w · Olga</time></div>
+            </div>
+          </article>
+
+          <article class="tour-screen" data-tour-screen role="tabpanel" aria-label="Editing a Markdown page" aria-hidden="true">
+            <div class="tour-pagebar"><span>‹</span><b>the household</b><span class="tour-edit">Preview</span></div>
+            <div class="tour-editor">
+              <div class="tour-field"><label>Title</label><div class="tour-input">How our house works</div></div>
+              <div class="tour-field"><label>Tags</label><div class="tour-input">home, practical</div></div>
+              <div class="tour-field"><label>Body · Markdown</label><div class="tour-input is-body">## The useful bits
+- Wi-Fi: downstairs network
+- Bins go out Thursday night
+- Sam has the spare key</div></div>
+              <div class="tour-editor-foot"><span class="tour-save">Save</span><span class="tour-index"><b>Index line:</b> Wi-Fi, bins, deliveries and the little quirks.</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </div>
+    <div class="tour-controls" role="tablist" aria-label="Product tour views">
+      <button class="tour-tab" type="button" role="tab" aria-selected="true">Tiles</button>
+      <button class="tour-tab" type="button" role="tab" aria-selected="false">List</button>
+      <button class="tour-tab" type="button" role="tab" aria-selected="false">Pages</button>
+      <button class="tour-tab" type="button" role="tab" aria-selected="false">Edit</button>
+    </div>
   </div>
 </section>
 
@@ -742,8 +916,8 @@ footer a { color: var(--muted); }
   [].slice.call(document.querySelectorAll("[data-mcp-url]")).forEach(function (el) {
     el.textContent = mcpUrl;
   });
-  [].slice.call(document.querySelectorAll("[data-mcp-command]")).forEach(function (el) {
-    el.textContent = "codex mcp add reef --url " + mcpUrl;
+  [].slice.call(document.querySelectorAll("[data-mcp-command-url]")).forEach(function (el) {
+    el.textContent = mcpUrl;
   });
 
   var copyButtons = [].slice.call(document.querySelectorAll(".copy-value"));
@@ -762,6 +936,71 @@ footer a { color: var(--muted); }
     copyButtons.forEach(function (button) {
       button.hidden = true;   // no clipboard access; the address and commands remain selectable
     });
+  }
+
+  // ---- product tour ----
+  // Cycle only while the demo is actually on screen. Hover, keyboard focus, a hidden tab and the
+  // user's reduced-motion preference all pause it; the four labels remain direct controls.
+  var tour = document.querySelector("[data-product-tour]");
+  if (tour) {
+    var tourScreens = [].slice.call(tour.querySelectorAll("[data-tour-screen]"));
+    var tourTabs = [].slice.call(tour.querySelectorAll(".tour-tab"));
+    var tourIndex = 0;
+    var tourTimer = null;
+    var tourVisible = !window.IntersectionObserver;
+    var tourPaused = false;
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    function showTourScreen(index) {
+      tourIndex = (index + tourScreens.length) % tourScreens.length;
+      tourScreens.forEach(function (screen, i) {
+        var active = i === tourIndex;
+        screen.classList.toggle("is-active", active);
+        screen.setAttribute("aria-hidden", active ? "false" : "true");
+      });
+      tourTabs.forEach(function (tab, i) {
+        tab.setAttribute("aria-selected", i === tourIndex ? "true" : "false");
+      });
+    }
+
+    function stopTour() {
+      if (tourTimer !== null) window.clearInterval(tourTimer);
+      tourTimer = null;
+    }
+
+    function startTour() {
+      stopTour();
+      if (!tourVisible || tourPaused || document.hidden || reduceMotion.matches) return;
+      tourTimer = window.setInterval(function () {
+        showTourScreen(tourIndex + 1);
+      }, 4200);
+    }
+
+    tourTabs.forEach(function (tab, index) {
+      tab.addEventListener("click", function () {
+        showTourScreen(index);
+        startTour();
+      });
+    });
+    tour.addEventListener("mouseenter", function () { tourPaused = true; stopTour(); });
+    tour.addEventListener("mouseleave", function () { tourPaused = false; startTour(); });
+    tour.addEventListener("focusin", function () { tourPaused = true; stopTour(); });
+    tour.addEventListener("focusout", function () {
+      window.setTimeout(function () {
+        tourPaused = tour.contains(document.activeElement);
+        startTour();
+      }, 0);
+    });
+    document.addEventListener("visibilitychange", startTour);
+    if (reduceMotion.addEventListener) reduceMotion.addEventListener("change", startTour);
+    if (window.IntersectionObserver) {
+      new IntersectionObserver(function (entries) {
+        tourVisible = entries[0].isIntersecting;
+        startTour();
+      }, { threshold: 0.35 }).observe(tour);
+    } else {
+      startTour();
+    }
   }
 
   // ---- one sign-in at a time ----
