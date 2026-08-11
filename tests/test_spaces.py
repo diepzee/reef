@@ -85,8 +85,7 @@ async def test_onboarding_survives_an_attempted_slug_squat(tx, household, graph)
         await create_space(attacker, f"personal-{victim.id.hex}")
     await ensure_personal_space(victim)
     assert (
-        await get_page(principal_for(victim), "personal", "meta/persona.md")
-        is not None
+        await get_page(principal_for(victim), "personal", "meta/persona.md") is not None
     )
 
 

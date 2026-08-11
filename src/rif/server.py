@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 from fastmcp import FastMCP
 
+from rif import invitations
 from rif import spaces as space_admin
 from rif.access import (
     AccessDenied,
@@ -23,6 +24,7 @@ from rif.auth import current_principal
 from rif.config import get_settings
 from rif.context import build_index, load_context
 from rif.db import transaction_scope
+from rif.invitations import InviteBudgetExceeded
 from rif.models import Page
 from rif.pages import (
     ProtectedPath,
@@ -198,8 +200,28 @@ async def tool_invite(
         return await space_admin.invite(
             principal, space, email, display_name=display_name
         )
+    except InviteBudgetExceeded as exc:
+        return {"error": "invite_budget", "detail": str(exc)}
     except (SpaceError, AccessDenied) as exc:
         return {"error": "space_error", "detail": str(exc)}
+
+
+async def tool_invite_to_reef(
+    principal: Principal,
+    email: str,
+    display_name: str | None = None,
+) -> dict:
+    """Invite someone to reef itself; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param email: the invitee's sign-in email
+    :param display_name: how members will see them
+    :returns: the invite outcome, or an error dict
+    """
+    try:
+        return await invitations.invite_to_reef(principal, email, display_name)
+    except InviteBudgetExceeded as exc:
+        return {"error": "invite_budget", "detail": str(exc)}
 
 
 async def tool_remove_member(principal: Principal, space: str, email: str) -> dict:
@@ -355,6 +377,29 @@ async def invite(space: str, email: str, display_name: str | None = None) -> dic
 
 
 @mcp.tool
+async def invite_to_reef(email: str, display_name: str | None = None) -> dict:
+    """Invite someone to reef itself, without sharing any of your coves.
+
+    Use this for anyone who is merely curious. They arrive in their own
+    private personal space and see nothing of yours, so unlike ``invite``
+    there is nothing here to regret. Reach for ``invite`` only when the
+    intent really is to share a cove's contents forever.
+
+    reef sends no email. Pass the returned ``next_step`` to the user so they
+    can relay it — nothing reaches the invitee otherwise.
+
+    Limited to a few new people per member per month; the error names the
+    date the next one unlocks.
+
+    :param email: the address the invitee will sign in with
+    :param display_name: how members will see them
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_invite_to_reef(principal, email, display_name)
+
+
+@mcp.tool
 async def remove_member(space: str, email: str) -> dict:
     """Remove a member from a shared space you own. Owner only.
 
@@ -440,7 +485,10 @@ def _validate_batch(pages: list[dict]) -> dict | None:
     :returns: an error dict if the batch is invalid, otherwise None
     """
     if not pages:
-        return {"error": "empty_batch", "detail": "pages must contain at least one item"}
+        return {
+            "error": "empty_batch",
+            "detail": "pages must contain at least one item",
+        }
     if len(pages) > _MAX_BATCH_SIZE:
         return {
             "error": "batch_too_large",

@@ -13,6 +13,7 @@ import re
 from uuid import UUID
 
 from rif.access import Principal, resolve_space
+from rif.invitations import allowlist
 from rif.models import Membership, Page, Person, Space, SpaceKind
 from rif.pages import save_page
 from rif.protocol import PERSONA_PATH, PERSONA_STUB
@@ -161,23 +162,22 @@ async def invite(
     allowlist entry. The invitee gets in when they first sign in with this
     email, verified, through the unchanged binding path in ``rif.auth``.
 
+    Row creation is delegated to :func:`rif.invitations.allowlist`, which is
+    the only place an invite may mint one and which holds the per-inviter
+    budget. Routing both invite flows through it is what stops the budget
+    being bypassed by creating a junk space and inviting into that.
+
     :param principal: the authenticated person
     :param slug: the shared space to invite into
     :param email: the address the invitee will sign in with
     :param display_name: how members see them; defaults to the email's name part
     :raises SpaceError: if the principal does not own the space
+    :raises InviteBudgetExceeded: if a new entry is needed and none remain
     :returns: outcome with the disclosure text and an ``already_member`` flag
     """
     space = await _owned_shared_space(principal, slug)
-    email = email.strip().lower()
-    person = await Person.objects().where(Person.email == email).first()
-    if person is None:
-        person = Person(
-            email=email,
-            display_name=display_name or email.split("@")[0],
-            invited_by_person_id=principal.person_id,
-        )
-        await person.save()
+    person, _ = await allowlist(principal, email, display_name)
+    email = person.email
     membership = await _membership(person.id, space.id)
     already = membership is not None
     if not already:

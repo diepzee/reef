@@ -20,6 +20,13 @@ from rif.attachments import S3ObjectStore, get_attachment
 from rif.config import get_settings
 from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
+from rif.invitations import (
+    INVITE_BUDGET,
+    INVITE_WINDOW_DAYS,
+    InviteBudgetExceeded,
+    invite_to_reef,
+    invites_left,
+)
 from rif.models import Page, Person
 from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
 from rif.spaces import SpaceError, create_space, invite, member_roster, remove_member
@@ -179,6 +186,13 @@ def api(handler: Callable) -> Callable:
             return JSONResponse({"error": "version_conflict"}, status_code=409)
         except ProtectedPath:
             return JSONResponse({"error": "protected"}, status_code=403)
+        except InviteBudgetExceeded as error:
+            # 429 rather than 400: the request is well-formed and would
+            # succeed later. The detail names the unlock date, and the UI
+            # shows it verbatim -- a generic failure here reads as a bug.
+            return JSONResponse(
+                {"error": "invite_budget", "detail": str(error)}, status_code=429
+            )
         except SpaceError as error:
             return JSONResponse(
                 {"error": "space_error", "detail": str(error)}, status_code=400
@@ -358,6 +372,43 @@ async def _invite(request: Request, principal: Principal) -> dict:
     return await invite(principal, slug, email, display_name)
 
 
+async def _invite_to_reef(request: Request, principal: Principal) -> dict:
+    """Invite someone to reef itself, without granting any space.
+
+    Deliberately not under ``/api/spaces/…`` — this invite belongs to no
+    space, which is the whole point of it.
+
+    :param request: the incoming request, carrying a JSON body with ``email``
+        required and ``display_name`` optional
+    :param principal: the authenticated person
+    :raises BadRequest: for malformed JSON, a missing ``email``, or a field
+        of the wrong type
+    :raises InviteBudgetExceeded: if the caller's budget is spent
+    :returns: the invite outcome, including the relay text the UI must show
+    """
+    payload = await _json_body(request)
+    email = _require_str(payload, "email")
+    display_name = _optional_str(payload, "display_name")
+    return await invite_to_reef(principal, email, display_name)
+
+
+async def _invites_left(request: Request, principal: Principal) -> dict:
+    """Report how many reef invites the caller has left.
+
+    Lets the UI show the remaining budget before someone types an address,
+    rather than only discovering the ceiling by hitting it.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the remaining count and the ceiling it counts down from
+    """
+    return {
+        "invites_left": await invites_left(principal),
+        "budget": INVITE_BUDGET,
+        "window_days": INVITE_WINDOW_DAYS,
+    }
+
+
 async def _remove_member(request: Request, principal: Principal) -> dict:
     """Remove a member from a shared space the caller owns.
 
@@ -411,6 +462,8 @@ def register_api_routes(mcp) -> None:
         api(_space_members)
     )
     mcp.custom_route("/api/spaces/{space}/invites", methods=["POST"])(api(_invite))
+    mcp.custom_route("/api/invites", methods=["GET"])(api(_invites_left))
+    mcp.custom_route("/api/invites", methods=["POST"])(api(_invite_to_reef))
     mcp.custom_route("/api/spaces/{space}/members/{email}", methods=["DELETE"])(
         api(_remove_member)
     )

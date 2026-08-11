@@ -10,6 +10,8 @@ import hmac
 import os
 import secrets
 from collections.abc import Callable
+from html import escape
+from pathlib import Path
 from urllib.parse import urlencode
 
 from starlette.requests import Request
@@ -48,10 +50,39 @@ WORKOS_LOGOUT_URL = "https://api.workos.com/user_management/sessions/logout"
 
 OAUTH_COOKIE = "rif_oauth"
 
-_DENIED_HTML = (
-    "This email isn't a member of any rif space. "
-    "Ask the person who runs your space to invite you."
+#: Placeholder in ``site/invite-only.html`` where the rejected address goes.
+_EMAIL_SLOT = "__EMAIL__"
+
+#: Shown if the page is missing from the image, so a deployment packaging
+#: mistake still explains itself rather than serving a blank 403.
+_DENIED_FALLBACK = (
+    "reef is invite-only. You get in when someone already using reef "
+    "invites the address you signed in with."
 )
+
+
+def _denied_page(email: str | None) -> str:
+    """Render the invite-only page, naming the address that was refused.
+
+    Showing the address matters: people routinely hold several Google
+    accounts and pick the wrong one, and "not invited" is unhelpful if you
+    cannot see *which* identity was refused.
+
+    The value arrives in verified OIDC claims rather than raw user input,
+    but it is escaped regardless — reflecting an identity string into a page
+    is not somewhere to reason about whether escaping is needed.
+
+    :param email: the address that was refused, if the claims carried one
+    :returns: the page's HTML
+    """
+    shown = escape(email) if email else "an address reef doesn't recognise"
+    path = Path(get_settings().site_dir) / "invite-only.html"
+    try:
+        template = path.read_text(encoding="utf-8")
+    except OSError:
+        return _DENIED_FALLBACK
+    return template.replace(_EMAIL_SLOT, shown)
+
 
 # Servers this module has registered routes on, so repeated calls (every
 # test that wants its own fake OIDC client) don't append duplicate
@@ -152,7 +183,7 @@ def register_auth_routes(
             async with transaction_scope():
                 principal = await principal_from_claims(claims)
         except AccessDenied:
-            return HTMLResponse(_DENIED_HTML, status_code=403)
+            return HTMLResponse(_denied_page(claims.get("email")), status_code=403)
 
         response = RedirectResponse("/app", status_code=303)
         set_session_cookie(
