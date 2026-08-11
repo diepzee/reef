@@ -458,17 +458,71 @@ footer a { color: var(--muted); }
     path.setAttribute("d", out);
   }
 
-  var running = false, startedAt = 0, frameId = 0;
+  // ---- the lean ----
+  // The idle rhythm and the cursor's nudge have to add up rather than fight, so the sway moves
+  // off its CSS animation and onto this loop. The stylesheet keeps that animation as the
+  // no-JS path; a running animation outranks an inline style, so it is switched off here
+  // before anything is written to `transform`.
+  var swayEls = [].slice.call(document.querySelectorAll(".hero .sway, .brand svg, .final .lockup svg"));
+  swayEls.forEach(function (el) { el.style.animation = "none"; });
+
+  // The mark leans as the water is stirred: a sweep of the pointer pushes it, then it springs
+  // back to its resting rhythm. Stiffness is w^2 and damping 2*zeta*w, at w=11.4 (a ~0.55s
+  // period) and zeta=0.25 — short and lightly damped, so it bounces two or three visible times
+  // and is done inside a second and a half, rather than gliding home once.
+  var IDLE_DEGREES = 3;
+  var IDLE_SECONDS = 7.8;      // one full there-and-back, matching the CSS it replaces
+  var NUDGE_STIFFNESS = 130;
+  var NUDGE_DAMPING = 5.7;
+  var NUDGE_PER_PIXEL = 0.12;  // degrees per second of lean, per pixel of pointer travel;
+                               // raised with the stiffness, which otherwise shrinks the throw
+  var NUDGE_LIMIT = 6;         // degrees, so a frantic cursor cannot lay the mark flat
+  var STEP_LIMIT = 60;         // ignore teleports: a window switch should not fling it
+
+  var nudge = 0, nudgeVel = 0, lastX = null;
+
+  window.addEventListener("pointermove", function (event) {
+    if (lastX === null) { lastX = event.clientX; return; }
+    var dx = event.clientX - lastX;
+    lastX = event.clientX;
+    if (dx > STEP_LIMIT) dx = STEP_LIMIT;
+    else if (dx < -STEP_LIMIT) dx = -STEP_LIMIT;
+    // Negated because the skew pivots on the ground: a negative angle leans the crown right,
+    // which is the way a rightward sweep should push it.
+    nudgeVel -= dx * NUDGE_PER_PIXEL;
+  }, { passive: true });
+
+  // Elapsed time is accumulated rather than measured from a start stamp, so pausing for a
+  // hidden tab and resuming picks the rhythm up where it left off instead of snapping the
+  // mark back to the start of its swing.
+  var running = false, elapsed = 0, lastFrame = 0, frameId = 0;
   function tick(now) {
     if (!running) return;
-    if (!startedAt) startedAt = now;
-    render(((now - startedAt) / 1000 / LOOP_SECONDS % 1) * 2 * Math.PI, AMPLITUDE);
+    if (!lastFrame) lastFrame = now;
+    // Clamped so a backgrounded tab's first frame back does not integrate one huge step.
+    var dt = Math.min((now - lastFrame) / 1000, 0.05);
+    lastFrame = now;
+    elapsed += dt;
+
+    nudgeVel += (-NUDGE_STIFFNESS * nudge - NUDGE_DAMPING * nudgeVel) * dt;
+    nudge += nudgeVel * dt;
+    if (nudge > NUDGE_LIMIT) { nudge = NUDGE_LIMIT; nudgeVel = 0; }
+    else if (nudge < -NUDGE_LIMIT) { nudge = -NUDGE_LIMIT; nudgeVel = 0; }
+
+    var lean = IDLE_DEGREES * Math.sin((elapsed / IDLE_SECONDS) * 2 * Math.PI) + nudge;
+    for (var i = 0; i < swayEls.length; i++) {
+      swayEls[i].style.transform = "skewX(" + lean.toFixed(3) + "deg)";
+    }
+
+    // Stirred water ripples a little harder, which fades out with the lean.
+    var stir = 1 + 0.3 * Math.min(Math.abs(nudge) / NUDGE_LIMIT, 1);
+    render((elapsed / LOOP_SECONDS % 1) * 2 * Math.PI, AMPLITUDE * stir);
     frameId = requestAnimationFrame(tick);
   }
   function setRunning(on) {
     if (on === running) return;
     running = on;
-    if (on) { startedAt = 0; frameId = requestAnimationFrame(tick); }
+    if (on) { lastFrame = 0; frameId = requestAnimationFrame(tick); }
     else { cancelAnimationFrame(frameId); }
   }
 
@@ -480,7 +534,12 @@ footer a { color: var(--muted); }
     setRunning(!document.hidden);
   });
   reduced.addEventListener("change", function (event) {
-    if (event.matches) { setRunning(false); render(0, 0); }   // back to the still logo
+    if (!event.matches) return;
+    // Back to the still logo, standing straight: drop the lean this loop was driving so the
+    // stylesheet's reduced-motion rules are what remains.
+    setRunning(false);
+    render(0, 0);
+    swayEls.forEach(function (el) { el.style.transform = ""; });
   });
 
   // ---- the connector address ----
