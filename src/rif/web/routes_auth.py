@@ -56,7 +56,7 @@ _EMAIL_SLOT = "__EMAIL__"
 #: Shown if the page is missing from the image, so a deployment packaging
 #: mistake still explains itself rather than serving a blank 403.
 _DENIED_FALLBACK = (
-    "reef is invite-only. You get in when someone already using reef "
+    "This site is invite-only. You get in when someone already using it "
     "invites the address you signed in with."
 )
 
@@ -75,7 +75,7 @@ def _denied_page(email: str | None) -> str:
     :param email: the address that was refused, if the claims carried one
     :returns: the page's HTML
     """
-    shown = escape(email) if email else "an address reef doesn't recognise"
+    shown = escape(email) if email else "an address this site doesn't recognise"
     path = Path(get_settings().site_dir) / "invite-only.html"
     try:
         template = path.read_text(encoding="utf-8")

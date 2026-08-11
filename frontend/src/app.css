@@ -114,7 +114,7 @@ textarea {
   font-size: var(--text-lg);
   font-weight: 800;
   letter-spacing: -0.005em;
-  color: var(--ink);
+  color: var(--accent);
 }
 
 /* The tagline under the mobile header's brand row, Home only (see AppShell). */
@@ -126,6 +126,10 @@ textarea {
 
 .muted {
   color: var(--muted);
+}
+
+.reef-name {
+  color: var(--accent);
 }
 
 .notice {
@@ -584,7 +588,7 @@ textarea {
   letter-spacing: -0.005em;
   padding: 2px 8px 14px;
   text-decoration: none;
-  color: var(--ink);
+  color: var(--accent);
 }
 
 .side-label {
@@ -704,7 +708,7 @@ textarea {
   font-size: 2rem;
   font-weight: 800;
   letter-spacing: -0.005em;
-  color: var(--ink);
+  color: var(--accent);
 }
 
 .lockup-c::after {
