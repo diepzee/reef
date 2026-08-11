@@ -10,7 +10,6 @@
  */
 
 import { organismFor, type OrganismPath } from "./organisms";
-import { CoralPaths } from "./ReefMark";
 
 /** Renders one OrganismPath — filled silhouette or thick round-capped stroke. */
 function OrgPath({ p }: { p: OrganismPath }) {
@@ -42,15 +41,9 @@ export function SpaceGlyph({ alias, color, size = 20 }: SpaceGlyphProps) {
   const organism = organismFor(alias);
   return (
     <svg viewBox="0 0 64 64" width={size} height={size} style={{ color }} aria-hidden="true">
-      {organism.family === "coral" ? (
-        // The traced brand coral stands on y=50; shift it to the families'
-        // shared y=54 ground so personal lines up with its neighbors.
-        <g transform="translate(0 4)" fill="currentColor">
-          <CoralPaths />
-        </g>
-      ) : (
-        organism.paths.map((p, i) => <OrgPath key={i} p={p} />)
-      )}
+      {organism.paths.map((p, i) => (
+        <OrgPath key={i} p={p} />
+      ))}
     </svg>
   );
 }

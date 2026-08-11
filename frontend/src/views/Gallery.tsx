@@ -6,7 +6,6 @@
  */
 
 import { FAMILIES, generateFamily, type OrganismPath } from "../components/organisms";
-import { FrondGlyph } from "../components/ReefMark";
 import { spaceColor } from "../components/spaceColor";
 
 const SEEDS = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
@@ -61,13 +60,6 @@ function Specimen({ paths, hue }: { paths: readonly OrganismPath[]; hue: string 
 export function Gallery() {
   return (
     <div style={{ padding: 24, display: "grid", gap: 24 }}>
-      <section>
-        <h2 style={{ marginBottom: 8 }}>coral (brand, pinned to personal)</h2>
-        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <FrondGlyph color="#0d9488" size={64} />
-          <FrondGlyph color="#0d9488" size={20} />
-        </div>
-      </section>
       {FAMILIES.map((fam) => (
         <section key={fam}>
           <h2 style={{ marginBottom: 8 }}>{fam}</h2>

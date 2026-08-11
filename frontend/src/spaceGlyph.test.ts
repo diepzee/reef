@@ -3,15 +3,16 @@ import { describe, expect, test } from "bun:test";
 import { FAMILIES, organismFor } from "./components/organisms";
 
 describe("organismFor", () => {
-  test("personal is always the fan coral", () => {
-    expect(organismFor("personal").family).toEqual("coral");
+  test("personal hashes like any alias — the brand coral is a logo, not a glyph", () => {
+    expect(organismFor("personal").family).toEqual("staghorn");
+    expect(FAMILIES).toContain(organismFor("personal").family as never);
   });
 
   test("deterministic per alias", () => {
     expect(organismFor("roadtrip")).toEqual(organismFor("roadtrip"));
   });
 
-  test("non-personal aliases stay inside the hashed families", () => {
+  test("every alias stays inside the hashed families", () => {
     for (const alias of ["roadtrip", "household", "boekenclub", "diepzee", "atelier"]) {
       expect(FAMILIES).toContain(organismFor(alias).family as never);
     }

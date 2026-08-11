@@ -141,8 +141,8 @@ export const FAMILIES = [
   "nudibranch",
 ] as const;
 
-/** One kind of reef life: a hashed family, or the brand coral (personal only). */
-export type Family = (typeof FAMILIES)[number] | "coral";
+/** One kind of reef life. The brand's fan coral is a logo, not a family. */
+export type Family = (typeof FAMILIES)[number];
 
 /** A grown individual: its family, how it anchors, and its renderable paths. */
 export interface Organism {
@@ -402,7 +402,7 @@ const GENERATORS: Partial<Record<Family, Generator>> = {
 };
 
 /** Grow one family member from a seed — the gallery's and organismFor's shared entry. */
-export function generateFamily(family: Exclude<Family, "coral">, seed: number): Organism {
+export function generateFamily(family: Family, seed: number): Organism {
   const gen = GENERATORS[family];
   if (!gen) throw new Error(`no generator for family: ${family}`);
   return {
@@ -415,15 +415,11 @@ export function generateFamily(family: Exclude<Family, "coral">, seed: number): 
 /**
  * Deterministic organism for a space's alias — the reef's genome function.
  *
- * `personal` is always the brand's traced fan coral, which lives in
- * `ReefMark.tsx` (`CoralPaths`), not here: it's a vectorized drawing with
- * its own transform stack, so `paths` is empty and `SpaceGlyph` renders
- * it specially by family.
+ * Every alias hashes, `personal` included (it lands on its own staghorn):
+ * the brand's traced fan coral is a logo (`ReefMark.tsx`), never a cove
+ * glyph. Personal's distinction is its pinned seafoam hue (`spaceColor`).
  */
 export function organismFor(alias: string): Organism {
-  if (alias === "personal") {
-    return { family: "coral", anchor: "grounded", paths: [] };
-  }
   const seed = fnv1a(alias);
   return generateFamily(FAMILIES[seed % FAMILIES.length]!, seed);
 }

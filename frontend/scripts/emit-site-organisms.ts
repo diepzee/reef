@@ -29,11 +29,15 @@ const STRIP_SEEDS: Record<string, number> = {
 };
 
 // o-coral is NOT emitted: the brand mark is the traced fan coral, which
-// lives verbatim in site/index.html's defs (copied from ReefMark.tsx).
+// lives verbatim in site/index.html's defs (copied from ReefMark.tsx) and
+// only ever appears in brand positions (nav, lockup) — never as a cove
+// glyph or a strip organism.
 for (const fam of FAMILIES) {
   const org = generateFamily(fam, STRIP_SEEDS[fam]!);
   console.log(`<g id="o-${fam}">${pathsToMarkup(org.paths)}</g>`);
 }
+// a second sun anemone individual — the strip's centerpiece
+console.log(`<g id="o-anemone-b">${pathsToMarkup(generateFamily("sunAnemone", 34).paths)}</g>`);
 
 const HUE_VARS: Record<string, string> = {
   "#f59e0b": "--amber", "#6366f1": "--indigo", "#ec4899": "--pink",
@@ -42,7 +46,7 @@ const HUE_VARS: Record<string, string> = {
 };
 
 console.log("\n# circle aliases (family / hue var / def markup):");
-for (const alias of ["household", "schoolrun", "accountant", "trip"]) {
+for (const alias of ["household", "schoolrun", "accountant", "japan", "personal"]) {
   const org = organismFor(alias);
   const hue = spaceColor(alias);
   console.log(`## ${alias}: ${org.family} ${HUE_VARS[hue.base] ?? hue.base}`);
