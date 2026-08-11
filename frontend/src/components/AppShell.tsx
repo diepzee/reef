@@ -99,7 +99,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="app-header-wordmark">reef</span>
           </Link>
           {isHome && (
-            <p className="app-header-tagline">memory that grows like a reef</p>
+            <p className="app-header-tagline">memories you grow together</p>
           )}
         </header>
         {children}
