@@ -34,14 +34,14 @@ export default function NewSpace() {
       if (err instanceof ApiError) {
         setError(err.detail ?? err.message);
       } else {
-        setError("could not create the space");
+        setError("could not create the cove");
       }
     }
   }
 
   return (
     <div>
-      <h1>New space</h1>
+      <h1>New cove</h1>
       {error && <div className="notice">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="ed-field">
@@ -63,7 +63,7 @@ export default function NewSpace() {
         <p className="muted">Lowercase letters, digits, and hyphens — e.g. "trip".</p>
         <div className="ed-toolbar">
           <button type="submit" className="ed-save" disabled={submitting || !slug}>
-            {submitting ? "Creating…" : "Create space"}
+            {submitting ? "Creating…" : "Create cove"}
           </button>
         </div>
       </form>
