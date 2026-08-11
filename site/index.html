@@ -157,6 +157,26 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 .client-picker select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .setup-panel .sub { margin-bottom: 2.5rem; }
 
+.wiki-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+.wiki-node {
+  position: relative; background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: 16px; padding: 1.6rem;
+}
+.wiki-node + .wiki-node::before {
+  content: "\2192"; position: absolute; left: -1.08rem; top: 1.75rem; z-index: 1;
+  width: 0.9rem; color: var(--faint); font-weight: 800; text-align: center;
+}
+.wiki-key {
+  display: inline-flex; min-height: 1.9rem; align-items: center;
+  background: var(--accent-soft); color: var(--accent-deep); border-radius: 999px;
+  padding: 0.28rem 0.7rem; margin-bottom: 0.9rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; font-weight: 700;
+}
+.wiki-node h3 { margin: 0 0 0.45rem; font-size: 1.15rem; font-weight: 800; }
+.wiki-node p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+.lineage { max-width: 49rem; margin: 1.35rem 0 0; color: var(--muted); font-size: 0.9rem; }
+.lineage a { font-weight: 700; }
+
 /* One row of five on a roomy screen, reflowing to fewer columns rather than stranding a
    single cove on a line of its own. */
 .circles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.8rem 1rem; }
@@ -246,6 +266,12 @@ footer a { color: var(--muted); }
   .scrollcue { display: none; }
   .setup-head { align-items: flex-start; flex-direction: column; }
 }
+@media (max-width: 680px) {
+  .wiki-flow { grid-template-columns: 1fr; }
+  .wiki-node + .wiki-node::before {
+    content: "\2193"; left: 1.65rem; top: -1.1rem;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg { animation: none; }
@@ -322,6 +348,38 @@ footer a { color: var(--muted); }
         the plan so far — known at hello, without repeating yourself.</p>
     </div>
   </div>
+</section>
+
+<section class="panel wrap" id="memory">
+  <p class="eyebrow">Under the surface</p>
+  <h2>A wiki, not a memory blob</h2>
+  <p class="sub">reef gives your assistant a small, inspectable map of human-readable pages,
+    then lets it fetch and tend the right ones.</p>
+  <div class="wiki-flow">
+    <article class="wiki-node">
+      <span class="wiki-key">pages/*.md</span>
+      <h3>Readable by default</h3>
+      <p>Every page is Markdown: plain text with headings, lists, links, and images. Open it,
+        edit it, or export everything whenever you like.</p>
+    </article>
+    <article class="wiki-node">
+      <span class="wiki-key">index</span>
+      <h3>Map before memory</h3>
+      <p>Your assistant first gets titles, tags, and one-line descriptions — not every page body.
+        reef rebuilds that index from the live pages, so it cannot drift.</p>
+    </article>
+    <article class="wiki-node">
+      <span class="wiki-key">read &rarr; write</span>
+      <h3>Only what matters</h3>
+      <p>It opens relevant pages as the conversation unfolds, then can file useful new facts back.
+        Each chat leaves the wiki a little better for the next one.</p>
+    </article>
+  </div>
+  <p class="lineage">Inspired by
+    <a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" target="_blank" rel="noopener">Andrej Karpathy's LLM Wiki</a>:
+    a persistent, compounding wiki maintained by an LLM. reef adapts the idea for shared,
+    permissioned memory and makes it available through
+    <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener">MCP</a>.</p>
 </section>
 
 <section class="panel wrap" id="add">
