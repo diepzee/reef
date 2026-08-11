@@ -191,25 +191,21 @@ A restored Postgres database with attachment rows intact but a bucket with
 no lock configured still has working object keys. Locks protect against
 *loss*, not against restore working in the first place.
 
-## The export mirror is a last resort, not a backup
+## Exports are portability, not a backup
 
-Task 12's `python -m rif.export` writes one markdown file per page,
-rendered with YAML frontmatter (`src/rif/export.py`, import-compatible
-with `scripts/import_mark.py`'s `parse_markdown`). It is a manual,
-run-by-hand exit hatch, not a backup path, and loses everything that makes
-this system more than a folder of files:
+The scoped Markdown export and the original `python -m rif.export` command
+write the current page version with YAML frontmatter (`src/rif/export.py`,
+import-compatible with `scripts/import_mark.py`'s `parse_markdown`). The JSON
+option similarly carries current bodies and metadata.
 
-- **Revisions** — only the current body of each page is exported; the full
-  `revisions` history (every prior version, its message, its author) does
-  not survive.
-- **Attachments** — image bytes and their metadata rows are not exported
-  at all.
-- **Memberships** — the export is plain files on disk; there is no access
-  model to restore into, because there is no RLS, no `spaces` table, no
-  `memberships` table in the output. Re-importing an export starts from
-  whatever the current seed topology is, not from a preserved history of
-  who could see what.
+The web app's **Dump my data** archive goes further: current Markdown pages,
+the raw index, full visible revision history, stored file bytes and metadata,
+membership display names, and the caller's sharing audits. Missing object
+bytes are recorded explicitly in `data/file-errors.json`, never omitted
+silently.
 
-Reach for it only when both the managed Railway backups and the R2 `pg_dump`
-copies are gone or unreachable, and only as a way to get *content* back —
-never as evidence the access model was preserved.
+Even that full archive is a portability bundle, not a database restore. It
+does not contain the database schema, RLS policies, every member's email and
+identity binding, pending storage rows, or the complete multi-person access
+topology. Use it to inspect or recover a person's visible content; use the
+Postgres dump plus R2 for an operational restore.

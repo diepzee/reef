@@ -75,7 +75,9 @@ class Person(Table, tablename="persons", db=DB):
     email = Varchar(unique=True)
     subject = Varchar(null=True, unique=True, default=None)
     display_name = Varchar()
-    invited_by_person_id = ForeignKey("self", null=True, default=None)
+    invited_by_person_id = ForeignKey(
+        "self", null=True, default=None, on_delete=OnDelete.set_null
+    )
     created_at = Timestamp(default=TimestampNow())
 
 
@@ -126,17 +128,18 @@ class Revision(Table, tablename="revisions", db=DB):
     tags = Array(base_column=Varchar(), default=list)
     body = Varchar(length=None)
     message = Varchar()
-    author_id = ForeignKey(Person)
+    author_id = ForeignKey(Person, null=True, default=None, on_delete=OnDelete.set_null)
     created_at = Timestamp(default=TimestampNow())
 
 
 class Attachment(Table, tablename="attachments", db=DB):
-    """An image in object storage, described in text for context loading."""
+    """A file in object storage, described in text for context loading."""
 
     id = UUID(primary_key=True, default=uuid4)
     space_id = ForeignKey(Space, index=True)
     page_id = ForeignKey(Page, null=True, default=None, on_delete=OnDelete.set_null)
     object_key = Varchar(unique=True)
+    filename = Varchar(length=512, default="")
     mime = Varchar()
     byte_size = Integer()
     description = Varchar(length=None)

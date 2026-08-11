@@ -1,6 +1,9 @@
 """Read API: membership slicing, page fetch, 401s."""
 
+import json
 import uuid
+from io import BytesIO
+from zipfile import ZipFile
 
 from conftest import _login
 
@@ -145,3 +148,54 @@ async def test_get_image_unauthenticated_is_401(api):
     response = await api.get("/api/images/team/nonexistent-key")
     assert response.status_code == 401
     assert response.json() == {"error": "unauthenticated"}
+
+
+async def test_file_route_is_the_general_alias(api, world):
+    """The file route applies the same authenticated metadata lookup."""
+    alice, _bob, _team = world
+    _login(api, alice)
+    response = await api.get("/api/files/team/nonexistent-key")
+    assert response.status_code == 404
+    assert response.json() == {"error": "not_found"}
+
+
+async def test_scoped_exports_and_full_dump_download(api, world):
+    """Both portable formats and the comprehensive dump are downloadable."""
+    from rif.access import Principal
+
+    alice, _bob, _team = world
+    async with transaction_scope():
+        await save_page(
+            Principal(person_id=alice.id, email=alice.email),
+            "team",
+            "notes.md",
+            "Export me.",
+            message="seed",
+        )
+    _login(api, alice)
+
+    markdown = await api.get("/api/export?scope=team&format=markdown")
+    assert markdown.status_code == 200
+    assert markdown.headers["content-type"] == "application/zip"
+    assert "reef-team-markdown.zip" in markdown.headers["content-disposition"]
+    with ZipFile(BytesIO(markdown.content)) as archive:
+        assert "coves/team/pages/notes.md" in archive.namelist()
+
+    current_json = await api.get("/api/export?scope=team&format=json")
+    assert current_json.status_code == 200
+    assert current_json.json()["coves"][0]["pages"][0]["body"] == "Export me."
+
+    dump = await api.get("/api/export/dump")
+    assert dump.status_code == 200
+    assert "reef-my-data.zip" in dump.headers["content-disposition"]
+    with ZipFile(BytesIO(dump.content)) as archive:
+        assert (
+            json.loads(archive.read("manifest.json"))["format"] == "reef-full-data-dump"
+        )
+
+
+async def test_export_rejects_bad_format_and_foreign_scope(api, world):
+    alice, _bob, _team = world
+    _login(api, alice)
+    assert (await api.get("/api/export?format=xml")).status_code == 400
+    assert (await api.get("/api/export?scope=secret&format=json")).status_code == 404

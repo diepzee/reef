@@ -9,6 +9,12 @@
  * it is the single source of truth every later task's fetch call trusts.
  */
 
+/** A resolved wiki reference from one indexed page to another visible page. */
+export interface PageReference {
+  space: string;
+  path: string;
+}
+
 /** One page's metadata within a space's index — no body. */
 export interface PageMeta {
   path: string;
@@ -19,16 +25,20 @@ export interface PageMeta {
   size: number;
   version: number;
   last_editor: string | null;
+  references: PageReference[];
 }
 
-/** One attachment's metadata within a space's index. */
+/** One stored file's metadata within a space's index. */
 export interface AttachmentMeta {
   key: string;
+  filename: string;
   mime: string;
+  size: number;
   description: string;
+  page_path: string | null;
 }
 
-/** The map of one space: page metadata and image descriptions, no bodies. */
+/** The map of one space: page metadata and described files, no bodies. */
 export interface SpaceIndex {
   alias: string;
   version: number;

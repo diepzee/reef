@@ -108,6 +108,36 @@ async def test_index_description_skips_headings(tx, household):
     assert entry["description"] == "The real summary line."
 
 
+async def test_index_resolves_visible_wiki_references(tx, household):
+    """Index references are resolved, distinct, and never code examples."""
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "notes.md", "Personal notes.", message="x")
+    await save_page(me, "household", "house.md", "The family home.", message="x")
+    await save_page(
+        me,
+        "personal",
+        "map.md",
+        """A map linking [[notes.md]] and [[household:house.md]].
+
+The same target again: [[household:house.md|home]].
+An absent target: [[household:missing.md]].
+An inline example: `[[household:house.md]]`.
+
+```md
+[[household:house.md]]
+```
+""",
+        message="x",
+    )
+
+    idx = await build_index(me)
+    entry = next(p for s in idx.spaces for p in s.pages if p["path"] == "map.md")
+    assert entry["references"] == [
+        {"space": "personal", "path": "notes.md"},
+        {"space": "household", "path": "house.md"},
+    ]
+
+
 async def test_index_excludes_the_other_persons_space(tx, household):
     from rif.context import build_index as load_index
 
@@ -128,6 +158,7 @@ async def test_index_carries_attachment_descriptions(tx, household):
     await Attachment(
         space_id=shared.id,
         object_key="k1",
+        filename="boiler.png",
         mime="image/png",
         byte_size=9,
         description="the boiler's model plate",
@@ -137,7 +168,14 @@ async def test_index_carries_attachment_descriptions(tx, household):
     idx = await load_index(me)
     house = next(s for s in idx.spaces if s.alias == "household")
     assert house.attachments == [
-        {"key": "k1", "mime": "image/png", "description": "the boiler's model plate"}
+        {
+            "key": "k1",
+            "filename": "boiler.png",
+            "mime": "image/png",
+            "size": 9,
+            "description": "the boiler's model plate",
+            "page_path": None,
+        }
     ]
 
 
