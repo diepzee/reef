@@ -19,14 +19,17 @@ carries `BYPASSRLS` and ignores every policy. The app therefore runs as
 `rif_app` (DML, no DDL) while migrations and backups use a separate admin
 credential — see `scripts/provision_app_role.py`.
 
-Retrieval is index first, then fetch — the wiki pattern, mechanized. The
-assistant calls `load_index` for a map of every page it may see (path, title,
-tags, one-line description, no bodies), then fetches what the conversation
-needs with `read_pages`, and keeps fetching as topics come up. The index is
-computed from the store on every call, so it cannot drift.
+Retrieval is index first, then fetch — [Andrej Karpathy's LLM Wiki
+pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
+adapted for a shared, permissioned MCP service. The assistant calls
+`load_index` for a map of every page it may see (path, title, tags, one-line
+description, no bodies), then fetches what the conversation needs with
+`read_pages`, and keeps fetching as topics come up. The index is computed from
+the store on every call, so it cannot drift.
 
-A manual export renders every page back to markdown with frontmatter, so the
-knowledge outlives the deployment. One-way, app to files.
+Page bodies are Markdown from the start. A manual export renders every page as
+a plain `.md` file with frontmatter, so the knowledge outlives the deployment.
+One-way, app to files.
 
 Design: [`docs/spec.md`](docs/spec.md).
 Going live: [`docs/runbook.md`](docs/runbook.md).
