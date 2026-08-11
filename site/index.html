@@ -19,7 +19,7 @@
   --ink: #1c2b33; --muted: #7b8a92; --faint: #b3bec4;
   --accent: #0d9488; --accent-deep: #0b6b62; --accent-soft: #e7f9f4;
   --field: #ffffff; --night: var(--ground);
-  --cta-ink: #ffffff;
+  --cta-ink: #ffffff; --veil: rgb(251 252 253 / 0.82);
   --seafoam: #0d9488; --amber: #f59e0b; --indigo: #6366f1; --pink: #ec4899;
   --sky: #0284c7; --lime: #84cc16; --violet: #8b5cf6; --orange: #f97316;
 }
@@ -30,13 +30,16 @@
     --accent: #38bdd8; --accent-deep: #7ce3d3; --accent-soft: #123a35;
     --field: #0f2129;
     --night: radial-gradient(120% 80% at 80% -10%, #0e3140, #0a1b23 45%, #081217);
-    --cta-ink: #06282e;
+    --cta-ink: #06282e; --veil: rgb(13 26 32 / 0.82);
     --seafoam: #2dd4bf; --amber: #fbbf24; --indigo: #a5b4fc; --pink: #f9a8d4;
     --sky: #7dd3fc; --lime: #bef264; --violet: #c4b5fd; --orange: #fdba74;
   }
 }
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  scroll-snap-type: y mandatory;
+}
 body {
   margin: 0; background: var(--night); background-color: var(--ground);
   color: var(--ink);
@@ -44,13 +47,37 @@ body {
   font-size: 17px; line-height: 1.6;
 }
 a { color: var(--accent); }
-.wrap { max-width: 66rem; margin: 0 auto; padding: 0 1.25rem; }
+.wrap { width: 100%; max-width: 66rem; margin: 0 auto; padding: 0 1.5rem; }
 
-/* nav */
-nav { display: flex; align-items: center; padding: 1.4rem 0; }
-.brand { display: inline-flex; align-items: baseline; gap: 7px; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.005em; color: var(--ink); text-decoration: none; }
+/* ---------- panels ----------
+   Each section is one screen and one idea. min-height rather than height so a panel can grow
+   past the viewport if the text wraps hard; the snap guard below turns snapping off entirely
+   when the screen is too small for that to be comfortable. */
+.panel {
+  min-height: 100svh; scroll-snap-align: start; scroll-snap-stop: always;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 5.5rem 0 4rem; position: relative;
+}
+
+/* ---------- nav ---------- */
+nav {
+  position: fixed; inset: 0 0 auto 0; z-index: 20;
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  background: var(--veil); backdrop-filter: blur(10px);
+  border-bottom: 1px solid transparent;
+}
+.brand {
+  display: inline-flex; align-items: baseline; gap: 7px;
+  font-weight: 800; font-size: 1.2rem; letter-spacing: -0.005em;
+  color: var(--ink); text-decoration: none;
+}
 .brand svg { color: var(--accent); }
-nav .cta { margin-left: auto; }
+nav .cta { margin-left: auto; transition: opacity 0.25s ease, visibility 0.25s ease; }
+/* Sign in appears once at a time: the nav button steps aside while the closing panel — which
+   carries the same action as its primary call — is on screen. */
+nav.handover .cta { opacity: 0; visibility: hidden; }
+
 .btn {
   display: inline-block; background: var(--accent); color: var(--cta-ink);
   font-weight: 700; font-size: 0.95rem; text-decoration: none;
@@ -59,181 +86,433 @@ nav .cta { margin-left: auto; }
 .btn:hover { background: var(--accent-deep); color: var(--cta-ink); }
 .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-/* hero */
-.hero { padding: 4.5rem 0 0; text-align: center; }
-.hero h1 {
-  font-size: clamp(2.4rem, 6vw, 3.6rem); font-weight: 800; letter-spacing: -0.01em;
-  line-height: 1.08; margin: 0 auto 1.1rem; max-width: 15ch; text-wrap: balance;
+/* ---------- hero ---------- */
+.hero { text-align: center; align-items: center; }
+.hero .stage { display: block; width: min(62vmin, 520px); margin: 0 auto; }
+/* Bottom-anchored, because the coral is rooted in the seabed: skew and vertical scale pivot on
+   the box's bottom edge, which is exactly the ground line. Block wrappers, not inline-block —
+   an inline-block sits on a text baseline and would pivot a few px below the ground. The
+   transforms live on HTML wrappers rather than an inner <g> so the layer composites instead of
+   re-rasterising the outline every frame. */
+.sway, .breath { display: block; transform-origin: 50% 100%; will-change: transform; }
+.sway   { animation: sway 3.9s ease-in-out infinite alternate; }
+.breath { animation: breath 2.5s ease-in-out infinite alternate; }
+@keyframes sway   { from { transform: skewX(-3deg); } to { transform: skewX(3deg); } }
+@keyframes breath { from { transform: scaleY(1); } to { transform: scaleY(1.035); } }
+.hero .logo { display: block; width: 100%; height: auto; color: var(--accent); }
+/* The small marks sway too, so the identity behaves the same wherever it appears. They are
+   single elements rather than the hero's nested wrappers, so they take the lean only; a
+   breath on a 20px mark would be invisible anyway. The box's bottom edge is the ground line,
+   which is what the skew pivots on. */
+.brand svg, .final .lockup svg {
+  transform-box: border-box; transform-origin: 50% 100%; will-change: transform;
+  animation: sway 3.9s ease-in-out infinite alternate;
 }
-.hero .lede { font-size: clamp(1.05rem, 2.2vw, 1.2rem); color: var(--muted); max-width: 34rem; margin: 0 auto 2rem; }
-.hero .ctarow { display: flex; gap: 1.1rem; justify-content: center; align-items: center; flex-wrap: wrap; margin-bottom: 0.8rem; }
-.hero .btn { font-size: 1.05rem; padding: 0.75rem 1.8rem; }
+.hero h1 {
+  font-size: clamp(2rem, 5.2vw, 3.2rem); font-weight: 800; letter-spacing: -0.01em;
+  line-height: 1.08; margin: 1.4rem auto 0.9rem; max-width: 15ch; text-wrap: balance;
+}
+.hero .lede { font-size: clamp(1rem, 2vw, 1.15rem); color: var(--muted); max-width: 34rem; margin: 0 auto 1rem; }
 .hero .micro { font-size: 0.85rem; color: var(--faint); margin: 0; }
+.scrollcue {
+  position: absolute; left: 50%; bottom: 1.8rem; translate: -50% 0;
+  color: var(--faint); display: grid; place-items: center; gap: 0.3rem;
+  font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase;
+}
+.scrollcue span { animation: nudge 2.6s ease-in-out infinite; }
+@keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(4px); } }
 
-/* seabed strip — full reef on desktop, a closer crop under 640px */
-.strip { display: block; width: 100%; height: auto; margin-top: 2.5rem; }
-.strip-m { display: none; }
-@media (max-width: 640px) { .strip-d { display: none; } .strip-m { display: block; } }
-.strip .bed { stroke: var(--accent); opacity: 0.5; }
-.sway { transform-box: fill-box; transform-origin: 50% 100%; animation: sway 5.5s ease-in-out infinite alternate; }
-@keyframes sway { from { transform: rotate(-2.4deg); } to { transform: rotate(2.4deg); } }
-@media (prefers-reduced-motion: reduce) { .sway { animation: none; } }
+/* the hero's entry: logo settles, then the words arrive */
+.reveal { opacity: 0; transform: translateY(14px); animation: reveal 1s cubic-bezier(.22,1,.36,1) forwards; }
+.reveal.d1 { animation-delay: 0.45s; }
+.reveal.d2 { animation-delay: 0.75s; }
+.reveal.d3 { animation-delay: 1.05s; }
+.reveal.d4 { animation-delay: 1.5s; }
+@keyframes reveal { to { opacity: 1; transform: none; } }
 
-/* sections */
-section { padding: 4.5rem 0 0; }
+/* ---------- section furniture ---------- */
 .eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; }
-h2 { font-size: clamp(1.6rem, 3.6vw, 2.1rem); font-weight: 800; letter-spacing: -0.008em; margin: 0 0 0.75rem; text-wrap: balance; }
-.sub { color: var(--muted); max-width: 38rem; margin: 0 0 2rem; }
+h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: -0.008em; margin: 0 0 0.75rem; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 1.05rem; max-width: 38rem; margin: 0 0 2.5rem; }
 
-.circles { display: flex; gap: 0.9rem 1.6rem; flex-wrap: wrap; }
-.circle { display: flex; align-items: center; gap: 0.7rem; font-weight: 700; font-size: 1rem; }
-.circle .pool { width: 52px; height: 52px; border-radius: 50%; background: var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; }
+/* One row of five on a roomy screen, reflowing to fewer columns rather than stranding a
+   single cove on a line of its own. */
+.circles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.8rem 1rem; }
+.circle { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.85rem; font-weight: 700; font-size: 1.02rem; }
+.circle .pool { width: 96px; height: 96px; border-radius: 50%; background: var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; }
 
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.1rem; counter-reset: step; }
-.step { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.5rem 1.5rem 1.4rem; }
+.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; counter-reset: step; }
+.step { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
 .step::before {
   counter-increment: step; content: counter(step);
   display: inline-flex; width: 1.9rem; height: 1.9rem; border-radius: 50%;
   background: var(--accent-soft); color: var(--accent-deep); font-weight: 800;
   align-items: center; justify-content: center; margin-bottom: 0.9rem;
 }
-.step h3 { margin: 0 0 0.45rem; font-size: 1.12rem; font-weight: 800; }
-.step p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.step h3 { margin: 0 0 0.45rem; font-size: 1.15rem; font-weight: 800; }
+.step p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+.step p + p { margin-top: 0.8rem; }
+.step code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; color: var(--ink); }
+.urlrow { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.urlrow code {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; white-space: nowrap;
+  background: var(--ground); border: 1px solid var(--hairline); border-radius: 8px;
+  padding: 0.45rem 0.6rem; font-size: 0.85rem;
+}
+.urlrow button {
+  flex: none; font: inherit; font-size: 0.82rem; font-weight: 700; cursor: pointer;
+  color: var(--accent); background: none; border: 1px solid var(--hairline);
+  border-radius: 999px; padding: 0.4rem 0.9rem;
+}
+.urlrow button:hover { border-color: var(--accent); }
 
-.shotframe { border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field); }
+/* The frame shrinks to whatever the height cap leaves the image, so it is never letterboxed. */
+.shotframe { width: fit-content; max-width: 100%; margin: 0 auto; border: 1px solid var(--hairline); border-radius: 18px; overflow: hidden; box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field); }
 .shotbar { display: flex; gap: 6px; padding: 11px 14px; border-bottom: 1px solid var(--hairline-soft); }
 .shotbar i { width: 10px; height: 10px; border-radius: 50%; background: var(--hairline); }
-.shotframe img { display: block; width: 100%; height: auto; }
+.shotframe img { display: block; height: auto; width: auto; max-width: 100%; max-height: 52svh; }
 .shotframe img.shot-dark { display: none; }
 @media (prefers-color-scheme: dark) { .shotframe img.shot-light { display: none; } .shotframe img.shot-dark { display: block; } }
 
-.trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.1rem; }
-.trust article h3 { display: flex; align-items: baseline; gap: 0.55rem; font-size: 1.05rem; font-weight: 800; margin: 0 0 0.4rem; }
-.trust article h3 svg { flex: none; }
-.trust article p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+.trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; }
+.trust article { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
+.trust .pool { width: 56px; height: 56px; border-radius: 50%; background: var(--ground); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem; }
+.trust article h3 { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.45rem; }
+.trust article p { margin: 0; color: var(--muted); font-size: 0.97rem; }
 
-.final { text-align: center; padding-bottom: 1rem; }
-.final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: 2.3rem; font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.4rem; }
+/* ---------- closing ---------- */
+.final { text-align: center; align-items: center; justify-content: center; }
+.final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.3rem; }
 .final .lockup svg { color: var(--accent); }
 .final .lockup::after { content: ""; position: absolute; left: 0; right: 0; bottom: -0.13em; height: 0.09em; border-radius: 0.05em; background: var(--accent); }
+.final .btn { font-size: 1.05rem; padding: 0.75rem 1.9rem; }
+/* Two auto margins split the slack: the lockup settles near the middle, the footer sits at
+   the foot of the page. */
+.final > .wrap:first-of-type { margin-top: auto; }
+.final > .wrap:last-of-type { margin-top: auto; }
 
-footer { margin-top: 4.5rem; border-top: 1px solid var(--hairline-soft); padding: 1.6rem 0 2.2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; color: var(--faint); font-size: 0.85rem; }
+footer { border-top: 1px solid var(--hairline-soft); padding: 1.4rem 0 0; margin-top: 2rem; display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; color: var(--faint); font-size: 0.85rem; }
 footer .sp { margin-left: auto; }
 footer a { color: var(--muted); }
+
+/* ---------- guards ----------
+   Snapping is a nicety on a roomy screen and a nuisance on a cramped one, where a panel can be
+   taller than the viewport and mandatory snapping would fight the reader. Below these sizes the
+   page becomes an ordinary scrolling document. */
+@media (max-height: 620px), (max-width: 680px) {
+  html { scroll-snap-type: none; }
+  .panel { min-height: 0; padding: 4.5rem 0 3rem; scroll-snap-align: none; }
+  .hero { min-height: 100svh; }
+  .scrollcue { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg { animation: none; }
+  .reveal { opacity: 1; transform: none; animation: none; }
+}
 </style>
 </head>
 <body>
-<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><g id="o-coral"><g fill="currentColor"><g transform="translate(3.400,13.333) scale(0.17544)"><g transform="translate(0,314) scale(0.1,-0.1)"><path d="M1441 2805 c-40 -8 -78 -18 -84 -24 -7 -7 2 -69 29 -203 37 -181 39 -204 39 -368 0 -197 -16 -264 -76 -315 -39 -32 -54 -32 -89 3 -48 49 -55 94 -52 329 2 133 -1 234 -8 270 -18 92 -50 181 -67 187 -23 9 -173 -76 -173 -99 0 -2 14 -44 30 -93 67 -200 21 -303 -75 -169 -75 103 -95 127 -107 127 -17 0 -76 -70 -126 -149 l-46 -74 40 -33 c21 -19 84 -64 139 -101 129 -88 205 -165 249 -255 85 -170 11 -184 -169 -32 -124 104 -279 194 -334 194 -23 0 -41 -51 -62 -175 -16 -96 -12 -103 81 -126 83 -21 185 -67 300 -134 41 -24 118 -60 170 -80 52 -20 113 -47 135 -60 93 -54 180 -182 209 -304 8 -33 17 -64 21 -70 4 -7 72 -11 200 -11 219 0 198 -9 210 90 10 77 60 231 105 320 122 241 339 440 633 581 60 28 111 58 114 66 10 25 -78 187 -104 191 -14 2 -55 -24 -130 -84 -155 -125 -204 -149 -219 -109 -16 39 61 187 158 306 68 84 68 84 -24 160 -91 75 -105 80 -134 44 -73 -90 -138 -252 -198 -490 -24 -95 -60 -211 -79 -257 -77 -191 -251 -441 -325 -469 -90 -35 -154 173 -104 338 28 91 81 171 202 304 121 133 179 229 224 369 54 167 84 341 62 359 -35 29 -199 61 -211 41 -4 -7 -11 -67 -16 -134 -12 -185 -46 -296 -102 -330 -41 -25 -60 53 -78 304 -6 85 -16 161 -21 168 -13 15 -41 14 -137 -3z M2640 1847 c-341 -121 -578 -377 -645 -698 -26 -122 -64 -109 315 -109 l330 0 19 31 c33 53 92 247 89 287 l-3 37 -75 -1 c-70 -2 -81 -5 -206 -69 -148 -75 -187 -81 -192 -32 -14 119 253 306 439 307 68 0 74 13 61 132 -17 156 -16 156 -132 115z M495 1478 c-14 -37 56 -301 106 -400 l19 -38 300 0 c331 0 315 -4 279 65 -38 72 -107 133 -204 179 -49 24 -119 65 -155 91 -100 74 -182 109 -267 113 -57 3 -74 1 -78 -10z"/></g></g></g></g><g id="o-sunAnemone"><path d="M38.25 32.61C46.6 33.73 50.98 30.75 50.48 28.28C49.98 25.81 44.79 24.76 37.53 29.02ZM37.25 35.44C44.12 40.32 49.39 39.71 50.09 37.29C50.8 34.88 46.69 31.53 38.28 31.93ZM35.05 37.49C38.87 45 43.81 46.91 45.56 45.1C47.31 43.28 45.23 38.41 37.59 34.85ZM32.15 38.28C32.04 46.7 35.53 50.69 37.92 49.9C40.31 49.11 40.73 43.83 35.62 37.13ZM29.21 37.63C25.21 45.04 26.44 50.19 28.93 50.6C31.41 51.01 34.24 46.53 32.83 38.22ZM26.92 35.69C19.93 40.39 18.63 45.52 20.63 47.04C22.64 48.56 27.23 45.91 29.84 37.9ZM25.79 32.9C17.41 33.81 13.87 37.76 14.95 40.04C16.02 42.31 21.31 42.1 27.35 36.22ZM26.08 29.91C18.24 26.83 13.27 28.67 13.17 31.19C13.06 33.71 17.85 35.97 25.92 33.57ZM27.73 27.4C22.22 21.02 16.96 20.35 15.7 22.53C14.43 24.71 17.62 28.94 25.89 30.57ZM30.35 25.94C28.44 17.74 24.1 14.7 21.97 16.04C19.84 17.38 20.69 22.61 27.25 27.89ZM33.36 25.87C35.48 17.72 33.04 13.01 30.53 13.21C28.02 13.4 26.35 18.43 29.71 26.16ZM36.05 27.2C41.72 20.97 41.75 15.67 39.44 14.68C37.12 13.68 33.3 17.36 32.69 25.76ZM37.82 29.64C45.73 26.75 48.22 22.07 46.63 20.12C45.05 18.16 39.96 19.64 35.51 26.79Z" fill="currentColor"/><path d="M24.49 32A7.51 7.51 0 1 0 39.51 32A7.51 7.51 0 1 0 24.49 32ZM29.01 32A2.99 2.99 0 1 0 34.99 32A2.99 2.99 0 1 0 29.01 32Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-tubes"><path d="M13.39 54L11.1 36.04A4.28 1.93 0 0 1 19.66 36.04L21.52 54ZM12.81 36.04A2.57 1.16 0 1 0 17.95 36.04A2.57 1.16 0 1 0 12.81 36.04Z" fill="currentColor" fill-rule="evenodd"/><path d="M20.75 54L22.58 27.04A4.07 1.83 0 0 1 30.72 27.04L28.49 54ZM24.21 27.04A2.44 1.1 0 1 0 29.09 27.04A2.44 1.1 0 1 0 24.21 27.04Z" fill="currentColor" fill-rule="evenodd"/><path d="M27.15 54L27.73 25.96A4.43 1.99 0 0 1 36.58 25.96L35.56 54ZM29.5 25.96A2.66 1.19 0 1 0 34.81 25.96A2.66 1.19 0 1 0 29.5 25.96Z" fill="currentColor" fill-rule="evenodd"/><path d="M34.75 54L36.54 31.62A3.88 1.74 0 0 1 44.29 31.62L42.11 54ZM38.09 31.62A2.33 1.05 0 1 0 42.74 31.62A2.33 1.05 0 1 0 38.09 31.62Z" fill="currentColor" fill-rule="evenodd"/><path d="M42.51 54L41.06 26.4A4.4 1.98 0 0 1 49.86 26.4L50.88 54ZM42.82 26.4A2.64 1.19 0 1 0 48.1 26.4A2.64 1.19 0 1 0 42.82 26.4Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-staghorn"><path d="M32 54V45.8M32 45.8Q28.51 38.59 16.21 27.79M25.43 38.31Q24.98 33.88 24.68 30.92M20.41 32.58Q15.02 31.57 11.42 30.89M32 45.8Q38.68 39.47 44.77 29.97M37.62 38.83Q37.76 34.9 37.85 32.27M41.2 34.39Q47.06 33.5 50.97 32.9" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-brain"><path d="M15.53 54A16.47 15.88 0 0 1 48.47 54ZM21.49 51.41A1.7 1.7 0 0 1 21.28 48.02L34.45 47.19A1.7 1.7 0 0 1 34.67 50.58ZM27.87 46.94A1.7 1.7 0 0 1 27.88 43.54L38.97 43.58A1.7 1.7 0 0 1 38.95 46.98ZM27.35 44.06A1.7 1.7 0 0 1 27.12 40.67L33.28 40.26A1.7 1.7 0 0 1 33.51 43.65Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-flower"><path d="M35.3 34.31C44.4 37.28 49.33 33.65 48.89 29.98C48.45 26.31 42.8 23.94 34.66 28.98ZM31.65 36.01C33.62 45.38 39.24 47.83 42.19 45.62C45.15 43.4 44.38 37.33 35.95 32.79ZM28.35 33.7C21.22 40.1 21.91 46.18 25.31 47.64C28.7 49.09 33.58 45.39 33.29 35.82ZM28.7 29.69C19.6 26.72 14.67 30.35 15.11 34.02C15.55 37.69 21.2 40.06 29.34 35.02ZM32.35 27.99C30.38 18.62 24.76 16.17 21.81 18.38C18.85 20.6 19.62 26.67 28.05 31.21ZM35.65 30.3C42.78 23.9 42.09 17.82 38.69 16.36C35.3 14.91 30.42 18.61 30.71 28.18Z" fill="currentColor"/><path d="M26 32A6 6 0 1 0 38 32A6 6 0 1 0 26 32ZM28.43 32A3.57 3.57 0 1 0 35.57 32A3.57 3.57 0 1 0 28.43 32Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-scallop"><path d="M32 45Q24.14 43.55 22.25 42.36M32 45Q25.08 40.58 22.45 36.96M32 45Q27.87 37.91 26 32.11M32 45Q32 36.83 32 30.14M32 45Q36.13 37.91 38 32.11M32 45Q38.92 40.58 41.55 36.96M32 45Q39.86 43.55 41.75 42.36" fill="none" stroke="currentColor" stroke-width="3.42" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.5 54C27.5 49 29.5 47 30 45L34 45C34.5 47 36.5 49 36.5 54Z" fill="currentColor"/></g><g id="o-spiral"><path d="M28.96 32.36Q23.15 29.23 22.19 21.5M29.11 31.01Q25.23 25.66 27.72 18.29M29.82 29.85Q28.65 23.35 34.09 17.78M30.97 29.12Q32.73 22.75 40.05 20.1M32.32 28.96Q36.67 23.98 44.42 24.77M33.61 29.4Q39.69 26.81 46.32 30.87M34.58 30.36Q41.18 30.66 45.39 37.2M35.04 31.64Q40.85 34.77 41.81 42.5M34.89 32.99Q38.77 38.34 36.28 45.71M34.18 34.15Q35.35 40.65 29.91 46.22M33.03 34.88Q31.27 41.25 23.95 43.9M31.68 35.04Q27.33 40.02 19.58 39.23M30.39 34.6Q24.31 37.19 17.68 33.13M29.42 33.64Q22.82 33.34 18.61 26.8" fill="none" stroke="currentColor" stroke-width="3.09" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-bubbles"><path d="M15.29 48.39A6.54 6.54 0 1 0 28.38 48.39A6.54 6.54 0 1 0 15.29 48.39ZM25.02 47.68A6.54 6.54 0 1 0 38.11 47.68A6.54 6.54 0 1 0 25.02 47.68ZM37.02 47.31A6.54 6.54 0 1 0 50.11 47.31A6.54 6.54 0 1 0 37.02 47.31ZM14.92 37.22A6.29 6.29 0 1 0 27.51 37.22A6.29 6.29 0 1 0 14.92 37.22ZM24.99 37.05A6.29 6.29 0 1 0 37.57 37.05A6.29 6.29 0 1 0 24.99 37.05ZM35.9 36.55A6.29 6.29 0 1 0 48.48 36.55A6.29 6.29 0 1 0 35.9 36.55ZM26.65 28.77A4.48 4.48 0 1 0 35.62 28.77A4.48 4.48 0 1 0 26.65 28.77Z" fill="currentColor"/></g><g id="o-seagrass"><path d="M13.56 54C13.91 40.39 7.71 31.31 8.96 23.75C9.49 32.82 20.49 41.9 20.67 54ZM19.26 54C19.63 43.65 15.49 36.75 16.8 31C17.36 37.9 26.55 44.8 26.74 54ZM24.8 54C25.1 40.95 18.96 32.25 20.03 25C20.48 33.7 30.73 42.4 30.88 54ZM31.28 54C31.62 40.64 25.55 31.73 26.77 24.31C27.29 33.22 38.1 42.12 38.27 54ZM36.68 54C37.01 41.66 31.4 33.44 32.53 26.59C33.02 34.81 43 43.04 43.16 54ZM44.52 54C44.91 45.65 42.05 40.09 43.42 35.45C44 41.02 52.12 46.58 52.31 54Z" fill="currentColor"/></g><g id="o-shell"><path d="M32 52L17.48 42.55A3.07 3.07 0 0 1 20.71 38.87A3.07 3.07 0 0 1 24.84 36.23A3.07 3.07 0 0 1 29.55 34.86A3.07 3.07 0 0 1 34.45 34.86A3.07 3.07 0 0 1 39.16 36.23A3.07 3.07 0 0 1 43.29 38.87A3.07 3.07 0 0 1 46.52 42.55ZM30.24 47.44A1.1 1.1 0 0 1 28.42 48.68L23.07 40.8A1.1 1.1 0 0 1 24.89 39.56ZM32.14 47.11A1.1 1.1 0 0 1 29.98 47.55L28.1 38.21A1.1 1.1 0 0 1 30.26 37.78ZM34.02 47.55A1.1 1.1 0 0 1 31.86 47.11L33.74 37.78A1.1 1.1 0 0 1 35.9 38.21ZM35.58 48.68A1.1 1.1 0 0 1 33.76 47.44L39.11 39.56A1.1 1.1 0 0 1 40.93 40.8Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-nudibranch"><path d="M17.88 54C17.88 49.78 24.94 42.63 32 42.63C39.76 42.63 46.12 47.75 46.12 50.59C46.12 53.43 40.47 54 32 54ZM23.55 48.65A1.39 1.39 0 1 0 26.33 48.65A1.39 1.39 0 1 0 23.55 48.65ZM26.86 49.56A1.26 1.26 0 1 0 29.38 49.56A1.26 1.26 0 1 0 26.86 49.56ZM30.08 48.45A1.22 1.22 0 1 0 32.51 48.45A1.22 1.22 0 1 0 30.08 48.45ZM32.94 49.78A1.53 1.53 0 1 0 36 49.78A1.53 1.53 0 1 0 32.94 49.78Z" fill="currentColor" fill-rule="evenodd"/><path d="M42.16 45.13C43.16 42.13 44.16 41.13 44.66 39.13M38.16 45.13C39.16 42.13 40.16 41.13 40.66 39.13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-cove-household"><path d="M13.44 46.61A7.2 7.2 0 1 0 27.83 46.61A7.2 7.2 0 1 0 13.44 46.61ZM25.29 46.94A7.2 7.2 0 1 0 39.69 46.94A7.2 7.2 0 1 0 25.29 46.94ZM37.68 47.17A7.2 7.2 0 1 0 52.08 47.17A7.2 7.2 0 1 0 37.68 47.17ZM17.65 37.17A5.03 5.03 0 1 0 27.7 37.17A5.03 5.03 0 1 0 17.65 37.17ZM26.91 37.7A5.03 5.03 0 1 0 36.96 37.7A5.03 5.03 0 1 0 26.91 37.7ZM35.14 37.28A5.03 5.03 0 1 0 45.19 37.28A5.03 5.03 0 1 0 35.14 37.28ZM21.99 28.84A5 5 0 1 0 31.99 28.84A5 5 0 1 0 21.99 28.84ZM32.05 30.33A5 5 0 1 0 42.05 30.33A5 5 0 1 0 32.05 30.33Z" fill="currentColor"/></g><g id="o-cove-schoolrun"><path d="M16.15 54C16.15 48.48 24.08 43.77 32 43.77C40.72 43.77 47.85 48.37 47.85 50.93C47.85 53.49 41.51 54 32 54ZM22.89 50.13A1.19 1.19 0 1 0 25.26 50.13A1.19 1.19 0 1 0 22.89 50.13ZM29.63 48.25A1.58 1.58 0 1 0 32.79 48.25A1.58 1.58 0 1 0 29.63 48.25Z" fill="currentColor" fill-rule="evenodd"/><path d="M43.41 46.02C44.41 43.02 45.41 42.02 45.91 40.02M39.41 46.02C40.41 43.02 41.41 42.02 41.91 40.02" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-cove-accountant"><path d="M32 45Q24.16 44.01 22.29 43.21M32 45Q24.97 40.97 22.26 37.67M32 45Q27.75 38.16 25.8 32.57M32 45Q32 37.01 32 30.48M32 45Q36.25 38.16 38.2 32.57M32 45Q39.03 40.97 41.74 37.67M32 45Q39.84 44.01 41.71 43.21" fill="none" stroke="currentColor" stroke-width="3.58" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.5 54C27.5 49 29.5 47 30 45L34 45C34.5 47 36.5 49 36.5 54Z" fill="currentColor"/></g><g id="o-cove-japan"><path d="M27.86 31.78Q23.89 36.77 27.63 45M28.53 29.74Q22.59 32.08 21.71 41.07M30.12 28.31Q23.81 27.36 18.56 34.72M32.22 27.86Q27.23 23.89 19 27.63M34.26 28.53Q31.92 22.59 22.93 21.71M35.69 30.12Q36.64 23.81 29.28 18.56M36.14 32.22Q40.11 27.23 36.37 19M35.47 34.26Q41.41 31.92 42.29 22.93M33.88 35.69Q40.19 36.64 45.44 29.28M31.78 36.14Q36.77 40.11 45 36.37M29.74 35.47Q32.08 41.41 41.07 42.29M28.31 33.88Q27.36 40.19 34.72 45.44" fill="none" stroke="currentColor" stroke-width="3.18" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-cove-personal"><path d="M32 54V46.36M32 46.36Q28.27 39.73 15.86 29.8M25.38 39.56Q24.28 35.56 23.54 32.89M19.77 33.81Q14.34 34 10.72 34.13M32 46.36Q38.5 42.03 45.66 35.54M37.61 41.92Q38.49 37.26 39.08 34.15M41.06 39.19Q46.79 39.5 50.61 39.71" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-anemone-b"><path d="M35.84 38.79C38.71 45.65 42.86 47.8 44.46 46.41C46.06 45.03 44.53 40.62 38.16 36.78ZM32.24 39.8C31.6 47.21 34.27 51.03 36.33 50.55C38.39 50.07 39.09 45.46 35.24 39.1ZM28.59 39.02C24.58 45.28 25.17 49.91 27.21 50.44C29.26 50.97 32.03 47.21 31.57 39.79ZM25.72 36.63C19.26 40.31 17.63 44.68 19.19 46.1C20.76 47.53 24.95 45.48 28 38.7ZM24.29 33.18C16.86 33.44 13.38 36.55 14.1 38.54C14.83 40.52 19.5 40.66 25.35 36.07ZM24.62 29.46C17.92 26.23 13.4 27.37 13.12 29.47C12.84 31.57 16.9 33.86 24.22 32.51ZM26.65 26.32C22.22 20.35 17.68 19.26 16.45 20.99C15.23 22.71 17.77 26.63 24.87 28.83ZM29.9 24.49C28.75 17.14 25.24 14.06 23.35 15.02C21.47 15.98 21.89 20.63 27.16 25.88ZM33.63 24.37C36.03 17.33 34.35 12.98 32.23 12.95C30.12 12.92 28.33 17.24 30.56 24.33ZM36.99 26C42.38 20.88 42.92 16.25 41.06 15.24C39.2 14.23 35.62 17.22 34.28 24.54ZM39.2 29.01C46.36 26.98 48.99 23.13 47.81 21.37C46.63 19.61 42.07 20.6 37.49 26.46ZM39.77 32.7C47.05 34.23 51.17 32.04 50.94 29.94C50.71 27.83 46.21 26.58 39.44 29.64ZM38.55 36.23C44.29 40.97 48.95 40.94 49.73 38.97C50.5 37.01 47.1 33.81 39.68 33.37Z" fill="currentColor"/><path d="M22.85 32A9.15 9.15 0 1 0 41.15 32A9.15 9.15 0 1 0 22.85 32ZM28.32 32A3.68 3.68 0 1 0 35.68 32A3.68 3.68 0 1 0 28.32 32Z" fill="currentColor" fill-rule="evenodd"/></g></defs></svg>
 
-<div class="wrap">
-  <nav>
-    <a class="brand" href="/">
-      <svg viewBox="11 15.5 42 34.5" width="24" height="20" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
-      reef
-    </a>
-    <span class="cta"><a class="btn" href="/api/auth/login">Sign in</a></span>
-  </nav>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><path id="o-coral" fill="currentColor" transform="translate(3.400,13.333) scale(0.17544) translate(0,314) scale(0.1,-0.1)" d="M1441 2805 c-40 -8 -78 -18 -84 -24 -7 -7 2 -69 29 -203 37 -181 39 -204 39 -368 0 -197 -16 -264 -76 -315 -39 -32 -54 -32 -89 3 -48 49 -55 94 -52 329 2 133 -1 234 -8 270 -18 92 -50 181 -67 187 -23 9 -173 -76 -173 -99 0 -2 14 -44 30 -93 67 -200 21 -303 -75 -169 -75 103 -95 127 -107 127 -17 0 -76 -70 -126 -149 l-46 -74 40 -33 c21 -19 84 -64 139 -101 129 -88 205 -165 249 -255 85 -170 11 -184 -169 -32 -124 104 -279 194 -334 194 -23 0 -41 -51 -62 -175 -16 -96 -12 -103 81 -126 83 -21 185 -67 300 -134 41 -24 118 -60 170 -80 52 -20 113 -47 135 -60 93 -54 180 -182 209 -304 8 -33 17 -64 21 -70 4 -7 72 -11 200 -11 219 0 198 -9 210 90 10 77 60 231 105 320 122 241 339 440 633 581 60 28 111 58 114 66 10 25 -78 187 -104 191 -14 2 -55 -24 -130 -84 -155 -125 -204 -149 -219 -109 -16 39 61 187 158 306 68 84 68 84 -24 160 -91 75 -105 80 -134 44 -73 -90 -138 -252 -198 -490 -24 -95 -60 -211 -79 -257 -77 -191 -251 -441 -325 -469 -90 -35 -154 173 -104 338 28 91 81 171 202 304 121 133 179 229 224 369 54 167 84 341 62 359 -35 29 -199 61 -211 41 -4 -7 -11 -67 -16 -134 -12 -185 -46 -296 -102 -330 -41 -25 -60 53 -78 304 -6 85 -16 161 -21 168 -13 15 -41 14 -137 -3z M2640 1847 c-341 -121 -578 -377 -645 -698 -26 -122 -64 -109 315 -109 l330 0 19 31 c33 53 92 247 89 287 l-3 37 -75 -1 c-70 -2 -81 -5 -206 -69 -148 -75 -187 -81 -192 -32 -14 119 253 306 439 307 68 0 74 13 61 132 -17 156 -16 156 -132 115z M495 1478 c-14 -37 56 -301 106 -400 l19 -38 300 0 c331 0 315 -4 279 65 -38 72 -107 133 -204 179 -49 24 -119 65 -155 91 -100 74 -182 109 -267 113 -57 3 -74 1 -78 -10z"/><g id="o-tubes"><path d="M13.39 54L11.1 36.04A4.28 1.93 0 0 1 19.66 36.04L21.52 54ZM12.81 36.04A2.57 1.16 0 1 0 17.95 36.04A2.57 1.16 0 1 0 12.81 36.04Z" fill="currentColor" fill-rule="evenodd"/><path d="M20.75 54L22.58 27.04A4.07 1.83 0 0 1 30.72 27.04L28.49 54ZM24.21 27.04A2.44 1.1 0 1 0 29.09 27.04A2.44 1.1 0 1 0 24.21 27.04Z" fill="currentColor" fill-rule="evenodd"/><path d="M27.15 54L27.73 25.96A4.43 1.99 0 0 1 36.58 25.96L35.56 54ZM29.5 25.96A2.66 1.19 0 1 0 34.81 25.96A2.66 1.19 0 1 0 29.5 25.96Z" fill="currentColor" fill-rule="evenodd"/><path d="M34.75 54L36.54 31.62A3.88 1.74 0 0 1 44.29 31.62L42.11 54ZM38.09 31.62A2.33 1.05 0 1 0 42.74 31.62A2.33 1.05 0 1 0 38.09 31.62Z" fill="currentColor" fill-rule="evenodd"/><path d="M42.51 54L41.06 26.4A4.4 1.98 0 0 1 49.86 26.4L50.88 54ZM42.82 26.4A2.64 1.19 0 1 0 48.1 26.4A2.64 1.19 0 1 0 42.82 26.4Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-flower"><path d="M35.3 34.31C44.4 37.28 49.33 33.65 48.89 29.98C48.45 26.31 42.8 23.94 34.66 28.98ZM31.65 36.01C33.62 45.38 39.24 47.83 42.19 45.62C45.15 43.4 44.38 37.33 35.95 32.79ZM28.35 33.7C21.22 40.1 21.91 46.18 25.31 47.64C28.7 49.09 33.58 45.39 33.29 35.82ZM28.7 29.69C19.6 26.72 14.67 30.35 15.11 34.02C15.55 37.69 21.2 40.06 29.34 35.02ZM32.35 27.99C30.38 18.62 24.76 16.17 21.81 18.38C18.85 20.6 19.62 26.67 28.05 31.21ZM35.65 30.3C42.78 23.9 42.09 17.82 38.69 16.36C35.3 14.91 30.42 18.61 30.71 28.18Z" fill="currentColor"/><path d="M26 32A6 6 0 1 0 38 32A6 6 0 1 0 26 32ZM28.43 32A3.57 3.57 0 1 0 35.57 32A3.57 3.57 0 1 0 28.43 32Z" fill="currentColor" fill-rule="evenodd"/></g><g id="o-scallop"><path d="M32 45Q24.14 43.55 22.25 42.36M32 45Q25.08 40.58 22.45 36.96M32 45Q27.87 37.91 26 32.11M32 45Q32 36.83 32 30.14M32 45Q36.13 37.91 38 32.11M32 45Q38.92 40.58 41.55 36.96M32 45Q39.86 43.55 41.75 42.36" fill="none" stroke="currentColor" stroke-width="3.42" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.5 54C27.5 49 29.5 47 30 45L34 45C34.5 47 36.5 49 36.5 54Z" fill="currentColor"/></g><g id="o-seagrass"><path d="M13.56 54C13.91 40.39 7.71 31.31 8.96 23.75C9.49 32.82 20.49 41.9 20.67 54ZM19.26 54C19.63 43.65 15.49 36.75 16.8 31C17.36 37.9 26.55 44.8 26.74 54ZM24.8 54C25.1 40.95 18.96 32.25 20.03 25C20.48 33.7 30.73 42.4 30.88 54ZM31.28 54C31.62 40.64 25.55 31.73 26.77 24.31C27.29 33.22 38.1 42.12 38.27 54ZM36.68 54C37.01 41.66 31.4 33.44 32.53 26.59C33.02 34.81 43 43.04 43.16 54ZM44.52 54C44.91 45.65 42.05 40.09 43.42 35.45C44 41.02 52.12 46.58 52.31 54Z" fill="currentColor"/></g><g id="o-cove-household"><path d="M13.44 46.61A7.2 7.2 0 1 0 27.83 46.61A7.2 7.2 0 1 0 13.44 46.61ZM25.29 46.94A7.2 7.2 0 1 0 39.69 46.94A7.2 7.2 0 1 0 25.29 46.94ZM37.68 47.17A7.2 7.2 0 1 0 52.08 47.17A7.2 7.2 0 1 0 37.68 47.17ZM17.65 37.17A5.03 5.03 0 1 0 27.7 37.17A5.03 5.03 0 1 0 17.65 37.17ZM26.91 37.7A5.03 5.03 0 1 0 36.96 37.7A5.03 5.03 0 1 0 26.91 37.7ZM35.14 37.28A5.03 5.03 0 1 0 45.19 37.28A5.03 5.03 0 1 0 35.14 37.28ZM21.99 28.84A5 5 0 1 0 31.99 28.84A5 5 0 1 0 21.99 28.84ZM32.05 30.33A5 5 0 1 0 42.05 30.33A5 5 0 1 0 32.05 30.33Z" fill="currentColor"/></g><g id="o-cove-accountant"><path d="M32 45Q24.16 44.01 22.29 43.21M32 45Q24.97 40.97 22.26 37.67M32 45Q27.75 38.16 25.8 32.57M32 45Q32 37.01 32 30.48M32 45Q36.25 38.16 38.2 32.57M32 45Q39.03 40.97 41.74 37.67M32 45Q39.84 44.01 41.71 43.21" fill="none" stroke="currentColor" stroke-width="3.58" stroke-linecap="round" stroke-linejoin="round"/><path d="M27.5 54C27.5 49 29.5 47 30 45L34 45C34.5 47 36.5 49 36.5 54Z" fill="currentColor"/></g><g id="o-cove-japan"><path d="M27.86 31.78Q23.89 36.77 27.63 45M28.53 29.74Q22.59 32.08 21.71 41.07M30.12 28.31Q23.81 27.36 18.56 34.72M32.22 27.86Q27.23 23.89 19 27.63M34.26 28.53Q31.92 22.59 22.93 21.71M35.69 30.12Q36.64 23.81 29.28 18.56M36.14 32.22Q40.11 27.23 36.37 19M35.47 34.26Q41.41 31.92 42.29 22.93M33.88 35.69Q40.19 36.64 45.44 29.28M31.78 36.14Q36.77 40.11 45 36.37M29.74 35.47Q32.08 41.41 41.07 42.29M28.31 33.88Q27.36 40.19 34.72 45.44" fill="none" stroke="currentColor" stroke-width="3.18" stroke-linecap="round" stroke-linejoin="round"/></g><g id="o-cove-personal"><path d="M32 54V46.36M32 46.36Q28.27 39.73 15.86 29.8M25.38 39.56Q24.28 35.56 23.54 32.89M19.77 33.81Q14.34 34 10.72 34.13M32 46.36Q38.5 42.03 45.66 35.54M37.61 41.92Q38.49 37.26 39.08 34.15M41.06 39.19Q46.79 39.5 50.61 39.71" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></g></defs></svg>
 
-  <header class="hero">
-    <h1>Memory you grow together.</h1>
-    <p class="lede">reef is a shared, living memory for you and your people — and for the AI you
-      both talk to. Coves for your household, your plans, your life. Pages everyone can read.
-      An assistant that finally remembers.</p>
-    <div class="ctarow">
-      <a class="btn" href="/api/auth/login">Sign in</a>
+<nav>
+  <a class="brand" href="/">
+    <svg viewBox="11 15.5 42 34.5" width="24" height="20" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
+    reef
+  </a>
+  <span class="cta"><a class="btn" href="/api/auth/login">Sign in</a></span>
+</nav>
+
+<main>
+
+<header class="panel hero wrap" id="hero">
+  <div class="stage">
+    <div class="sway"><div class="breath">
+      <svg class="logo" viewBox="11 15.5 42 34.5" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
+        <!-- Every reef mark on the page — here, the nav, the closing lockup — is one
+             instance of the shared outline in the defs. The script warps that single
+             definition, so all three ripple together. -->
+        <use href="#o-coral"/>
+      </svg>
+    </div></div>
+  </div>
+  <h1 class="reveal d1">Memory you grow together.</h1>
+  <p class="lede reveal d2">reef is a shared, living memory for you and your people — and for the
+    AI you both talk to. Coves for your household, your plans, your life.</p>
+  <p class="micro reveal d3">Works with Claude — add reef as a connector, on your phone too.</p>
+  <div class="scrollcue reveal d4" aria-hidden="true">
+    <span>▾</span>
+  </div>
+</header>
+
+<section class="panel wrap">
+  <p class="eyebrow">Coves</p>
+  <h2>A cove for every circle of your life</h2>
+  <p class="sub">A cove is a small group and its shared memory: the people you invite, the pages
+    you keep, its own colour and creature. Start one for anything that has a "we" — and everyone
+    always keeps a private cove that's theirs alone.</p>
+  <div class="circles">
+    <div class="circle"><span class="pool"><svg viewBox="8.91 15.25 47.70 47.70" width="54" height="54" style="color:var(--violet)" aria-hidden="true"><use href="#o-cove-household"/></svg></span><span>the household</span></div>
+    <div class="circle"><span class="pool"><svg viewBox="7.60 15.64 46.78 46.78" width="54" height="54" style="color:var(--pink)" aria-hidden="true"><use href="#o-tubes"/></svg></span><span>the school run</span></div>
+    <div class="circle"><span class="pool"><svg viewBox="13.62 23.87 36.75 36.75" width="54" height="54" style="color:var(--indigo)" aria-hidden="true"><use href="#o-cove-accountant"/></svg></span><span>the accountant</span></div>
+    <div class="circle"><span class="pool"><svg viewBox="11.00 11.00 42.00 42.00" width="54" height="54" style="color:var(--lime)" aria-hidden="true"><use href="#o-cove-japan"/></svg></span><span>the japan trip</span></div>
+    <div class="circle"><span class="pool"><svg viewBox="10.31 21.55 40.70 40.70" width="54" height="54" style="color:var(--seafoam)" aria-hidden="true"><use href="#o-cove-personal"/></svg></span><span>just you</span></div>
+  </div>
+</section>
+
+<section class="panel wrap">
+  <p class="eyebrow">How it works</p>
+  <h2>Tell it once</h2>
+  <div class="steps">
+    <div class="step">
+      <h3>Start a cove, invite your people</h3>
+      <p>Your household, the school circle, you and the accountant. Invites go by email; whoever
+        starts a cove looks after it.</p>
     </div>
-    <p class="micro">Works with Claude — add reef as a connector, on your phone too.</p>
-  </header>
-</div>
-
-<svg class="strip strip-d" viewBox="0 0 1200 78" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-  <line class="bed" x1="24" y1="64" x2="1176" y2="64" stroke-width="3" stroke-linecap="round"/>
-  <g transform="translate(60,64) scale(0.9) translate(-32,-54)" style="color:var(--sky)"><g class="sway" style="animation-delay:0s"><use href="#o-seagrass"/></g></g><g transform="translate(150,64) scale(0.7) translate(-32,-54)" style="color:var(--lime)"><g class="sway" style="animation-delay:1.3s"><use href="#o-bubbles"/></g></g><g transform="translate(235,64) scale(1.0) translate(-32,-51)" style="color:var(--amber)"><g class="sway" style="animation-delay:0.6s"><use href="#o-sunAnemone"/></g></g><g transform="translate(330,64) scale(0.8) translate(-32,-54)" style="color:var(--indigo)"><g class="sway" style="animation-delay:2.1s"><use href="#o-tubes"/></g></g><g transform="translate(430,64) scale(0.85) translate(-32,-54)" style="color:var(--violet)"><g class="sway" style="animation-delay:0s"><use href="#o-brain"/></g></g><g transform="translate(530,64) scale(1.05) translate(-32,-54)" style="color:var(--pink)"><g class="sway" style="animation-delay:1.7s"><use href="#o-staghorn"/></g></g><g transform="translate(640,64) scale(1.15) translate(-32,-51)" style="color:var(--seafoam)"><g class="sway" style="animation-delay:0.9s"><use href="#o-anemone-b"/></g></g><g transform="translate(760,64) scale(0.75) translate(-32,-48)" style="color:var(--lime)"><g class="sway" style="animation-delay:2.4s"><use href="#o-flower"/></g></g><g transform="translate(845,64) scale(0.85) translate(-32,-54)" style="color:var(--pink)"><g class="sway" style="animation-delay:0.3s"><use href="#o-shell"/></g></g><g transform="translate(940,64) scale(1.0) translate(-32,-46.2)" style="color:var(--sky)"><g class="sway" style="animation-delay:1.5s"><use href="#o-spiral"/></g></g><g transform="translate(1035,64) scale(0.7) translate(-32,-54)" style="color:var(--amber)"><g class="sway" style="animation-delay:2.0s"><use href="#o-scallop"/></g></g><g transform="translate(1120,64) scale(0.8) translate(-32,-54)" style="color:var(--indigo)"><g class="sway" style="animation-delay:0.8s"><use href="#o-nudibranch"/></g></g>
-</svg>
-<svg class="strip strip-m" viewBox="0 0 600 78" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-  <line class="bed" x1="16" y1="64" x2="584" y2="64" stroke-width="3" stroke-linecap="round"/>
-  <g transform="translate(55,64) scale(0.85) translate(-32,-54)" style="color:var(--sky)"><g class="sway" style="animation-delay:0s"><use href="#o-seagrass"/></g></g><g transform="translate(150,64) scale(0.8) translate(-32,-51)" style="color:var(--amber)"><g class="sway" style="animation-delay:0.6s"><use href="#o-sunAnemone"/></g></g><g transform="translate(245,64) scale(0.75) translate(-32,-54)" style="color:var(--indigo)"><g class="sway" style="animation-delay:2.1s"><use href="#o-tubes"/></g></g><g transform="translate(340,64) scale(1.0) translate(-32,-51)" style="color:var(--seafoam)"><g class="sway" style="animation-delay:0.9s"><use href="#o-anemone-b"/></g></g><g transform="translate(440,64) scale(0.9) translate(-32,-54)" style="color:var(--pink)"><g class="sway" style="animation-delay:1.7s"><use href="#o-staghorn"/></g></g><g transform="translate(540,64) scale(0.8) translate(-32,-48)" style="color:var(--lime)"><g class="sway" style="animation-delay:2.4s"><use href="#o-flower"/></g></g>
-</svg>
-
-<div class="wrap">
-  <section>
-    <p class="eyebrow">Coves</p>
-    <h2>A cove for every circle of your life</h2>
-    <p class="sub">A cove is a small group and its shared memory: the people you invite, the pages
-      you keep, its own color and creature. Start one for anything that has a "we" — and everyone
-      always keeps a private cove that's theirs alone.</p>
-    <div class="circles"><div class="circle"><span class="pool"><svg viewBox="0 0 64 64" width="28" height="28" style="color:var(--violet)" aria-hidden="true"><use href="#o-cove-household"/></svg></span><span>the household</span></div><div class="circle"><span class="pool"><svg viewBox="0 0 64 64" width="28" height="28" style="color:var(--pink)" aria-hidden="true"><use href="#o-cove-schoolrun"/></svg></span><span>the school run</span></div><div class="circle"><span class="pool"><svg viewBox="0 0 64 64" width="28" height="28" style="color:var(--indigo)" aria-hidden="true"><use href="#o-cove-accountant"/></svg></span><span>the accountant</span></div><div class="circle"><span class="pool"><svg viewBox="0 0 64 64" width="28" height="28" style="color:var(--lime)" aria-hidden="true"><use href="#o-cove-japan"/></svg></span><span>the japan trip</span></div><div class="circle"><span class="pool"><svg viewBox="0 0 64 64" width="28" height="28" style="color:var(--seafoam)" aria-hidden="true"><use href="#o-cove-personal"/></svg></span><span>just you</span></div></div>
-  </section>
-
-  <section>
-    <p class="eyebrow">How it works</p>
-    <h2>Tell it once</h2>
-    <div class="steps">
-      <div class="step">
-        <h3>Start a cove, invite your people</h3>
-        <p>Your household, the school circle, you and the accountant. Invites go by email; whoever
-          starts a cove looks after it.</p>
-      </div>
-      <div class="step">
-        <h3>Grow pages together</h3>
-        <p>Memory lives in real pages you can open and edit — not a black box. Your assistant writes
-          them mid-conversation; you garden them whenever you care to.</p>
-      </div>
-      <div class="step">
-        <h3>Every conversation starts knowing</h3>
-        <p>Add reef to Claude as a connector. The school schedule, the house quirks, the plan so far
-          — known at hello, without repeating yourself.</p>
-      </div>
+    <div class="step">
+      <h3>Grow pages together</h3>
+      <p>Memory lives in real pages you can open and edit — not a black box. Your assistant writes
+        them mid-conversation; you garden them whenever you care to.</p>
     </div>
-  </section>
-
-  <section>
-    <p class="eyebrow">The app</p>
-    <h2>Browse it like people do</h2>
-    <p class="sub">Every cove and page is right there in the browser — read, edit, invite, export.
-      What your assistant knows is exactly what you can see.</p>
-    <div class="shotframe">
-      <div class="shotbar"><i></i><i></i><i></i></div>
-      <img class="shot-light" src="/site/app-light.png" alt="The reef app: coves shown as tiles, each with its own color and reef creature" width="1400" height="933">
-      <img class="shot-dark" src="/site/app-dark.png" alt="The reef app in night-dive dark mode: glowing cove tiles on a deep-water background" width="1400" height="933">
+    <div class="step">
+      <h3>Every conversation starts knowing</h3>
+      <p>Add reef to Claude as a connector. The school schedule, the house quirks, the plan so far
+        — known at hello, without repeating yourself.</p>
     </div>
-  </section>
+  </div>
+</section>
 
-  <section>
-    <p class="eyebrow">Yours, actually</p>
-    <h2>Built to be trusted with a life</h2>
-    <div class="trust">
-      <article>
-        <h3><svg viewBox="0 0 64 64" width="20" height="20" style="color:var(--indigo)" aria-hidden="true"><use href="#o-shell"/></svg> Private by architecture</h3>
-        <p>Your personal cove is invisible to everyone else — enforced row by row in the database
-          itself, not by app code promising to behave.</p>
-      </article>
-      <article>
-        <h3><svg viewBox="0 0 64 64" width="20" height="20" style="color:var(--amber)" aria-hidden="true"><use href="#o-flower"/></svg> Sharing is consent</h3>
-        <p>Nothing moves from private to shared without an explicit yes, and a shared cove always
-          shows exactly who can read it.</p>
-      </article>
-      <article>
-        <h3><svg viewBox="0 0 64 64" width="20" height="20" style="color:var(--lime)" aria-hidden="true"><use href="#o-nudibranch"/></svg> Leave with everything</h3>
-        <p>One export turns every page into plain files on your machine. Your memory outlives any
-          service — including this one.</p>
-      </article>
+<section class="panel wrap" id="add">
+  <p class="eyebrow">Setup</p>
+  <h2>Add reef to Claude</h2>
+  <p class="sub">Two minutes, once. After this every conversation — desktop, web, or the phone
+    app — starts already knowing.</p>
+  <div class="steps">
+    <div class="step">
+      <h3>Open Claude's connectors</h3>
+      <p>In Claude, go to <b>Settings &rarr; Connectors</b>, then choose to add a custom
+        connector.</p>
     </div>
-  </section>
+    <div class="step">
+      <h3>Paste this address</h3>
+      <p>That is this site, with <code>/mcp</code> on the end.</p>
+      <p class="urlrow">
+        <code id="mcp-url">/mcp</code>
+        <button type="button" id="copy-url" data-label="Copy">Copy</button>
+      </p>
+    </div>
+    <div class="step">
+      <h3>Sign in once</h3>
+      <p>Claude opens a sign-in page. Use the email you want reef to know you by — it is how
+        invitations to a cove reach you.</p>
+    </div>
+  </div>
+</section>
 
-  <section class="final">
+<section class="panel wrap">
+  <p class="eyebrow">The app</p>
+  <h2>Browse it like people do</h2>
+  <p class="sub">Every cove and page is right there in the browser — read, edit, invite, export.
+    What your assistant knows is exactly what you can see.</p>
+  <div class="shotframe">
+    <div class="shotbar"><i></i><i></i><i></i></div>
+    <img class="shot-light" src="/site/app-light.png" alt="The reef app: coves shown as tiles, each with its own colour and reef creature" width="1400" height="933">
+    <img class="shot-dark" src="/site/app-dark.png" alt="The reef app in night-dive dark mode: glowing cove tiles on a deep-water background" width="1400" height="933">
+  </div>
+</section>
+
+<section class="panel wrap">
+  <p class="eyebrow">Yours, actually</p>
+  <h2>Built to be trusted with a life</h2>
+  <div class="trust">
+    <article>
+      <span class="pool"><svg viewBox="13.36 23.43 37.28 37.28" width="30" height="30" style="color:var(--indigo)" aria-hidden="true"><use href="#o-scallop"/></svg></span>
+      <h3>Private by architecture</h3>
+      <p>Your personal cove is invisible to everyone else — enforced row by row in the database
+        itself, not by app code promising to behave.</p>
+    </article>
+    <article>
+      <span class="pool"><svg viewBox="7.08 7.09 49.83 49.83" width="30" height="30" style="color:var(--amber)" aria-hidden="true"><use href="#o-flower"/></svg></span>
+      <h3>Sharing is consent</h3>
+      <p>Nothing moves from private to shared without an explicit yes, and a shared cove always
+        shows exactly who can read it.</p>
+    </article>
+    <article>
+      <span class="pool"><svg viewBox="6.92 15.24 47.27 47.27" width="30" height="30" style="color:var(--lime)" aria-hidden="true"><use href="#o-seagrass"/></svg></span>
+      <h3>Leave with everything</h3>
+      <p>One export turns every page into plain files on your machine. Your memory outlives any
+        service — including this one.</p>
+    </article>
+  </div>
+</section>
+
+<section class="panel final" id="closing">
+  <div class="wrap">
     <div class="lockup">
       <svg viewBox="11 15.5 42 34.5" width="42" height="35" preserveAspectRatio="xMidYMax meet" aria-hidden="true"><use href="#o-coral"/></svg>
       <span>reef</span>
     </div>
-    <p class="sub" style="margin: 0 auto 1.6rem;">memory that grows like a reef</p>
+    <p class="sub" style="margin: 0 auto 1.7rem;">memory that grows like a reef</p>
     <a class="btn" href="/api/auth/login">Sign in</a>
-  </section>
+  </div>
 
-  <footer>
-    <span>© 2026 reef</span>
-    <span class="sp"><a href="/app">Open the app</a></span>
-  </footer>
-</div>
+
+  <div class="wrap">
+    <footer>
+      <span>© 2026 reef</span>
+      <span class="sp"><a href="/app">Open the app</a></span>
+    </footer>
+  </div>
+</section>
+
+</main>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---- the reef mark's ripple ----
+  // The outline is warped as geometry. A pixel filter (feDisplacementMap) was tried first and
+  // fails twice over: it resamples with nearest-neighbour, so small displacements quantise to
+  // whole pixels and tear the edge into visible steps, and the filter chain has no effect in
+  // WebKit. Moving the maths onto the control points removes both faults — nothing is
+  // rasterised, so the curve stays exact everywhere.
+  // The logo's transform chain, flattened: local units -> the 64x64 icon grid.
+  //   translate(3.400,13.333) scale(0.17544) translate(0,314) scale(0.1,-0.1)
+  var SCALE = 0.17544 * 0.1;
+  var OFFSET_X = 3.4;
+  var OFFSET_Y = 13.333 + 0.17544 * 314;
+  var GROUND_Y = 50;          // the seabed: the viewBox's bottom edge
+  var AMPLITUDE = 0.54;       // grid units at full strength
+  var LOOP_SECONDS = 22.5;
+  var SWELL = 1 / 1.6;        // spatial frequency; larger swell = smaller number
+  var ROOT_HEIGHT = 6.5;      // how far up the ripple fades in
+
+  var path = document.getElementById("o-coral");
+  if (!path || !window.requestAnimationFrame) return;
+  var CORAL_D = path.getAttribute("d");
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
+  if (reduced.matches) return;   // the baked `d` already in the markup is the still logo
+
+  // Parse once into absolute segments already mapped onto the grid, so each frame is only
+  // arithmetic over a flat list of points. Only M / c / l / z occur in this outline.
+  function parse(d) {
+    var tokens = d.match(/[MmCcLlZz]|-?\d*\.?\d+/g);
+    var segments = [], i = 0, cx = 0, cy = 0, sx = 0, sy = 0, cmd = "";
+    function grid(x, y) { return [OFFSET_X + SCALE * x, OFFSET_Y - SCALE * y]; }
+    while (i < tokens.length) {
+      if (/[A-Za-z]/.test(tokens[i])) {
+        cmd = tokens[i++];
+        if (cmd === "z" || cmd === "Z") { segments.push(["Z"]); cx = sx; cy = sy; continue; }
+      }
+      if (cmd === "M") {
+        cx = +tokens[i]; cy = +tokens[i + 1]; sx = cx; sy = cy;
+        segments.push(["M", grid(cx, cy)]); i += 2; cmd = "L";
+      } else if (cmd === "c") {
+        var a = grid(cx + +tokens[i], cy + +tokens[i + 1]);
+        var b = grid(cx + +tokens[i + 2], cy + +tokens[i + 3]);
+        var ex = cx + +tokens[i + 4], ey = cy + +tokens[i + 5];
+        segments.push(["C", a, b, grid(ex, ey)]);
+        cx = ex; cy = ey; i += 6;
+      } else if (cmd === "l" || cmd === "L") {
+        cx += +tokens[i]; cy += +tokens[i + 1];
+        segments.push(["L", grid(cx, cy)]); i += 2;
+      } else {
+        return null;
+      }
+    }
+    return segments;
+  }
+
+  var segments;
+  try { segments = parse(CORAL_D); } catch (error) { segments = null; }
+  if (!segments) return;   // leave the still logo in place rather than a broken one
+  // The warped outline is emitted in grid coordinates, so the markup's transform is now baked in.
+  path.removeAttribute("transform");
+
+  // Every phase term is a whole multiple of theta, so one full turn lands exactly back on the
+  // starting shape: the loop closes seamlessly and the motion only ever runs forwards.
+  function render(theta, amplitude) {
+    var out = "";
+    function point(p) {
+      var x = p[0], y = p[1], w = amplitude;
+      var t = (GROUND_Y - y) / ROOT_HEIGHT;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      w *= t * t * (3 - 2 * t);          // smoothstep, so the rooted base never moves
+      if (w !== 0) {
+        x += w * (Math.sin(SWELL * (0.42 * p[0] + 0.21 * p[1]) + theta)
+                  + 0.45 * Math.sin(SWELL * (0.27 * p[0] - 0.33 * p[1]) + 2 * theta + 2.1));
+        y += w * (Math.cos(SWELL * (0.31 * p[0] - 0.24 * p[1]) + theta + 0.9)
+                  + 0.45 * Math.cos(SWELL * (0.38 * p[0] + 0.19 * p[1]) - 2 * theta));
+      }
+      return x.toFixed(2) + " " + y.toFixed(2);
+    }
+    for (var i = 0; i < segments.length; i++) {
+      var s = segments[i];
+      if (s[0] === "Z") out += "Z";
+      else if (s[0] === "C") out += "C" + point(s[1]) + " " + point(s[2]) + " " + point(s[3]);
+      else out += s[0] + point(s[1]);
+    }
+    path.setAttribute("d", out);
+  }
+
+  var running = false, startedAt = 0, frameId = 0;
+  function tick(now) {
+    if (!running) return;
+    if (!startedAt) startedAt = now;
+    render(((now - startedAt) / 1000 / LOOP_SECONDS % 1) * 2 * Math.PI, AMPLITUDE);
+    frameId = requestAnimationFrame(tick);
+  }
+  function setRunning(on) {
+    if (on === running) return;
+    running = on;
+    if (on) { startedAt = 0; frameId = requestAnimationFrame(tick); }
+    else { cancelAnimationFrame(frameId); }
+  }
+
+  // The nav's mark is on screen at every scroll position, so this runs for as long as the tab
+  // is being looked at — and stops the moment it is not, rather than redrawing into a hidden
+  // tab. One warp drives all three marks, so the cost does not grow with them.
+  setRunning(!document.hidden);
+  document.addEventListener("visibilitychange", function () {
+    setRunning(!document.hidden);
+  });
+  reduced.addEventListener("change", function (event) {
+    if (event.matches) { setRunning(false); render(0, 0); }   // back to the still logo
+  });
+
+  // ---- the connector address ----
+  // Filled from the page's own origin rather than written down: the marketing page and the
+  // MCP endpoint are the same deployment, so this is right on every domain it is served from,
+  // including a future custom one.
+  var urlEl = document.getElementById("mcp-url");
+  if (urlEl) urlEl.textContent = window.location.origin + "/mcp";
+
+  var copyBtn = document.getElementById("copy-url");
+  if (copyBtn && navigator.clipboard) {
+    copyBtn.addEventListener("click", function () {
+      navigator.clipboard.writeText(urlEl.textContent).then(function () {
+        copyBtn.textContent = "Copied";
+        setTimeout(function () { copyBtn.textContent = copyBtn.dataset.label; }, 1600);
+      });
+    });
+  } else if (copyBtn) {
+    copyBtn.hidden = true;   // no clipboard access; the address is selectable anyway
+  }
+
+  // ---- one sign-in at a time ----
+  // The nav carries the persistent button; the closing panel ends on the same action. Rather
+  // than show both at once, the nav's steps aside while the closing panel is on screen.
+  var nav = document.querySelector("nav");
+  var closing = document.getElementById("closing");
+  if (nav && closing && window.IntersectionObserver) {
+    new IntersectionObserver(function (entries) {
+      nav.classList.toggle("handover", entries[0].isIntersecting);
+    }, { threshold: 0.55 }).observe(closing);
+  }
+})();
+</script>
 </body>
 </html>
