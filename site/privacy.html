@@ -55,6 +55,24 @@ footer {
 }
 footer .sp { margin-left: auto; }
 footer a { color: var(--muted); }
+/* The haai mark swoops in beside the credit on hover. It occupies no width
+   at rest, so the footer reads as plain text until you reach for it; the
+   overshoot in the easing is what makes it arrive rather than merely fade. */
+.haai { display: inline-flex; align-items: center; text-decoration: none; }
+.haai-mark {
+  flex: none; height: 0.95em; width: 0; opacity: 0;
+  transform: translateX(-0.45em) rotate(-14deg);
+  transition: width 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              margin-right 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              opacity 0.22s ease;
+}
+.haai:hover .haai-mark, .haai:focus-visible .haai-mark {
+  width: 0.95em; margin-right: 0.38em; opacity: 1;
+  transform: translateX(0) rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) { .haai-mark { transition: none; } }
+
 </style>
 </head>
 <body>
@@ -151,9 +169,8 @@ footer a { color: var(--muted); }
   </p>
 
   <footer>
-    <span>made by <a href="https://www.rugvin.be" target="_blank" rel="noopener">haai</a></span>
-    <span>© 2026 reef · reefwith.me · <a href="/privacy">Privacy</a></span>
-    <span class="sp"><a href="/app">Open the app</a></span>
+    <span>made by <a class="haai" href="https://www.rugvin.be" target="_blank" rel="noopener" aria-label="haai"><svg class="haai-mark" viewBox="0 0 146.8 146.8" fill="currentColor" aria-hidden="true" focusable="false"><path d="M0,0v146.8h146.8V0H0ZM141.8,115.2c-.4,0-.8,0-1.2,0-.6,0-1.2,0-1.8,0-.8,0-1.6,0-2.4,0-.5,0-1,0-1.5,0-.9,0-1.9,0-2.8,0-.4,0-.7,0-1.1,0-1.3,0-2.6,0-3.9,0-.5,0-.9,0-1.4,0-.2,0-.3,0-.5,0-.3,0-.6,0-.9,0,0,0-.1,0-.2,0,2.5-.9,5.9-1.9,8.5-2.4l3.4-.6-3.2-1.5c-1.7-.8-3.4-1.6-5-2.4-3.5-1.7-6.7-3.3-10.1-4.7-8.7-3.6-13.8-10.1-15.2-19.4-1.4-9.3-3-19.9-3.3-30.2,0-3.5-.5-5.8-2.2-7.1-1.3-1-3.2-1.1-6.1-.4-5.5,1.4-7.7,2.6-13.5,7.4-1.6,1.1-3.1,2.3-4.4,3.7-10.1,8.6-18,19.6-25.7,30.2-2.2,3.1-4.5,6.2-6.8,9.3-8.3,11-16.4,16.2-27.1,17.3-2.2.2-4.3.5-6.5.7l-1.8.2V5.1h136.7v110.2Z"/></svg>haai</a></span>
+    <span>© 2026 · <a href="/privacy">Privacy</a></span>
   </footer>
 </div>
 </body>
