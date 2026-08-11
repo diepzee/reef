@@ -16,6 +16,17 @@ import { useEffect, useState } from "react";
 import { ApiError, apiGet, apiSend } from "../api";
 import type { InviteBudget, ReefInviteResult } from "../types";
 
+/** Colour brand mentions that arrive inside server-authored result or error text. */
+function ReefText({ text }: { text: string }) {
+  return text.split(/(\breef\b)/gi).map((part, index) =>
+    part.toLowerCase() === "reef" ? (
+      <span className="reef-name" key={index}>{part}</span>
+    ) : (
+      part
+    ),
+  );
+}
+
 export default function InviteToReef() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -63,20 +74,24 @@ export default function InviteToReef() {
 
   return (
     <div>
-      <h1>Invite to reef</h1>
+      <h1>Invite to <span className="reef-name">reef</span></h1>
       <p className="muted">
-        They get their own private reef. Nothing of yours is shared — to share a
+        They get their own private <span className="reef-name">reef</span>. Nothing of yours is shared — to share a
         cove, use the members panel on that cove instead.
       </p>
 
-      {error && <div className="notice">{error}</div>}
+      {error && <div className="notice"><ReefText text={error} /></div>}
 
       {result && (
         <div className="notice">
           <strong>{result.email}</strong>{" "}
-          {result.already_known ? "was already on reef." : "is now invited."}
+          {result.already_known ? (
+            <>was already on <span className="reef-name">reef</span>.</>
+          ) : (
+            "is now invited."
+          )}
           <br />
-          {result.next_step}
+          <ReefText text={result.next_step} />
         </div>
       )}
 
