@@ -60,6 +60,11 @@ assumed: it has no command for cron schedules or start commands)
 - [ ] **Context ceiling measurement.** Phase 7. Run it *after* the backup
       cron exists — step 1 pads the real corpus.
 
+- [x] **`reefwith.me` cutover.** Done 2026-08-11. Domain live behind
+      Cloudflare, WorkOS callback registered, `RIF_BASE_URL` flipped, and
+      all three auth surfaces verified naming the same host. Every
+      connector must be removed and re-added at `https://reefwith.me/mcp`.
+
 **Known gaps, no external blocker**
 
 - [ ] **`promotions` RLS is done, but check the pattern elsewhere.** The
@@ -628,24 +633,102 @@ sid; those sign out locally and land on `/app/signed-out` directly. If the
 WorkOS hop ever refuses the `return_to`, configure the sign-out /
 homepage URI on the WorkOS side to allow it.
 
-**Custom domain (planned: `rif.rugvin.be`):**
+**Custom domain: `reefwith.me`**
 
-The service can serve a branded domain instead of the railway.app one.
+The branded domain serves the marketing page at `/`, the app at `/app`,
+and MCP at `/mcp` — the same service as the railway.app hostname, which
+keeps answering. The zone lives on Cloudflare under the `wouter@rugvin.be`
+account; the Railway project lives under the same account, so
+`railway login` must be that identity, not `wouter@ringtime.ai`.
+
 Order matters — the base URL drives the OAuth audience, so flip it last.
 
-1. Railway → the service → Settings → Public Networking → add
-   `rif.rugvin.be`; copy the CNAME target Railway shows.
-2. In rugvin.be's DNS, add `CNAME rif → <that target>`. Wait for Railway
-   to show the domain as issued (TLS is automatic).
-3. WorkOS dashboard → Production → Connect → Applications → Rif Web →
-   Sign-in callback → add `https://rif.rugvin.be/api/auth/callback` as a
-   redirect URI. Keep the railway.app callback too until the switch is done.
-4. Set `RIF_BASE_URL=https://rif.rugvin.be` and redeploy. From here the
-   MCP resource is advertised under the new domain; access tokens are
-   audience-bound to `{RIF_BASE_URL}/mcp`, so connectors added against
-   the old URL will need to re-authenticate — re-adding the connector at
-   `https://rif.rugvin.be/mcp` is the clean path. Both hostnames keep
-   answering; the old one can be removed once every member has switched.
+*Done (2026-08-11):*
+
+1. Railway → `rif-app` → custom domain `reefwith.me`. Railway detects the
+   Cloudflare CDN in front and verifies ownership via a TXT record rather
+   than an ACME challenge, so **the orange cloud can stay on** — no need
+   for the DNS-only step other Railway guides describe.
+2. Cloudflare DNS for `reefwith.me`:
+   - `CNAME @ → 8dw8uxk0.up.railway.app`, proxied. Cloudflare flattens the
+     apex CNAME, so `dig reefwith.me` still answers with Cloudflare A
+     records — that is expected, not a misconfiguration.
+   - `TXT _railway-verify → railway-verify=<token from Railway>`.
+   - `CNAME www → reefwith.me`, proxied, plus a redirect rule
+     ("Redirect from WWW to root", wildcard `https://www.*` → `https://${1}`,
+     301, preserve query string). Railway does not redirect, it would just
+     serve the app on both names, so the redirect belongs at the edge.
+   - The two apex `A` records the registrar had parked there
+     (`54.149.79.189`, `34.216.117.25`) were deleted. While they were
+     live Cloudflare returned **522** after ~40s.
+3. SSL/TLS encryption mode → **Full (strict)**. Safe because Railway
+   serves a real Let's Encrypt cert for `reefwith.me` at the origin;
+   verify before switching with:
+   ```bash
+   RIP=$(dig +short 8dw8uxk0.up.railway.app | head -1)
+   curl -sSIv --resolve "reefwith.me:443:$RIP" https://reefwith.me/
+   ```
+   "Flexible" would cause a redirect loop; plain "Full" leaves the origin
+   hop unvalidated.
+
+4. WorkOS dashboard → Production → Connect → Applications → Rif Web →
+   Sign-in callback → added `https://reefwith.me/api/auth/callback`. The
+   railway.app callback is still listed and still marked **Default**;
+   retiring it later means reassigning Default first, since WorkOS
+   requires one.
+5. `RIF_BASE_URL=https://reefwith.me`. From here the MCP resource is
+   advertised under the new domain and access tokens are audience-bound
+   to `{RIF_BASE_URL}/mcp`, so connectors added against the old URL must
+   be removed and re-added at `https://reefwith.me/mcp` — they do not
+   heal on their own. Both hostnames keep answering; the old one can be
+   removed once every member has switched.
+
+6. **WorkOS → Connect → Configuration → MCP resource indicators → add
+   `https://reefwith.me/mcp`.** Easy to miss and nothing else reveals it.
+   This is an allowlist of the `resource` values (RFC 8707) AuthKit will
+   mint tokens for. It is *not* the same list as the Connect app's
+   redirect URIs, and changing `RIF_BASE_URL` does not update it. Keep
+   the old entry alongside the new one so connectors still on the
+   railway.app URL keep working through the transition.
+
+*Verifying the auth surface after a base-URL change:*
+
+```bash
+curl -sSI https://reefwith.me/mcp | grep -i www-authenticate
+curl -sS https://reefwith.me/.well-known/oauth-protected-resource/mcp
+curl -sSI https://reefwith.me/api/auth/login | grep -i ^location
+```
+
+All three must name the same host. Note the metadata path carries the
+`/mcp` suffix — plain `/.well-known/oauth-protected-resource` returns
+"Not Found" and proves nothing.
+
+*Two connector failures that look alike and are not:*
+
+- **Registers, never prompts for login, sits "unauthorized".** Origin
+  mismatch: the client connected to one host and the metadata claimed
+  another, so under RFC 9728 it refuses to begin authorization. Fix
+  `RIF_BASE_URL`, then delete and re-add the connector — a registration
+  bound to the old resource does not heal.
+- **Prompts, then fails after sign-in.** The callback carries
+  `?error=invalid_target` and the client reports a confusing downstream
+  error (Claude says `state: Field required`, because the callback has an
+  error instead of `code`+`state`). This is step 6 above: AuthKit was
+  asked for a `resource` it has no indicator for. The client-side error
+  names neither WorkOS nor the resource, so read the callback URL — the
+  `error=` parameter is the only honest signal.
+
+When reading a browser request to diagnose this, **copy the URL only.**
+"Copy as cURL" carries live `sessionKey` cookies.
+
+*Diagnosing this hop:* the failure mode tells you which side is broken.
+**522** = Cloudflare cannot reach the origin (DNS points somewhere wrong).
+**404 with `x-railway-fallback: true`** and body `Application not found` =
+Cloudflare reaches Railway, but Railway has not finished verifying the
+domain — it took ~100s after the DNS change. **526** = origin cert invalid
+under Full (strict); on `www` this also appears for the ~1 min before a
+new redirect rule propagates, because unmatched requests fall through to
+the origin under a hostname Railway has no certificate for.
 
 ---
 
