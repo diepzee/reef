@@ -6,8 +6,8 @@ Memory lives in **spaces**: one private space per person, created at first
 sign-in, plus any number of **named shared spaces** — a household, a school
 circle, an accountant, a small project. A space is a group of people, started
 by whoever needs it, joined by email invitation from its owner. Everyone
-reaches it from surfaces that have no filesystem and no GitHub account —
-chiefly the Claude mobile app — by adding this server as a custom connector.
+reaches it from the assistant they already use — Claude, the ChatGPT desktop
+app, or Codex — by adding this server as a remote MCP connector.
 
 The store is Postgres. Row-Level Security is the privacy boundary, so a
 forgotten filter in application code fails closed rather than leaking. A space
