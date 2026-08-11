@@ -291,9 +291,7 @@ async def test_logout_clears_session(web):
 async def test_logout_returns_upstream_logout_url_when_sid_known(web):
     """With a sid in the session, logout hands back the WorkOS logout URL."""
     client, _fake, person = web
-    token = seal(
-        person.id, "member@example.com", secret="test-secret", sid="ses_abc"
-    )
+    token = seal(person.id, "member@example.com", secret="test-secret", sid="ses_abc")
     client.cookies.set("rif_session", token)
     response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
     assert response.status_code == 200

@@ -440,7 +440,10 @@ def _validate_batch(pages: list[dict]) -> dict | None:
     :returns: an error dict if the batch is invalid, otherwise None
     """
     if not pages:
-        return {"error": "empty_batch", "detail": "pages must contain at least one item"}
+        return {
+            "error": "empty_batch",
+            "detail": "pages must contain at least one item",
+        }
     if len(pages) > _MAX_BATCH_SIZE:
         return {
             "error": "batch_too_large",
