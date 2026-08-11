@@ -19,6 +19,7 @@ import { useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
+import { CoveGraph } from "../components/CoveGraph";
 import { SpaceGlyph } from "../components/spaceGlyph";
 import { spaceColor } from "../components/spaceColor";
 import { useIndex } from "../IndexProvider";
@@ -111,6 +112,12 @@ export default function Home() {
     <div>
       <div className="spaces-head">
         <h1>Your <span className="reef-name">reef</span>&rsquo;s coves</h1>
+        <Link to="/index" className="index-shortcut">
+          Index
+        </Link>
+        <Link to="/export" className="index-shortcut">
+          Export
+        </Link>
         <div className="segview" role="tablist" aria-label="View">
           <button
             type="button"
@@ -147,6 +154,26 @@ export default function Home() {
               </g>
             </svg>
           </button>
+          <button
+            type="button"
+            role="tab"
+            className={`seg ${view === "graph" ? "seg-active" : ""}`}
+            aria-selected={view === "graph"}
+            aria-label="Graph view"
+            onClick={() => pick("graph")}
+          >
+            <svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M4 4.25 11.75 7.5M4 4.25 6.25 12M11.75 7.5 6.25 12"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                fill="none"
+              />
+              <circle cx="4" cy="4.25" r="2" fill="currentColor" />
+              <circle cx="11.75" cy="7.5" r="2" fill="currentColor" />
+              <circle cx="6.25" cy="12" r="2" fill="currentColor" />
+            </svg>
+          </button>
         </div>
       </div>
       {error && <div className="notice">{error}</div>}
@@ -154,7 +181,7 @@ export default function Home() {
       {spaces !== null && spaces.length === 0 && (
         <p className="muted">No spaces yet.</p>
       )}
-      {view === "list" ? (
+      {view === "list" && (
         <>
           <ul className="card-list">
             {spaces?.map((space) => (
@@ -169,7 +196,8 @@ export default function Home() {
             </Link>
           </p>
         </>
-      ) : (
+      )}
+      {view === "grid" && (
         <ul className="tile-grid">
           {spaces?.map((space) => (
             <li key={space.alias}>
@@ -185,6 +213,16 @@ export default function Home() {
             </Link>
           </li>
         </ul>
+      )}
+      {view === "graph" && (
+        <>
+          {spaces && <CoveGraph spaces={spaces} />}
+          <p>
+            <Link to="/spaces/new" className="button">
+              New cove
+            </Link>
+          </p>
+        </>
       )}
     </div>
   );

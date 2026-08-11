@@ -1,4 +1,4 @@
-"""The JSON API: reads (``/api/me``, ``/api/index``, page and image fetch),
+"""The JSON API: reads (``/api/me``, ``/api/index``, page and file fetch),
 writes (page save), and space administration (create, invite, members,
 removal).
 
@@ -9,17 +9,23 @@ table, and renews the session cookie on success.
 """
 
 import json
+import logging
+import os
 from collections.abc import Callable
 from dataclasses import asdict
+from urllib.parse import urlencode
 
+from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from rif.access import AccessDenied, Principal, resolve_space
+from rif.account import delete_account_rows
 from rif.attachments import S3ObjectStore, get_attachment
 from rif.config import get_settings
 from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
+from rif.export import build_full_dump, build_json_export, build_markdown_archive
 from rif.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
@@ -31,6 +37,7 @@ from rif.models import Page, Person
 from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
 from rif.spaces import SpaceError, create_space, invite, member_roster, remove_member
 from rif.web.requests import (
+    SESSION_COOKIE,
     CsrfRejected,
     Unauthenticated,
     _DevFallback,
@@ -40,11 +47,17 @@ from rif.web.requests import (
     session_sid,
     set_session_cookie,
 )
+from rif.web.routes_auth import WORKOS_LOGOUT_URL
 
 # Servers this module has registered routes on, so repeated calls (every
 # test that wants a fresh app) don't append duplicate Starlette routes --
 # mirrors the pattern in rif.web.routes_auth.
 _registered: set[int] = set()
+logger = logging.getLogger(__name__)
+
+# Private response marker consumed by :func:`api`: an erased account must
+# clear its session rather than receive the wrapper's usual sliding renewal.
+_ACCOUNT_DELETED_HEADER = "x-rif-account-deleted"
 
 
 class BadRequest(Exception):
@@ -198,9 +211,13 @@ def api(handler: Callable) -> Callable:
                 {"error": "space_error", "detail": str(error)}, status_code=400
             )
         response = result if isinstance(result, Response) else JSONResponse(result)
-        set_session_cookie(
-            response, principal, secure=cookie_secure(), sid=session_sid(request)
-        )
+        if response.headers.get(_ACCOUNT_DELETED_HEADER) == "1":
+            del response.headers[_ACCOUNT_DELETED_HEADER]
+            response.delete_cookie(SESSION_COOKIE)
+        else:
+            set_session_cookie(
+                response, principal, secure=cookie_secure(), sid=session_sid(request)
+            )
         return response
 
     return endpoint
@@ -422,8 +439,8 @@ async def _remove_member(request: Request, principal: Principal) -> dict:
     return await remove_member(principal, slug, email)
 
 
-async def _get_image(request: Request, principal: Principal) -> Response:
-    """Redirect to a signed URL for an attachment, after checking visibility.
+async def _get_file(request: Request, principal: Principal) -> Response:
+    """Redirect to a signed URL for a stored file, after checking visibility.
 
     :param request: the incoming request, carrying ``space`` and ``key``
         path params
@@ -438,6 +455,98 @@ async def _get_image(request: Request, principal: Principal) -> Response:
     settings = get_settings()
     url = await S3ObjectStore().signed_url(key, settings.signed_url_ttl_seconds)
     return RedirectResponse(url, status_code=302)
+
+
+def _download(content: bytes, filename: str, media_type: str) -> Response:
+    """Return bytes as a private browser download."""
+    return Response(
+        content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+async def _export(request: Request, principal: Principal) -> Response:
+    """Download current content as Markdown ZIP or JSON.
+
+    ``scope=all`` exports every accessible cove; any other value is resolved
+    as one cove alias through the same access checks as page reads.
+    """
+    export_format = request.query_params.get("format", "markdown")
+    scope = request.query_params.get("scope", "all")
+    alias = None if scope == "all" else scope
+    name = "all-coves" if alias is None else alias
+    if export_format == "markdown":
+        return _download(
+            await build_markdown_archive(principal, alias),
+            f"reef-{name}-markdown.zip",
+            "application/zip",
+        )
+    if export_format == "json":
+        return _download(
+            await build_json_export(principal, alias),
+            f"reef-{name}.json",
+            "application/json",
+        )
+    raise BadRequest("'format' must be 'markdown' or 'json'")
+
+
+async def _dump(request: Request, principal: Principal) -> Response:
+    """Download every portable datum visible to the principal as one ZIP."""
+    return _download(
+        await build_full_dump(principal),
+        "reef-my-data.zip",
+        "application/zip",
+    )
+
+
+async def _delete_file_objects(keys: list[str]) -> None:
+    """Best-effort post-commit cleanup of now-unreachable object bytes."""
+    if not keys:
+        return
+    store = S3ObjectStore()
+    for key in keys:
+        try:
+            await store.delete(key)
+        except Exception:
+            logger.exception("could not remove orphaned account file %s", key)
+
+
+async def _delete_account(request: Request, principal: Principal) -> Response:
+    """Permanently erase an account after two explicit request guards."""
+    payload = await _json_body(request)
+    if (
+        payload.get("acknowledge_shared") is not True
+        or payload.get("confirmation") != "DELETE"
+    ):
+        raise BadRequest("account deletion requires acknowledgement and DELETE")
+
+    deletion = await delete_account_rows(principal)
+    body = {
+        "deleted": True,
+        "deleted_coves": deletion.deleted_coves,
+        "transferred_coves": deletion.transferred_coves,
+    }
+    sid = session_sid(request)
+    if sid:
+        query = urlencode(
+            {
+                "session_id": sid,
+                "return_to": (
+                    f"{os.environ.get('RIF_BASE_URL', '')}/app/signed-out?deleted=1"
+                ),
+            }
+        )
+        body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"
+    response = JSONResponse(
+        body,
+        background=BackgroundTask(_delete_file_objects, deletion.file_keys),
+    )
+    response.headers[_ACCOUNT_DELETED_HEADER] = "1"
+    return response
 
 
 def register_api_routes(mcp) -> None:
@@ -456,7 +565,12 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["GET"])(api(_get_page))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["PUT"])(api(_put_page))
-    mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_image))
+    mcp.custom_route("/api/files/{space}/{key:path}", methods=["GET"])(api(_get_file))
+    # Existing rendered Markdown points here; keep it as a compatibility alias.
+    mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_file))
+    mcp.custom_route("/api/export", methods=["GET"])(api(_export))
+    mcp.custom_route("/api/export/dump", methods=["GET"])(api(_dump))
+    mcp.custom_route("/api/account/delete", methods=["POST"])(api(_delete_account))
     mcp.custom_route("/api/spaces", methods=["POST"])(api(_create_space))
     mcp.custom_route("/api/spaces/{space}/members", methods=["GET"])(
         api(_space_members)

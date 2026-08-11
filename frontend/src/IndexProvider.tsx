@@ -39,7 +39,10 @@ import type { IndexPayload } from "./types";
 
 /** What {@link useIndex} exposes: the current index, any load error, and a refetch. */
 interface IndexContextValue {
+  /** Content-facing index with protected meta pages removed. */
   index: IndexPayload | null;
+  /** Exact `/api/index` payload, for the dedicated index viewer. */
+  rawIndex: IndexPayload | null;
   error: string | null;
   refresh(): Promise<void>;
 }
@@ -49,6 +52,7 @@ const IndexContext = createContext<IndexContextValue | null>(null);
 /** Fetches `/api/index` once on mount and shares it with every descendant view. */
 export function IndexProvider({ children }: { children: ReactNode }) {
   const [index, setIndex] = useState<IndexPayload | null>(null);
+  const [rawIndex, setRawIndex] = useState<IndexPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Bumped by every dispatch (mount load and every refresh()); a response
@@ -65,6 +69,7 @@ export function IndexProvider({ children }: { children: ReactNode }) {
     try {
       const payload = await apiGet<IndexPayload>("/api/index");
       if (isCancelled() || gen !== genRef.current) return;
+      setRawIndex(payload);
       // meta/* pages steer the assistant (persona); they're not content,
       // so they don't belong in space listings or page counts.
       setIndex({
@@ -92,7 +97,10 @@ export function IndexProvider({ children }: { children: ReactNode }) {
     };
   }, [load]);
 
-  const value = useMemo(() => ({ index, error, refresh: load }), [index, error, load]);
+  const value = useMemo(
+    () => ({ index, rawIndex, error, refresh: load }),
+    [index, rawIndex, error, load],
+  );
 
   return <IndexContext.Provider value={value}>{children}</IndexContext.Provider>;
 }
