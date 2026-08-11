@@ -50,17 +50,21 @@ th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(
 th { color: var(--muted); font-weight: 700; }
 footer {
   margin-top: 4.5rem; border-top: 1px solid var(--hairline-soft);
-  padding: 1.6rem 0 2.2rem; display: flex; align-items: center; gap: 1rem;
-  flex-wrap: wrap; color: var(--faint); font-size: 0.85rem;
+  padding: 1.6rem 0 2.2rem; display: flex; justify-content: center; align-items: baseline;
+  gap: 0.4rem 1.1rem; flex-wrap: wrap; text-align: center; color: var(--faint); font-size: 0.85rem;
 }
-footer .sp { margin-left: auto; }
 footer a { color: var(--muted); }
 /* The haai mark swoops in beside the credit on hover. It occupies no width
    at rest, so the footer reads as plain text until you reach for it; the
    overshoot in the easing is what makes it arrive rather than merely fade. */
-.haai { display: inline-flex; align-items: center; text-decoration: none; }
+/* Inline, not inline-flex: an inline-flex anchor takes its baseline from
+   its first flex item, and an <svg> has none, so the word "haai" drifted off
+   the baseline "made by" sits on. Inline-block + an explicit baseline offset
+   puts the mark, the credit and the label on one line. */
+.haai { text-decoration: none; white-space: nowrap; }
 .haai-mark {
-  flex: none; height: 0.95em; width: 0; opacity: 0;
+  display: inline-block; vertical-align: -0.13em;
+  height: 0.95em; width: 0; opacity: 0;
   transform: translateX(-0.45em) rotate(-14deg);
   transition: width 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
               margin-right 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
