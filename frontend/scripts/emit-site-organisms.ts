@@ -6,6 +6,7 @@
  */
 import {
   FAMILIES,
+  LIVING_FAMILIES,
   generateFamily,
   organismFor,
   type OrganismPath,
@@ -21,6 +22,12 @@ function pathsToMarkup(paths: readonly OrganismPath[]): string {
     )
     .join("");
 }
+
+/** Seeds for the marketing page's randomised circle pool. */
+const POOL_SEEDS: Record<string, number> = {
+  sunAnemone: 34, tubes: 5, staghorn: 2, flower: 1,
+  scallop: 2, spiral: 3, bubbles: 1, seagrass: 2,
+};
 
 /** One hand-picked seed per family for the seabed strip. */
 const STRIP_SEEDS: Record<string, number> = {
@@ -51,4 +58,16 @@ for (const alias of ["household", "schoolrun", "accountant", "japan", "personal"
   const hue = spaceColor(alias);
   console.log(`## ${alias}: ${org.family} ${HUE_VARS[hue.base] ?? hue.base}`);
   console.log(`<g id="o-cove-${alias}">${pathsToMarkup(org.paths)}</g>`);
+}
+
+// The marketing page's five cove circles are dealt at load from this pool,
+// so a visitor sees a different reef each time. One individual per *living*
+// family: the retired plans remap onto survivors, so including them would
+// deal the same body twice under two names and break the "all different"
+// guarantee the picker relies on.
+console.log("\n# randomised circle pool (id / family):");
+for (const fam of LIVING_FAMILIES) {
+  const org = generateFamily(fam, POOL_SEEDS[fam] ?? 1);
+  console.log(`## ${fam}`);
+  console.log(`<g id="o-pool-${fam}">${pathsToMarkup(org.paths)}</g>`);
 }

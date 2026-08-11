@@ -177,6 +177,17 @@ const RETIRED: Partial<Record<Family, Family>> = {
   nudibranch: "seagrass",
 };
 
+/**
+ * Families still drawn as themselves — `FAMILIES` minus the retired plans.
+ *
+ * The retired three are remapped onto survivors, so a pool built from
+ * `FAMILIES` would show the same body twice under different names. Anything
+ * picking a *set* of visually distinct organisms wants this list.
+ */
+export const LIVING_FAMILIES: readonly Family[] = FAMILIES.filter(
+  (f) => !(f in RETIRED),
+);
+
 /** A grown individual: its family, how it anchors, and its renderable paths. */
 export interface Organism {
   family: Family;
