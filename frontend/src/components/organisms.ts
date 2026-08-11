@@ -413,36 +413,16 @@ export function generateFamily(family: Exclude<Family, "coral">, seed: number): 
 }
 
 /**
- * The brand fan coral as a chunky silhouette — trunk forking into a dome
- * of thick round-capped branches. Fixed, never hashed: pinned to the
- * personal space and reused by ReefMark/FrondGlyph as the brand mark.
- * Keep in sync with `public/reef.svg` (the favicon carries the same path).
+ * Deterministic organism for a space's alias — the reef's genome function.
+ *
+ * `personal` is always the brand's traced fan coral, which lives in
+ * `ReefMark.tsx` (`CoralPaths`), not here: it's a vectorized drawing with
+ * its own transform stack, so `paths` is empty and `SpaceGlyph` renders
+ * it specially by family.
  */
-export const CORAL_PATHS: readonly OrganismPath[] = [
-  {
-    d:
-      // trunk, then seven branches radiating from the crown (32, 46) —
-      // tips trace a dome, edge branches flatten toward the seabed
-      "M32 54V46" +
-      "M32 46Q23.5 44.2 17.9 40.9" +
-      "M32 46Q23.1 40.8 17.2 31.2" +
-      "M32 46Q26.2 37.6 22.3 21.9" +
-      "M32 46Q32 35.8 32 17" +
-      "M32 46Q37.8 37.6 41.7 21.9" +
-      "M32 46Q40.9 40.8 46.8 31.2" +
-      "M32 46Q40.5 44.2 46.1 40.9" +
-      // small forks on the mid and center branches
-      "M23.1 37.1Q19.5 36.2 16.5 34.7" +
-      "M40.9 37.1Q44.5 36.2 47.5 34.7" +
-      "M32 27Q34.2 23.5 35.5 20.9",
-    stroke: 4.4,
-  },
-];
-
-/** Deterministic organism for a space's alias — the reef's genome function. */
 export function organismFor(alias: string): Organism {
   if (alias === "personal") {
-    return { family: "coral", anchor: "grounded", paths: [...CORAL_PATHS] };
+    return { family: "coral", anchor: "grounded", paths: [] };
   }
   const seed = fnv1a(alias);
   return generateFamily(FAMILIES[seed % FAMILIES.length]!, seed);

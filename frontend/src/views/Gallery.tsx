@@ -5,12 +5,8 @@
  * on NODE_ENV, so production builds never mount it.
  */
 
-import {
-  CORAL_PATHS,
-  FAMILIES,
-  generateFamily,
-  type OrganismPath,
-} from "../components/organisms";
+import { FAMILIES, generateFamily, type OrganismPath } from "../components/organisms";
+import { FrondGlyph } from "../components/ReefMark";
 import { spaceColor } from "../components/spaceColor";
 
 const SEEDS = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
@@ -68,7 +64,8 @@ export function Gallery() {
       <section>
         <h2 style={{ marginBottom: 8 }}>coral (brand, pinned to personal)</h2>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <Specimen paths={CORAL_PATHS} hue="#0d9488" />
+          <FrondGlyph color="#0d9488" size={64} />
+          <FrondGlyph color="#0d9488" size={20} />
         </div>
       </section>
       {FAMILIES.map((fam) => (

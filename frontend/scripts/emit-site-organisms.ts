@@ -5,7 +5,6 @@
  * Run: bun run scripts/emit-site-organisms.ts
  */
 import {
-  CORAL_PATHS,
   FAMILIES,
   generateFamily,
   organismFor,
@@ -29,7 +28,8 @@ const STRIP_SEEDS: Record<string, number> = {
   spiral: 3, bubbles: 1, seagrass: 2, shell: 5, nudibranch: 3,
 };
 
-console.log(`<g id="o-coral">${pathsToMarkup(CORAL_PATHS)}</g>`);
+// o-coral is NOT emitted: the brand mark is the traced fan coral, which
+// lives verbatim in site/index.html's defs (copied from ReefMark.tsx).
 for (const fam of FAMILIES) {
   const org = generateFamily(fam, STRIP_SEEDS[fam]!);
   console.log(`<g id="o-${fam}">${pathsToMarkup(org.paths)}</g>`);
