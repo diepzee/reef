@@ -918,11 +918,20 @@ footer a { color: var(--muted); }
   // Speed enters through the impulse itself: `dx` is speed times the time since the last event,
   // which is what a push is. A quick flick delivers it in one go and the spring throws hard; the
   // same distance crossed slowly arrives in small change against the damping and barely tells.
+  //
+  // The hand does two things to the water, and a lean that only answers to `dx` misses half of
+  // it — a stroke straight down the page would pass through the reef without touching it. So
+  // there are two terms. It DRAGS what it moves through along with it, which is the horizontal
+  // one. And it DISPLACES: crossing the current shoulders water out of the way, to both sides at
+  // once, shoving each creature away from the line the hand took. That second term is what a
+  // vertical stroke has, and it is a dipole — its sign is which side of the stroke you stand,
+  // not which way the hand went, so a creature directly under it is pulled both ways and stays.
   var REACH_FACTOR = 2.2;
   var REACH_FLOOR = 130;   // px, so a small mark still has a catchment
   var FALLOFF_FLOOR = 0.01;
+  var SPREAD = 1.5;        // how hard a crossing stroke shoulders the water aside
 
-  var lastX = null, anchorsStale = true;
+  var lastX = null, lastY = null, anchorsStale = true;
 
   function refreshAnchors() {
     for (var i = 0; i < leaners.length; i++) {
@@ -942,22 +951,35 @@ footer a { color: var(--muted); }
   window.addEventListener("resize", function () { anchorsStale = true; }, { passive: true });
 
   window.addEventListener("pointermove", function (event) {
-    if (lastX === null) { lastX = event.clientX; return; }
+    if (lastX === null) { lastX = event.clientX; lastY = event.clientY; return; }
     var dx = event.clientX - lastX;
+    var dy = event.clientY - lastY;
     lastX = event.clientX;
+    lastY = event.clientY;
     if (dx > STEP_LIMIT) dx = STEP_LIMIT;
     else if (dx < -STEP_LIMIT) dx = -STEP_LIMIT;
-    if (!dx) return;
+    if (dy > STEP_LIMIT) dy = STEP_LIMIT;
+    else if (dy < -STEP_LIMIT) dy = -STEP_LIMIT;
+    if (!dx && !dy) return;
     if (anchorsStale) refreshAnchors();
+    // Absolute, because water is shouldered aside whether the hand travels up or down; the
+    // direction of the shove is the creature's side of the stroke, settled per creature below.
+    var crossing = Math.abs(dy) * SPREAD;
     for (var i = 0; i < leaners.length; i++) {
       var l = leaners[i];
       var ox = event.clientX - l.x;
       var oy = event.clientY - l.y;
       var falloff = Math.exp(-(ox * ox + oy * oy) / (l.reach * l.reach));
       if (falloff < FALLOFF_FLOOR) continue;
-      // Negated because the skew pivots on the ground: a negative angle leans the crown right,
-      // which is the way a rightward sweep should push it.
+      // Drag. Negated because the skew pivots on the ground: a negative angle leans the crown
+      // right, which is the way a rightward sweep should push it.
       l.nudgeVel -= dx * NUDGE_PER_PIXEL * falloff;
+      // Displacement, pushing the creature away from the stroke. `ox / reach` carries both the
+      // outward direction and its strength: it is zero directly under the hand, where the water
+      // parts evenly and the two sides cancel, and grows to either side before the falloff takes
+      // over. Written against `reach` rather than the true distance so there is no division by a
+      // vanishing radius to guard.
+      if (crossing) l.nudgeVel += crossing * NUDGE_PER_PIXEL * (ox / l.reach) * falloff;
     }
   }, { passive: true });
 
