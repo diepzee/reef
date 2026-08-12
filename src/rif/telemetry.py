@@ -84,6 +84,17 @@ def _base_url() -> str:
     return os.environ.get("LOGFIRE_BASE_URL") or "https://logfire-eu.pydantic.dev"
 
 
+def is_configured() -> bool:
+    """Report whether telemetry is live.
+
+    Callers that emit records use this to stay inert when it is not, rather
+    than importing logfire and discovering there is nowhere to send.
+
+    :returns: True once :func:`configure` has run successfully
+    """
+    return _configured
+
+
 def request_middleware() -> list:
     """Return ASGI middleware giving one span per request, for ``mcp.run``.
 

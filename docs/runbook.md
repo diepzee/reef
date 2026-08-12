@@ -441,6 +441,36 @@ is the admin role. Give the backup cron the latter. Before that date the app
 itself ran as the superuser, so this trap could not fire — and neither could
 RLS.
 
+### The privileged-act trail (12 Aug 2026)
+
+Four operations reach past the row policies, inside `SECURITY DEFINER`
+functions owned by `rif_authz`: minting an invitation, admitting a member,
+removing one, transferring a cove, and erasing an account. No row policy can
+express those without permitting a great deal more, so what they carry is
+**accountability, not prevention** — and `src/rif/audit.py` is the
+accountability half.
+
+Each one emits a Logfire record naming the actor, the cove, and the effect.
+**Identifiers only** — no address, no display name, no page path, no body. A
+trail carrying those would be a second copy of the corpus in a third party's
+database, which is the exposure the row-level-security work exists to shrink.
+
+To read it, filter `service_name = rif` and `action` starting `invite.` or
+`cove.` or `account.`. To answer "what happened to my invitation", the actor
+and invitee ids are there; the address is deliberately not, and has to come
+from the database.
+
+It is inert without `LOGFIRE_TOKEN`, like the rest of telemetry — an audit
+trail that can refuse an account deletion is worse than one that occasionally
+misses an entry. That is a real limitation, not a hedge: records are best
+effort, and losing telemetry loses the trail for that period.
+
+**What this does not do.** It does not make reef secure from whoever can
+deploy it. A build can be shipped that does not call `audit.record` at all.
+The property bought is narrower and still worth having: administrative acts
+leave a mark outside the database, promptly, on a service the application
+cannot rewrite — so erasing them takes a second and different kind of access.
+
 ### A third role: `rif_authz` (12 Aug 2026)
 
 There is now a **third** role, and it is not a credential — nothing can log in

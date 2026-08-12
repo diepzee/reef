@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from rif import audit
 from rif.access import Principal, arm
 from rif.models import Person
 
@@ -165,6 +166,7 @@ async def allowlist(
             f"You have invited {INVITE_BUDGET} new people in the last "
             f"{INVITE_WINDOW_DAYS} days, which is the limit.{when}"
         )
+    audit.record(audit.INVITE_MINTED, actor=inviter.person_id, invitee_id=new_id)
     return AllowlistEntry(person_id=new_id, email=email), True
 
 
