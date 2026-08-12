@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reef"
+  short_description: "Work with shared Reef memory from the CLI"
+  default_prompt: "Use $reef to load my memory index and fetch the relevant pages."
