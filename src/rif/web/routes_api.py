@@ -36,7 +36,14 @@ from rif.invitations import (
 )
 from rif.models import Page, Person
 from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
-from rif.spaces import SpaceError, create_space, invite, member_roster, remove_member
+from rif.spaces import (
+    SpaceError,
+    create_space,
+    invite,
+    member_roster,
+    remove_member,
+    space_owner,
+)
 from rif.web.requests import (
     SESSION_COOKIE,
     CsrfRejected,
@@ -358,16 +365,16 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     """
     slug = request.path_params["space"]
     space = await resolve_space(principal, slug)
-    owner = await Person.objects().where(Person.id == space.owner_person_id).first()
+    owner = await space_owner(space.id)
     is_owner = space.owner_person_id == principal.person_id
+    # No blanking pass here any more: rif_roster returns an address only to
+    # the cove's owner, so the rule is applied by Postgres against the armed
+    # principal rather than by this handler remembering to strip a field it
+    # had already fetched.
     roster = await member_roster(space.id)
-    if not is_owner:
-        roster = [
-            {"display_name": member["display_name"], "email": ""} for member in roster
-        ]
     return {
         "members": roster,
-        "owner_email": owner.email if owner else "",
+        "owner_email": owner["email"] if owner else "",
         "is_owner": is_owner,
     }
 
