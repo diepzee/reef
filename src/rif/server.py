@@ -6,6 +6,7 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 from fastmcp import FastMCP
+from mcp.types import Icon
 
 from rif import invitations
 from rif import spaces as space_admin
@@ -65,9 +66,43 @@ def _build_auth():
     return AuthKitProvider(authkit_domain=domain, base_url=base_url)
 
 
+def _brand_icons() -> list[Icon] | None:
+    """Return the icons a client shows for this server, if the origin is known.
+
+    Without these a connector list has nothing to draw and falls back to a
+    letter avatar taken from the server's name -- an "R" for ``rif``, which
+    is what every client showed until this existed. The site's own favicon is
+    not consulted by MCP clients: the protocol carries icons in the server's
+    metadata, so they have to be advertised here.
+
+    Absolute URLs are required, and the only thing that knows the public
+    origin is ``RIF_BASE_URL``. Unset (local stdio, tests) means no icons
+    rather than broken relative ones.
+
+    Both formats are offered because clients differ: SVG scales to any
+    surface, and the PNG is there for the ones that will not render SVG.
+
+    :returns: the icon list, or None when the public origin is unknown
+    """
+    base_url = os.environ.get("RIF_BASE_URL")
+    if not base_url:
+        return None
+    origin = base_url.rstrip("/")
+    return [
+        Icon(src=f"{origin}/favicon.svg", mimeType="image/svg+xml", sizes=["any"]),
+        Icon(
+            src=f"{origin}/apple-touch-icon.png",
+            mimeType="image/png",
+            sizes=["180x180"],
+        ),
+    ]
+
+
 mcp = FastMCP(
     "rif",
     auth=_build_auth(),
+    icons=_brand_icons(),
+    website_url=os.environ.get("RIF_BASE_URL") or None,
     instructions=(
         "Long-term memory shared between you and the people in your spaces. "
         "Start every conversation by calling load_index, then "
