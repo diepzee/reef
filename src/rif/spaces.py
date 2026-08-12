@@ -231,33 +231,42 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     }
 
 
-async def ensure_personal_space(person: Person) -> None:
+async def ensure_personal_space(person_id: UUID, email: str) -> None:
     """Create the person's personal space and starter pages, once.
 
-    Called at first sign-in. The slug is derived from the person id — it is
-    globally unique by construction and never crosses the tool boundary,
-    because personal spaces are always addressed by the ``personal`` alias.
+    Called at first sign-in, with the principal already armed — the space and
+    membership inserts below are checked against it once those tables carry
+    policies, so arming afterwards would deny a person their own onboarding.
 
-    :param person: the newly bound person
+    Takes ids rather than a ``Person`` row because its caller no longer has
+    one: identity binding returns only the three columns a principal is built
+    from (see ``rif.identity``), deliberately not a full row.
+
+    The slug is derived from the person id — it is globally unique by
+    construction and never crosses the tool boundary, because personal spaces
+    are always addressed by the ``personal`` alias.
+
+    :param person_id: the newly bound person's id
+    :param email: their address, for the principal passed to ``save_page``
     """
     existing = (
         await Space.objects()
         .where(
             Space.kind == SpaceKind.PERSONAL.value,
-            Space.owner_person_id == person.id,
+            Space.owner_person_id == person_id,
         )
         .first()
     )
     if existing is not None:
         return
     space = Space(
-        slug=f"personal-{person.id.hex}",
+        slug=f"personal-{person_id.hex}",
         kind=SpaceKind.PERSONAL.value,
-        owner_person_id=person.id,
+        owner_person_id=person_id,
     )
     await space.save()
-    await Membership(person_id=person.id, space_id=space.id).save()
-    principal = Principal(person_id=person.id, email=person.email)
+    await Membership(person_id=person_id, space_id=space.id).save()
+    principal = Principal(person_id=person_id, email=email)
     await save_page(
         principal,
         "personal",
