@@ -12,6 +12,7 @@ to the ambient transaction opened by :func:`rif.db.transaction_scope`.
 import re
 from uuid import UUID
 
+from rif import audit
 from rif.access import Principal, arm, resolve_space
 from rif.invitations import allowlist
 from rif.models import Membership, Page, Person, Space, SpaceKind
@@ -203,6 +204,12 @@ async def invite(
     already = membership is not None
     if not already:
         await Membership(person_id=entry.person_id, space_id=space.id).save()
+        audit.record(
+            audit.MEMBER_ADMITTED,
+            actor=principal.person_id,
+            space_id=space.id,
+            member_id=entry.person_id,
+        )
     page_count = await Page.count().where(Page.space_id == space.id)
     return {
         "space": slug,
@@ -249,6 +256,13 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     if not outcome or not outcome[0]["removed"]:
         raise SpaceError(f"{email} is not a member of {slug!r}")
     person_erased = bool(outcome[0]["person_erased"])
+    audit.record(
+        audit.MEMBER_REMOVED,
+        actor=principal.person_id,
+        space_id=space.id,
+        member_id=person_id,
+        person_erased=person_erased,
+    )
     return {
         "space": slug,
         "email": email,
