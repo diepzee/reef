@@ -1,21 +1,32 @@
 """Route every RLS predicate through the bypassing helper functions."""
 
+import asyncpg
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from rif.db import DB
-from rif.rls import AUTHZ_ROLE, disable_statements, enable_statements
+from rif.rls import (
+    AUTHZ_ROLE,
+    create_authz_role_statements,
+    disable_statements,
+    enable_statements,
+)
 
 ID = "2026-08-12T09:00:00:000000"
 VERSION = "1.36.0"
 DESCRIPTION = "authz helper functions; content predicates rewritten onto them"
 
-_ROLE_MISSING = f"""{AUTHZ_ROLE} does not exist.
+_ROLE_MISSING = f"""{AUTHZ_ROLE} does not exist and this connection may not create it.
 
 It owns the RLS helper functions and must hold BYPASSRLS, which only a
-superuser can grant -- so it is created out of band rather than here.
-Run scripts/provision_app_role.py against the admin credential first; it
-creates the role, grants it to the migration role (required to assign
-function ownership), and grants it CREATE on the schema.
+superuser can grant. This migration creates it automatically when the
+migration credential is privileged enough; yours is not, so an operator has
+to do it once, out of band:
+
+    railway run --service rif-app -- sh -c \\
+      'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \\
+         -f scripts/provision_authz_role.sql'
+
+Then redeploy. Nothing was changed by this migration.
 """
 
 
@@ -42,6 +53,21 @@ async def forwards() -> MigrationManager:
         role = await DB._run_in_new_connection(
             f"SELECT rolbypassrls FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
         )
+        if not role:
+            # Try to create it. Whether this is allowed depends on the
+            # migration credential: on Railway it is the cluster's bootstrap
+            # superuser, so this succeeds and the deploy is self-contained.
+            # A properly least-privileged migration role cannot create a
+            # BYPASSRLS role, and there the operator does it out of band --
+            # so a refusal is reported as instructions, not as a stack trace.
+            try:
+                for statement in create_authz_role_statements():
+                    await DB._run_in_new_connection(statement)
+            except asyncpg.exceptions.InsufficientPrivilegeError:
+                raise RuntimeError(_ROLE_MISSING) from None
+            role = await DB._run_in_new_connection(
+                f"SELECT rolbypassrls FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
+            )
         if not role:
             raise RuntimeError(_ROLE_MISSING)
         if not role[0]["rolbypassrls"]:
