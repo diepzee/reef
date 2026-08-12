@@ -118,7 +118,15 @@ _REVISION_WRITE_PREDICATE = (
 _PROMOTION_PREDICATE = f"person_id = {PRINCIPAL}"
 
 
-def _function_ddl(name: str, body: str, *, reads: tuple[str, ...]) -> list[str]:
+def _function_ddl(
+    name: str,
+    body: str,
+    *,
+    returns: str = "SETOF uuid",
+    reads: tuple[str, ...] = (),
+    writes: tuple[str, ...] = (),
+    volatility: str = "STABLE",
+) -> list[str]:
     """Return idempotent DDL for one helper function owned by the authz role.
 
     Each function is created, handed to :data:`AUTHZ_ROLE`, closed to the
@@ -126,26 +134,33 @@ def _function_ddl(name: str, body: str, *, reads: tuple[str, ...]) -> list[str]:
     is fixed so a caller cannot shadow the tables the body names, which is
     mandatory for ``SECURITY DEFINER``.
 
-    ``GRANT SELECT`` on the tables the body reads is not redundant with
+    ``GRANT`` on the tables the body touches is not redundant with
     ``BYPASSRLS``: that attribute suspends *row security*, not table
     *privileges*. Without these grants the function raises "permission denied
     for table" -- confirmed against a live server, not assumed.
 
     :param name: the function signature, e.g. ``rif_space_ids()``
     :param body: the SQL body, without the enclosing dollar quotes
+    :param returns: the ``RETURNS`` clause
     :param reads: tables the body reads, which the owner needs granted
+    :param writes: tables the body modifies, needing DML beyond ``SELECT``
+    :param volatility: ``STABLE`` for read-only, ``VOLATILE`` if it writes
     :returns: SQL statements to execute in order
     """
     statements = [
         (
-            f"CREATE OR REPLACE FUNCTION {name} RETURNS SETOF uuid "
-            f"LANGUAGE sql STABLE SECURITY DEFINER "
+            f"CREATE OR REPLACE FUNCTION {name} RETURNS {returns} "
+            f"LANGUAGE sql {volatility} SECURITY DEFINER "
             f"SET search_path = public, pg_catalog AS $rif${body}$rif$"
         ),
         f"ALTER FUNCTION {name} OWNER TO {AUTHZ_ROLE}",
         f"REVOKE ALL ON FUNCTION {name} FROM PUBLIC",
     ]
     statements += [f"GRANT SELECT ON {table} TO {AUTHZ_ROLE}" for table in reads]
+    statements += [
+        f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {AUTHZ_ROLE}"
+        for table in writes
+    ]
     # A cluster has either rif_app (production) or rif (dev/test), not both.
     # GRANT against a missing role is a hard error, so each is guarded.
     statements += [
@@ -206,6 +221,82 @@ def authz_statements() -> list[str]:
         f"AND role = 'member'",
         reads=("memberships",),
     )
+
+
+# Every identity function returns this shape and nothing wider. Not
+# ``SETOF persons``: a row type would carry ``subject`` and any column added
+# later, so the pre-auth path would silently regain reach it does not need.
+_PERSON_ROW = "TABLE(person_id uuid, person_email text, person_display_name text)"
+
+_PERSON_COLUMNS = "SELECT p.id, p.email, p.display_name FROM persons p"
+
+
+def identity_statements() -> list[str]:
+    """Return DDL for the functions that resolve an identity before arming.
+
+    Identity binding is the one place that must read ``persons`` with no
+    principal set -- resolving who the caller is *is* its job. Today it does
+    that with ordinary queries, so the pre-auth path can run any ``WHERE`` it
+    likes over the whole table. These functions replace that reach with four
+    exact-key lookups: subject, email, or id, each returning at most one row
+    and only the three columns the caller genuinely needs.
+
+    :func:`rif_person_bind` folds the lookup and the subject-binding
+    ``UPDATE`` into a single statement. Done as two steps -- find the row,
+    then write to it -- two first sign-ins racing on the same invitation can
+    both pass the check before either writes. As one ``UPDATE ... WHERE
+    subject IS NULL RETURNING``, the loser matches no row and re-resolves by
+    subject instead.
+
+    ``lower(p_email)`` matches the application's own normalisation
+    (``spaces.invite`` and ``invitations.allowlist`` both lowercase before
+    storing), so a provider that varies the case of a verified address still
+    binds to the invited row.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        *_function_ddl(
+            "rif_person_by_subject(p_subject text)",
+            f"{_PERSON_COLUMNS} WHERE p.subject = p_subject",
+            returns=_PERSON_ROW,
+            reads=("persons",),
+        ),
+        *_function_ddl(
+            "rif_person_by_email(p_email text)",
+            f"{_PERSON_COLUMNS} WHERE p.email = lower(p_email)",
+            returns=_PERSON_ROW,
+            reads=("persons",),
+        ),
+        *_function_ddl(
+            "rif_person_bind(p_email text, p_subject text)",
+            "UPDATE persons SET subject = p_subject "
+            "WHERE email = lower(p_email) AND subject IS NULL "
+            "RETURNING id, email, display_name",
+            returns=_PERSON_ROW,
+            writes=("persons",),
+            volatility="VOLATILE",
+        ),
+        *_function_ddl(
+            "rif_person_alive(p_id uuid)",
+            "SELECT EXISTS (SELECT 1 FROM persons WHERE id = p_id)",
+            returns="boolean",
+            reads=("persons",),
+        ),
+    ]
+
+
+def drop_identity_statements() -> list[str]:
+    """Return DDL undoing :func:`identity_statements`.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "DROP FUNCTION IF EXISTS rif_person_by_subject(text)",
+        "DROP FUNCTION IF EXISTS rif_person_by_email(text)",
+        "DROP FUNCTION IF EXISTS rif_person_bind(text, text)",
+        "DROP FUNCTION IF EXISTS rif_person_alive(uuid)",
+    ]
 
 
 def drop_authz_statements() -> list[str]:
@@ -301,7 +392,7 @@ def enable_statements() -> list[str]:
 
     :returns: SQL statements to execute in order
     """
-    statements: list[str] = authz_statements()
+    statements: list[str] = authz_statements() + identity_statements()
     for table in _TABLES:
         statements.append(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
@@ -334,5 +425,6 @@ def disable_statements() -> list[str]:
         )
         statements.append(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+    statements.extend(drop_identity_statements())
     statements.extend(drop_authz_statements())
     return statements

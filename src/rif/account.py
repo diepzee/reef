@@ -41,11 +41,15 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
     :param principal: authenticated person to erase
     :returns: deleted/transferred cove aliases and post-commit file keys
     """
+    # accessible_spaces arms the principal; the person lookup has to come
+    # after it, not before. Read first and the query runs unarmed, which once
+    # persons carries a policy returns nothing -- and this function would
+    # report that it deleted an account it had not touched.
+    spaces = await accessible_spaces(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if person is None:
         return AccountDeletion([], [], [])
 
-    spaces = await accessible_spaces(principal)
     deleted_spaces = []
     transferred_coves = []
 
