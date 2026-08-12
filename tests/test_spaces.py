@@ -83,7 +83,7 @@ async def test_onboarding_survives_an_attempted_slug_squat(tx, household, graph)
     victim = await graph.person("victim@example.test", "Victim")
     with pytest.raises(SpaceError):
         await create_space(attacker, f"personal-{victim.id.hex}")
-    await ensure_personal_space(victim)
+    await ensure_personal_space(victim.id, victim.email)
     assert (
         await get_page(principal_for(victim), "personal", "meta/persona.md") is not None
     )
@@ -151,8 +151,8 @@ async def test_removing_unbound_invitee_erases_the_orphan_person(tx, household):
 async def test_ensure_personal_space_seeds_only_the_persona_once(tx, graph):
     """The protocol ships with the product; only the persona is seeded."""
     anna = await graph.person("anna@example.test", "Anna")
-    await ensure_personal_space(anna)
-    await ensure_personal_space(anna)  # idempotent
+    await ensure_personal_space(anna.id, anna.email)
+    await ensure_personal_space(anna.id, anna.email)  # idempotent
     me = principal_for(anna)
     persona = await get_page(me, "personal", "meta/persona.md")
     assert persona is not None

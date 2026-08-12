@@ -19,13 +19,14 @@ from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
-from rif.access import AccessDenied, Principal, resolve_space
+from rif.access import AccessDenied, Principal, arm, resolve_space
 from rif.account import delete_account_rows
 from rif.attachments import S3ObjectStore, get_attachment
 from rif.config import get_settings
 from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
 from rif.export import build_full_dump, build_json_export, build_markdown_archive
+from rif.identity import person_by_email, person_exists
 from rif.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
@@ -169,25 +170,25 @@ def api(handler: Callable) -> Callable:
                 try:
                     principal = principal_from_request(request)
                 except _DevFallback as fallback:
-                    person = (
-                        await Person.objects()
-                        .where(Person.email == fallback.email)
-                        .first()
-                    )
-                    if person is None:
+                    identity = await person_by_email(fallback.email)
+                    if identity is None:
                         raise Unauthenticated from None
-                    principal = Principal(person_id=person.id, email=person.email)
+                    principal = Principal(
+                        person_id=identity.person_id, email=identity.email
+                    )
                 else:
                     # A validly-signed cookie can outlive the person it names
                     # (deleted since sealing) -- confirm the row still exists
                     # rather than let a phantom principal reach the handler.
-                    person = (
-                        await Person.objects()
-                        .where(Person.id == principal.person_id)
-                        .first()
-                    )
-                    if person is None:
+                    # Only a boolean crosses the boundary: the id is already
+                    # known, and nothing else about the row is needed here.
+                    if not await person_exists(principal.person_id):
                         raise Unauthenticated from None
+                # Armed before the handler rather than inside it, so a handler
+                # that reads an identity table sees the same principal every
+                # other query does. Handlers that call resolve_space re-arm
+                # with the identical value, which is a no-op.
+                await arm(principal)
                 result = await handler(request, principal)
         except Unauthenticated:
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
