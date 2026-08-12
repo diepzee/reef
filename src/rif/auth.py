@@ -2,8 +2,8 @@
 
 import os
 
-from rif.access import AccessDenied, Principal
-from rif.models import Person
+from rif.access import AccessDenied, Principal, arm
+from rif.identity import bind_subject, person_by_email, person_by_subject
 from rif.spaces import ensure_personal_space
 
 
@@ -19,6 +19,16 @@ async def principal_from_claims(claims: dict) -> Principal:
     provider subject and onboards a personal space with starter pages. The
     ``email_verified`` claim must be the boolean ``True``, not merely truthy.
 
+    Both lookups go through ``rif.identity``, so this function -- the one
+    place that runs before any principal exists -- can fetch one row by exact
+    key and nothing else.
+
+    The principal is armed the moment it is known, before onboarding. That
+    ordering is load-bearing: ``ensure_personal_space`` inserts a space and a
+    membership, and once those tables carry policies the inserts are checked
+    against the armed principal. Arming afterwards would deny them, and the
+    symptom would be every first sign-in failing.
+
     :param claims: verified claims from the access token
     :raises AccessDenied: for missing/unknown subject with no bindable email
     :returns: the authenticated principal
@@ -26,24 +36,26 @@ async def principal_from_claims(claims: dict) -> Principal:
     subject = claims.get("sub")
     if not subject:
         raise AccessDenied("token carries no subject")
-    person = await Person.objects().where(Person.subject == subject).first()
-    if person is None:
-        email = claims.get("email")
-        # Exactly True, not merely truthy: a provider that renders the claim
-        # as the string "false" would otherwise bind an unverified address.
-        if not email or claims.get("email_verified") is not True:
-            raise AccessDenied("unknown subject and no verified email to bind")
-        person = (
-            await Person.objects()
-            .where(Person.email == email.lower(), Person.subject.is_null())
-            .first()
-        )
-        if person is None:
-            raise AccessDenied(f"not on the allowlist: {email}")
-        person.subject = subject
-        await person.save()
-        await ensure_personal_space(person)
-    return Principal(person_id=person.id, email=person.email)
+    identity = await person_by_subject(subject)
+    if identity is not None:
+        principal = Principal(person_id=identity.person_id, email=identity.email)
+        await arm(principal)
+        return principal
+
+    email = claims.get("email")
+    # Exactly True, not merely truthy: a provider that renders the claim
+    # as the string "false" would otherwise bind an unverified address.
+    if not email or claims.get("email_verified") is not True:
+        raise AccessDenied("unknown subject and no verified email to bind")
+    # Lookup and write in one statement: two first sign-ins racing on the same
+    # invitation cannot both bind, because the loser matches no unbound row.
+    identity = await bind_subject(email, subject)
+    if identity is None:
+        raise AccessDenied(f"not on the allowlist: {email}")
+    principal = Principal(person_id=identity.person_id, email=identity.email)
+    await arm(principal)
+    await ensure_personal_space(identity.person_id, identity.email)
+    return principal
 
 
 async def current_principal() -> Principal:
@@ -73,7 +85,9 @@ async def current_principal() -> Principal:
     email = os.environ.get("RIF_DEV_PRINCIPAL_EMAIL")
     if not email:
         raise AccessDenied("no principal on this connection")
-    person = await Person.objects().where(Person.email == email).first()
-    if person is None:
+    identity = await person_by_email(email)
+    if identity is None:
         raise AccessDenied(f"unknown principal: {email}")
-    return Principal(person_id=person.id, email=person.email)
+    principal = Principal(person_id=identity.person_id, email=identity.email)
+    await arm(principal)
+    return principal

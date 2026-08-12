@@ -86,8 +86,11 @@ async def _export_rows(
     principal: Principal, alias: str | None = None
 ) -> tuple[Person, list, list[Page], list[Attachment]]:
     """Load the current rows for one cove or every accessible cove."""
-    person = await Person.objects().where(Person.id == principal.person_id).first()
+    # accessible_spaces arms the principal, so it must precede the person
+    # lookup: read first and that query runs unarmed, returning nothing once
+    # persons carries a policy, and the export would name nobody.
     spaces = await accessible_spaces(principal)
+    person = await Person.objects().where(Person.id == principal.person_id).first()
     if alias is not None:
         spaces = [space for space in spaces if space_alias(space) == alias]
         if not spaces:
@@ -434,15 +437,16 @@ async def _main(alias: str, target: str) -> None:
     import os
 
     from rif.db import DB, transaction_scope
+    from rif.identity import person_by_email
 
     await DB.start_connection_pool()
     async with transaction_scope():
-        person = (
-            await Person.objects()
-            .where(Person.email == os.environ["RIF_DEV_PRINCIPAL_EMAIL"])
-            .first()
-        )
-        principal = Principal(person_id=person.id, email=person.email)
+        # Pre-auth: no principal exists yet, so this goes through the narrow
+        # definer lookup like every other identity-binding path.
+        identity = await person_by_email(os.environ["RIF_DEV_PRINCIPAL_EMAIL"])
+        if identity is None:
+            raise SystemExit("RIF_DEV_PRINCIPAL_EMAIL names no known person")
+        principal = Principal(person_id=identity.person_id, email=identity.email)
         count = await export_space(principal, alias, Path(target))
     print(f"exported {count} page(s) to {target}")
 
