@@ -12,7 +12,7 @@ to the ambient transaction opened by :func:`rif.db.transaction_scope`.
 import re
 from uuid import UUID
 
-from rif.access import Principal, resolve_space
+from rif.access import Principal, arm, resolve_space
 from rif.invitations import allowlist
 from rif.models import Membership, Page, Person, Space, SpaceKind
 from rif.pages import save_page
@@ -54,60 +54,77 @@ async def _membership(person_id: UUID, space_id: UUID) -> Membership | None:
     )
 
 
+async def member_roster(space_id: UUID) -> list[dict]:
+    """Return a space's members as display name/email pairs, sorted by name.
+
+    Both consent surfaces read through this: ``list_spaces`` tells a person
+    who is in the room, ``prepare_promotion``'s warning names every reader a
+    share is about to reach, and the web members panel needs addresses to key
+    removal by.
+
+    The disclosure rule is no longer this module's to remember. ``rif_roster``
+    returns an email only to the cove's owner and an empty string to everyone
+    else, and returns nothing at all to a non-member -- decided in SQL, by
+    the armed principal, so a caller that forgets to check gets the safe
+    answer rather than the whole roster. The old version selected
+    ``Person.email`` outright and trusted every caller to blank it.
+
+    :param space_id: the space to list
+    :returns: ``[{"display_name": str, "email": str}, ...]``, sorted by
+        display name; ``email`` is ``""`` unless the caller owns the space
+    """
+    rows = await Person.raw("SELECT * FROM rif_roster({})", space_id)
+    return [
+        {"display_name": row["member_name"], "email": row["member_email"]}
+        for row in rows
+    ]
+
+
 async def member_names(space_id: UUID) -> list[str]:
     """Return the sorted display names of a space's members.
-
-    Two callers need this and both are consent surfaces: ``list_spaces`` tells
-    a person who is in the room, and ``prepare_promotion``'s warning names
-    every reader a share is about to reach. They must agree, so the query
-    lives once. Piccolo has no join syntax on ``select``, so membership is
-    expressed as a subquery on ``persons``.
 
     :param space_id: the space to list
     :returns: display names, sorted
     """
-    return sorted(
-        await Person.select(Person.display_name)
-        .where(
-            Person.id.is_in(
-                Membership.select(Membership.person_id).where(
-                    Membership.space_id == space_id
-                )
-            )
-        )
-        .output(as_list=True)
-    )
+    return [member["display_name"] for member in await member_roster(space_id)]
 
 
-async def member_roster(space_id: UUID) -> list[dict]:
-    """Return a space's members as display name/email pairs, sorted by name.
+async def space_owner(space_id: UUID) -> dict | None:
+    """Return the display name and email of a space's owner.
 
-    The members panel in the web UI needs email addresses too: removal
-    (``DELETE /api/spaces/{s}/members/{email}``) is keyed by email, and
-    display names alone cannot drive that control. This is a separate query
-    from :func:`member_names` rather than a shared helper with an optional
-    field, because the two callers want genuinely different shapes (a flat
-    name list vs. name/email pairs) and forcing one query to serve both
-    would obscure which fields each caller actually uses.
+    Every member sees the owner's address, unlike ordinary members' -- the
+    owner is the cove's accountable contact, which is the existing contract
+    and is preserved deliberately. The membership check lives inside the
+    function, so a non-member gets nothing.
 
-    :param space_id: the space to list
-    :returns: ``[{"display_name": str, "email": str}, ...]``, sorted by
-        display name
+    :param space_id: the space whose owner is wanted
+    :returns: ``{"display_name": str, "email": str}``, or None
     """
-    rows = (
-        await Person.select(Person.display_name, Person.email)
-        .where(
-            Person.id.is_in(
-                Membership.select(Membership.person_id).where(
-                    Membership.space_id == space_id
-                )
-            )
-        )
-        .order_by(Person.display_name)
+    rows = await Person.raw("SELECT * FROM rif_space_owner({})", space_id)
+    if not rows:
+        return None
+    return {
+        "display_name": rows[0]["owner_name"],
+        "email": rows[0]["owner_email"],
+    }
+
+
+async def display_names(person_ids: list[UUID]) -> dict[UUID, str]:
+    """Return display names for the given people.
+
+    Revision authorship has to keep rendering names for co-members whose
+    ``persons`` rows a reader cannot otherwise see, which is what this is
+    for. Names only -- never addresses.
+
+    :param person_ids: the people to name
+    :returns: mapping of person id to display name, omitting unknown ids
+    """
+    if not person_ids:
+        return {}
+    rows = await Person.raw(
+        "SELECT * FROM rif_display_names({})", list(dict.fromkeys(person_ids))
     )
-    return [
-        {"display_name": row["display_name"], "email": row["email"]} for row in rows
-    ]
+    return {row["person_id"]: row["display_name"] for row in rows}
 
 
 async def create_space(principal: Principal, slug: str) -> Space:
@@ -124,6 +141,10 @@ async def create_space(principal: Principal, slug: str) -> Space:
             "letters, digits, and hyphens, starting with a letter; names "
             "beginning 'personal' are reserved"
         )
+    # Unlike every other entry point here this one resolves no existing space,
+    # so nothing else arms the principal -- and both the rows it inserts are
+    # checked against it once spaces and memberships carry policies.
+    await arm(principal)
     if await Space.objects().where(Space.slug == slug).first() is not None:
         raise SpaceError(f"a space named {slug!r} already exists; pick another name")
     space = Space(
