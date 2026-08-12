@@ -53,10 +53,42 @@ def probe_dsn() -> str:
 
     :returns: a DSN usable by asyncpg
     """
-    dsn = get_settings().test_database_url
+    return _swap_user(get_settings().test_database_url, PROBE_ROLE, "probe")
+
+
+def _swap_user(dsn: str, user: str, password: str) -> str:
+    """Return ``dsn`` with its userinfo replaced.
+
+    :param dsn: a ``postgresql://user:pass@host/db`` connection string
+    :param user: replacement username
+    :param password: replacement password
+    :returns: the rewritten DSN
+    """
     scheme, _, rest = dsn.partition("://")
     _, _, hostpart = rest.rpartition("@")
-    return f"{scheme}://{PROBE_ROLE}:probe@{hostpart}"
+    return f"{scheme}://{user}:{password}@{hostpart}"
+
+
+def seed_dsn() -> str:
+    """Return a DSN able to insert fixture rows past the identity policies.
+
+    Fixture data stands for rows that already exist -- people who were
+    invited long ago, coves already created. Under the identity policies
+    those rows cannot be *created* by an unarmed connection, and rightly so:
+    ``persons_invite_insert`` demands an inviter, so a person with no inviter
+    can only be seeded out of band. That is exactly how reef's own first
+    person came to exist, and it stays a deliberate manual act rather than
+    something the application can do.
+
+    Defaults to the superuser the local ``docker-compose.yml`` creates.
+    Override with ``RIF_SEED_DATABASE_URL`` for a cluster set up differently.
+
+    :returns: a DSN usable by asyncpg
+    """
+    override = os.environ.get("RIF_SEED_DATABASE_URL")
+    if override:
+        return override
+    return _swap_user(get_settings().test_database_url, "postgres", "postgres")
 
 
 _MISSING_AUTHZ_ROLE = f"""
@@ -164,21 +196,48 @@ async def tx():
 class Graph:
     """Builders for arbitrary person/space/membership topologies.
 
-    Piccolo queries are ambient, so these are plain coroutines rather than
-    session-bound ones: the caller decides whether they run inside a
-    transaction. Persons, spaces, and memberships carry no RLS policy, so a
-    builder never needs to be armed.
+    These seed *pre-existing* state, so they write through a connection that
+    is not subject to the identity policies -- see :func:`seed_dsn` for why
+    that is the honest shape rather than a shortcut. Behaviour under the
+    policies is exercised by the code under test, never by these builders.
+
+    Piccolo queries are ambient, so these are plain coroutines: the caller
+    decides whether the code being tested runs inside a transaction.
     """
 
-    async def person(self, email: str, display_name: str) -> Person:
+    def __init__(self, connection) -> None:
+        """Hold the seeding connection.
+
+        :param connection: an asyncpg connection able to bypass the policies
+        """
+        self._connection = connection
+
+    async def person(
+        self, email: str, display_name: str, invited_by: Person | None = None
+    ) -> Person:
         """Create one person row.
 
         :param email: the person's email address
         :param display_name: how the person is addressed
+        :param invited_by: the inviter, when the test cares about provenance
         :returns: the saved person
         """
         row = Person(email=email, display_name=display_name)
-        await row.save()
+        if invited_by is not None:
+            row.invited_by_person_id = invited_by.id
+        await self._connection.execute(
+            "INSERT INTO persons (id, email, display_name, invited_by_person_id) "
+            "VALUES ($1, $2, $3, $4)",
+            row.id,
+            email,
+            display_name,
+            invited_by.id if invited_by is not None else None,
+        )
+        # The row was written behind Piccolo's back, so the model still
+        # believes it is new and .save() would INSERT a duplicate rather than
+        # UPDATE. Tests legitimately mutate seeded rows (binding a subject,
+        # say), so tell the model what is true.
+        row._exists_in_db = True
         return row
 
     async def personal_space(self, owner: Person, slug: str | None = None) -> Space:
@@ -193,8 +252,7 @@ class Graph:
             kind=SpaceKind.PERSONAL.value,
             owner_person_id=owner.id,
         )
-        await space.save()
-        await Membership(person_id=owner.id, space_id=space.id).save()
+        await self._insert_space(space, owner)
         return space
 
     async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
@@ -206,23 +264,44 @@ class Graph:
         :returns: the saved space
         """
         space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
-        await space.save()
-        await Membership.insert(
-            *[
-                Membership(person_id=person.id, space_id=space.id)
-                for person in (owner, *members)
-            ]
-        )
+        await self._insert_space(space, owner, *members)
         return space
+
+    async def _insert_space(self, space: Space, *members: Person) -> None:
+        """Insert a space row and one membership per member.
+
+        :param space: the space to write
+        :param members: everyone who belongs to it
+        """
+        await self._connection.execute(
+            "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
+            "VALUES ($1, $2, $3, $4, 0)",
+            space.id,
+            space.slug,
+            space.kind,
+            space.owner_person_id,
+        )
+        space._exists_in_db = True
+        for person in members:
+            await self._connection.execute(
+                "INSERT INTO memberships (person_id, space_id, role) "
+                "VALUES ($1, $2, 'member')",
+                person.id,
+                space.id,
+            )
 
 
 @pytest_asyncio.fixture
-async def graph() -> Graph:
+async def graph():
     """Expose the topology builders to a test.
 
     :returns: the builder object
     """
-    return Graph()
+    connection = await asyncpg.connect(seed_dsn())
+    try:
+        yield Graph(connection)
+    finally:
+        await connection.close()
 
 
 @pytest_asyncio.fixture
