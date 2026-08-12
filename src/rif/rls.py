@@ -16,6 +16,19 @@ was never touched returns NULL and denies as intended, but the principal
 empty string, not an absence, and ``''::uuid`` raises rather than comparing
 false. ``NULLIF`` folds both cases to the same NULL, so both deny cleanly.
 
+Every predicate reaches ``memberships`` through :func:`authz_statements`'
+helper functions rather than by subquerying it. That indirection is not
+stylistic. Once ``memberships`` carries its own policy, a predicate that
+reads ``memberships`` is evaluated by running the ``memberships`` policy,
+which reads ``memberships``, which... -- the server dies with "stack depth
+limit exceeded". ``FORCE ROW LEVEL SECURITY`` closes the usual escape,
+because it subjects the table *owner* to policies too, and a
+``SECURITY DEFINER`` function owned by the owner is therefore no help. Only
+an owner holding ``BYPASSRLS`` breaks the cycle. Hence ``rif_authz``: a
+``NOLOGIN`` role that owns these functions and nothing else, so the bypass is
+reachable only by calling one of them. All of this was verified against a
+live server before being relied on.
+
 Reads and writes use different predicates, and each SQL command gets its own
 policy. Reads accept any membership, so a ``VIEWER`` sees everything a
 ``MEMBER`` sees. ``INSERT``, ``UPDATE``, and ``DELETE`` all require
@@ -69,37 +82,147 @@ def constraint_statements() -> list[str]:
     ]
 
 
-_MEMBER_PREDICATE = (
-    "space_id IN (SELECT space_id FROM memberships "
-    "WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"
-)
+PRINCIPAL = "NULLIF(current_setting('app.person_id', true), '')::uuid"
+"""SQL for the armed principal, or NULL when unarmed. See the module docstring."""
 
-_WRITE_PREDICATE = (
-    "space_id IN (SELECT space_id FROM memberships "
-    "WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid "
-    "AND role = 'member')"
-)
+AUTHZ_ROLE = "rif_authz"
+"""Owner of the helper functions. NOLOGIN, BYPASSRLS, owns nothing else."""
 
+_EXECUTOR_ROLES = ("rif_app", "rif")
+"""Roles granted EXECUTE: production's constrained app role, and the role that
+owns the database in local dev and test. A fixed allowlist -- never a value
+from a caller -- because it is interpolated into ``GRANT``, which rejects bind
+parameters. Whichever of the two exists in a given cluster is granted."""
+
+_MEMBER_PREDICATE = "space_id IN (SELECT rif_space_ids())"
+
+_WRITE_PREDICATE = "space_id IN (SELECT rif_member_space_ids())"
+
+# Revisions reach their space through their page. The subquery is filtered by
+# ``pages``' own SELECT policy, which is this same membership test, so the
+# composition is exactly the previous behaviour -- and it touches
+# ``memberships`` only inside the bypassing function, never in a predicate.
 _REVISION_PREDICATE = (
-    "page_id IN (SELECT p.id FROM pages p "
-    "JOIN memberships m ON m.space_id = p.space_id "
-    "WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"
+    "page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_space_ids()))"
 )
 
 _REVISION_WRITE_PREDICATE = (
-    "page_id IN (SELECT p.id FROM pages p "
-    "JOIN memberships m ON m.space_id = p.space_id "
-    "WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid "
-    "AND m.role = 'member')"
+    "page_id IN (SELECT id FROM pages "
+    "WHERE space_id IN (SELECT rif_member_space_ids()))"
 )
 
 # Promotions belong to the person who staged them, not to a space: the row is
 # a nonce, and ``section_text`` holds the exact extracted span from a personal
 # page. A leaked promotion row is a leaked private paragraph, so the predicate
 # is ownership rather than membership.
-_PROMOTION_PREDICATE = (
-    "person_id = NULLIF(current_setting('app.person_id', true), '')::uuid"
-)
+_PROMOTION_PREDICATE = f"person_id = {PRINCIPAL}"
+
+
+def _function_ddl(name: str, body: str, *, reads: tuple[str, ...]) -> list[str]:
+    """Return idempotent DDL for one helper function owned by the authz role.
+
+    Each function is created, handed to :data:`AUTHZ_ROLE`, closed to the
+    public, and opened to whichever executor roles exist. ``SET search_path``
+    is fixed so a caller cannot shadow the tables the body names, which is
+    mandatory for ``SECURITY DEFINER``.
+
+    ``GRANT SELECT`` on the tables the body reads is not redundant with
+    ``BYPASSRLS``: that attribute suspends *row security*, not table
+    *privileges*. Without these grants the function raises "permission denied
+    for table" -- confirmed against a live server, not assumed.
+
+    :param name: the function signature, e.g. ``rif_space_ids()``
+    :param body: the SQL body, without the enclosing dollar quotes
+    :param reads: tables the body reads, which the owner needs granted
+    :returns: SQL statements to execute in order
+    """
+    statements = [
+        (
+            f"CREATE OR REPLACE FUNCTION {name} RETURNS SETOF uuid "
+            f"LANGUAGE sql STABLE SECURITY DEFINER "
+            f"SET search_path = public, pg_catalog AS $rif${body}$rif$"
+        ),
+        f"ALTER FUNCTION {name} OWNER TO {AUTHZ_ROLE}",
+        f"REVOKE ALL ON FUNCTION {name} FROM PUBLIC",
+    ]
+    statements += [f"GRANT SELECT ON {table} TO {AUTHZ_ROLE}" for table in reads]
+    # A cluster has either rif_app (production) or rif (dev/test), not both.
+    # GRANT against a missing role is a hard error, so each is guarded.
+    statements += [
+        f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+        f"'{role}') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION {name} TO {role}'; "
+        f"END IF; END $do$"
+        for role in _EXECUTOR_ROLES
+    ]
+    return statements
+
+
+def create_authz_role_statements() -> list[str]:
+    """Return DDL creating the function-owner role, for a privileged connection.
+
+    Creating a ``BYPASSRLS`` role requires superuser, which the migration
+    connection may or may not have -- on Railway it does, because the admin
+    credential there is the cluster's bootstrap superuser; a properly
+    least-privileged deployment would not. Callers should therefore attempt
+    these and fall back to instructing an operator when the server refuses.
+
+    ``GRANT ... TO CURRENT_USER`` is required before any
+    ``ALTER FUNCTION ... OWNER TO``: Postgres will not let a role hand
+    ownership to a role it is not a member of. ``GRANT CREATE ON SCHEMA`` is
+    required of the *new* owner for that same reassignment.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        f"CREATE ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS",
+        f"GRANT {AUTHZ_ROLE} TO CURRENT_USER",
+        f"GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}",
+    ]
+
+
+def authz_statements() -> list[str]:
+    """Return DDL for the helper functions every policy is built on.
+
+    Two functions, both answering "which spaces does the armed principal
+    reach": any membership for reads, ``role = 'member'`` for writes. Policies
+    call these instead of subquerying ``memberships`` directly, which is what
+    keeps them non-recursive once ``memberships`` itself carries RLS -- a
+    policy on ``memberships`` whose predicate reads ``memberships`` recurses
+    until the stack is exhausted, and ``FORCE ROW LEVEL SECURITY`` means even
+    the table owner cannot escape that. Only a ``BYPASSRLS`` owner can, which
+    is why :data:`AUTHZ_ROLE` exists and why it owns nothing else.
+
+    Idempotent: ``CREATE OR REPLACE`` plus guarded grants, safe to re-run.
+
+    :returns: SQL statements to execute in order
+    """
+    return _function_ddl(
+        "rif_space_ids()",
+        f"SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL}",
+        reads=("memberships",),
+    ) + _function_ddl(
+        "rif_member_space_ids()",
+        f"SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL} "
+        f"AND role = 'member'",
+        reads=("memberships",),
+    )
+
+
+def drop_authz_statements() -> list[str]:
+    """Return DDL undoing :func:`authz_statements`.
+
+    The role itself is left alone: it is created out of band by
+    ``scripts/provision_app_role.py`` (creating a ``BYPASSRLS`` role needs
+    privileges migrations deliberately do not have) and may own functions from
+    a later migration.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "DROP FUNCTION IF EXISTS rif_space_ids()",
+        "DROP FUNCTION IF EXISTS rif_member_space_ids()",
+    ]
+
 
 _TABLES = ("pages", "attachments", "revisions")
 _COMMANDS = ("select", "insert", "update", "delete")
@@ -173,9 +296,12 @@ def enable_statements() -> list[str]:
     ``FORCE ROW LEVEL SECURITY`` extends the policies to the table owner, not
     just other roles.
 
+    The helper functions come first: every predicate below calls them, and
+    ``CREATE POLICY`` resolves the name at creation time.
+
     :returns: SQL statements to execute in order
     """
-    statements: list[str] = []
+    statements: list[str] = authz_statements()
     for table in _TABLES:
         statements.append(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
@@ -190,7 +316,8 @@ def disable_statements() -> list[str]:
     Statements run in the reverse order of ``enable_statements``: drop every
     policy this module has ever created for a table — the four per-command
     ones and the legacy ``FOR ALL`` name they replaced — before turning
-    enforcement and row security back off.
+    enforcement and row security back off, and the helper functions last of
+    all, once nothing refers to them.
 
     :returns: SQL statements to execute in order
     """
@@ -207,4 +334,5 @@ def disable_statements() -> list[str]:
         )
         statements.append(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+    statements.extend(drop_authz_statements())
     return statements
