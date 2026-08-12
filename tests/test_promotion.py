@@ -4,7 +4,7 @@ from uuid import UUID
 import pytest
 
 from rif.access import Principal
-from rif.models import Membership, Promotion, utc_now
+from rif.models import Promotion, utc_now
 from rif.pages import get_page, save_page
 from rif.promotion import (
     NONCE_TTL,
@@ -231,9 +231,10 @@ async def test_confirm_rechecks_membership_lost_after_prepare(tx, graph):
     await save_page(me, "personal", "invite.md", "bring snacks", message="x")
     prepared = await prepare_promotion(me, "invite.md", "club")
 
-    await Membership.delete().where(
-        Membership.person_id == wouter.id, Membership.space_id == club.id
-    )
+    # No owner-removes-member DELETE policy exists; removal lives in
+    # rif_remove_member. Seeding the loss directly keeps this test about
+    # what confirm() rechecks rather than about how the row went away.
+    await graph.drop_membership(wouter, club)
 
     with pytest.raises(PromotionError):
         await confirm_promotion(me, prepared["nonce"])
