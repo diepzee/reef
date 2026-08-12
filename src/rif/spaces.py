@@ -351,6 +351,16 @@ async def delete_space(principal: Principal, slug: str) -> dict:
     await Page.delete().where(Page.space_id == space.id)
     # The principal's own membership goes with the space, by cascade.
     await Space.delete().where(Space.id == space.id)
+    # Recorded not because the policies were bypassed -- they were not -- but
+    # because nothing survives to be read afterwards. Counts, never the slug:
+    # a cove's name is the user's words, and the trail takes identifiers only.
+    audit.record(
+        audit.COVE_DELETED,
+        actor=principal.person_id,
+        space_id=space.id,
+        page_count=len(page_ids),
+        file_count=len(file_keys),
+    )
     return {
         "space": slug,
         "deleted": True,
