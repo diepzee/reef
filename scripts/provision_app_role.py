@@ -29,6 +29,15 @@ import asyncpg
 
 ROLE = "rif_app"
 
+# Owner of rif.rls's helper functions, and of nothing else. See that module's
+# docstring for why the bypass is unavoidable; the short version is that
+# FORCE ROW LEVEL SECURITY subjects the table owner to policies too, so a
+# policy on memberships that reads memberships recurses fatally, and only a
+# BYPASSRLS function owner breaks the cycle. NOLOGIN and no password: nothing
+# connects as it, so the bypass is reachable only by calling one of the
+# functions it owns.
+AUTHZ_ROLE = "rif_authz"
+
 # The application's own tables. Granted explicitly rather than via ALL TABLES
 # so a future table is a deliberate decision, not an automatic grant.
 TABLES = (
@@ -96,8 +105,47 @@ async def provision(admin_dsn: str, password: str) -> None:
             f"GRANT USAGE, SELECT ON SEQUENCES TO {ROLE}"
         )
         print(f"granted DML on {len(TABLES)} tables in {database}")
+
+        await _provision_authz(conn)
     finally:
         await conn.close()
+
+
+async def _provision_authz(conn: asyncpg.Connection) -> None:
+    """Create the function-owner role and let the migration role hand it functions.
+
+    Creating a ``BYPASSRLS`` role requires superuser, which is why this runs
+    here -- by hand, on the admin credential -- rather than in the boot
+    migration. The ``GRANT`` afterwards is not cosmetic: migrations run
+    ``ALTER FUNCTION ... OWNER TO rif_authz``, and Postgres requires the
+    executing role to be a member of the role it gives ownership to.
+
+    :param conn: an open connection on a role that can create roles
+    """
+    exists = await conn.fetchval(
+        "SELECT 1 FROM pg_roles WHERE rolname = $1", AUTHZ_ROLE
+    )
+    if exists:
+        # Re-assert the attribute rather than assume it: a role of the right
+        # name with BYPASSRLS quietly missing would make every policy that
+        # calls its functions recurse on the first request after deploy.
+        await conn.execute(f"ALTER ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS")
+        print(f"updated role {AUTHZ_ROLE}")
+    else:
+        await conn.execute(f"CREATE ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS")
+        print(f"created role {AUTHZ_ROLE}")
+
+    migration_role = await conn.fetchval("SELECT current_user")
+    await conn.execute(f'GRANT {AUTHZ_ROLE} TO "{migration_role}"')
+    print(f"granted {AUTHZ_ROLE} to {migration_role} (needed to assign ownership)")
+
+    # Reassigning a function's ownership requires the *new* owner to hold
+    # CREATE on the schema; without it every ALTER FUNCTION ... OWNER TO in
+    # the migration fails with "permission denied for schema public". Granting
+    # CREATE to a NOLOGIN role widens nothing reachable: it can only ever be
+    # exercised through a SECURITY DEFINER function this repo owns.
+    await conn.execute(f"GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}")
+    print(f"granted CREATE on schema public to {AUTHZ_ROLE}")
 
 
 async def verify(admin_dsn: str, password: str) -> bool:
@@ -123,6 +171,20 @@ async def verify(admin_dsn: str, password: str) -> bool:
         if row["is_super"] or row["bypass"]:
             print("FAIL: the app role still bypasses row security")
             return False
+
+        authz = await conn.fetchrow(
+            "SELECT rolbypassrls AS bypass, rolcanlogin AS can_login "
+            "FROM pg_roles WHERE rolname = $1",
+            AUTHZ_ROLE,
+        )
+        if authz is None or not authz["bypass"] or authz["can_login"]:
+            print(
+                f"  FAIL: {AUTHZ_ROLE} must exist with BYPASSRLS and NOLOGIN "
+                f"(found: {dict(authz) if authz else 'missing'})"
+            )
+            ok = False
+        else:
+            print(f"  {AUTHZ_ROLE:<12} NOLOGIN + BYPASSRLS                  [OK]")
 
         for table in PROTECTED:
             visible = await conn.fetchval(f"SELECT count(*) FROM {table}")

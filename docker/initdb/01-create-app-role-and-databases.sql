@@ -26,3 +26,28 @@
 CREATE ROLE rif WITH LOGIN PASSWORD 'rif';
 CREATE DATABASE rif OWNER rif;
 CREATE DATABASE rif_test OWNER rif;
+
+-- The owner of rif.rls's helper functions, and of nothing else. BYPASSRLS is
+-- the point: FORCE ROW LEVEL SECURITY subjects even the table owner to
+-- policies, so a policy on memberships whose predicate reads memberships
+-- recurses until the stack is exhausted. A SECURITY DEFINER function owned by
+-- a BYPASSRLS role breaks that cycle, and because this role cannot log in,
+-- the bypass is reachable only by calling one of those functions.
+--
+-- NOLOGIN, no password: nothing ever connects as it. The grant lets "rif"
+-- (which runs migrations here, as it owns the databases) execute
+-- ALTER FUNCTION ... OWNER TO rif_authz -- Postgres requires the executing
+-- role to be a member of the role it hands ownership to.
+CREATE ROLE rif_authz NOLOGIN BYPASSRLS;
+GRANT rif_authz TO rif;
+
+-- CREATE on the schema is required of the *new* owner when a function's
+-- ownership is reassigned, so without this every ALTER FUNCTION ... OWNER TO
+-- fails with "permission denied for schema public". It is granted per
+-- database, hence the reconnects. Handing CREATE to a role nothing can log in
+-- as is not the widening it looks like: the privilege is exercisable only
+-- through a SECURITY DEFINER function this repo wrote and owns.
+\c rif
+GRANT CREATE ON SCHEMA public TO rif_authz;
+\c rif_test
+GRANT CREATE ON SCHEMA public TO rif_authz;
