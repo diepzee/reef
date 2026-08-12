@@ -2,12 +2,11 @@ import pytest
 
 from rif.access import AccessDenied
 from rif.auth import current_principal, principal_from_claims
-from rif.models import Person
+from rif.identity import person_by_subject
 
 
-async def test_known_subject_resolves(tx, household):
-    household["wouter"].subject = "auth0|abc123"
-    await household["wouter"].save()
+async def test_known_subject_resolves(tx, household, graph):
+    await graph.bind_subject(household["wouter"], "auth0|abc123")
     principal = await principal_from_claims({"sub": "auth0|abc123"})
     assert principal.person_id == household["wouter"].id
 
@@ -20,10 +19,10 @@ async def test_first_login_binds_subject_via_verified_email(tx, household):
     }
     principal = await principal_from_claims(claims)
     assert principal.person_id == household["wouter"].id
-    # Re-read rather than trusting the fixture's object: Piccolo has no
-    # identity map, so the row auth.py bound is a different instance.
-    bound = await Person.objects().where(Person.id == household["wouter"].id).first()
-    assert bound.subject == "auth0|new"
+    # Read back through the binding lookup rather than the row: persons is
+    # self-only now, and nothing here is armed.
+    bound = await person_by_subject("auth0|new")
+    assert bound is not None and bound.person_id == household["wouter"].id
 
 
 async def test_unverified_email_cannot_bind(tx, household):
@@ -50,8 +49,9 @@ async def test_only_a_boolean_true_counts_as_a_verified_email(tx, household):
                     "email_verified": value,
                 }
             )
-    unbound = await Person.objects().where(Person.id == household["wouter"].id).first()
-    assert unbound.subject is None
+    # None of those attempts may have bound anything.
+    for value in ("auth0|z",):
+        assert await person_by_subject(value) is None
 
 
 async def test_first_bind_onboards_a_personal_space(tx, household):

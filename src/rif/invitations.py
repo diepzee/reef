@@ -11,7 +11,9 @@ inviting an address reef already knows costs nothing.
 """
 
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from rif.access import Principal, arm
 from rif.models import Person
@@ -99,12 +101,20 @@ async def next_invite_at(
     return oldest + timedelta(days=INVITE_WINDOW_DAYS)
 
 
+@dataclass(frozen=True)
+class AllowlistEntry:
+    """An address that may sign in, and the id reef knows it by."""
+
+    person_id: UUID
+    email: str
+
+
 async def allowlist(
     inviter: Principal,
     email: str,
     display_name: str | None = None,
     now: datetime | None = None,
-) -> tuple[Person, bool]:
+) -> tuple[AllowlistEntry, bool]:
     """Ensure ``email`` is on the allowlist, spending budget only if new.
 
     The one place a ``persons`` row is created from an invite. An address reef
@@ -115,8 +125,13 @@ async def allowlist(
     :param email: the address the invitee will sign in with
     :param display_name: how members see them; defaults to the email's name part
     :param now: clock override for tests
+    Returns an :class:`AllowlistEntry` rather than a ``Person`` row on
+    purpose. Under the identity policies an inviter cannot read a stranger's
+    row at all, so there is nothing to read back -- and nothing the callers
+    need beyond the id and the address they supplied.
+
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
-    :returns: the person row, and whether this call created it
+    :returns: the entry, and whether this call created it
     """
     await arm(inviter)
     email = email.strip().lower()
@@ -126,8 +141,7 @@ async def allowlist(
     rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
     existing_id = rows[0]["id"] if rows else None
     if existing_id is not None:
-        person = await Person.objects().where(Person.id == existing_id).first()
-        return person, False
+        return AllowlistEntry(person_id=existing_id, email=email), False
     if await invites_left(inviter, now) <= 0:
         unlocks = await next_invite_at(inviter, now)
         when = f" Your next invite unlocks {unlocks:%-d %B %Y}." if unlocks else ""
@@ -135,13 +149,20 @@ async def allowlist(
             f"You have invited {INVITE_BUDGET} new people in the last "
             f"{INVITE_WINDOW_DAYS} days, which is the limit.{when}"
         )
-    person = Person(
-        email=email,
-        display_name=display_name or email.split("@")[0],
-        invited_by_person_id=inviter.person_id,
+    # Created by the database rather than by Piccolo. save() emits
+    # INSERT ... RETURNING, and Postgres applies SELECT policies to what a
+    # RETURNING gives back -- so a self-only persons policy refuses the
+    # inviter their own invitee, reporting it as a check-policy violation.
+    rows = await Person.raw(
+        "SELECT rif_allowlist_person({}, {}, {}) AS id",
+        email,
+        display_name or email.split("@")[0],
+        now or _now(),
     )
-    await person.save()
-    return person, True
+    new_id = rows[0]["id"] if rows else None
+    if new_id is None:
+        raise InviteBudgetExceeded("no principal is armed to be accountable")
+    return AllowlistEntry(person_id=new_id, email=email), True
 
 
 async def invite_to_reef(
@@ -164,11 +185,11 @@ async def invite_to_reef(
     :raises InviteBudgetExceeded: if the inviter's budget is spent
     :returns: outcome with the relay text and remaining budget
     """
-    person, created = await allowlist(inviter, email, display_name)
+    entry, created = await allowlist(inviter, email, display_name)
     base_url = os.environ.get("RIF_BASE_URL", "").rstrip("/")
     where = base_url or "reef"
     return {
-        "email": person.email,
+        "email": entry.email,
         "already_known": not created,
         "invites_left": await invites_left(inviter),
         "next_step": (

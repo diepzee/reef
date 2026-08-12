@@ -347,38 +347,64 @@ def identity_policy_statements() -> list[str]:
         statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
 
     statements += [
-        f"CREATE POLICY persons_self_select ON persons FOR SELECT "
-        f"USING (id = {PRINCIPAL})",
-        f"CREATE POLICY persons_self_update ON persons FOR UPDATE "
-        f"USING (id = {PRINCIPAL}) WITH CHECK (id = {PRINCIPAL})",
-        f"CREATE POLICY persons_self_delete ON persons FOR DELETE "
-        f"USING (id = {PRINCIPAL})",
+        (
+            f"CREATE POLICY persons_self_select ON persons FOR SELECT "
+            f"USING (id = {PRINCIPAL})"
+        ),
+        (
+            f"CREATE POLICY persons_self_update ON persons FOR UPDATE "
+            f"USING (id = {PRINCIPAL}) WITH CHECK (id = {PRINCIPAL})"
+        ),
         # Every invitation is pinned to the person who spent budget on it,
         # which is also what makes the budget count meaningful.
-        f"CREATE POLICY persons_invite_insert ON persons FOR INSERT "
-        f"WITH CHECK (invited_by_person_id = {PRINCIPAL})",
-        "CREATE POLICY spaces_member_select ON spaces FOR SELECT "
-        "USING (id IN (SELECT rif_space_ids()))",
-        f"CREATE POLICY spaces_owner_select ON spaces FOR SELECT "
-        f"USING ({owner_is_principal})",
-        f"CREATE POLICY spaces_owner_insert ON spaces FOR INSERT "
-        f"WITH CHECK ({owner_is_principal})",
-        "CREATE POLICY spaces_member_update ON spaces FOR UPDATE "
-        "USING (id IN (SELECT rif_member_space_ids())) "
-        "WITH CHECK (id IN (SELECT rif_member_space_ids()))",
-        f"CREATE POLICY spaces_owner_delete ON spaces FOR DELETE "
-        f"USING ({owner_is_principal})",
-        f"CREATE POLICY memberships_self_select ON memberships FOR SELECT "
-        f"USING (person_id = {PRINCIPAL})",
-        "CREATE POLICY memberships_covis_select ON memberships FOR SELECT "
-        "USING (space_id IN (SELECT rif_space_ids()))",
+        (
+            f"CREATE POLICY persons_self_delete ON persons FOR DELETE "
+            f"USING (id = {PRINCIPAL})"
+        ),
+        (
+            f"CREATE POLICY persons_invite_insert ON persons FOR INSERT "
+            f"WITH CHECK (invited_by_person_id = {PRINCIPAL})"
+        ),
+        (
+            "CREATE POLICY spaces_member_select ON spaces FOR SELECT "
+            "USING (id IN (SELECT rif_space_ids()))"
+        ),
+        (
+            f"CREATE POLICY spaces_owner_select ON spaces FOR SELECT "
+            f"USING ({owner_is_principal})"
+        ),
+        (
+            f"CREATE POLICY spaces_owner_insert ON spaces FOR INSERT "
+            f"WITH CHECK ({owner_is_principal})"
+        ),
+        (
+            "CREATE POLICY spaces_member_update ON spaces FOR UPDATE "
+            "USING (id IN (SELECT rif_member_space_ids())) "
+            "WITH CHECK (id IN (SELECT rif_member_space_ids()))"
+        ),
+        (
+            f"CREATE POLICY spaces_owner_delete ON spaces FOR DELETE "
+            f"USING ({owner_is_principal})"
+        ),
+        (
+            f"CREATE POLICY memberships_self_select ON memberships FOR SELECT "
+            f"USING (person_id = {PRINCIPAL})"
+        ),
         # The owner arm bootstraps a cove's first membership, when no
         # membership exists yet to satisfy the member arm.
-        "CREATE POLICY memberships_insert ON memberships FOR INSERT "
-        "WITH CHECK (space_id IN (SELECT rif_member_space_ids()) "
-        "OR rif_owns_space(space_id))",
-        f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
-        f"USING (person_id = {PRINCIPAL})",
+        (
+            "CREATE POLICY memberships_covis_select ON memberships FOR SELECT "
+            "USING (space_id IN (SELECT rif_space_ids()))"
+        ),
+        (
+            "CREATE POLICY memberships_insert ON memberships FOR INSERT "
+            "WITH CHECK (space_id IN (SELECT rif_member_space_ids()) "
+            "OR rif_owns_space(space_id))"
+        ),
+        (
+            f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
+            f"USING (person_id = {PRINCIPAL})"
+        ),
     ]
     return statements
 
@@ -455,8 +481,19 @@ def drop_identity_policy_statements() -> list[str]:
 def mutation_statements() -> list[str]:
     """Return DDL for the privileged writes no row policy can express.
 
-    Two operations legitimately reach beyond what their actor can see, and
-    both are administration rather than content:
+    Three operations legitimately reach beyond what their actor can see, and
+    all are administration rather than content.
+
+    Creating an invitation is one of them, for a reason that is not obvious:
+    Postgres applies **SELECT** policies to the rows an ``INSERT ...
+    RETURNING`` gives back, and Piccolo's ``save()`` always returns. With
+    ``persons`` self-only an inviter is therefore refused when creating an
+    invitee -- even with ``persons_invite_insert`` satisfied exactly -- and
+    the error names the check policy rather than the select one that actually
+    denied it. Doing the insert here sidesteps the caller's policies
+    altogether and keeps ``persons`` self-only, which the alternative (a
+    policy letting an inviter read rows they invited) would not: that would
+    expose the invitee's whole row, including the ``subject`` bound later.
 
     Removing a member has to decide whether the departing person is now an
     orphaned invitation to erase. That test is ``no memberships remain
@@ -484,6 +521,35 @@ def mutation_statements() -> list[str]:
             f"AND owner_person_id = {PRINCIPAL})",
             returns="boolean",
             reads=("spaces",),
+        ),
+        *_function_ddl(
+            "rif_allowlist_person(p_email text, p_display_name text, "
+            "p_created_at timestamp)",
+            f"""
+DECLARE
+  new_id uuid;
+BEGIN
+  -- Unarmed means nobody is accountable for the invitation, and the row
+  -- would land with a NULL inviter -- indistinguishable from the founding
+  -- person, and outside the budget. Refuse rather than create it.
+  IF {PRINCIPAL} IS NULL THEN
+    RETURN NULL;
+  END IF;
+  -- created_at comes from the caller, not from the server. The budget
+  -- window is compared against Python's clock, and letting the database
+  -- stamp it here reintroduced a whole timezone offset between the two --
+  -- every window silently wrong, no error anywhere.
+  INSERT INTO persons (id, email, display_name, invited_by_person_id, created_at)
+  VALUES (gen_random_uuid(), lower(p_email), p_display_name, {PRINCIPAL},
+          p_created_at)
+  RETURNING id INTO new_id;
+  RETURN new_id;
+END
+""",
+            returns="uuid",
+            writes=("persons",),
+            volatility="VOLATILE",
+            language="plpgsql",
         ),
         *_function_ddl(
             "rif_remove_member(p_space uuid, p_person uuid, "
@@ -560,6 +626,7 @@ def drop_mutation_statements() -> list[str]:
     """
     return [
         "DROP FUNCTION IF EXISTS rif_owns_space(uuid)",
+        "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, timestamp)",
         "DROP FUNCTION IF EXISTS rif_remove_member(uuid, uuid)",
         "DROP FUNCTION IF EXISTS rif_transfer_space_ownership(uuid, uuid)",
     ]

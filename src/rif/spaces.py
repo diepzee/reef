@@ -197,12 +197,12 @@ async def invite(
     :returns: outcome with the disclosure text and an ``already_member`` flag
     """
     space = await _owned_shared_space(principal, slug)
-    person, _ = await allowlist(principal, email, display_name)
-    email = person.email
-    membership = await _membership(person.id, space.id)
+    entry, _ = await allowlist(principal, email, display_name)
+    email = entry.email
+    membership = await _membership(entry.person_id, space.id)
     already = membership is not None
     if not already:
-        await Membership(person_id=person.id, space_id=space.id).save()
+        await Membership(person_id=entry.person_id, space_id=space.id).save()
     page_count = await Page.count().where(Page.space_id == space.id)
     return {
         "space": slug,
@@ -231,19 +231,24 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     """
     space = await _owned_shared_space(principal, slug)
     email = email.strip().lower()
-    person = await Person.objects().where(Person.email == email).first()
-    membership = None if person is None else await _membership(person.id, space.id)
-    if membership is None:
+    rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
+    person_id = rows[0]["id"] if rows else None
+    if person_id is None or await _membership(person_id, space.id) is None:
         raise SpaceError(f"{email} is not a member of {slug!r}")
-    if person.id == principal.person_id:
+    if person_id == principal.person_id:
         raise SpaceError("the owner cannot remove themselves from their own space")
-    await membership.remove()
-    person_erased = False
-    if person.subject is None:
-        remaining = await Membership.count().where(Membership.person_id == person.id)
-        if remaining == 0:
-            await person.remove()
-            person_erased = True
+
+    # The removal and the orphan check are one statement in the database.
+    # Deciding here whether the departing person still belongs anywhere would
+    # need a person-wide membership count, and the remover has no right to
+    # see memberships in coves they are not in -- so the count would come
+    # back short and erase somebody still active elsewhere.
+    outcome = await Person.raw(
+        "SELECT * FROM rif_remove_member({}, {})", space.id, person_id
+    )
+    if not outcome or not outcome[0]["removed"]:
+        raise SpaceError(f"{email} is not a member of {slug!r}")
+    person_erased = bool(outcome[0]["person_erased"])
     return {
         "space": slug,
         "email": email,
@@ -270,6 +275,12 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
     :param person_id: the newly bound person's id
     :param email: their address, for the principal passed to ``save_page``
     """
+    # Arms rather than assuming the caller did. The inserts below are checked
+    # against the principal, and onboarding failing is a person locked out of
+    # reef entirely on their first sign-in -- too sharp an edge to leave to
+    # call order.
+    principal = Principal(person_id=person_id, email=email)
+    await arm(principal)
     existing = (
         await Space.objects()
         .where(
@@ -287,7 +298,6 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
     )
     await space.save()
     await Membership(person_id=person_id, space_id=space.id).save()
-    principal = Principal(person_id=person_id, email=email)
     await save_page(
         principal,
         "personal",

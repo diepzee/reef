@@ -9,11 +9,8 @@ from rif.models import (
     Attachment,
     AttachmentStatus,
     MemberRole,
-    Membership,
     Page,
-    Person,
     Revision,
-    Space,
 )
 from rif.pages import save_page
 
@@ -22,15 +19,25 @@ def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def test_delete_account_erases_private_data_and_preserves_shared_coves(graph):
+async def _gone(seed, table: str, row_id) -> bool:
+    """Report whether a row is absent, read past the identity policies.
+
+    :param seed: the policy-free connection
+    :param table: which table
+    :param row_id: the primary key
+    :returns: True when no such row remains
+    """
+    return not await seed.fetchval(
+        f"SELECT count(*) FROM {table} WHERE id = $1", row_id
+    )
+
+
+async def test_delete_account_erases_private_data_and_preserves_shared_coves(
+    graph, seed
+):
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
-    invitee = Person(
-        email="invited@x.com",
-        display_name="Invited",
-        invited_by_person_id=alice.id,
-    )
-    await invitee.save()
+    invitee = await graph.person("invited@x.com", "Invited", invited_by=alice)
     personal = await graph.personal_space(alice)
     await graph.personal_space(bob)
     team = await graph.shared_space("team", alice, bob)
@@ -65,30 +72,35 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(gra
 
         result = await delete_account_rows(principal)
 
-        assert set(result.deleted_coves) == {"personal", "solo"}
-        assert result.transferred_coves == ["team"]
-        assert set(result.file_keys) == {"attachments/private", "attachments/solo"}
-        assert await Person.objects().where(Person.id == alice.id).first() is None
-        assert await Space.objects().where(Space.id == personal.id).first() is None
-        assert await Space.objects().where(Space.id == solo.id).first() is None
+    # Asserted after the transaction commits: the seed connection cannot see
+    # uncommitted work, and the principal is erased by now so nothing is
+    # armed that could see these rows through the policies either.
+    assert set(result.deleted_coves) == {"personal", "solo"}
+    assert result.transferred_coves == ["team"]
+    assert set(result.file_keys) == {"attachments/private", "attachments/solo"}
+    assert await _gone(seed, "persons", alice.id)
+    assert await _gone(seed, "spaces", personal.id)
+    assert await _gone(seed, "spaces", solo.id)
 
-        surviving_invitee = (
-            await Person.objects().where(Person.id == invitee.id).first()
-        )
-        assert surviving_invitee is not None
-        assert surviving_invitee.invited_by_person_id is None
+    surviving = await seed.fetchrow(
+        "SELECT invited_by_person_id FROM persons WHERE id = $1", invitee.id
+    )
+    assert surviving is not None
+    assert surviving["invited_by_person_id"] is None
 
-        surviving_team = await Space.objects().where(Space.id == team.id).first()
-        assert surviving_team.owner_person_id == bob.id
-        assert (
-            await Membership.objects()
-            .where(Membership.space_id == team.id, Membership.person_id == alice.id)
-            .first()
-            is None
-        )
+    owner_id = await seed.fetchval(
+        "SELECT owner_person_id FROM spaces WHERE id = $1", team.id
+    )
+    assert owner_id == bob.id
+    assert not await seed.fetchval(
+        "SELECT count(*) FROM memberships WHERE space_id = $1 AND person_id = $2",
+        team.id,
+        alice.id,
+    )
 
-        # Re-arm as the remaining member: shared content stays, but Alice's
-        # identity is removed from its retained revision history.
+    # Armed as the remaining member: shared content stays, but Alice's
+    # identity is removed from its retained revision history.
+    async with transaction_scope():
         await arm(principal_for(bob))
         assert await Page.objects().where(Page.id == team_page.id).first() is not None
         revision = (
@@ -103,29 +115,31 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(gra
         )
 
 
-async def test_delete_account_promotes_a_viewer_who_inherits_ownership(graph):
+async def test_delete_account_promotes_a_viewer_who_inherits_ownership(graph, seed):
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
     await graph.personal_space(alice)
     team = await graph.shared_space("team", alice, bob)
-    await Membership.update({Membership.role: MemberRole.VIEWER.value}).where(
-        Membership.space_id == team.id,
-        Membership.person_id == bob.id,
-    )
+    # Seeded: memberships has no UPDATE policy, because role changes belong
+    # to the ownership-transfer function rather than to any caller.
+    await graph.set_role(bob, team, MemberRole.VIEWER.value)
 
     async with transaction_scope():
         await delete_account_rows(principal_for(alice))
-        surviving_team = await Space.objects().where(Space.id == team.id).first()
-        successor = (
-            await Membership.objects()
-            .where(Membership.space_id == team.id, Membership.person_id == bob.id)
-            .first()
-        )
-        assert surviving_team.owner_person_id == bob.id
-        assert successor.role == MemberRole.MEMBER.value
+
+    owner_id = await seed.fetchval(
+        "SELECT owner_person_id FROM spaces WHERE id = $1", team.id
+    )
+    role = await seed.fetchval(
+        "SELECT role FROM memberships WHERE space_id = $1 AND person_id = $2",
+        team.id,
+        bob.id,
+    )
+    assert owner_id == bob.id
+    assert role == MemberRole.MEMBER.value
 
 
-async def test_delete_api_requires_both_guards_and_clears_session(api, world):
+async def test_delete_api_requires_both_guards_and_clears_session(api, world, seed):
     alice, bob, team = world
     _login(api, alice)
     headers = {"X-Rif-Csrf": "1"}
@@ -138,7 +152,11 @@ async def test_delete_api_requires_both_guards_and_clears_session(api, world):
             "/api/account/delete", headers=headers, json=incomplete_guard
         )
         assert refused.status_code == 400
-        assert await Person.objects().where(Person.id == alice.id).first() is not None
+        # Read past the policies: the request's own transaction is gone, so
+        # nothing here is armed to see Alice's row through them.
+        assert await seed.fetchval(
+            "SELECT count(*) FROM persons WHERE id = $1", alice.id
+        )
 
     deleted = await api.post(
         "/api/account/delete",
@@ -149,7 +167,10 @@ async def test_delete_api_requires_both_guards_and_clears_session(api, world):
     assert deleted.json()["deleted"] is True
     assert "team" in deleted.json()["transferred_coves"]
     assert "Max-Age=0" in deleted.headers["set-cookie"]
-    assert await Person.objects().where(Person.id == alice.id).first() is None
+    assert not await seed.fetchval(
+        "SELECT count(*) FROM persons WHERE id = $1", alice.id
+    )
     assert (
-        await Space.objects().where(Space.id == team.id).first()
-    ).owner_person_id == bob.id
+        await seed.fetchval("SELECT owner_person_id FROM spaces WHERE id = $1", team.id)
+        == bob.id
+    )

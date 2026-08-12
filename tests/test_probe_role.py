@@ -96,3 +96,30 @@ async def test_row_level_security_still_applies_to_the_probe(probe, graph):
 
     # Unarmed, on a connection that neither owns the table nor bypasses RLS.
     assert await probe.fetchval("SELECT count(*) FROM pages") == 0
+
+
+async def test_a_member_may_bump_version_but_not_rewrite_a_cove(probe, graph):
+    """The column grant, asserted from a role it actually constrains.
+
+    A page write bumps ``spaces.version``, so the row policy has to admit
+    every member. Row security cannot say *which column*, so without the
+    grant a member could rename a cove or hand themselves its ownership with
+    one statement. This is the assertion the whole probe fixture exists for:
+    against the owning role it would pass while the grant was absent.
+    """
+    person = await graph.person("grant@example.test", "Grant")
+    space = await graph.shared_space("grant-cove", person)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(person.id))
+    try:
+        await probe.execute(
+            "UPDATE spaces SET version = version + 1 WHERE id = $1", space.id
+        )
+
+        for column, value in (("slug", "stolen"), ("owner_person_id", str(person.id))):
+            with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+                await probe.execute(
+                    f"UPDATE spaces SET {column} = $1 WHERE id = $2", value, space.id
+                )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")

@@ -75,12 +75,11 @@ async def test_space_ids_returns_only_the_armed_principals_spaces(tx, household)
         assert household["p_personal"].id not in mine
 
 
-async def test_member_space_ids_excludes_viewer_memberships(tx, household):
+async def test_member_space_ids_excludes_viewer_memberships(tx, household, graph):
     """Write authority is narrower than read authority, and stays so."""
-    await Membership.update({Membership.role: "viewer"}).where(
-        Membership.person_id == household["partner"].id,
-        Membership.space_id == household["shared"].id,
-    )
+    # memberships has no UPDATE policy -- role changes belong to the
+    # ownership-transfer function -- so a viewer has to be seeded.
+    await graph.set_role(household["partner"], household["shared"], "viewer")
     await _arm(household["partner"])
     readable = {r["id"] for r in await Space.raw("SELECT rif_space_ids() AS id")}
     writable = {r["id"] for r in await Space.raw("SELECT rif_member_space_ids() AS id")}

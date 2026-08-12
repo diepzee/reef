@@ -58,8 +58,9 @@ async def test_they_are_closed_to_public():
 
 async def test_lookup_by_subject_returns_only_the_principal_columns(tx, graph):
     """Never the whole row: subject and anything added later stay behind."""
-    person = await graph.person("bysubject@example.test", "By Subject")
-    await Person.update({Person.subject: "auth0|abc"}).where(Person.id == person.id)
+    person = await graph.person(
+        "bysubject@example.test", "By Subject", subject="auth0|abc"
+    )
 
     rows = await Person.raw("SELECT * FROM rif_person_by_subject({})", "auth0|abc")
     assert set(rows[0].keys()) == {
@@ -95,24 +96,28 @@ async def test_binding_a_subject_claims_an_unbound_invitation(tx, graph):
 
     assert identity is not None
     assert identity.person_id == person.id
-    bound = await Person.objects().where(Person.id == person.id).first()
-    assert bound.subject == "auth0|new"
+    # Read back through the binding lookup: the row itself is not readable
+    # by anyone but its owner, and nothing is armed here.
+    bound = await person_by_subject("auth0|new")
+    assert bound is not None and bound.person_id == person.id
 
 
 async def test_binding_refuses_a_person_who_already_signed_in(tx, graph):
     """A bound row is not re-bindable, so a second provider cannot take it over."""
-    person = await graph.person("taken@example.test", "Taken")
-    await Person.update({Person.subject: "auth0|first"}).where(Person.id == person.id)
+    person = await graph.person("taken@example.test", "Taken", subject="auth0|first")
 
     assert await bind_subject("taken@example.test", "auth0|second") is None
-    unchanged = await Person.objects().where(Person.id == person.id).first()
-    assert unchanged.subject == "auth0|first"
+    unchanged = await person_by_subject("auth0|first")
+    assert unchanged is not None and unchanged.person_id == person.id
 
 
 async def test_binding_an_uninvited_address_matches_nothing(tx, graph):
     """Invitation-only: no row means no account, never an implicit signup."""
     assert await bind_subject("stranger@example.test", "auth0|stranger") is None
-    assert await Person.count().where(Person.email == "stranger@example.test") == 0
+    rows = await Person.raw(
+        "SELECT rif_person_id_by_email({}) AS id", "stranger@example.test"
+    )
+    assert rows[0]["id"] is None
 
 
 async def test_two_concurrent_first_sign_ins_cannot_both_bind(graph):
@@ -127,7 +132,7 @@ async def test_two_concurrent_first_sign_ins_cannot_both_bind(graph):
     concurrent on separate connections, which a single shared transaction
     cannot express.
     """
-    person = await graph.person("race@example.test", "Race")
+    await graph.person("race@example.test", "Race")
 
     async def attempt(subject: str) -> bool:
         async with DB.transaction():
@@ -136,14 +141,14 @@ async def test_two_concurrent_first_sign_ins_cannot_both_bind(graph):
     first, second = await asyncio.gather(attempt("auth0|a"), attempt("auth0|b"))
 
     assert [first, second].count(True) == 1, "exactly one attempt should bind"
-    bound = await Person.objects().where(Person.id == person.id).first()
-    assert bound.subject in {"auth0|a", "auth0|b"}
+    winners = [s for s in ("auth0|a", "auth0|b") if await person_by_subject(s)]
+    assert len(winners) == 1
 
 
-async def test_person_exists_reports_liveness_only(tx, graph):
+async def test_person_exists_reports_liveness_only(graph):
     """The cookie check needs a boolean, so a boolean is all that crosses."""
     person = await graph.person("alive@example.test", "Alive")
     assert await person_exists(person.id) is True
 
-    await Person.delete().where(Person.id == person.id)
+    await graph.erase_person(person)
     assert await person_exists(person.id) is False
