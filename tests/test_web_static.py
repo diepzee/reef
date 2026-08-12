@@ -1,5 +1,7 @@
 """Static serving: SPA fallback, traversal guard, root redirect."""
 
+from pathlib import Path
+
 import httpx
 import pytest_asyncio
 
@@ -34,6 +36,15 @@ async def test_root_serves_marketing_site(static_client, tmp_path):
     response = await static_client.get("/")
     assert response.status_code == 200
     assert "reef marketing" in response.text
+
+
+def test_marketing_site_offers_cli_and_agent_skill_setup():
+    """The terminal-first path is visible and gives both working entry points."""
+    page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
+    assert '<option value="cli"' in page
+    assert "uv tool install git+https://github.com/diepzee/rif.git" in page
+    assert "reef login" in page
+    assert "github.com/diepzee/rif/tree/main/skills/reef" in page
 
 
 async def test_root_redirects_to_app_without_site(static_client):
