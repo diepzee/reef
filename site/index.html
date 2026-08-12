@@ -183,6 +183,41 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 .circles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.8rem 1rem; }
 .circle { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.85rem; font-weight: 700; font-size: 1.02rem; }
 .circle .pool { width: 96px; height: 96px; border-radius: 50%; background: var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; }
+/* The creatures take the mark's rhythm, but the pools stay still — the water moves, not the
+   window onto it. They must not move together either: five identical swings in step read as one
+   mechanism rather than five animals, so each gets its own period and a negative delay, which
+   drops it mid-swing instead of leaving it standing until its turn comes. The periods are
+   deliberately not multiples of one another, so the row keeps drifting out of phase instead of
+   resynchronising every few seconds.
+
+   Skew, exactly as the mark does it, and not rotation: skew leaves every point on the pivot
+   line exactly where it is, so the footing stays planted and only the crown leans. A rotation
+   swings the whole animal and lifts its base off the seabed, which is wrong for something
+   rooted — grass does not slide along the ground when it bends.
+
+   Two things differ from the mark, both forced by size. The pivot sits at 82% of the box, not
+   at its bottom edge, because a cove glyph frames the organism centred in a square —
+   TARGET_HEIGHT 0.64 leaves ~18% of empty water beneath its feet — so the box's bottom edge is
+   not the ground line here; the framing script refines this per creature off the real ink. And
+   the angle is geared up, because what the eye reads is not the angle but the displacement,
+   which is the angle times the lever: 3deg carries the ~520px hero's crown about 27px and this
+   54px glyph's under 3px. Same motion, sized to be seen.
+
+   These keyframes are only the no-JS path. With JS the lean loop takes over, so a sweep of the
+   cursor stirs the coves along with the mark. */
+@keyframes sway-cove {
+  from { transform: skewX(-9deg); }
+  to   { transform: skewX(9deg); }
+}
+.circles .pool svg {
+  transform-box: border-box; transform-origin: 50% 82%; will-change: transform;
+  animation: sway-cove 3.9s ease-in-out infinite alternate;
+}
+.circles .circle:nth-child(1) .pool svg { animation-duration: 4.3s; animation-delay: -0.6s; }
+.circles .circle:nth-child(2) .pool svg { animation-duration: 3.6s; animation-delay: -2.1s; }
+.circles .circle:nth-child(3) .pool svg { animation-duration: 4.7s; animation-delay: -1.3s; }
+.circles .circle:nth-child(4) .pool svg { animation-duration: 3.9s; animation-delay: -3.0s; }
+.circles .circle:nth-child(5) .pool svg { animation-duration: 4.1s; animation-delay: -1.8s; }
 
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; counter-reset: step; }
 .step { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
@@ -380,7 +415,7 @@ footer a { color: var(--muted); }
 }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
-  .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg { animation: none; }
+  .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg, .circles .pool svg { animation: none; }
   .reveal { opacity: 1; transform: none; animation: none; }
   .tour-screen { transition: none; }
   .tour-tab::after { animation: none !important; }
@@ -811,7 +846,50 @@ footer a { color: var(--muted); }
   // no-JS path; a running animation outranks an inline style, so it is switched off here
   // before anything is written to `transform`.
   var swayEls = [].slice.call(document.querySelectorAll(".hero .sway, .brand svg, .final .lockup svg"));
-  swayEls.forEach(function (el) { el.style.animation = "none"; });
+
+  // The cove creatures ride the same loop, so one sweep of the cursor stirs the whole reef
+  // rather than the mark alone. Two adjustments make the same signal fit a 54px glyph:
+  //
+  // The gain, because displacement is the angle times the lever. Three degrees moves the hero's
+  // crown ~27px and a cove's ~1px, so copying the angle would be copying a standstill. Geared,
+  // the total needs a ceiling, and it saturates rather than clamps: a hard cap pins every
+  // stirred creature at exactly the limit, collapsing the phase variety into one synchronised
+  // flinch just when the reef is liveliest. tanh bends over instead, and never quite arrives.
+  //
+  // The phase, because five identical swings in step read as one mechanism instead of five
+  // animals. The offsets are fractions of the idle cycle, spread unevenly and shared by no two
+  // neighbours. The stir desynchronises them too, but on its own account: it reaches each
+  // creature as the pointer passes it, so a sweep travels along the row rather than landing on
+  // all five at once.
+  var coveEls = [].slice.call(document.querySelectorAll(".circles .pool svg"));
+  var COVE_GAIN = 3;
+  // The ceiling has to clear the idle swing with room to spare, or it eats the stir instead of
+  // just the extremes: geared idle alone reaches 9deg, so a 15deg limit left the cursor only
+  // 6deg to work in and tanh compressed most of a push away whenever a creature was already
+  // leaning. At 22 the ordinary stir stays in the curve's linear stretch and only a frantic
+  // sweep — which would otherwise reach 27deg and lay the creatures flat — gets bent over.
+  var COVE_LIMIT = 22;   // degrees of skew
+  var COVE_PHASES = [0.13, 0.61, 0.29, 0.83, 0.47];
+
+  // Each carries its own spring, since each is now pushed by its own share of the water.
+  // The mark keeps gain 1 and no ceiling: it is the identity, and its lean is already tuned.
+  function leaner(el, phase, gain, limit) {
+    return { el: el, phase: phase, gain: gain, limit: limit,
+             nudge: 0, nudgeVel: 0, x: 0, y: 0, reach: 0 };
+  }
+  var leaners = swayEls
+    .map(function (el) { return leaner(el, 0, 1, 0); })
+    .concat(coveEls.map(function (el, i) {
+      return leaner(el, COVE_PHASES[i % COVE_PHASES.length], COVE_GAIN, COVE_LIMIT);
+    }));
+
+  var heroEl = document.querySelector(".hero .sway");
+  var heroLeaner = null;
+  for (var li = 0; li < leaners.length; li++) {
+    if (leaners[li].el === heroEl) heroLeaner = leaners[li];
+  }
+
+  leaners.forEach(function (l) { l.el.style.animation = "none"; });
 
   // The mark leans as the water is stirred: a sweep of the pointer pushes it, then it springs
   // back to its resting rhythm. Stiffness is w^2 and damping 2*zeta*w, at w=11.4 (a ~0.55s
@@ -826,7 +904,42 @@ footer a { color: var(--muted); }
   var NUDGE_LIMIT = 6;         // degrees, so a frantic cursor cannot lay the mark flat
   var STEP_LIMIT = 60;         // ignore teleports: a window switch should not fling it
 
-  var nudge = 0, nudgeVel = 0, lastX = null;
+  // The stir is local. The pointer is a hand drawn through water: what reaches a creature
+  // depends on how near the hand passed, not merely that it moved somewhere on the page. This
+  // is what keeps the row from flinching as one — a sweep along the coves arrives at each in
+  // turn, so a wake travels down the row instead of one push landing on all five together.
+  //
+  // Falloff is a gaussian, not the gentler 1/(1+r^2): the inverse-square tail runs too long
+  // here, still handing a quarter of the push to a creature two places away, which is the
+  // synchrony this is meant to break. Reach scales with the body being pushed, because a broad
+  // body is moved by a broad flow — the hero's stage answers from most of the viewport, while a
+  // 96px pool wants the cursor close. The floor keeps the small nav mark from going inert.
+  //
+  // Speed enters through the impulse itself: `dx` is speed times the time since the last event,
+  // which is what a push is. A quick flick delivers it in one go and the spring throws hard; the
+  // same distance crossed slowly arrives in small change against the damping and barely tells.
+  var REACH_FACTOR = 2.2;
+  var REACH_FLOOR = 130;   // px, so a small mark still has a catchment
+  var FALLOFF_FLOOR = 0.01;
+
+  var lastX = null, anchorsStale = true;
+
+  function refreshAnchors() {
+    for (var i = 0; i < leaners.length; i++) {
+      var l = leaners[i];
+      // The parent, never the element itself: the rect of a skewed element is its enlarged
+      // axis-aligned box, so the anchor would drift with the very lean it is driving — the push
+      // would then feed back into its own input. Each wrapper here (.stage, .brand, .lockup,
+      // .pool) is untransformed, so it is a fixed point to measure from.
+      var r = (l.el.parentElement || l.el).getBoundingClientRect();
+      l.x = r.left + r.width / 2;
+      l.y = r.top + r.height / 2;
+      l.reach = Math.max(REACH_FLOOR, r.width * REACH_FACTOR);
+    }
+    anchorsStale = false;
+  }
+  window.addEventListener("scroll", function () { anchorsStale = true; }, { passive: true });
+  window.addEventListener("resize", function () { anchorsStale = true; }, { passive: true });
 
   window.addEventListener("pointermove", function (event) {
     if (lastX === null) { lastX = event.clientX; return; }
@@ -834,9 +947,18 @@ footer a { color: var(--muted); }
     lastX = event.clientX;
     if (dx > STEP_LIMIT) dx = STEP_LIMIT;
     else if (dx < -STEP_LIMIT) dx = -STEP_LIMIT;
-    // Negated because the skew pivots on the ground: a negative angle leans the crown right,
-    // which is the way a rightward sweep should push it.
-    nudgeVel -= dx * NUDGE_PER_PIXEL;
+    if (!dx) return;
+    if (anchorsStale) refreshAnchors();
+    for (var i = 0; i < leaners.length; i++) {
+      var l = leaners[i];
+      var ox = event.clientX - l.x;
+      var oy = event.clientY - l.y;
+      var falloff = Math.exp(-(ox * ox + oy * oy) / (l.reach * l.reach));
+      if (falloff < FALLOFF_FLOOR) continue;
+      // Negated because the skew pivots on the ground: a negative angle leans the crown right,
+      // which is the way a rightward sweep should push it.
+      l.nudgeVel -= dx * NUDGE_PER_PIXEL * falloff;
+    }
   }, { passive: true });
 
   // Elapsed time is accumulated rather than measured from a start stamp, so pausing for a
@@ -851,18 +973,23 @@ footer a { color: var(--muted); }
     lastFrame = now;
     elapsed += dt;
 
-    nudgeVel += (-NUDGE_STIFFNESS * nudge - NUDGE_DAMPING * nudgeVel) * dt;
-    nudge += nudgeVel * dt;
-    if (nudge > NUDGE_LIMIT) { nudge = NUDGE_LIMIT; nudgeVel = 0; }
-    else if (nudge < -NUDGE_LIMIT) { nudge = -NUDGE_LIMIT; nudgeVel = 0; }
+    var turns = elapsed / IDLE_SECONDS;
+    for (var i = 0; i < leaners.length; i++) {
+      var l = leaners[i];
+      l.nudgeVel += (-NUDGE_STIFFNESS * l.nudge - NUDGE_DAMPING * l.nudgeVel) * dt;
+      l.nudge += l.nudgeVel * dt;
+      if (l.nudge > NUDGE_LIMIT) { l.nudge = NUDGE_LIMIT; l.nudgeVel = 0; }
+      else if (l.nudge < -NUDGE_LIMIT) { l.nudge = -NUDGE_LIMIT; l.nudgeVel = 0; }
 
-    var lean = IDLE_DEGREES * Math.sin((elapsed / IDLE_SECONDS) * 2 * Math.PI) + nudge;
-    for (var i = 0; i < swayEls.length; i++) {
-      swayEls[i].style.transform = "skewX(" + lean.toFixed(3) + "deg)";
+      var lean = (IDLE_DEGREES * Math.sin((turns + l.phase) * 2 * Math.PI) + l.nudge) * l.gain;
+      if (l.limit) lean = l.limit * Math.tanh(lean / l.limit);
+      l.el.style.transform = "skewX(" + lean.toFixed(3) + "deg)";
     }
 
-    // Stirred water ripples a little harder, which fades out with the lean.
-    var stir = 1 + 0.3 * Math.min(Math.abs(nudge) / NUDGE_LIMIT, 1);
+    // Stirred water ripples a little harder, which fades out with the lean. It is the hero's own
+    // water, so it answers to the hero's stir rather than to whatever is happening across the page.
+    var heroNudge = heroLeaner ? heroLeaner.nudge : 0;
+    var stir = 1 + 0.3 * Math.min(Math.abs(heroNudge) / NUDGE_LIMIT, 1);
     render((elapsed / LOOP_SECONDS % 1) * 2 * Math.PI, AMPLITUDE * stir);
     frameId = requestAnimationFrame(tick);
   }
@@ -886,7 +1013,10 @@ footer a { color: var(--muted); }
     // stylesheet's reduced-motion rules are what remains.
     setRunning(false);
     render(0, 0);
-    swayEls.forEach(function (el) { el.style.transform = ""; });
+    leaners.forEach(function (l) {
+      l.nudge = 0; l.nudgeVel = 0;
+      l.el.style.transform = "";
+    });
   });
 
   // ---- setup path and connector address ----
@@ -1059,6 +1189,10 @@ footer a { color: var(--muted); }
     return widest / 2;
   }
 
+  // Returns the viewBox, and where this individual's feet sit in it. The sway pivots on that
+  // line so the base stays planted; the stylesheet's 82% is the same figure for the common case
+  // (an organism sized on height, centred in the square), but a broad individual is sized on
+  // width instead and stands higher in its box, so the real ink is what gets measured.
   function frame(el, pad) {
     var box;
     try { box = el.getBBox(); } catch (e) { return null; }
@@ -1068,7 +1202,11 @@ footer a { color: var(--muted); }
     var side = Math.max(h / TARGET_HEIGHT, w / MAX_WIDTH);
     var cx = box.x + box.width / 2;
     var cy = box.y + box.height / 2;
-    return (cx - side / 2) + " " + (cy - side / 2) + " " + side + " " + side;
+    var top = cy - side / 2;
+    return {
+      viewBox: (cx - side / 2) + " " + top + " " + side + " " + side,
+      groundPercent: ((box.y + box.height + pad - top) / side) * 100
+    };
   }
 
   var slots = document.querySelectorAll(".circles .circle .pool svg");
@@ -1086,8 +1224,11 @@ footer a { color: var(--muted); }
     use.setAttribute("href", "#o-pool-" + fams[i]);
     svg.style.color = "var(" + hues[i] + ")";
 
-    var vb = frame(use, strokePad(def));
-    if (vb) svg.setAttribute("viewBox", vb);
+    var framed = frame(use, strokePad(def));
+    if (framed) {
+      svg.setAttribute("viewBox", framed.viewBox);
+      svg.style.transformOrigin = "50% " + framed.groundPercent.toFixed(2) + "%";
+    }
   }
 })();
 </script>
