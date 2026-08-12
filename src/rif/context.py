@@ -10,6 +10,7 @@ from uuid import UUID
 
 from rif.access import Principal, accessible_spaces, space_alias
 from rif.models import Attachment, AttachmentStatus, Page, Revision
+from rif.spaces import display_names
 
 
 @dataclass
@@ -146,19 +147,30 @@ async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
     """
     if not page_ids:
         return {}
+    # Two queries rather than one join through ``author_id.display_name``.
+    # That join reads ``persons`` directly, and a co-member's row is not
+    # readable once that table carries a policy -- every page last touched by
+    # somebody else would silently render as "no author". Names come from
+    # ``display_names`` instead, which is allowed to answer for people the
+    # reader cannot otherwise see.
     rows = (
-        await Revision.select(Revision.page_id, Revision.author_id.display_name)
+        await Revision.select(Revision.page_id, Revision.author_id)
         .where(Revision.page_id.is_in(page_ids))
         .order_by(Revision.created_at, ascending=False)
     )
     editors: dict[UUID, str | None] = {pid: None for pid in page_ids}
+    latest_author: dict[UUID, UUID] = {}
     seen: set[UUID] = set()
     for row in rows:
         pid = row["page_id"]
         if pid in seen or pid not in editors:
             continue
         seen.add(pid)
-        editors[pid] = row["author_id.display_name"]
+        if row["author_id"] is not None:
+            latest_author[pid] = row["author_id"]
+    names = await display_names(list(latest_author.values()))
+    for pid, author_id in latest_author.items():
+        editors[pid] = names.get(author_id)
     return editors
 
 

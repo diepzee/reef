@@ -223,6 +223,99 @@ def authz_statements() -> list[str]:
     )
 
 
+_CALLER_IS_MEMBER = (
+    f"p_space IN (SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL})"
+)
+
+_CALLER_IS_OWNER = (
+    "EXISTS (SELECT 1 FROM spaces s WHERE s.id = p_space "
+    f"AND s.owner_person_id = {PRINCIPAL})"
+)
+
+
+def disclosure_statements() -> list[str]:
+    """Return DDL for the functions that hand out other people's details.
+
+    This is where "only a cove's owner sees member email addresses" stops
+    being a rule the web layer remembers to apply and becomes one the
+    database applies. Row-level security cannot express it: a policy letting
+    co-members see each other's ``persons`` rows hands over the email column
+    with everything else. So the rule lives in :func:`rif_roster`, whose
+    ``CASE`` returns an address only to the owner, and non-members get no
+    rows at all because the membership test is part of the query.
+
+    :func:`rif_display_names` deliberately takes any ids and checks no
+    membership. Display names are already on every shared surface -- rosters,
+    avatars, revision history -- and the ids are unguessable ``uuid4``s
+    learned only by being in a cove. Emails and subjects never pass through
+    it. It exists because revision authorship has to keep rendering names for
+    people the reader cannot otherwise see.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        *_function_ddl(
+            "rif_roster(p_space uuid)",
+            "SELECT p.display_name, "
+            f"CASE WHEN {_CALLER_IS_OWNER} THEN p.email ELSE '' END "
+            "FROM persons p WHERE p.id IN "
+            "(SELECT person_id FROM memberships WHERE space_id = p_space) "
+            f"AND {_CALLER_IS_MEMBER} ORDER BY p.display_name",
+            returns="TABLE(member_name text, member_email text)",
+            reads=("persons", "memberships", "spaces"),
+        ),
+        *_function_ddl(
+            "rif_space_owner(p_space uuid)",
+            "SELECT p.display_name, p.email FROM persons p JOIN spaces s "
+            "ON s.owner_person_id = p.id WHERE s.id = p_space "
+            f"AND {_CALLER_IS_MEMBER}",
+            returns="TABLE(owner_name text, owner_email text)",
+            reads=("persons", "spaces", "memberships"),
+        ),
+        *_function_ddl(
+            "rif_display_names(p_ids uuid[])",
+            "SELECT p.id, p.display_name FROM persons p WHERE p.id = ANY(p_ids)",
+            returns="TABLE(person_id uuid, display_name text)",
+            reads=("persons",),
+        ),
+        *_function_ddl(
+            "rif_person_id_by_email(p_email text)",
+            "SELECT id FROM persons WHERE email = lower(p_email)",
+            returns="uuid",
+            reads=("persons",),
+        ),
+        *_function_ddl(
+            "rif_invites_minted(p_since timestamp)",
+            "SELECT count(*) FROM persons "
+            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= p_since",
+            returns="bigint",
+            reads=("persons",),
+        ),
+        *_function_ddl(
+            "rif_oldest_invite(p_since timestamp)",
+            "SELECT min(created_at) FROM persons "
+            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= p_since",
+            returns="timestamp",
+            reads=("persons",),
+        ),
+    ]
+
+
+def drop_disclosure_statements() -> list[str]:
+    """Return DDL undoing :func:`disclosure_statements`.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "DROP FUNCTION IF EXISTS rif_roster(uuid)",
+        "DROP FUNCTION IF EXISTS rif_space_owner(uuid)",
+        "DROP FUNCTION IF EXISTS rif_display_names(uuid[])",
+        "DROP FUNCTION IF EXISTS rif_person_id_by_email(text)",
+        "DROP FUNCTION IF EXISTS rif_invites_minted(timestamp)",
+        "DROP FUNCTION IF EXISTS rif_oldest_invite(timestamp)",
+    ]
+
+
 # Every identity function returns this shape and nothing wider. Not
 # ``SETOF persons``: a row type would carry ``subject`` and any column added
 # later, so the pre-auth path would silently regain reach it does not need.
@@ -392,7 +485,9 @@ def enable_statements() -> list[str]:
 
     :returns: SQL statements to execute in order
     """
-    statements: list[str] = authz_statements() + identity_statements()
+    statements: list[str] = (
+        authz_statements() + identity_statements() + disclosure_statements()
+    )
     for table in _TABLES:
         statements.append(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY")
@@ -425,6 +520,7 @@ def disable_statements() -> list[str]:
         )
         statements.append(f"ALTER TABLE {table} NO FORCE ROW LEVEL SECURITY")
         statements.append(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY")
+    statements.extend(drop_disclosure_statements())
     statements.extend(drop_identity_statements())
     statements.extend(drop_authz_statements())
     return statements
