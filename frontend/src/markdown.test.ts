@@ -11,6 +11,20 @@ import { expect, test } from "bun:test";
 
 import { renderMarkdown } from "./markdown";
 
+test("a markdown table is wrapped in its own keyboard-scrollable region", () => {
+  const html = renderMarkdown(
+    "| Name | Role |\n| --- | --- |\n| Ana | Gardener |",
+    "reef",
+  );
+
+  expect(html).toContain(
+    '<div class="markdown-table-scroll" tabindex="0"><table>',
+  );
+  expect(html).toContain("<thead>");
+  expect(html).toContain("<tbody>");
+  expect(html).toContain("</table></div>");
+});
+
 test("a plain relative image src is rewritten under the space's image endpoint", () => {
   const html = renderMarkdown("![roof](attachments/xyz-123)", "reef");
   expect(html).toContain('src="/api/images/reef/attachments/xyz-123"');
