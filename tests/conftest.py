@@ -11,6 +11,7 @@ from rif.config import get_settings
 
 os.environ["DATABASE_URL"] = get_settings().test_database_url
 
+import asyncpg
 import httpx
 import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
@@ -20,6 +21,43 @@ from rif.models import TABLES, Membership, Person, Space, SpaceKind
 from rif.rls import AUTHZ_ROLE, constraint_statements, enable_statements
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
+
+PROBE_ROLE = "rif_probe"
+"""A non-owner login role standing in for production's ``rif_app``.
+
+The suite's own connection is ``rif``, which *owns* the tables. An owner's
+privileges are implicit, so column-level grants -- ``REVOKE UPDATE`` then
+``GRANT UPDATE (version)`` -- do not constrain it the way they constrain
+``rif_app``. Any test asserting "a member cannot rewrite a cove's slug" would
+pass against the owner for the wrong reason. Tests that assert a *privilege*
+rather than a *policy* must therefore run through :func:`probe`.
+"""
+
+_MISSING_PROBE_ROLE = f"""
+The {PROBE_ROLE} role does not exist in the test cluster.
+
+It is created at cluster bootstrap by docker/initdb, which only runs on a
+fresh volume. On a cluster that predates it, create it once as the superuser:
+
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d postgres \\
+      -c "CREATE ROLE {PROBE_ROLE} WITH LOGIN PASSWORD 'probe' NOSUPERUSER \\
+          NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION"
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d rif_test \\
+      -c "GRANT CONNECT ON DATABASE rif_test TO {PROBE_ROLE}" \\
+      -c "GRANT USAGE ON SCHEMA public TO {PROBE_ROLE}"
+"""
+
+
+def probe_dsn() -> str:
+    """Return the test database DSN with the probe role's credentials.
+
+    :returns: a DSN usable by asyncpg
+    """
+    dsn = get_settings().test_database_url
+    scheme, _, rest = dsn.partition("://")
+    _, _, hostpart = rest.rpartition("@")
+    return f"{scheme}://{PROBE_ROLE}:probe@{hostpart}"
+
 
 _MISSING_AUTHZ_ROLE = f"""
 The {AUTHZ_ROLE} role does not exist in the test cluster, so the RLS helper
@@ -56,12 +94,45 @@ async def schema():
         f"SELECT 1 FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
     ):
         raise RuntimeError(_MISSING_AUTHZ_ROLE)
+    if not await DB._run_in_new_connection(
+        f"SELECT 1 FROM pg_roles WHERE rolname = '{PROBE_ROLE}'"
+    ):
+        raise RuntimeError(_MISSING_PROBE_ROLE)
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     for statement in constraint_statements() + enable_statements():
         await DB._run_in_new_connection(statement)
+    # Granted here rather than in docker/initdb because the tables do not
+    # exist at cluster bootstrap. Exactly what production grants rif_app --
+    # no more, so a privilege the app does not have is one the probe does
+    # not have either.
+    for table in (*CONTENT_TABLES, "memberships", "spaces", "persons"):
+        await DB._run_in_new_connection(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
+        )
     yield
     await DB.close_connection_pool()
+
+
+@pytest_asyncio.fixture
+async def probe():
+    """Yield a raw connection as the non-owner role, for privilege assertions.
+
+    Use this instead of the ambient Piccolo connection whenever a test asserts
+    that something is *refused*. The suite's own role owns the tables, so it
+    is not bound by column grants and would report success where production
+    reports "permission denied" -- see :data:`PROBE_ROLE`.
+
+    Policies still apply to both roles (``FORCE ROW LEVEL SECURITY``), so
+    row-visibility tests do not need this; privilege tests do.
+
+    :returns: an open asyncpg connection, closed on teardown
+    """
+    connection = await asyncpg.connect(probe_dsn())
+    try:
+        yield connection
+    finally:
+        await connection.close()
 
 
 @pytest_asyncio.fixture(autouse=True)
