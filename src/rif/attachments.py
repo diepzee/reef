@@ -8,6 +8,7 @@ transaction. Callers must therefore not wrap it.
 """
 
 import asyncio
+import logging
 from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
@@ -18,6 +19,8 @@ from rif.access import Principal, arm, resolve_space
 from rif.config import get_settings
 from rif.db import transaction_scope
 from rif.models import Attachment, AttachmentStatus, Page
+
+logger = logging.getLogger(__name__)
 
 
 class ObjectStore(Protocol):
@@ -195,6 +198,29 @@ async def add_attachment(
         attachment.status = AttachmentStatus.READY.value
         await attachment.save()
     return attachment
+
+
+async def erase_objects(keys: list[str], store: ObjectStore | None = None) -> None:
+    """Best-effort removal of object bytes whose rows are already gone.
+
+    Call this *after* the transaction that removed the rows has committed,
+    for the reason :func:`delete_attachment` sets out: the two stores cannot
+    be made atomic, and bytes with no row are the safer wreckage. Each key is
+    attempted independently and failures are logged rather than raised —
+    the rows are gone either way, so raising here would report a failure for
+    an operation that already succeeded.
+
+    :param keys: object keys to erase
+    :param store: object store; defaults to the real S3 one
+    """
+    if not keys:
+        return
+    store = store or S3ObjectStore()
+    for key in keys:
+        try:
+            await store.delete(key)
+        except Exception:
+            logger.exception("could not remove orphaned object %s", key)
 
 
 async def delete_attachment(

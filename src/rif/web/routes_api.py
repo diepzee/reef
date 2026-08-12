@@ -9,7 +9,6 @@ table, and renews the session cookie on success.
 """
 
 import json
-import logging
 import os
 from collections.abc import Callable
 from dataclasses import asdict
@@ -21,7 +20,7 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from rif.access import AccessDenied, Principal, arm, resolve_space
 from rif.account import delete_account_rows
-from rif.attachments import S3ObjectStore, get_attachment
+from rif.attachments import S3ObjectStore, erase_objects, get_attachment
 from rif.config import get_settings
 from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
@@ -39,7 +38,9 @@ from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
 from rif.spaces import (
     SpaceError,
     create_space,
+    delete_space,
     invite,
+    leave_space,
     member_roster,
     remove_member,
     space_owner,
@@ -61,8 +62,6 @@ from rif.web.routes_auth import WORKOS_LOGOUT_URL
 # test that wants a fresh app) don't append duplicate Starlette routes --
 # mirrors the pattern in rif.web.routes_auth.
 _registered: set[int] = set()
-logger = logging.getLogger(__name__)
-
 # Private response marker consumed by :func:`api`: an erased account must
 # clear its session rather than receive the wrapper's usual sliding renewal.
 _ACCOUNT_DELETED_HEADER = "x-rif-account-deleted"
@@ -447,6 +446,41 @@ async def _remove_member(request: Request, principal: Principal) -> dict:
     return await remove_member(principal, slug, email)
 
 
+async def _leave_space(request: Request, principal: Principal) -> dict:
+    """Leave a shared space, handing it on if the caller owned it.
+
+    :param request: the incoming request, carrying a ``space`` path param
+    :param principal: the authenticated person
+    :returns: the departure outcome, naming any successor
+    """
+    return await leave_space(principal, request.path_params["space"])
+
+
+async def _delete_space(request: Request, principal: Principal) -> Response:
+    """Destroy a shared space the caller owns and is alone in.
+
+    Guarded the way account deletion is: a typed confirmation in the body, so
+    a stray DELETE cannot take a cove down. The name has to match the cove
+    being destroyed rather than a constant, because the mistake worth
+    catching here is deleting the wrong one.
+
+    :param request: the incoming request, carrying a ``space`` path param
+    :param principal: the authenticated person
+    :raises BadRequest: if the typed confirmation does not name this space
+    :returns: the deletion outcome, with the bytes erased after the response
+    """
+    slug = request.path_params["space"]
+    payload = await _json_body(request)
+    if payload.get("confirmation") != slug:
+        raise BadRequest("deleting a cove requires its name as confirmation")
+    outcome = await delete_space(principal, slug)
+    keys = outcome.pop("file_keys", [])
+    # The transaction commits as this handler returns, so the bytes are erased
+    # from the background task rather than here -- the same shape the account
+    # deletion route uses, and for the same reason.
+    return JSONResponse(outcome, background=BackgroundTask(erase_objects, keys))
+
+
 async def _get_file(request: Request, principal: Principal) -> Response:
     """Redirect to a signed URL for a stored file, after checking visibility.
 
@@ -511,18 +545,6 @@ async def _dump(request: Request, principal: Principal) -> Response:
     )
 
 
-async def _delete_file_objects(keys: list[str]) -> None:
-    """Best-effort post-commit cleanup of now-unreachable object bytes."""
-    if not keys:
-        return
-    store = S3ObjectStore()
-    for key in keys:
-        try:
-            await store.delete(key)
-        except Exception:
-            logger.exception("could not remove orphaned account file %s", key)
-
-
 async def _delete_account(request: Request, principal: Principal) -> Response:
     """Permanently erase an account after two explicit request guards."""
     payload = await _json_body(request)
@@ -551,7 +573,7 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
         body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"
     response = JSONResponse(
         body,
-        background=BackgroundTask(_delete_file_objects, deletion.file_keys),
+        background=BackgroundTask(erase_objects, deletion.file_keys),
     )
     response.headers[_ACCOUNT_DELETED_HEADER] = "1"
     return response
@@ -589,3 +611,5 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/spaces/{space}/members/{email}", methods=["DELETE"])(
         api(_remove_member)
     )
+    mcp.custom_route("/api/spaces/{space}/leave", methods=["POST"])(api(_leave_space))
+    mcp.custom_route("/api/spaces/{space}", methods=["DELETE"])(api(_delete_space))

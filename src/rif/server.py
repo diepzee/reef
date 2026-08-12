@@ -21,6 +21,7 @@ from rif.attachments import (
     S3ObjectStore,
     add_attachment,
     delete_attachment,
+    erase_objects,
     get_attachment,
 )
 from rif.auth import current_principal
@@ -275,6 +276,35 @@ async def tool_remove_member(principal: Principal, space: str, email: str) -> di
         return {"error": "space_error", "detail": str(exc)}
 
 
+async def tool_delete_space(principal: Principal, space: str) -> dict:
+    """Destroy a space; split from the tool for testability.
+
+    Still carries ``file_keys`` — the caller erases those bytes once the
+    transaction has committed, and strips them before answering.
+
+    :param principal: the authenticated person
+    :param space: the shared space name
+    :returns: the deletion outcome, or an error dict
+    """
+    try:
+        return await space_admin.delete_space(principal, space)
+    except (SpaceError, AccessDenied) as exc:
+        return {"error": "space_error", "detail": str(exc)}
+
+
+async def tool_leave_space(principal: Principal, space: str) -> dict:
+    """Leave a space; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param space: the shared space name
+    :returns: the departure outcome, or an error dict
+    """
+    try:
+        return await space_admin.leave_space(principal, space)
+    except (SpaceError, AccessDenied) as exc:
+        return {"error": "space_error", "detail": str(exc)}
+
+
 _INBOX = "inbox.md"
 
 
@@ -448,6 +478,44 @@ async def remove_member(space: str, email: str) -> dict:
     async with transaction_scope():
         principal = await current_principal()
         return await tool_remove_member(principal, space, email)
+
+
+@mcp.tool
+async def leave_space(space: str) -> dict:
+    """Leave a shared space, keeping it alive for everyone else.
+
+    If you own it, it passes to another member rather than closing — leaving
+    never destroys what other people keep there. Your own access ends; it
+    cannot unread what you already saw.
+
+    Use delete_space instead when you are the only member left.
+
+    :param space: the space name, from list_spaces
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_leave_space(principal, space)
+
+
+@mcp.tool
+async def delete_space(space: str) -> dict:
+    """Permanently destroy a shared space you own and are alone in.
+
+    Everything in it goes: pages, files, history. This cannot be undone, so
+    confirm with the user before calling, naming the space.
+
+    Refused while anybody else is a member — leave_space hands it on instead.
+    To destroy a space other people are in, remove them first, deliberately.
+
+    :param space: the space name, from list_spaces
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        outcome = await tool_delete_space(principal, space)
+    # Outside the transaction on purpose: the rows are committed gone, and the
+    # bytes follow. See rif.attachments.delete_attachment for why this order.
+    await erase_objects(outcome.pop("file_keys", []))
+    return outcome
 
 
 @mcp.tool

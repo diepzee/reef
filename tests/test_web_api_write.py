@@ -262,3 +262,57 @@ async def test_cove_invite_shares_the_budget_over_http(api, world):
         "/api/spaces/team/invites", json={"email": "via-cove@x.com"}, headers=CSRF
     )
     assert refused.status_code == 429
+
+
+async def test_leaving_over_http_hands_the_cove_on(api, world):
+    """The owner departs; the cove survives, owned by whoever is left."""
+    alice, bob, _ = world
+    _login(api, alice)
+    left = await api.post("/api/spaces/team/leave", headers=CSRF)
+    assert left.status_code == 200
+    assert left.json()["handed_to"] == "Bob"
+
+    # Alice is out — 404 rather than 403, so leaving cannot be used to probe
+    # which coves still exist.
+    assert (await api.get("/api/spaces/team/members")).status_code == 404
+    # ...and Bob still has it.
+    api.cookies.clear()
+    _login(api, bob)
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
+
+
+async def test_deleting_requires_the_cove_name_as_confirmation(api, world):
+    """A DELETE without the typed name is refused before anything is touched."""
+    alice, _, _ = world
+    _login(api, alice)
+    for body in ({}, {"confirmation": "DELETE"}, {"confirmation": "other-cove"}):
+        response = await api.request(
+            "DELETE", "/api/spaces/team", json=body, headers=CSRF
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "bad_request"
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
+
+
+async def test_deleting_a_shared_cove_over_http_is_refused(api, world):
+    """Confirmation is not authority: somebody else is still in there."""
+    alice, _, _ = world
+    _login(api, alice)
+    response = await api.request(
+        "DELETE", "/api/spaces/team", json={"confirmation": "team"}, headers=CSRF
+    )
+    assert response.status_code == 400
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
+
+
+async def test_deleting_the_last_cove_over_http_destroys_it(api, world):
+    alice, _, _ = world
+    _login(api, alice)
+    await api.delete("/api/spaces/team/members/bob@x.com", headers=CSRF)
+    response = await api.request(
+        "DELETE", "/api/spaces/team", json={"confirmation": "team"}, headers=CSRF
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+    index = await api.get("/api/index")
+    assert "team" not in {space["alias"] for space in index.json()["spaces"]}

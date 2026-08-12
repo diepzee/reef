@@ -164,3 +164,41 @@ async def test_only_an_owner_may_add_someone_to_a_cove(probe, graph):
         )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+
+async def test_only_an_owner_may_delete_a_cove(probe, graph):
+    """The delete policy, asserted from a role it actually constrains.
+
+    ``spaces_owner_delete`` restricts DELETE to the owner, and until the
+    application grew a way to delete a cove nothing exercised it. It needs a
+    probe more than most policies do: a DELETE filtered by a row policy is not
+    an error. Postgres removes zero rows and reports success, so a member's
+    attempt looks exactly like a member's attempt that worked, and the same
+    statement run as the table's owner would have destroyed the cove outright.
+    """
+    owner = await graph.person("del-owner@example.test", "Owner")
+    member = await graph.person("del-member@example.test", "Member")
+    space = await graph.shared_space("del-cove", owner, member)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(member.id))
+    try:
+        # No exception: the policy filters the row out rather than refusing.
+        await probe.execute("DELETE FROM spaces WHERE id = $1", space.id)
+        assert (
+            await probe.fetchval("SELECT count(*) FROM spaces WHERE id = $1", space.id)
+            == 1
+        )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+    # The owner may, which is what makes the survival above about authority
+    # rather than about the delete being broken.
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(owner.id))
+    try:
+        await probe.execute("DELETE FROM spaces WHERE id = $1", space.id)
+        assert (
+            await probe.fetchval("SELECT count(*) FROM spaces WHERE id = $1", space.id)
+            == 0
+        )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
