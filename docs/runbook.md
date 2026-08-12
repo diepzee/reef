@@ -437,18 +437,35 @@ before it was relied on.
 
 **Provisioning is a one-time manual step**, because creating a `BYPASSRLS`
 role needs superuser and the boot migration deliberately runs as the
-non-superuser admin role:
+non-superuser admin role.
+
+**On an existing database** (which production is), run the standalone SQL —
+it touches nothing but this role:
 
 ```bash
-RIF_APP_ROLE_PASSWORD=... python scripts/provision_app_role.py "<admin-dsn>"
+railway link          # interactive: pick rif / production / rif-app
+railway run --service rif-app -- sh -c \
+  'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
+     -f scripts/provision_authz_role.sql'
 ```
 
-That script now also creates `rif_authz NOLOGIN BYPASSRLS`, grants it to the
-migration role (Postgres requires the executing role to be a *member* of a
-role it hands function ownership to), and grants it `CREATE ON SCHEMA public`
-(required of the **new** owner whenever a function's ownership is reassigned —
-without it every `ALTER FUNCTION ... OWNER TO` fails with *permission denied
-for schema public*). It verifies the role's attributes before exiting.
+`railway run` injects the service's own variables, so the credential never
+leaves Railway — no copying a DSN anywhere. The script is idempotent,
+re-asserts the attributes if the role already exists, and raises if the end
+state is wrong.
+
+**Do not** reach for `scripts/provision_app_role.py` here. It does the same
+thing plus more, but it also runs `ALTER ROLE rif_app ... PASSWORD`, so
+running it with a fresh password rotates the credential `DATABASE_URL` still
+holds and the app stops being able to connect. That script is for standing up
+a *new* environment.
+
+Either path grants `rif_authz` to the migration role (Postgres requires the
+executing role to be a *member* of a role it hands function ownership to) and
+grants it `CREATE ON SCHEMA public` (required of the **new** owner whenever a
+function's ownership is reassigned — without it every
+`ALTER FUNCTION ... OWNER TO` fails with *permission denied for schema
+public*).
 
 **The migration refuses to run if the role is missing or lacks `BYPASSRLS`**,
 rather than installing policies that would recurse on the first request. If a
