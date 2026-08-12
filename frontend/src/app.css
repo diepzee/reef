@@ -1135,6 +1135,83 @@ a.export-dump-button {
   font-weight: 600;
 }
 
+/*
+ * A cove row is a twisty plus a link. The tint lives on the wrapper rather
+ * than on the link, so the active row reads as one band across the whole pane
+ * instead of stopping short of the fold control. `.side-item.active` above is
+ * still the rule for the flat rows (Index, Export), which have no twisty.
+ */
+.side-row {
+  display: flex;
+  align-items: center;
+  border-radius: 8px;
+}
+
+.side-row.active {
+  background: var(--accent-soft);
+}
+
+.side-row .side-item {
+  flex: 1;
+  min-width: 0;
+  padding-left: 0;
+}
+
+.side-row.active .side-item {
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+/*
+ * Sized to the same 8px grid the rows sit on, so a cove name starts at the
+ * same x whether or not its cove has pages to fold.
+ *
+ * `min-*: auto` the way `.seg` and `.ed-toggle` do: the global button rule
+ * sets a 44px touch-target minimum, which here would not just oversize the
+ * control but push the chevron coves' names 24px right of the ones with
+ * nothing to fold — the row would no longer line up with itself. The row is
+ * 26px tall and the whole of it is clickable through the link, so the twisty
+ * is a supplementary target rather than the only way in.
+ */
+.side-twist {
+  flex: none;
+  display: grid;
+  place-items: center;
+  min-width: auto;
+  min-height: auto;
+  width: 20px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.side-twist svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* Rotating one chevron beats swapping two glyphs: the quarter turn reads as
+     the same control moving, which is what a disclosure is. */
+  transition: transform 120ms ease;
+}
+
+.side-twist[aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+
+.side-twist:hover {
+  color: var(--muted);
+}
+
+.side-twist-blank {
+  cursor: default;
+}
+
 .side-item-right {
   margin-left: auto;
 }
@@ -1193,12 +1270,43 @@ a.export-dump-button {
   text-decoration: none;
 }
 
-.side-newspace {
-  margin-top: 6px;
+/*
+ * Indented to the twisty's width so it hangs under the cove names as the last
+ * thing in the list, the way "New page" hangs under a cove's pages. No dot:
+ * the dot means "a cove exists here", and this is the thing that makes one.
+ */
+.side-newcove {
+  display: block;
+  margin-top: 2px;
+  padding: 7px 8px 7px 20px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/*
+ * Product-level actions, ruled off from the coves above. `.side-me` carries
+ * `margin-top: auto` and so is what pins this group to the bottom of the pane.
+ */
+.side-foot {
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.side-foot-link {
+  display: block;
+  padding: 6px 8px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.side-foot-link:hover {
+  color: var(--accent-deep);
 }
 
 .side-me {
-  margin-top: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1781,13 +1889,21 @@ a.export-dump-button {
 
     .card,
     .side-item,
+    .side-row,
     .side-page,
     .page-row,
     .mbs-person {
       box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
     }
 
-    .side-item.active {
+    /* A cove row's edge is drawn by its wrapper; the link inside would
+       otherwise draw a second one a pixel in from it. */
+    .side-row .side-item {
+      box-shadow: none;
+    }
+
+    .side-item.active,
+    .side-row.active {
       box-shadow:
         inset 0 1px 0 rgb(94 234 212 / 0.07),
         0 0 18px rgb(45 212 191 / 0.12);
@@ -1825,13 +1941,21 @@ a.export-dump-button {
 
   .card,
   .side-item,
+  .side-row,
   .side-page,
   .page-row,
   .mbs-person {
     box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
   }
 
-  .side-item.active {
+  /* A cove row's edge is drawn by its wrapper; the link inside would
+     otherwise draw a second one a pixel in from it. */
+  .side-row .side-item {
+    box-shadow: none;
+  }
+
+  .side-item.active,
+  .side-row.active {
     box-shadow:
       inset 0 1px 0 rgb(94 234 212 / 0.07),
       0 0 18px rgb(45 212 191 / 0.12);
