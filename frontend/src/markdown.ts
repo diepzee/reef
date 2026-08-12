@@ -65,6 +65,16 @@ function resolveImageSrc(src: string, space: string): string {
 
 const md: MarkdownIt = new MarkdownIt({ html: false, linkify: true });
 
+/*
+ * A table can be wider than the reading column, especially on a phone.
+ * Keep that overflow local to the table instead of making the whole page
+ * scroll sideways. The wrapper class is also shared by PageView and the
+ * editor preview, so both surfaces get exactly the same treatment.
+ */
+md.renderer.rules.table_open = () =>
+  '<div class="markdown-table-scroll" tabindex="0"><table>\n';
+md.renderer.rules.table_close = () => "</table></div>\n";
+
 const defaultImageRule =
   md.renderer.rules.image ??
   ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));

@@ -804,6 +804,89 @@ a.export-dump-button {
 }
 
 /*
+ * Markdown tables live in a bounded scroll region so a wide table never
+ * stretches the reading column (or the editor) beyond the viewport. The
+ * table itself uses max-content sizing: short tables fill the available
+ * width, while genuinely wide ones scroll inside this frame.
+ */
+.markdown-table-scroll {
+  width: 100%;
+  margin: 1.25rem 0;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--field);
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdown-table-scroll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.page-body table {
+  width: max-content;
+  min-width: 100%;
+  border-spacing: 0;
+  border-collapse: separate;
+  font-size: var(--text-md);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+.page-body th,
+.page-body td {
+  min-width: 7rem;
+  max-width: 22rem;
+  padding: 0.65rem 0.75rem;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.page-body th {
+  background: var(--panel);
+  font-weight: 800;
+}
+
+.page-body tbody tr:nth-child(even) td {
+  background: var(--hairline-soft);
+}
+
+.page-body th:last-child,
+.page-body td:last-child {
+  border-right: 0;
+}
+
+.page-body tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.page-body th > :first-child,
+.page-body td > :first-child {
+  margin-top: 0;
+}
+
+.page-body th > :last-child,
+.page-body td > :last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 520px) {
+  .page-body table {
+    font-size: var(--text-base);
+  }
+
+  .page-body th,
+  .page-body td {
+    min-width: 6.5rem;
+    padding: 0.55rem 0.65rem;
+  }
+}
+
+/*
  * The editor form (Editor/NewPage/NewSpace): per the mockup's `.ed` block
  * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html) —
  * uppercase faint labels above bordered fields on a --field fill, a
