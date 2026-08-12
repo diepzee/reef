@@ -97,7 +97,7 @@ export interface InviteResult {
  *
  * No `space` and no `disclosure`, unlike `InviteResult`: this grants sight
  * of nothing, so there is nothing to disclose. `next_step` carries the words
- * the inviter relays, since reef sends no email.
+ * the inviter relays, since reef sends no invitation email.
  */
 export interface ReefInviteResult {
   email: string;

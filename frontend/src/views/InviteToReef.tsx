@@ -6,7 +6,7 @@
  * allowlist, so the invitee arrives in their own private personal space —
  * which is what makes it safe to send to someone merely curious.
  *
- * reef sends no email, so the success state's job is to hand the inviter
+ * reef sends no invitation email, so the success state's job is to hand the inviter
  * words to relay. A 429 (budget spent) is a routine outcome of this form,
  * not a crash, and renders inline with the date the next invite unlocks.
  */

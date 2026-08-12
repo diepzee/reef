@@ -173,6 +173,6 @@ async def invite_to_reef(
         "invites_left": await invites_left(inviter),
         "next_step": (
             f"Tell them to go to {where} and sign in with this exact address. "
-            "reef sends no email, so nothing reaches them until you do."
+            "reef sends no invitation email, so nothing reaches them until you do."
         ),
     }
