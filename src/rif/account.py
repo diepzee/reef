@@ -68,6 +68,8 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
             deleted_spaces.append(space)
             continue
 
+        # Prefer a full member, then the lowest id, so the choice is stable
+        # rather than dependent on row order.
         successor = min(
             remaining,
             key=lambda membership: (
@@ -75,13 +77,18 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
                 str(membership.person_id),
             ),
         )
-        if successor.role != MemberRole.MEMBER.value:
-            await Membership.update({Membership.role: MemberRole.MEMBER.value}).where(
-                Membership.id == successor.id
-            )
-        await Space.update({Space.owner_person_id: successor.person_id}).where(
-            Space.id == space.id
+        # Both writes happen inside the database. Promoting a viewer changes
+        # somebody else's membership row and reassigning the cove changes its
+        # owner away from the caller -- neither is expressible as a row policy
+        # without permitting a great deal more, so the authority check lives
+        # one line above the writes instead.
+        handed_over = await Space.raw(
+            "SELECT rif_transfer_space_ownership({}, {}) AS ok",
+            space.id,
+            successor.person_id,
         )
+        if not handed_over or not handed_over[0]["ok"]:
+            continue
         transferred_coves.append(space_alias(space))
 
     deleted_ids = [space.id for space in deleted_spaces]
