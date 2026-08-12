@@ -415,7 +415,7 @@ footer a { color: var(--muted); }
   <h1 class="reveal d1">Memories you grow together.</h1>
   <p class="lede reveal d2"><span class="reef-name">reef</span> is a shared, living memory for you and your people — and for the
     AI you both talk to. Coves for your household, your plans, your life.</p>
-  <p class="micro reveal d3">Works with Claude, ChatGPT desktop, and Codex.</p>
+  <p class="micro reveal d3">MCP for Claude, ChatGPT, and Codex — plus a CLI and matching agent skill.</p>
   <div class="scrollcue reveal d4" aria-hidden="true">
     <span>▾</span>
   </div>
@@ -452,8 +452,8 @@ footer a { color: var(--muted); }
     </div>
     <div class="step">
       <h3>Every conversation starts knowing</h3>
-      <p>Add <span class="reef-name">reef</span> to Claude, ChatGPT desktop, or Codex. The school schedule, the house quirks,
-        the plan so far — known at hello, without repeating yourself.</p>
+      <p>Connect through MCP, or give any capable agent the <code>reef</code> CLI and matching skill.
+        The school schedule, the house quirks, the plan so far — known at hello.</p>
     </div>
   </div>
 </section>
@@ -501,6 +501,7 @@ footer a { color: var(--muted); }
           <option value="claude">Claude</option>
           <option value="chatgpt">ChatGPT</option>
           <option value="codex">Codex</option>
+          <option value="cli" data-heading="your terminal and agent">CLI + agent skill</option>
         </select>
       </span>
     </label>
@@ -580,6 +581,37 @@ footer a { color: var(--muted); }
         <p class="urlrow">
           <code id="codex-login-command">codex mcp login <span class="reef-name">reef</span></code>
           <button type="button" class="copy-value" data-copy-target="codex-login-command" data-label="Copy">Copy</button>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-panel" data-client="cli" hidden>
+    <p class="sub">The <code>reef</code> CLI mirrors every MCP tool as JSON, and the bundled skill teaches agents
+      how to retrieve, write, and share memory safely.</p>
+    <div class="steps">
+      <div class="step">
+        <h3>Install the CLI</h3>
+        <p>With <a href="https://docs.astral.sh/uv/" target="_blank" rel="noopener">uv</a> installed, run:</p>
+        <p class="urlrow">
+          <code id="reef-cli-install">uv tool install git+https://github.com/diepzee/rif.git</code>
+          <button type="button" class="copy-value" data-copy-target="reef-cli-install" data-label="Copy">Copy</button>
+        </p>
+      </div>
+      <div class="step">
+        <h3>Sign in once</h3>
+        <p>The CLI opens the same secure browser sign-in as the MCP connection:</p>
+        <p class="urlrow">
+          <code id="reef-cli-login">reef login</code>
+          <button type="button" class="copy-value" data-copy-target="reef-cli-login" data-label="Copy">Copy</button>
+        </p>
+      </div>
+      <div class="step">
+        <h3>Give your agent the skill</h3>
+        <p>Ask an agent with skill support to install the bundled Reef workflow:</p>
+        <p class="urlrow">
+          <code id="reef-skill-install">Install the Reef skill from https://github.com/diepzee/rif/tree/main/skills/reef</code>
+          <button type="button" class="copy-value" data-copy-target="reef-skill-install" data-label="Copy">Copy</button>
         </p>
       </div>
     </div>
@@ -890,8 +922,8 @@ footer a { color: var(--muted); }
   });
 
   // ---- setup path and connector address ----
-  // Claude, ChatGPT desktop, and Codex each expose MCP setup in a different place. Keep one
-  // compact selector rather than making the reader scan instructions for clients they do not use.
+  // Claude, ChatGPT desktop, Codex, and terminal-first agents each have a different setup path.
+  // Keep one compact selector rather than making the reader scan instructions they do not use.
   var clientPicker = document.getElementById("setup-client");
   var clientName = document.getElementById("setup-client-name");
   var setupSection = document.getElementById("add");
@@ -899,7 +931,8 @@ footer a { color: var(--muted); }
   if (clientPicker && clientName) {
     clientPicker.addEventListener("change", function () {
       var selected = clientPicker.value;
-      clientName.textContent = clientPicker.options[clientPicker.selectedIndex].text;
+      var option = clientPicker.options[clientPicker.selectedIndex];
+      clientName.textContent = option.dataset.heading || option.text;
       setupPanels.forEach(function (panel) {
         panel.hidden = panel.dataset.client !== selected;
       });
