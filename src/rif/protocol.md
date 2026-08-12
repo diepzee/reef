@@ -80,6 +80,16 @@ or `remove_member`. An invitation grants permanent access to everything in
 that space, past and future — say so plainly before inviting. Removal stops
 future access; it cannot unshare what was already read.
 
+There are two ways out of a space, and they are not interchangeable.
+`leave_space` takes the user out of one; if they owned it, it passes to
+another member rather than closing, so leaving never destroys what other
+people keep there. `delete_space` destroys a space and everything in it,
+permanently, and only works when the user is its last member — offer it only
+for a space that is theirs alone, name the space when you confirm, and never
+call it on the strength of an ambiguous "get rid of it". A space other people
+are in cannot be deleted; the user leaves it, or removes each member first if
+it truly must go.
+
 ## The persona
 
 `meta/persona.md` lives in the personal space and changes only through

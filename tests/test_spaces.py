@@ -1,14 +1,25 @@
 import pytest
 
 from rif.access import AccessDenied, Principal, resolve_space
-from rif.models import MemberRole, Membership, Person, Space, SpaceKind
+from rif.models import (
+    Attachment,
+    AttachmentStatus,
+    MemberRole,
+    Membership,
+    Page,
+    Person,
+    Space,
+    SpaceKind,
+)
 from rif.pages import get_page, save_page
 from rif.spaces import (
     SpaceError,
     _membership,
     create_space,
+    delete_space,
     ensure_personal_space,
     invite,
+    leave_space,
     remove_member,
 )
 
@@ -158,6 +169,124 @@ async def test_removing_unbound_invitee_erases_the_orphan_person(tx, household):
     assert (
         await Person.objects().where(Person.email == "typo@example.test").first()
         is None
+    )
+
+
+async def test_leaving_hands_the_cove_to_the_remaining_member(tx, household):
+    """The invariant account deletion already keeps: departing destroys nothing."""
+    me = principal_for(household["wouter"])
+    theirs = principal_for(household["partner"])
+    result = await leave_space(me, "household")
+
+    assert result["left"] is True
+    assert result["handed_to"] == "Partner"
+    # The cove outlives its creator's departure, owned by whoever is left.
+    still_there = await resolve_space(theirs, "household")
+    assert still_there.owner_person_id == household["partner"].id
+    assert await membership_for(household["wouter"], household["shared"]) is None
+    with pytest.raises(AccessDenied):
+        await resolve_space(me, "household")
+
+
+async def test_a_member_leaving_changes_no_ownership(tx, household):
+    partner = principal_for(household["partner"])
+    result = await leave_space(partner, "household")
+
+    assert result["handed_to"] is None
+    space = await resolve_space(principal_for(household["wouter"]), "household")
+    assert space.owner_person_id == household["wouter"].id
+    assert await membership_for(household["partner"], household["shared"]) is None
+
+
+async def test_leaving_prefers_a_full_member_over_a_viewer(tx, graph):
+    """Stable succession: a viewer inherits only when no member could.
+
+    The viewer is seeded rather than admitted — nothing in the application
+    creates one yet, and memberships carry no UPDATE policy, so the row has to
+    come in through the policy-free builder.
+    """
+    owner = await graph.person("owner@example.test", "Owner")
+    viewer = await graph.person("viewer@example.test", "Viewer")
+    member = await graph.person("member@example.test", "Member")
+    space = await graph.shared_space("crew", owner, member)
+    await graph.add_membership(viewer, space, MemberRole.VIEWER.value)
+
+    result = await leave_space(principal_for(owner), "crew")
+
+    assert result["handed_to"] == "Member"
+    inherited = await resolve_space(principal_for(member), "crew")
+    assert inherited.owner_person_id == member.id
+
+
+async def test_the_last_member_is_told_to_delete_rather_than_leave(tx, household):
+    me = principal_for(household["wouter"])
+    await remove_member(me, "household", "partner@example.test")
+    with pytest.raises(SpaceError, match="delete it instead"):
+        await leave_space(me, "household")
+    # Refused, not half-done: the cove and the membership both survive.
+    assert await resolve_space(me, "household") is not None
+
+
+async def test_the_personal_space_cannot_be_left_or_deleted(tx, household):
+    me = principal_for(household["wouter"])
+    with pytest.raises(SpaceError):
+        await leave_space(me, "personal")
+    with pytest.raises(SpaceError):
+        await delete_space(me, "personal")
+    assert await resolve_space(me, "personal") is not None
+
+
+async def test_deleting_is_refused_while_anyone_else_is_a_member(tx, household):
+    me = principal_for(household["wouter"])
+    with pytest.raises(SpaceError, match="other member"):
+        await delete_space(me, "household")
+    # Nobody's memory was destroyed on the way to the refusal.
+    assert await resolve_space(principal_for(household["partner"]), "household")
+
+
+async def test_only_the_owner_may_delete(tx, household):
+    partner = principal_for(household["partner"])
+    with pytest.raises(SpaceError):
+        await delete_space(partner, "household")
+
+
+async def test_deleting_alone_erases_the_cove_and_its_pages(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "household", "notes.md", "kept nowhere else", message="")
+    await remove_member(me, "household", "partner@example.test")
+
+    result = await delete_space(me, "household")
+
+    assert result["deleted"] is True and result["pages"] == 1
+    with pytest.raises(AccessDenied):
+        await resolve_space(me, "household")
+    assert (
+        await Space.objects().where(Space.id == household["shared"].id).first() is None
+    )
+    assert await Page.count().where(Page.space_id == household["shared"].id) == 0
+    assert await membership_for(household["wouter"], household["shared"]) is None
+
+
+async def test_deleting_reports_the_object_keys_for_the_caller_to_erase(tx, household):
+    """The rows go first and the bytes follow, so the keys have to come back."""
+    me = principal_for(household["wouter"])
+    await remove_member(me, "household", "partner@example.test")
+    await Attachment(
+        space_id=household["shared"].id,
+        object_key="files/one.pdf",
+        filename="one.pdf",
+        mime="application/pdf",
+        byte_size=1,
+        description="a file",
+        status=AttachmentStatus.READY.value,
+    ).save()
+
+    result = await delete_space(me, "household")
+
+    assert result["file_keys"] == ["files/one.pdf"]
+    assert (
+        await Attachment.count().where(Attachment.space_id == household["shared"].id)
+        == 0
     )
 
 

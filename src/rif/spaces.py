@@ -1,9 +1,18 @@
-"""Space administration: creation, invitation, removal, and onboarding.
+"""Space administration: creation, invitation, removal, departure, and onboarding.
 
-The ``spaces``, ``memberships``, and ``persons`` tables carry no RLS; every
-function here is therefore an enforcement point and checks authority itself.
-The rule is creator-admin: whoever created a space owns it, and only the
-owner changes its member list.
+The ``spaces``, ``memberships``, and ``persons`` tables have carried row-level
+security since the identity policies landed, so the checks here are the outer
+of two layers rather than the only one. They stay because a policy filters
+rows silently — a caller who is not the owner sees an empty result, not a
+refusal — and an administrative tool owes the caller a reason. The rule is
+creator-admin: whoever created a space owns it, and only the owner changes its
+member list or destroys it.
+
+Ownership is not a life sentence. An owner who leaves a shared cove hands it
+to a successor rather than taking it down with them, which is the same
+invariant account deletion keeps: departing never destroys somebody else's
+memory. Destroying a cove is consequently only reachable by whoever is alone
+in it.
 
 Like the rest of the Piccolo port there is no session to thread: queries bind
 to the ambient transaction opened by :func:`rif.db.transaction_scope`.
@@ -15,7 +24,16 @@ from uuid import UUID
 from rif import audit
 from rif.access import Principal, arm, resolve_space
 from rif.invitations import allowlist
-from rif.models import Membership, Page, Person, Space, SpaceKind
+from rif.models import (
+    Attachment,
+    MemberRole,
+    Membership,
+    Page,
+    Person,
+    Revision,
+    Space,
+    SpaceKind,
+)
 from rif.pages import save_page
 from rif.protocol import PERSONA_PATH, PERSONA_STUB
 
@@ -269,6 +287,139 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
         "removed": True,
         "person_erased": person_erased,
     }
+
+
+async def _others_in(space_id: UUID, person_id: UUID) -> list[Membership]:
+    """Return a space's memberships other than this person's.
+
+    :param space_id: the space to count
+    :param person_id: the person to exclude
+    :returns: the remaining membership rows
+    """
+    return await Membership.objects().where(
+        Membership.space_id == space_id,
+        Membership.person_id != person_id,
+    )
+
+
+async def delete_space(principal: Principal, slug: str) -> dict:
+    """Destroy a shared space the principal owns and is alone in.
+
+    Deletion is deliberately refused while anybody else is a member, and the
+    refusal names the alternative. Handing a cove on is what leaving already
+    does, and destroying a cove other people keep their memory in should not
+    be reachable by one confirmation: an owner who truly wants it gone can
+    remove each member first, which is the same act performed visibly.
+
+    The row goes before the bytes, the order :func:`rif.attachments
+    .delete_attachment` argues for — the two stores cannot be made atomic, and
+    unreferenced bytes are safer wreckage than rows whose bytes 404. The keys
+    are therefore collected here, while the rows still exist, and returned for
+    the caller to erase once this transaction has committed.
+
+    Children are deleted explicitly rather than left to the cascades. They
+    would cascade correctly — every foreign key pointing at ``spaces`` is
+    ``ON DELETE CASCADE`` — but a cascade runs as an internal referential
+    action that bypasses row-level security, whereas these statements are
+    checked against the principal's own membership. Nothing is relied upon
+    that the policies would not already permit.
+
+    :param principal: the authenticated person
+    :param slug: the shared space to destroy
+    :raises SpaceError: if personal, not owned, or anyone else is still a member
+    :returns: outcome with the page count and the object keys still to erase
+    """
+    space = await _owned_shared_space(principal, slug)
+    others = await _others_in(space.id, principal.person_id)
+    if others:
+        raise SpaceError(
+            f"{slug!r} still has {len(others)} other member(s); leave it to hand "
+            "it on, or remove them first if it must be destroyed"
+        )
+
+    file_keys = (
+        await Attachment.select(Attachment.object_key)
+        .where(Attachment.space_id == space.id)
+        .output(as_list=True)
+    )
+    page_ids = (
+        await Page.select(Page.id).where(Page.space_id == space.id).output(as_list=True)
+    )
+    if page_ids:
+        await Revision.delete().where(Revision.page_id.is_in(page_ids))
+    await Attachment.delete().where(Attachment.space_id == space.id)
+    await Page.delete().where(Page.space_id == space.id)
+    # The principal's own membership goes with the space, by cascade.
+    await Space.delete().where(Space.id == space.id)
+    return {
+        "space": slug,
+        "deleted": True,
+        "pages": len(page_ids),
+        "file_keys": file_keys,
+    }
+
+
+async def leave_space(principal: Principal, slug: str) -> dict:
+    """Leave a shared space, handing it on if the principal owned it.
+
+    The invariant this preserves is the one account deletion already keeps:
+    departing never destroys somebody else's memory. An owner who leaves
+    passes the cove to a successor — preferring a full member over a viewer,
+    then the lowest id so the choice is stable rather than row-order
+    dependent, the same rule as :func:`rif.account.delete_account_rows`.
+
+    Leaving as the last member is refused rather than quietly deleting the
+    cove and everything in it. That is a different act with a different
+    consequence, and it has its own verb.
+
+    :param principal: the authenticated person
+    :param slug: the shared space to leave
+    :raises SpaceError: if personal, or the principal is its only member
+    :returns: outcome, including who inherited the cove if anyone did
+    """
+    space = await resolve_space(principal, slug)
+    if space.kind == SpaceKind.PERSONAL.value:
+        raise SpaceError("the personal space cannot be left")
+
+    others = await _others_in(space.id, principal.person_id)
+    if not others:
+        raise SpaceError(
+            f"you are the only member of {slug!r}; delete it instead of leaving it"
+        )
+
+    handed_to = None
+    if space.owner_person_id == principal.person_id:
+        successor = min(
+            others,
+            key=lambda membership: (
+                membership.role != MemberRole.MEMBER.value,
+                str(membership.person_id),
+            ),
+        )
+        # Read the name before departing: the roster is membership-scoped, so
+        # once the membership below is gone this principal can no longer ask
+        # who is in the cove -- including who they just handed it to.
+        names = await display_names([successor.person_id])
+        handed_over = await Space.raw(
+            "SELECT rif_transfer_space_ownership({}, {}) AS ok",
+            space.id,
+            successor.person_id,
+        )
+        if not handed_over or not handed_over[0]["ok"]:
+            raise SpaceError(f"could not hand {slug!r} on; nothing was changed")
+        handed_to = names.get(successor.person_id)
+        audit.record(
+            audit.OWNERSHIP_TRANSFERRED,
+            actor=principal.person_id,
+            space_id=space.id,
+            successor_id=successor.person_id,
+        )
+
+    await Membership.delete().where(
+        Membership.space_id == space.id,
+        Membership.person_id == principal.person_id,
+    )
+    return {"space": slug, "left": True, "handed_to": handed_to}
 
 
 async def ensure_personal_space(person_id: UUID, email: str) -> None:

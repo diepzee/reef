@@ -269,6 +269,10 @@ def build_parser() -> argparse.ArgumentParser:
     remove = _tool_parser(sub, "remove_member", "remove a shared-space member")
     remove.add_argument("space")
     remove.add_argument("email")
+    leave = _tool_parser(sub, "leave_space", "leave a shared space, handing it on")
+    leave.add_argument("space")
+    delete = _tool_parser(sub, "delete_space", "destroy a shared space you are alone in")
+    delete.add_argument("space")
     remember = _tool_parser(sub, "remember", "append a fact to a space inbox")
     remember.add_argument("fact", help="fact text; '-' reads stdin")
     remember.add_argument("--space", default="personal")
@@ -379,6 +383,8 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         return tool, payload
     if tool == "remove_member":
         return tool, {"space": args.space, "email": args.email}
+    if tool in {"leave_space", "delete_space"}:
+        return tool, {"space": args.space}
     if tool == "remember":
         fact = sys.stdin.read() if args.fact == "-" else args.fact
         return tool, {"fact": fact, "space": args.space}
