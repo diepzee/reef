@@ -88,11 +88,15 @@ PRINCIPAL = "NULLIF(current_setting('app.person_id', true), '')::uuid"
 AUTHZ_ROLE = "rif_authz"
 """Owner of the helper functions. NOLOGIN, BYPASSRLS, owns nothing else."""
 
-_EXECUTOR_ROLES = ("rif_app", "rif")
-"""Roles granted EXECUTE: production's constrained app role, and the role that
-owns the database in local dev and test. A fixed allowlist -- never a value
-from a caller -- because it is interpolated into ``GRANT``, which rejects bind
-parameters. Whichever of the two exists in a given cluster is granted."""
+_EXECUTOR_ROLES = ("rif_app", "rif", "rif_probe")
+"""Roles granted EXECUTE: production's constrained app role, the role that owns
+the database in local dev and test, and the non-owner stand-in the test suite
+uses for privilege assertions (``tests/conftest.py``; absent in production).
+
+A fixed allowlist -- never a value from a caller -- because it is interpolated
+into ``GRANT``, which rejects bind parameters. Each is granted only if it
+exists in the cluster, so naming a test-only role here costs production
+nothing."""
 
 _MEMBER_PREDICATE = "space_id IN (SELECT rif_space_ids())"
 
