@@ -824,6 +824,8 @@ the origin under a hostname Railway has no certificate for.
 | `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
 | `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |
 | `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
+| `LOGFIRE_TOKEN` | Write token for the `wouterdurnez/reef` Logfire project (EU instance). **Optional** — unset means telemetry is inert, and a missing token can never fail a request or stop the server booting |
+| `LOGFIRE_BASE_URL` | Only if the Logfire instance moves. Defaults to `https://logfire-eu.pydantic.dev`; the SDK's own default is the US instance, which is the wrong one for this project |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |
 
 **Escape hatches, in order of severity:**
