@@ -51,3 +51,26 @@ GRANT rif_authz TO rif;
 GRANT CREATE ON SCHEMA public TO rif_authz;
 \c rif_test
 GRANT CREATE ON SCHEMA public TO rif_authz;
+
+-- A stand-in for production's rif_app, and the only way the test suite can
+-- tell the truth about privileges.
+--
+-- "rif" OWNS the tables here, and an owner's privileges are implicit: REVOKE
+-- UPDATE followed by GRANT UPDATE (version) does not bite an owner the way it
+-- bites rif_app in production. A test asserting "a member cannot rewrite a
+-- cove's slug" would therefore pass against "rif" for entirely the wrong
+-- reason, and the policy could ship broken.
+--
+-- This repo has already paid for that mistake once: production ran as the
+-- bootstrap superuser for five days while the tests -- honest in themselves,
+-- but run against a constrained role -- proved a shape production did not
+-- have. See the header of this file.
+--
+-- Ordinary, non-owner, no DDL, granted exactly what rif_app is granted. It
+-- exists only in dev and test clusters; production has no equivalent and
+-- needs none.
+CREATE ROLE rif_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
+  NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT CONNECT ON DATABASE rif_test TO rif_probe;
+GRANT USAGE ON SCHEMA public TO rif_probe;
+REVOKE CREATE ON SCHEMA public FROM rif_probe;
