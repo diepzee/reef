@@ -1,11 +1,12 @@
 """The privileged-act trail: that it records, and that it records only ids.
 
-Four operations reach past the row policies through ``SECURITY DEFINER``
+Some operations reach past the row policies through ``SECURITY DEFINER``
 functions. That is deliberate -- no policy can express "the owner may remove
-a member" without permitting much more -- and it means those four carry
-accountability rather than prevention. These assert the accountability half
-actually exists, and that buying it did not quietly create a second copy of
-the corpus somewhere else.
+a member" without permitting much more -- and it means they carry
+accountability rather than prevention. Others stay inside the policies but
+destroy what would otherwise answer the question later. These assert that both
+kinds leave a record, and that buying it did not quietly create a second copy
+of the corpus somewhere else.
 """
 
 import pytest
@@ -19,7 +20,7 @@ from rif import audit, telemetry
 from rif.access import Principal
 from rif.db import DB
 from rif.invitations import allowlist
-from rif.spaces import invite, remove_member
+from rif.spaces import create_space, delete_space, invite, remove_member
 
 
 def principal_for(person) -> Principal:
@@ -150,3 +151,35 @@ async def test_the_trail_is_inert_when_telemetry_is_off(monkeypatch):
     """A telemetry outage must never be able to fail the act being recorded."""
     monkeypatch.setattr(telemetry, "_configured", False)
     audit.record(audit.INVITE_MINTED, actor=__import__("uuid").uuid4())
+
+
+async def test_destroying_a_cove_is_recorded(tx, household, recorded):
+    """The one act that leaves nothing behind to read afterwards.
+
+    Unlike the acts above this stays inside the policies -- an owner deleting
+    their own cove is exactly what ``spaces_owner_delete`` permits. It is
+    recorded because the rows are gone: without an entry made at the time,
+    nothing can say the cove existed or who ended it.
+    """
+    me = principal_for(household["wouter"])
+    space_id = household["shared"].id
+    await remove_member(me, "household", "partner@example.test")
+    await delete_space(me, "household")
+
+    assert audit.COVE_DELETED in _actions(recorded)
+    assert str(space_id) in _blob(recorded)
+
+
+async def test_the_trail_never_carries_a_cove_name(tx, household, recorded):
+    """A slug is the user's words, so it stays out of the record like a page would.
+
+    Worth its own test because the deletion path is the one place a slug is
+    the natural thing to reach for -- the id it records identifies a row that
+    no longer exists, which is precisely the trade the trail makes.
+    """
+    me = principal_for(household["wouter"])
+    await create_space(me, "sailing-holiday")
+    await delete_space(me, "sailing-holiday")
+
+    assert audit.COVE_DELETED in _actions(recorded)
+    assert "sailing-holiday" not in _blob(recorded)
