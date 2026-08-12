@@ -20,10 +20,11 @@
  * everywhere it appears.
  */
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { apiSend } from "../api";
+import { getCoveFolds, isCoveOpen, setCoveFold } from "../coveFolds";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
@@ -43,6 +44,7 @@ function parseLocation(pathname: string): { space: string | null; page: string |
   };
 }
 
+
 export function Sidebar({ me }: { me: Me | null }) {
   const { index } = useIndex();
   const location = useLocation();
@@ -51,6 +53,11 @@ export function Sidebar({ me }: { me: Me | null }) {
   const { members } = useMembers(activeSpace);
   const { openMembers } = useMembersSheet();
   const [signingOut, setSigningOut] = useState(false);
+  const [folds, setFolds] = useState(getCoveFolds);
+
+  const toggleFold = useCallback((alias: string, open: boolean) => {
+    setFolds((previous) => setCoveFold(previous, alias, open));
+  }, []);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -105,17 +112,42 @@ export function Sidebar({ me }: { me: Me | null }) {
         const isActive = space.alias === activeSpace;
         const isPersonal = space.alias === "personal";
         const hue = spaceColor(space.alias);
+        const hasPages = space.pages.length > 0;
+        const isOpen = isCoveOpen(folds, space.alias, isActive, hasPages);
 
         return (
           <div key={space.alias}>
-            <Link
-              to={`/s/${space.alias}`}
-              className={`side-item ${isActive ? "active" : ""}`}
-            >
-              <span className="side-dot" style={{ background: hue.base }} />
-              <span>{space.alias}</span>
-              {isActive && !isPersonal ? (
-                members && (
+            {/*
+              The twisty is a sibling of the row's link, not a child of it:
+              a <button> inside an <a> is invalid, and the nested-interactive
+              dodge the member stack below has to pull (preventDefault plus
+              stopPropagation, or the anchor hard-navigates) is worth avoiding
+              on a control the reader will hit far more often. The wrapper
+              carries the active tint so it still spans the whole row.
+            */}
+            <div className={`side-row ${isActive ? "active" : ""}`}>
+              {hasPages ? (
+                <button
+                  type="button"
+                  className="side-twist"
+                  aria-expanded={isOpen}
+                  aria-label={`${isOpen ? "Collapse" : "Expand"} ${space.alias}`}
+                  onClick={() => toggleFold(space.alias, !isOpen)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                    <path d="M4.5 2.5 8 6l-3.5 3.5" />
+                  </svg>
+                </button>
+              ) : (
+                // An empty cove has nothing to fold, but its name still has to
+                // line up with the ones that do.
+                <span className="side-twist side-twist-blank" aria-hidden="true" />
+              )}
+              <Link to={`/s/${space.alias}`} className="side-item">
+                <span className="side-dot" style={{ background: hue.base }} />
+                <span>{space.alias}</span>
+                {isActive && !isPersonal ? (
+                  members && (
                   // This sits inside the space's own <Link>, and opening
                   // the sheet should not also navigate. preventDefault is
                   // required alongside stopPropagation: stopPropagation
@@ -128,27 +160,28 @@ export function Sidebar({ me }: { me: Me | null }) {
                   // just opened. Confirmed live: without preventDefault
                   // here, clicking this stack opened the sheet for one
                   // render and then a full page reload silently closed it.
-                  <span
-                    className="side-item-right"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                    }}
-                  >
-                    <AvatarStack
-                      names={members.members.map((member) => member.display_name)}
-                      size="sm"
-                      onClick={() => openMembers(space.alias)}
-                      ariaLabel={`Members of ${space.alias}`}
-                    />
-                  </span>
-                )
-              ) : (
-                <span className="side-count">{space.pages.length}</span>
-              )}
-            </Link>
+                    <span
+                      className="side-item-right"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
+                    >
+                      <AvatarStack
+                        names={members.members.map((member) => member.display_name)}
+                        size="sm"
+                        onClick={() => openMembers(space.alias)}
+                        ariaLabel={`Members of ${space.alias}`}
+                      />
+                    </span>
+                  )
+                ) : (
+                  <span className="side-count">{space.pages.length}</span>
+                )}
+              </Link>
+            </div>
 
-            {isActive && (
+            {isOpen && (
               <>
                 {space.pages.map((page) => (
                   <Link
@@ -168,15 +201,23 @@ export function Sidebar({ me }: { me: Me | null }) {
         );
       })}
 
-      <Link to="/spaces/new" className="side-item side-newspace">
-        <span className="side-dot" />
-        <span>＋ New cove</span>
+      {/*
+        Both of these used to wear a `side-dot` and sit in the cove list, which
+        made two actions read as two more coves — the dot is the mark of a cove
+        in this pane, so lending it to a link that is not one is a lie. "New
+        cove" stays with the list because that is what it adds to. Inviting
+        someone to reef adds a person to the product rather than to any cove,
+        so it goes below with the account, behind a rule.
+      */}
+      <Link to="/spaces/new" className="side-newcove">
+        ＋ New cove
       </Link>
 
-      <Link to="/invite" className="side-item side-newspace">
-        <span className="side-dot" />
-        <span>＋ Invite to <span className="reef-name">reef</span></span>
-      </Link>
+      <div className="side-foot">
+        <Link to="/invite" className="side-foot-link">
+          Invite someone to <span className="reef-name">reef</span>
+        </Link>
+      </div>
 
       <div className="side-me">
         {me && <Avatar name={me.display_name} size="sm" />}
