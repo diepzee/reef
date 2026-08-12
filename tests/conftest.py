@@ -17,9 +17,24 @@ from piccolo.table import create_db_tables, drop_db_tables
 
 from rif.db import DB, transaction_scope
 from rif.models import TABLES, Membership, Person, Space, SpaceKind
-from rif.rls import constraint_statements, enable_statements
+from rif.rls import AUTHZ_ROLE, constraint_statements, enable_statements
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
+
+_MISSING_AUTHZ_ROLE = f"""
+The {AUTHZ_ROLE} role does not exist in the test cluster, so the RLS helper
+functions cannot be created and these tests would prove a shape production
+does not have.
+
+It is created at cluster bootstrap by docker/initdb, which only runs on a
+fresh volume. On a cluster that predates it, create it once as the superuser:
+
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d postgres \\
+      -c "CREATE ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS" \\
+      -c "GRANT {AUTHZ_ROLE} TO rif"
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d rif_test \\
+      -c "GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}"
+"""
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -30,8 +45,17 @@ async def schema():
     migration uses, so production and tests can never apply different
     policies -- a difference there would mean tests validate policies
     production does not enforce.
+
+    That guarantee now extends to role shape, not just statements: the
+    helper functions are owned by a ``BYPASSRLS`` role, and whether a policy
+    recurses depends entirely on who owns them. A cluster missing the role
+    fails here, loudly, rather than silently testing something else.
     """
     await DB.start_connection_pool()
+    if not await DB._run_in_new_connection(
+        f"SELECT 1 FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
+    ):
+        raise RuntimeError(_MISSING_AUTHZ_ROLE)
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     for statement in constraint_statements() + enable_statements():

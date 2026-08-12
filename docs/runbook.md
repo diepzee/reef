@@ -441,6 +441,62 @@ is the admin role. Give the backup cron the latter. Before that date the app
 itself ran as the superuser, so this trap could not fire — and neither could
 RLS.
 
+### A third role: `rif_authz` (12 Aug 2026)
+
+There is now a **third** role, and it is not a credential — nothing can log in
+as it. `rif_authz` owns the `SECURITY DEFINER` helper functions that every RLS
+policy calls (`rif_space_ids()`, `rif_member_space_ids()`), and it holds
+`BYPASSRLS` because nothing else can.
+
+The reason is worth keeping, because it is not obvious and it killed two
+earlier designs: a policy on `memberships` whose predicate reads `memberships`
+is evaluated by running that same policy, forever — the server dies with
+*stack depth limit exceeded*. `FORCE ROW LEVEL SECURITY` closes the usual
+escape hatch, since it subjects the table **owner** to policies too, so a
+definer function owned by the table owner recurses just the same. Only a
+`BYPASSRLS` owner breaks the cycle. Verified against a live server both ways
+before it was relied on.
+
+**Provisioning is a one-time manual step**, because creating a `BYPASSRLS`
+role needs superuser and the boot migration deliberately runs as the
+non-superuser admin role.
+
+**On an existing database** (which production is), run the standalone SQL —
+it touches nothing but this role:
+
+```bash
+railway link          # interactive: pick rif / production / rif-app
+railway run --service rif-app -- sh -c \
+  'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
+     -f scripts/provision_authz_role.sql'
+```
+
+`railway run` injects the service's own variables, so the credential never
+leaves Railway — no copying a DSN anywhere. The script is idempotent,
+re-asserts the attributes if the role already exists, and raises if the end
+state is wrong.
+
+**Do not** reach for `scripts/provision_app_role.py` here. It does the same
+thing plus more, but it also runs `ALTER ROLE rif_app ... PASSWORD`, so
+running it with a fresh password rotates the credential `DATABASE_URL` still
+holds and the app stops being able to connect. That script is for standing up
+a *new* environment.
+
+Either path grants `rif_authz` to the migration role (Postgres requires the
+executing role to be a *member* of a role it hands function ownership to) and
+grants it `CREATE ON SCHEMA public` (required of the **new** owner whenever a
+function's ownership is reassigned — without it every
+`ALTER FUNCTION ... OWNER TO` fails with *permission denied for schema
+public*).
+
+**The migration refuses to run if the role is missing or lacks `BYPASSRLS`**,
+rather than installing policies that would recurse on the first request. If a
+deploy fails with that error, run the provisioning script and redeploy.
+
+Granting `CREATE` to `rif_authz` is not the widening it looks like: the role
+cannot log in, so the privilege is reachable only through a definer function
+this repo wrote and owns.
+
 **Two traps found the first time this was run for real (7 Aug 2026), either
 of which alone meant no backup:**
 
