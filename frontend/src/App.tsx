@@ -6,6 +6,7 @@ import Editor from "./views/Editor";
 import ExportView from "./views/ExportView";
 import Home from "./views/Home";
 import IndexView from "./views/IndexView";
+import Connect from "./views/Connect";
 import InviteToReef from "./views/InviteToReef";
 import NewPage from "./views/NewPage";
 import NewSpace from "./views/NewSpace";
@@ -25,6 +26,7 @@ function AuthedApp() {
           <Route path="/export" element={<ExportView />} />
           <Route path="/spaces/new" element={<NewSpace />} />
           <Route path="/invite" element={<InviteToReef />} />
+          <Route path="/connect" element={<Connect />} />
           <Route path="/s/:space" element={<SpaceView />} />
           <Route path="/s/:space/new" element={<NewPage />} />
           <Route path="/s/:space/p/*" element={<PageView />} />

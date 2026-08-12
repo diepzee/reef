@@ -1767,3 +1767,57 @@ a.export-dump-button {
     background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
   }
 }
+
+/* Connect view: the endpoint block and the numbered setup steps.
+   The URL is long and must not force the page to scroll sideways on a
+   phone, so it wraps at any character rather than overflowing. */
+.connect-url {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+.connect-url code {
+  flex: 1 1 16rem;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--ground);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.connect-steps {
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.connect-step {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: var(--text-sm);
+}
+
+.connect-step-n {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: var(--text-xs);
+  font-weight: 800;
+  /* Baseline alignment puts a flex item's own first baseline on the row's,
+     which for a centred digit sits too low; nudge the circle instead. */
+  transform: translateY(0.2em);
+}
