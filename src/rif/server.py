@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from fastmcp import FastMCP
 from mcp.types import Icon
 
-from rif import invitations
+from rif import invitations, telemetry
 from rif import spaces as space_admin
 from rif.access import (
     AccessDenied,
@@ -1027,7 +1027,22 @@ def main() -> None:
                 "RIF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
                 "RIF_SESSION_SECRET; local development only"
             )
-        mcp.run(transport="http", host="0.0.0.0", port=int(port), path="/mcp")
+        # Silently disabled when LOGFIRE_TOKEN is unset -- telemetry must
+        # never be able to stop the server starting. The middleware goes
+        # through run() because FastMCP builds its own app internally, so
+        # instrumenting one from http_app() would decorate a throwaway.
+        middleware = []
+        if telemetry.configure():
+            telemetry.instrument_clients()
+            middleware = telemetry.request_middleware()
+            print("telemetry: exporting to Logfire")
+        mcp.run(
+            transport="http",
+            host="0.0.0.0",
+            port=int(port),
+            path="/mcp",
+            middleware=middleware,
+        )
     else:
         mcp.run()
 
