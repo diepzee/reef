@@ -93,9 +93,11 @@ scheduling and content.
 ## Phase 1 — Prove the connection works
 
 > **Done, 6 Aug 2026 — for his account, on desktop.** The connector is
-> configured against the real service at
-> `https://rif-app-production.up.railway.app/mcp` and answers tool calls from
-> Claude Code. Claude registered itself with no client id or secret entered
+> configured against the real service and answers tool calls from Claude
+> Code. The endpoint was `https://rif-app-production.up.railway.app/mcp` at
+> the time; since 11 Aug 2026 it is **`https://reefwith.me/mcp`** — configure
+> new connectors against that one, and see "Custom domain: `reefwith.me`"
+> for why the old URL cannot simply be left in place. Claude registered itself with no client id or secret entered
 > anywhere, so Dynamic Client Registration works. Identity binding works too:
 > `principal_from_claims` requires a verified email to bind an unknown
 > subject, and it succeeded, so AuthKit's **access token does carry `email`
@@ -302,7 +304,8 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 ## Phase 3 — Deploy the real service
 
 > **Done, 6 Aug 2026.** The real service runs at
-> `rif-app-production.up.railway.app`, and step 3's check passes: `list_spaces`
+> `rif-app-production.up.railway.app` — since 11 Aug 2026 also, and by
+> preference, at `reefwith.me` — and step 3's check passes: `list_spaces`
 > returned exactly `personal` and the shared space (then aliased `household`,
 > briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal space identifiers
 > and nothing belonging to anyone else.
@@ -310,6 +313,25 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
 configured (a final-review fix — misconfiguration is a crash, not an open
 endpoint), and the store is empty anyway until Phase 5.
+
+**How deploys actually happen.** Railway has `main` connected to the
+production environment with *"Auto deploys when pushed to GitHub"* enabled.
+**Merging to `main` ships to production.** There is no CI in this repo — no
+`.github/workflows`, no tests gating the merge — so the merge button is the
+deploy button, and nothing checks the build first.
+
+Two consequences worth internalising:
+
+- A pull request that looks harmless (a docs tweak, a copy change) still
+  rebuilds and redeploys the live service. Check that it *builds*, not just
+  that the diff reads well.
+- The setting lives in the Railway dashboard, not in this repo, so nothing in
+  the codebase reveals it. Railway → `rif-app` → Settings → Source shows the
+  connected branch and lets you disconnect or disable it.
+
+The `railway up` commands throughout this runbook are the *manual* path —
+they upload your working directory directly, bypassing git. Useful for the
+spike service and for recovering when a bad commit is already on `main`.
 
 1. ```bash
    railway add --database postgres
@@ -761,3 +783,11 @@ the origin under a hostname Railway has no certificate for.
 `piccolo-port` branches are merged); knowledge design in
 `mark/meta/architecture.md` (branch `forest-leech`); build audit trail in
 `.worktrees/build/.superpowers/sdd/2026-08-05-rif-v1/progress.md`.
+
+**Public URLs:** marketing page at `https://reefwith.me/`, the app at
+`/app`, MCP at `/mcp`. The `rif-app-production.up.railway.app` hostname still
+answers, but connectors must use `reefwith.me` — see "Custom domain".
+
+**How it deploys:** merging to `main` auto-deploys production (Railway,
+dashboard setting, no CI). `railway up` is the manual override. See
+"Phase 3 → How deploys actually happen".

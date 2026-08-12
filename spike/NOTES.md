@@ -9,6 +9,12 @@ Two things this spike set out to answer are still open, both about *her* side
 rather than the mechanism: the connector has not been confirmed on a phone,
 and her account and tier have not been tried. See "Tier limitations" below.
 
+> **Reading these later:** every `rif-app-production.up.railway.app` URL below
+> is what was true in August 2026 and is left as written, because these notes
+> are a record rather than instructions. The service moved to `reefwith.me` on
+> 11 Aug 2026 — **connectors and WorkOS resource indicators must use
+> `https://reefwith.me/mcp`**. See `docs/runbook.md` → "Custom domain".
+
 ## Provider choice
 
 **WorkOS AuthKit**, via FastMCP's `AuthKitProvider`
