@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from rif import audit
 from rif.access import Principal, accessible_spaces, space_alias
 from rif.models import (
     Attachment,
@@ -89,6 +90,12 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
         )
         if not handed_over or not handed_over[0]["ok"]:
             continue
+        audit.record(
+            audit.OWNERSHIP_TRANSFERRED,
+            actor=principal.person_id,
+            space_id=space.id,
+            successor_id=successor.person_id,
+        )
         transferred_coves.append(space_alias(space))
 
     deleted_ids = [space.id for space in deleted_spaces]
@@ -124,6 +131,12 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
     # anonymize, invites retain their invitees, and memberships/promotions
     # belonging to this person disappear.
     await Person.delete().where(Person.id == principal.person_id)
+    audit.record(
+        audit.ACCOUNT_ERASED,
+        actor=principal.person_id,
+        coves_deleted=len(deleted_coves),
+        coves_transferred=len(transferred_coves),
+    )
 
     return AccountDeletion(
         deleted_coves=deleted_coves,
