@@ -422,7 +422,7 @@ async def invite_to_reef(email: str, display_name: str | None = None) -> dict:
     there is nothing here to regret. Reach for ``invite`` only when the
     intent really is to share a cove's contents forever.
 
-    reef sends no email. Pass the returned ``next_step`` to the user so they
+    reef sends no invitation email. Pass the returned ``next_step`` to the user so they
     can relay it — nothing reaches the invitee otherwise.
 
     Limited to a few new people per member per month; the error names the

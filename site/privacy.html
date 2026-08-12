@@ -102,8 +102,11 @@ footer a { color: var(--muted); }
     <tr><td>Page history — who changed what, and when</td><td>So a shared memory can be traced and corrected.</td></tr>
   </table>
   <p>
-    <span class="reef-name">reef</span> has no advertising, no trackers, and no analytics of your content. It
-    sends no email at all — not even for invitations.
+    <span class="reef-name">reef</span> has no advertising, no trackers, and no analytics of your content.
+    The only email you can receive is a sign-in code, sent by WorkOS at the
+    moment you ask to sign in with one. Nothing else is ever sent — no
+    invitation emails, no notifications, no newsletters. An invitation reaches
+    you because the person inviting you tells you about it.
   </p>
 
   <h2>Who can see it</h2>
@@ -138,7 +141,7 @@ footer a { color: var(--muted); }
   <ul>
     <li><strong>Pages, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
     <li><strong>Images and backups</strong> — Cloudflare R2, in the European Union.</li>
-    <li><strong>Sign-in</strong> — handled by WorkOS. <span class="reef-name">reef</span> never sees your password; it only learns your verified email address.</li>
+    <li><strong>Sign-in</strong> — handled by WorkOS, either with a Google account or with a six-digit code sent to your address. <span class="reef-name">reef</span> never sees a password; it only learns your verified email address.</li>
     <li><strong>Traffic</strong> — served through Cloudflare.</li>
   </ul>
   <p>
