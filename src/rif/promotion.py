@@ -117,6 +117,13 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     if staged is None or staged.person_id != principal.person_id:
         raise PromotionError("unknown promotion nonce")
     dest = await Space.objects().where(Space.id == staged.dest_space_id).first()
+    # A nonce outlives the membership that justified it. Once spaces carry a
+    # policy, losing that membership makes the destination invisible rather
+    # than merely unauthorised, so this is the recheck: without it the code
+    # below dereferences None and the caller gets an AttributeError where it
+    # should get a refusal.
+    if dest is None:
+        raise PromotionError("you are no longer a member of that cove")
     if staged.consumed_at is not None:
         return {
             "promoted": True,

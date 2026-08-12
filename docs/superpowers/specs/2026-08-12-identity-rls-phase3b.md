@@ -194,3 +194,70 @@ by hand from the Postgres service if the app is wedged.
 **The failure mode to watch for** is not an error page. It is a user who can
 sign in but sees an empty cove list, which means a policy is filtering
 something the application still believes it can read.
+
+---
+
+## 8. Findings from the first implementation attempt (12 Aug 2026)
+
+Written during a partial implementation on branch `rls-identity-policies`.
+The policy DDL, the three mutation functions, and the seeding harness are on
+that branch and work; the app rewrites and the remaining test surgery are not
+done. Start here rather than from §2.
+
+### `INSERT ... RETURNING` is governed by the SELECT policy
+
+The blocker, and worth knowing before writing a line: Postgres applies
+**SELECT** policies to the rows returned by an `INSERT ... RETURNING`, and
+Piccolo's `save()` always emits `RETURNING`. With `persons` self-only, an
+inviter creating an invitee is refused — even though `persons_invite_insert`
+is satisfied exactly.
+
+The error names the wrong thing:
+
+    new row violates row-level security policy for table "persons"
+
+which reads as a `WITH CHECK` failure and is not. Reproduced in isolation
+with the principal armed and `invited_by_person_id` equal to it.
+
+**Do not fix this by adding `persons_invitee_select USING
+(invited_by_person_id = PRINCIPAL)`.** That was rejected in §2 for a reason
+that still holds: it exposes the invitee's whole row, including the
+`subject` bound later, when the entitlement is only to fields the inviter
+supplied.
+
+The consistent fix is a definer function — `rif_allowlist_person(email,
+display_name)` returning the new id — so the invite insert never needs
+`RETURNING` under the caller's policies. `rif.invitations.allowlist` calls
+it in place of `Person(...).save()`.
+
+### Fixture data must be seeded out of band
+
+`persons_invite_insert` demands an inviter, so a person with no inviter
+cannot be created by the application at all — which is correct, and is why
+reef's own first person was made by hand. Test fixtures represent rows that
+already exist, so `conftest.Graph` now writes through a superuser connection
+(`seed_dsn()`, overridable with `RIF_SEED_DATABASE_URL`).
+
+Two traps that cost time:
+
+- `memberships.id` is a serial, not a uuid. Let it default.
+- A row written behind Piccolo's back still has `_exists_in_db = False`, so a
+  later `.save()` INSERTs a duplicate instead of updating. The builders set
+  the flag; anything else seeding directly must too.
+
+### Where the suite stood
+
+251 → 216 passing, 35 failing, when the policies were switched on. The
+failures were not noise; they decompose into:
+
+1. the `RETURNING` problem above (most of them — every invite path),
+2. tests that mutate a seeded row via `.save()`, which is now an unarmed
+   `UPDATE` and is filtered to zero rows rather than erroring — silent, and
+   the reason `test_identity` fails with a bare `assert True is False`,
+3. `remove_member` and account-deletion succession, which still need their
+   definer functions wired in per §3.
+
+Class 2 deserves emphasis: **a filtered `UPDATE` or `DELETE` affects no rows
+and raises nothing.** Any code that assumed a write happened will carry on
+with stale state. That is the failure mode to hunt for in review, not
+exceptions.

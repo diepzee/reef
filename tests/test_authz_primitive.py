@@ -75,12 +75,11 @@ async def test_space_ids_returns_only_the_armed_principals_spaces(tx, household)
         assert household["p_personal"].id not in mine
 
 
-async def test_member_space_ids_excludes_viewer_memberships(tx, household):
+async def test_member_space_ids_excludes_viewer_memberships(tx, household, graph):
     """Write authority is narrower than read authority, and stays so."""
-    await Membership.update({Membership.role: "viewer"}).where(
-        Membership.person_id == household["partner"].id,
-        Membership.space_id == household["shared"].id,
-    )
+    # memberships has no UPDATE policy -- role changes belong to the
+    # ownership-transfer function -- so a viewer has to be seeded.
+    await graph.set_role(household["partner"], household["shared"], "viewer")
     await _arm(household["partner"])
     readable = {r["id"] for r in await Space.raw("SELECT rif_space_ids() AS id")}
     writable = {r["id"] for r in await Space.raw("SELECT rif_member_space_ids() AS id")}
@@ -122,8 +121,8 @@ async def test_a_policy_calling_the_function_on_its_own_table_does_not_recurse(g
     await graph.personal_space(partner, slug="recursion-partner")
     shared = await graph.shared_space("recursion-shared", wouter, partner)
 
-    await DB._run_in_new_connection("ALTER TABLE memberships ENABLE ROW LEVEL SECURITY")
-    await DB._run_in_new_connection("ALTER TABLE memberships FORCE ROW LEVEL SECURITY")
+    # memberships already carries ENABLE + FORCE from the schema build; this
+    # only adds the deliberately self-referential policy on top.
     await DB._run_in_new_connection(
         "CREATE POLICY memberships_recursion_probe ON memberships FOR SELECT "
         "USING (space_id IN (SELECT rif_space_ids()))"
@@ -148,12 +147,10 @@ async def test_a_policy_calling_the_function_on_its_own_table_does_not_recurse(g
     except asyncpg.exceptions.StatementTooComplexError as exc:  # pragma: no cover
         pytest.fail(f"the predicate recursed: {exc}")
     finally:
+        # Drop only the probe policy. This test predates memberships having
+        # policies of its own; disabling row security here -- as it used to --
+        # left the table unprotected for every test that ran afterwards in
+        # the same session, and the suite reported success throughout.
         await DB._run_in_new_connection(
             "DROP POLICY IF EXISTS memberships_recursion_probe ON memberships"
-        )
-        await DB._run_in_new_connection(
-            "ALTER TABLE memberships NO FORCE ROW LEVEL SECURITY"
-        )
-        await DB._run_in_new_connection(
-            "ALTER TABLE memberships DISABLE ROW LEVEL SECURITY"
         )

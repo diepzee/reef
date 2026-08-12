@@ -96,3 +96,71 @@ async def test_row_level_security_still_applies_to_the_probe(probe, graph):
 
     # Unarmed, on a connection that neither owns the table nor bypasses RLS.
     assert await probe.fetchval("SELECT count(*) FROM pages") == 0
+
+
+async def test_a_member_may_bump_version_but_not_rewrite_a_cove(probe, graph):
+    """The column grant, asserted from a role it actually constrains.
+
+    A page write bumps ``spaces.version``, so the row policy has to admit
+    every member. Row security cannot say *which column*, so without the
+    grant a member could rename a cove or hand themselves its ownership with
+    one statement. This is the assertion the whole probe fixture exists for:
+    against the owning role it would pass while the grant was absent.
+    """
+    person = await graph.person("grant@example.test", "Grant")
+    space = await graph.shared_space("grant-cove", person)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(person.id))
+    try:
+        await probe.execute(
+            "UPDATE spaces SET version = version + 1 WHERE id = $1", space.id
+        )
+
+        for column, value in (("slug", "stolen"), ("owner_person_id", str(person.id))):
+            with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+                await probe.execute(
+                    f"UPDATE spaces SET {column} = $1 WHERE id = $2", value, space.id
+                )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+
+async def test_only_an_owner_may_add_someone_to_a_cove(probe, graph):
+    """Membership is administration, and the database says so too.
+
+    A full member is not an administrator. An earlier draft of the insert
+    policy admitted any member, which would have let one add an arbitrary
+    allowlisted person to a cove -- handing them every page in it, past and
+    future -- with the application's ownership check the only thing in the
+    way. Asserted through the probe so it is a real refusal, not an owner's
+    implicit privilege.
+    """
+    owner = await graph.person("cove-owner@example.test", "Owner")
+    member = await graph.person("cove-member@example.test", "Member")
+    outsider = await graph.person("cove-outsider@example.test", "Outsider")
+    space = await graph.shared_space("admin-cove", owner, member)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(member.id))
+    try:
+        with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+            await probe.execute(
+                "INSERT INTO memberships (person_id, space_id, role) "
+                "VALUES ($1, $2, 'member')",
+                outsider.id,
+                space.id,
+            )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+    # The owner may, which is what makes the refusal above about authority
+    # rather than about the insert being broken.
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(owner.id))
+    try:
+        await probe.execute(
+            "INSERT INTO memberships (person_id, space_id, role) "
+            "VALUES ($1, $2, 'member')",
+            outsider.id,
+            space.id,
+        )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")

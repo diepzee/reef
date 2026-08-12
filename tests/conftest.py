@@ -17,8 +17,14 @@ import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
 from rif.db import DB, transaction_scope
-from rif.models import TABLES, Membership, Person, Space, SpaceKind
-from rif.rls import AUTHZ_ROLE, constraint_statements, enable_statements
+from rif.models import TABLES, Person, Space, SpaceKind
+from rif.rls import (
+    AUTHZ_ROLE,
+    constraint_statements,
+    drop_disclosure_statements,
+    drop_mutation_statements,
+    enable_statements,
+)
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
@@ -53,10 +59,42 @@ def probe_dsn() -> str:
 
     :returns: a DSN usable by asyncpg
     """
-    dsn = get_settings().test_database_url
+    return _swap_user(get_settings().test_database_url, PROBE_ROLE, "probe")
+
+
+def _swap_user(dsn: str, user: str, password: str) -> str:
+    """Return ``dsn`` with its userinfo replaced.
+
+    :param dsn: a ``postgresql://user:pass@host/db`` connection string
+    :param user: replacement username
+    :param password: replacement password
+    :returns: the rewritten DSN
+    """
     scheme, _, rest = dsn.partition("://")
     _, _, hostpart = rest.rpartition("@")
-    return f"{scheme}://{PROBE_ROLE}:probe@{hostpart}"
+    return f"{scheme}://{user}:{password}@{hostpart}"
+
+
+def seed_dsn() -> str:
+    """Return a DSN able to insert fixture rows past the identity policies.
+
+    Fixture data stands for rows that already exist -- people who were
+    invited long ago, coves already created. Under the identity policies
+    those rows cannot be *created* by an unarmed connection, and rightly so:
+    ``persons_invite_insert`` demands an inviter, so a person with no inviter
+    can only be seeded out of band. That is exactly how reef's own first
+    person came to exist, and it stays a deliberate manual act rather than
+    something the application can do.
+
+    Defaults to the superuser the local ``docker-compose.yml`` creates.
+    Override with ``RIF_SEED_DATABASE_URL`` for a cluster set up differently.
+
+    :returns: a DSN usable by asyncpg
+    """
+    override = os.environ.get("RIF_SEED_DATABASE_URL")
+    if override:
+        return override
+    return _swap_user(get_settings().test_database_url, "postgres", "postgres")
 
 
 _MISSING_AUTHZ_ROLE = f"""
@@ -100,16 +138,33 @@ async def schema():
         raise RuntimeError(_MISSING_PROBE_ROLE)
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
-    for statement in constraint_statements() + enable_statements():
-        await DB._run_in_new_connection(statement)
     # Granted here rather than in docker/initdb because the tables do not
     # exist at cluster bootstrap. Exactly what production grants rif_app --
     # no more, so a privilege the app does not have is one the probe does
     # not have either.
+    #
+    # Before enable_statements, not after: the policy DDL revokes table-wide
+    # UPDATE on spaces and grants back only the version column, and a blanket
+    # grant afterwards would silently undo it -- leaving a member able to
+    # rewrite a cove's slug while the suite reported success.
     for table in (*CONTENT_TABLES, "memberships", "spaces", "persons"):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
         )
+    # Sequences too, exactly as scripts/provision_app_role.py grants them in
+    # production. memberships has a serial key, so without this the probe is
+    # *more* constrained than the role it stands in for -- and a test would
+    # read a missing sequence grant as a policy refusal.
+    await DB._run_in_new_connection(
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {PROBE_ROLE}"
+    )
+    # Superseded function signatures are dropped before the schema is built:
+    # changing an argument list creates a second function rather than
+    # replacing the first, and two candidates make every call ambiguous.
+    for statement in drop_disclosure_statements() + drop_mutation_statements():
+        await DB._run_in_new_connection(statement)
+    for statement in constraint_statements() + enable_statements():
+        await DB._run_in_new_connection(statement)
     yield
     await DB.close_connection_pool()
 
@@ -164,21 +219,55 @@ async def tx():
 class Graph:
     """Builders for arbitrary person/space/membership topologies.
 
-    Piccolo queries are ambient, so these are plain coroutines rather than
-    session-bound ones: the caller decides whether they run inside a
-    transaction. Persons, spaces, and memberships carry no RLS policy, so a
-    builder never needs to be armed.
+    These seed *pre-existing* state, so they write through a connection that
+    is not subject to the identity policies -- see :func:`seed_dsn` for why
+    that is the honest shape rather than a shortcut. Behaviour under the
+    policies is exercised by the code under test, never by these builders.
+
+    Piccolo queries are ambient, so these are plain coroutines: the caller
+    decides whether the code being tested runs inside a transaction.
     """
 
-    async def person(self, email: str, display_name: str) -> Person:
+    def __init__(self, connection) -> None:
+        """Hold the seeding connection.
+
+        :param connection: an asyncpg connection able to bypass the policies
+        """
+        self._connection = connection
+
+    async def person(
+        self,
+        email: str,
+        display_name: str,
+        invited_by: Person | None = None,
+        subject: str | None = None,
+    ) -> Person:
         """Create one person row.
 
         :param email: the person's email address
         :param display_name: how the person is addressed
+        :param invited_by: the inviter, when the test cares about provenance
+        :param subject: a provider subject, as a person who has signed in has
         :returns: the saved person
         """
         row = Person(email=email, display_name=display_name)
-        await row.save()
+        if invited_by is not None:
+            row.invited_by_person_id = invited_by.id
+        row.subject = subject
+        await self._connection.execute(
+            "INSERT INTO persons (id, email, display_name, invited_by_person_id, "
+            "subject) VALUES ($1, $2, $3, $4, $5)",
+            row.id,
+            email,
+            display_name,
+            invited_by.id if invited_by is not None else None,
+            subject,
+        )
+        # The row was written behind Piccolo's back, so the model still
+        # believes it is new and .save() would INSERT a duplicate rather than
+        # UPDATE. Tests legitimately mutate seeded rows (binding a subject,
+        # say), so tell the model what is true.
+        row._exists_in_db = True
         return row
 
     async def personal_space(self, owner: Person, slug: str | None = None) -> Space:
@@ -193,8 +282,7 @@ class Graph:
             kind=SpaceKind.PERSONAL.value,
             owner_person_id=owner.id,
         )
-        await space.save()
-        await Membership(person_id=owner.id, space_id=space.id).save()
+        await self._insert_space(space, owner)
         return space
 
     async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
@@ -206,23 +294,144 @@ class Graph:
         :returns: the saved space
         """
         space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
-        await space.save()
-        await Membership.insert(
-            *[
-                Membership(person_id=person.id, space_id=space.id)
-                for person in (owner, *members)
-            ]
-        )
+        await self._insert_space(space, owner, *members)
         return space
+
+    async def add_membership(self, person: Person, space: Space, role: str) -> None:
+        """Admit ``person`` to ``space`` with an explicit role.
+
+        Seeded rather than inserted through the application: admitting
+        somebody is an owner-only act under ``memberships_insert``, and a
+        test that only wants the resulting topology should not have to
+        impersonate the owner to get it.
+
+        :param person: who to admit
+        :param space: which cove
+        :param role: the role to store
+        """
+        await self._connection.execute(
+            "INSERT INTO memberships (person_id, space_id, role) VALUES ($1, $2, $3)",
+            person.id,
+            space.id,
+            role,
+        )
+
+    async def bind_subject(self, person: Person, subject: str) -> None:
+        """Give a seeded person a provider subject, as a prior sign-in would.
+
+        Written through the seeding connection: an unarmed ``UPDATE`` is
+        filtered to zero rows by ``persons_self_update`` and raises nothing,
+        so doing this through the ORM would silently do nothing at all.
+
+        :param person: the person to bind
+        :param subject: the provider subject to store
+        """
+        await self._connection.execute(
+            "UPDATE persons SET subject = $1 WHERE id = $2", subject, person.id
+        )
+        person.subject = subject
+
+    async def erase_person(self, person: Person) -> None:
+        """Delete a seeded person outright.
+
+        :param person: the person to remove
+        """
+        await self._connection.execute("DELETE FROM persons WHERE id = $1", person.id)
+
+    async def set_role(self, person: Person, space: Space, role: str) -> None:
+        """Set a membership's role directly.
+
+        ``memberships`` has no ``UPDATE`` policy at all -- role changes belong
+        to the ownership-transfer function -- so a test that wants a viewer
+        has to seed one.
+
+        :param person: whose membership
+        :param space: which cove
+        :param role: the role to store
+        """
+        await self._connection.execute(
+            "UPDATE memberships SET role = $1 WHERE person_id = $2 AND space_id = $3",
+            role,
+            person.id,
+            space.id,
+        )
+
+    async def drop_membership(self, person: Person, space: Space) -> None:
+        """Remove a membership directly.
+
+        :param person: whose membership
+        :param space: which cove
+        """
+        await self._connection.execute(
+            "DELETE FROM memberships WHERE person_id = $1 AND space_id = $2",
+            person.id,
+            space.id,
+        )
+
+    async def backdate_person(self, person: Person, created_at) -> None:
+        """Move a person's creation time, for invite-window tests.
+
+        :param person: the person to backdate
+        :param created_at: the timestamp to store
+        """
+        await self._connection.execute(
+            "UPDATE persons SET created_at = $1 WHERE id = $2", created_at, person.id
+        )
+
+    async def _insert_space(self, space: Space, *members: Person) -> None:
+        """Insert a space row and one membership per member.
+
+        :param space: the space to write
+        :param members: everyone who belongs to it
+        """
+        await self._connection.execute(
+            "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
+            "VALUES ($1, $2, $3, $4, 0)",
+            space.id,
+            space.slug,
+            space.kind,
+            space.owner_person_id,
+        )
+        space._exists_in_db = True
+        for person in members:
+            await self._connection.execute(
+                "INSERT INTO memberships (person_id, space_id, role) "
+                "VALUES ($1, $2, 'member')",
+                person.id,
+                space.id,
+            )
 
 
 @pytest_asyncio.fixture
-async def graph() -> Graph:
+async def seed():
+    """Yield a connection that is not subject to the identity policies.
+
+    Two jobs, both about telling the truth rather than bypassing it:
+
+    Seeding rows that stand for pre-existing state (see :func:`seed_dsn`),
+    and *asserting* on state a policy deliberately hides from the code under
+    test. A test that checks "the invitee row was written with this address"
+    cannot read it as the inviter -- that is the policy working -- so it
+    reads it here instead, where the answer is the database's rather than the
+    principal's.
+
+    :returns: an open asyncpg connection, closed on teardown
+    """
+    connection = await asyncpg.connect(seed_dsn())
+    try:
+        yield connection
+    finally:
+        await connection.close()
+
+
+@pytest_asyncio.fixture
+async def graph(seed):
     """Expose the topology builders to a test.
 
+    :param seed: the policy-free connection the builders write through
     :returns: the builder object
     """
-    return Graph()
+    return Graph(seed)
 
 
 @pytest_asyncio.fixture

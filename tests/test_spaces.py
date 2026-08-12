@@ -5,6 +5,7 @@ from rif.models import MemberRole, Membership, Person, Space, SpaceKind
 from rif.pages import get_page, save_page
 from rif.spaces import (
     SpaceError,
+    _membership,
     create_space,
     ensure_personal_space,
     invite,
@@ -90,14 +91,26 @@ async def test_onboarding_survives_an_attempted_slug_squat(tx, household, graph)
 
 
 async def test_invite_new_email_creates_person_and_membership(tx, household):
+    from rif.invitations import invites_left
+
     me = principal_for(household["wouter"])
+    before = await invites_left(me)
     result = await invite(me, "household", "Anna@Example.test", display_name="Anna")
     assert result["already_member"] is False
-    anna = await Person.objects().where(Person.email == "anna@example.test").first()
-    assert anna is not None and anna.subject is None
-    assert anna.invited_by_person_id == household["wouter"].id
-    row = await membership_for(anna, household["shared"])
+
+    # The inviter cannot read the row they just created -- that is the
+    # persons policy working -- so this asserts what is actually observable:
+    # reef now knows the address, the membership carries it, and a budget
+    # entry was spent, which is only true if invited_by names the inviter.
+    rows = await Person.raw(
+        "SELECT rif_person_id_by_email({}) AS id", "anna@example.test"
+    )
+    anna_id = rows[0]["id"]
+    assert anna_id is not None
+
+    row = await _membership(anna_id, household["shared"].id)
     assert row is not None and row.role == MemberRole.MEMBER.value
+    assert await invites_left(me) == before - 1
 
 
 async def test_invite_discloses_scope_and_is_idempotent(tx, household):

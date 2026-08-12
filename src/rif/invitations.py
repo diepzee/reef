@@ -11,7 +11,9 @@ inviting an address reef already knows costs nothing.
 """
 
 import os
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from rif.access import Principal, arm
 from rif.models import Person
@@ -72,7 +74,7 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     # read the rows they minted, and a count that silently came back 0 would
     # hand out unlimited invites rather than fail closed.
     rows = await Person.raw(
-        "SELECT rif_invites_minted({}) AS spent", _window_start(now)
+        "SELECT rif_invites_minted({}) AS spent", INVITE_WINDOW_DAYS
     )
     return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
@@ -91,7 +93,7 @@ async def next_invite_at(
     """
     await arm(inviter)
     rows = await Person.raw(
-        "SELECT rif_oldest_invite({}) AS oldest", _window_start(now)
+        "SELECT rif_oldest_invite({}) AS oldest", INVITE_WINDOW_DAYS
     )
     oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
@@ -99,12 +101,20 @@ async def next_invite_at(
     return oldest + timedelta(days=INVITE_WINDOW_DAYS)
 
 
+@dataclass(frozen=True)
+class AllowlistEntry:
+    """An address that may sign in, and the id reef knows it by."""
+
+    person_id: UUID
+    email: str
+
+
 async def allowlist(
     inviter: Principal,
     email: str,
     display_name: str | None = None,
     now: datetime | None = None,
-) -> tuple[Person, bool]:
+) -> tuple[AllowlistEntry, bool]:
     """Ensure ``email`` is on the allowlist, spending budget only if new.
 
     The one place a ``persons`` row is created from an invite. An address reef
@@ -115,8 +125,13 @@ async def allowlist(
     :param email: the address the invitee will sign in with
     :param display_name: how members see them; defaults to the email's name part
     :param now: clock override for tests
+    Returns an :class:`AllowlistEntry` rather than a ``Person`` row on
+    purpose. Under the identity policies an inviter cannot read a stranger's
+    row at all, so there is nothing to read back -- and nothing the callers
+    need beyond the id and the address they supplied.
+
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
-    :returns: the person row, and whether this call created it
+    :returns: the entry, and whether this call created it
     """
     await arm(inviter)
     email = email.strip().lower()
@@ -126,22 +141,31 @@ async def allowlist(
     rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
     existing_id = rows[0]["id"] if rows else None
     if existing_id is not None:
-        person = await Person.objects().where(Person.id == existing_id).first()
-        return person, False
-    if await invites_left(inviter, now) <= 0:
+        return AllowlistEntry(person_id=existing_id, email=email), False
+    # The budget is counted and spent in one statement, by the database.
+    # Checking it here and inserting afterwards is a check-then-act: two
+    # invitations racing for the last slot both see one free and both land.
+    #
+    # The insert is a definer function for a second reason -- save() emits
+    # INSERT ... RETURNING, and Postgres applies SELECT policies to what a
+    # RETURNING gives back, so a self-only persons policy refuses the inviter
+    # their own invitee and reports it as a check-policy violation.
+    rows = await Person.raw(
+        "SELECT rif_allowlist_person({}, {}, {}, {}) AS id",
+        email,
+        display_name or email.split("@")[0],
+        INVITE_WINDOW_DAYS,
+        INVITE_BUDGET,
+    )
+    new_id = rows[0]["id"] if rows else None
+    if new_id is None:
         unlocks = await next_invite_at(inviter, now)
         when = f" Your next invite unlocks {unlocks:%-d %B %Y}." if unlocks else ""
         raise InviteBudgetExceeded(
             f"You have invited {INVITE_BUDGET} new people in the last "
             f"{INVITE_WINDOW_DAYS} days, which is the limit.{when}"
         )
-    person = Person(
-        email=email,
-        display_name=display_name or email.split("@")[0],
-        invited_by_person_id=inviter.person_id,
-    )
-    await person.save()
-    return person, True
+    return AllowlistEntry(person_id=new_id, email=email), True
 
 
 async def invite_to_reef(
@@ -164,11 +188,11 @@ async def invite_to_reef(
     :raises InviteBudgetExceeded: if the inviter's budget is spent
     :returns: outcome with the relay text and remaining budget
     """
-    person, created = await allowlist(inviter, email, display_name)
+    entry, created = await allowlist(inviter, email, display_name)
     base_url = os.environ.get("RIF_BASE_URL", "").rstrip("/")
     where = base_url or "reef"
     return {
-        "email": person.email,
+        "email": entry.email,
         "already_known": not created,
         "invites_left": await invites_left(inviter),
         "next_step": (

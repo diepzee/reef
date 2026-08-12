@@ -16,7 +16,6 @@ from rif.models import (
     Attachment,
     AttachmentStatus,
     MemberRole,
-    Membership,
     Page,
     Person,
     Promotion,
@@ -124,11 +123,10 @@ async def _admit_viewer(household, graph) -> Person:
     """
     anna = await graph.person("anna@example.test", "Anna")
     await graph.personal_space(anna)
-    await Membership(
-        person_id=anna.id,
-        space_id=household["shared"].id,
-        role=MemberRole.VIEWER.value,
-    ).save()
+    # Seeded: memberships now carries policies, and admitting somebody to a
+    # cove is an owner-only act. This test is about what a viewer may do once
+    # they are in, not about how they got there.
+    await graph.add_membership(anna, household["shared"], MemberRole.VIEWER.value)
     return anna
 
 
