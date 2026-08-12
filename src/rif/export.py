@@ -31,7 +31,7 @@ from rif.models import (
     Revision,
 )
 from rif.pages import list_pages
-from rif.spaces import member_names
+from rif.spaces import display_names, member_names
 
 
 class FileReader(Protocol):
@@ -288,7 +288,7 @@ async def build_full_dump(
             Revision.tags,
             Revision.body,
             Revision.message,
-            Revision.author_id.display_name,
+            Revision.author_id,
             Revision.created_at,
         )
         .where(Revision.page_id.is_in(list(page_by_id)))
@@ -316,6 +316,14 @@ async def build_full_dump(
             }
         )
 
+    # Author names come from ``display_names`` rather than a join through
+    # ``author_id.display_name``: that join reads ``persons`` directly, and a
+    # co-author's row stops being readable once that table carries a policy,
+    # which would quietly drop every other member's name from the archive.
+    author_names = await display_names(
+        [r["author_id"] for r in revisions if r["author_id"] is not None]
+    )
+
     revision_payload = []
     for revision in revisions:
         page = page_by_id.get(revision["page_id"])
@@ -329,7 +337,7 @@ async def build_full_dump(
                 "tags": list(revision["tags"]),
                 "body": revision["body"],
                 "message": revision["message"],
-                "author": revision["author_id.display_name"],
+                "author": author_names.get(revision["author_id"]),
                 "created": revision["created_at"].isoformat(),
             }
         )

@@ -13,7 +13,7 @@ inviting an address reef already knows costs nothing.
 import os
 from datetime import datetime, timedelta
 
-from rif.access import Principal
+from rif.access import Principal, arm
 from rif.models import Person
 
 #: New allowlist entries one member may mint per window.
@@ -59,22 +59,6 @@ def _window_start(now: datetime | None = None) -> datetime:
     return (now or _now()) - timedelta(days=INVITE_WINDOW_DAYS)
 
 
-def _minted_in_window(inviter: Principal, now: datetime | None = None):
-    """Build the clause matching rows this inviter minted inside the window.
-
-    Returned as a clause rather than a query because the count and the
-    unlock-date lookup need different Piccolo query types, and they must
-    never disagree about what "in the window" means.
-
-    :param inviter: the person whose budget is in question
-    :param now: clock override for tests
-    :returns: a Piccolo ``Combinable`` for use in ``.where()``
-    """
-    return (Person.invited_by_person_id == inviter.person_id) & (
-        Person.created_at >= _window_start(now)
-    )
-
-
 async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     """Return how many allowlist entries this inviter may still mint.
 
@@ -82,8 +66,15 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     :param now: clock override for tests
     :returns: remaining entries, never negative
     """
-    spent = await Person.count().where(_minted_in_window(inviter, now))
-    return max(0, INVITE_BUDGET - spent)
+    await arm(inviter)
+    # Counted by the database against the armed principal, not by a WHERE
+    # this module composes: once persons carries a policy an inviter cannot
+    # read the rows they minted, and a count that silently came back 0 would
+    # hand out unlimited invites rather than fail closed.
+    rows = await Person.raw(
+        "SELECT rif_invites_minted({}) AS spent", _window_start(now)
+    )
+    return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
 
 async def next_invite_at(
@@ -98,15 +89,14 @@ async def next_invite_at(
     :param now: clock override for tests
     :returns: the unlock time, or None if nothing is pending
     """
-    oldest = (
-        await Person.objects()
-        .where(_minted_in_window(inviter, now))
-        .order_by(Person.created_at)
-        .first()
+    await arm(inviter)
+    rows = await Person.raw(
+        "SELECT rif_oldest_invite({}) AS oldest", _window_start(now)
     )
+    oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
         return None
-    return oldest.created_at + timedelta(days=INVITE_WINDOW_DAYS)
+    return oldest + timedelta(days=INVITE_WINDOW_DAYS)
 
 
 async def allowlist(
@@ -128,9 +118,15 @@ async def allowlist(
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
     :returns: the person row, and whether this call created it
     """
+    await arm(inviter)
     email = email.strip().lower()
-    person = await Person.objects().where(Person.email == email).first()
-    if person is not None:
+    # Only the id comes back. Inviting somebody who already has an account
+    # must link a membership without letting the inviter read a stranger's
+    # row -- so the lookup answers "who, if anyone" and nothing more.
+    rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
+    existing_id = rows[0]["id"] if rows else None
+    if existing_id is not None:
+        person = await Person.objects().where(Person.id == existing_id).first()
         return person, False
     if await invites_left(inviter, now) <= 0:
         unlocks = await next_invite_at(inviter, now)
