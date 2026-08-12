@@ -157,6 +157,29 @@ def _function_ddl(name: str, body: str, *, reads: tuple[str, ...]) -> list[str]:
     return statements
 
 
+def create_authz_role_statements() -> list[str]:
+    """Return DDL creating the function-owner role, for a privileged connection.
+
+    Creating a ``BYPASSRLS`` role requires superuser, which the migration
+    connection may or may not have -- on Railway it does, because the admin
+    credential there is the cluster's bootstrap superuser; a properly
+    least-privileged deployment would not. Callers should therefore attempt
+    these and fall back to instructing an operator when the server refuses.
+
+    ``GRANT ... TO CURRENT_USER`` is required before any
+    ``ALTER FUNCTION ... OWNER TO``: Postgres will not let a role hand
+    ownership to a role it is not a member of. ``GRANT CREATE ON SCHEMA`` is
+    required of the *new* owner for that same reassignment.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        f"CREATE ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS",
+        f"GRANT {AUTHZ_ROLE} TO CURRENT_USER",
+        f"GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}",
+    ]
+
+
 def authz_statements() -> list[str]:
     """Return DDL for the helper functions every policy is built on.
 
