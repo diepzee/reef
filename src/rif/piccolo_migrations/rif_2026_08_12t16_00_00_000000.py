@@ -2,7 +2,7 @@
 
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
-from rif.db import DB
+from rif.db import run_ddl_atomically
 from rif.rls import (
     drop_identity_policy_statements,
     identity_grant_statements,
@@ -34,23 +34,23 @@ async def forwards() -> MigrationManager:
     and row security cannot say *which column* -- so without the grant a
     member could rename a cove or take its ownership with one statement.
 
-    Policies are dropped first so a re-run after a partial failure is safe.
-    The whole migration runs in one transaction, so a request sees either
-    the old shape or the new one.
+    All of it runs on one connection inside one transaction, so a request
+    sees either the old shape or the new one. That is not the default:
+    Piccolo's ``_run_in_new_connection`` commits each statement on its own
+    connection, and a failure between "enable row security" and "create the
+    policies" would leave a table denying every row to everyone.
 
     :returns: configured migration manager
     """
     manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
 
     async def run() -> None:
-        for statement in drop_identity_policy_statements():
-            await DB._run_in_new_connection(statement)
-        for statement in mutation_statements():
-            await DB._run_in_new_connection(statement)
-        for statement in identity_policy_statements():
-            await DB._run_in_new_connection(statement)
-        for statement in identity_grant_statements():
-            await DB._run_in_new_connection(statement)
+        await run_ddl_atomically(
+            drop_identity_policy_statements()
+            + mutation_statements()
+            + identity_policy_statements()
+            + identity_grant_statements()
+        )
 
     manager.add_raw(run)
     return manager

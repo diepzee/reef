@@ -39,29 +39,27 @@ async def spend(me: Principal, count: int) -> None:
         await allowlist(me, f"spend{n}@example.test")
 
 
-async def test_our_clock_matches_the_one_created_at_is_written_on(household, seed):
-    """Guard the skew that makes every window silently wrong.
+async def test_a_fresh_invite_counts_against_the_window_it_was_written_in(household):
+    """The skew guard, restated for the design that replaced it.
 
-    ``created_at`` defaults to Piccolo's ``TimestampNow``, which is *local*
-    time — not UTC. If ``_now()`` is ever changed to a UTC basis this drifts
-    by the deployment's offset, and every budget test still passes while
-    production quietly counts the wrong rows.
+    ``created_at`` and the budget window used to be compared across two
+    clocks -- Python's, which is local, and the database's, which is not.
+    They disagreed by a whole timezone offset, so every window was silently
+    wrong while every test still passed.
+
+    Both now come from ``LOCALTIMESTAMP`` inside the same function, so the
+    property to hold is no longer "the two clocks agree" but "an invitation
+    written a moment ago is inside the window that counts it". If the bases
+    ever diverge again this fails, because a just-minted entry would fall
+    outside its own window.
     """
     from rif.db import DB
 
     me = principal_for(household["wouter"])
-    before = _now()
-    # Committed rather than held open, so the stored timestamp can be read
-    # back from a connection the persons policy does not hide it from.
     async with DB.transaction():
+        before = await invites_left(me)
         await allowlist(me, "clock@example.test")
-    after = _now()
-
-    created_at = await seed.fetchval(
-        "SELECT created_at FROM persons WHERE email = $1", "clock@example.test"
-    )
-    assert before - timedelta(seconds=5) <= created_at
-    assert created_at <= after + timedelta(seconds=5)
+        assert await invites_left(me) == before - 1
 
 
 async def test_fresh_inviter_has_the_full_budget(tx, household):
@@ -185,3 +183,39 @@ async def test_email_is_normalised_before_it_is_stored(tx, household):
     again, created_again = await allowlist(me, "mixed@example.test")
     assert created_again is False
     assert again.person_id == entry.person_id
+
+
+async def test_concurrent_invites_cannot_exceed_the_budget(household):
+    """The check-then-act race the database-side budget exists to close.
+
+    Two invitations for different addresses race for the last free slot. As
+    a Python count followed by an insert, both observe one remaining and both
+    land -- six entries against a budget of five. Counting and inserting
+    inside one locked statement makes the loser see the budget already spent.
+
+    Runs outside ``tx``: the attempts need separate connections to be
+    genuinely concurrent.
+    """
+    import asyncio
+
+    from rif.db import DB
+
+    me = principal_for(household["wouter"])
+    async with DB.transaction():
+        await spend(me, INVITE_BUDGET - 1)
+
+    async def attempt(address: str) -> bool:
+        async with DB.transaction():
+            try:
+                await allowlist(me, address)
+            except InviteBudgetExceeded:
+                return False
+            return True
+
+    landed = await asyncio.gather(
+        attempt("racer-a@example.test"), attempt("racer-b@example.test")
+    )
+    assert landed.count(True) == 1, "exactly one should take the last slot"
+
+    async with DB.transaction():
+        assert await invites_left(me) == 0

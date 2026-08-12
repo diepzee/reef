@@ -18,7 +18,13 @@ from piccolo.table import create_db_tables, drop_db_tables
 
 from rif.db import DB, transaction_scope
 from rif.models import TABLES, Person, Space, SpaceKind
-from rif.rls import AUTHZ_ROLE, constraint_statements, enable_statements
+from rif.rls import (
+    AUTHZ_ROLE,
+    constraint_statements,
+    drop_disclosure_statements,
+    drop_mutation_statements,
+    enable_statements,
+)
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
@@ -145,6 +151,18 @@ async def schema():
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
         )
+    # Sequences too, exactly as scripts/provision_app_role.py grants them in
+    # production. memberships has a serial key, so without this the probe is
+    # *more* constrained than the role it stands in for -- and a test would
+    # read a missing sequence grant as a policy refusal.
+    await DB._run_in_new_connection(
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {PROBE_ROLE}"
+    )
+    # Superseded function signatures are dropped before the schema is built:
+    # changing an argument list creates a second function rather than
+    # replacing the first, and two candidates make every call ambiguous.
+    for statement in drop_disclosure_statements() + drop_mutation_statements():
+        await DB._run_in_new_connection(statement)
     for statement in constraint_statements() + enable_statements():
         await DB._run_in_new_connection(statement)
     yield
@@ -278,6 +296,25 @@ class Graph:
         space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
         await self._insert_space(space, owner, *members)
         return space
+
+    async def add_membership(self, person: Person, space: Space, role: str) -> None:
+        """Admit ``person`` to ``space`` with an explicit role.
+
+        Seeded rather than inserted through the application: admitting
+        somebody is an owner-only act under ``memberships_insert``, and a
+        test that only wants the resulting topology should not have to
+        impersonate the owner to get it.
+
+        :param person: who to admit
+        :param space: which cove
+        :param role: the role to store
+        """
+        await self._connection.execute(
+            "INSERT INTO memberships (person_id, space_id, role) VALUES ($1, $2, $3)",
+            person.id,
+            space.id,
+            role,
+        )
 
     async def bind_subject(self, person: Person, subject: str) -> None:
         """Give a seeded person a provider subject, as a prior sign-in would.

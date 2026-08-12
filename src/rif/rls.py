@@ -292,16 +292,18 @@ def disclosure_statements() -> list[str]:
             reads=("persons",),
         ),
         *_function_ddl(
-            "rif_invites_minted(p_since timestamp)",
+            "rif_invites_minted(p_window_days int)",
             "SELECT count(*) FROM persons "
-            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= p_since",
+            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= "
+            "LOCALTIMESTAMP - make_interval(days => p_window_days)",
             returns="bigint",
             reads=("persons",),
         ),
         *_function_ddl(
-            "rif_oldest_invite(p_since timestamp)",
+            "rif_oldest_invite(p_window_days int)",
             "SELECT min(created_at) FROM persons "
-            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= p_since",
+            f"WHERE invited_by_person_id = {PRINCIPAL} AND created_at >= "
+            "LOCALTIMESTAMP - make_interval(days => p_window_days)",
             returns="timestamp",
             reads=("persons",),
         ),
@@ -396,10 +398,17 @@ def identity_policy_statements() -> list[str]:
             "CREATE POLICY memberships_covis_select ON memberships FOR SELECT "
             "USING (space_id IN (SELECT rif_space_ids()))"
         ),
+        # Owner only. Membership is administration, and the rule is
+        # creator-admin: whoever made a cove decides who is in it. An earlier
+        # draft also admitted any full member, which would have let a member
+        # add an arbitrary allowlisted person to a cove -- handing them every
+        # page written in it, past and future -- with the application's own
+        # ownership check the only thing in the way. Owner alone also covers
+        # the bootstrap case, since a cove's first membership is inserted by
+        # whoever just created it.
         (
             "CREATE POLICY memberships_insert ON memberships FOR INSERT "
-            "WITH CHECK (space_id IN (SELECT rif_member_space_ids()) "
-            "OR rif_owns_space(space_id))"
+            "WITH CHECK (rif_owns_space(space_id))"
         ),
         (
             f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
@@ -524,10 +533,11 @@ def mutation_statements() -> list[str]:
         ),
         *_function_ddl(
             "rif_allowlist_person(p_email text, p_display_name text, "
-            "p_created_at timestamp)",
+            "p_window_days int, p_budget int)",
             f"""
 DECLARE
   new_id uuid;
+  spent int;
 BEGIN
   -- Unarmed means nobody is accountable for the invitation, and the row
   -- would land with a NULL inviter -- indistinguishable from the founding
@@ -535,13 +545,27 @@ BEGIN
   IF {PRINCIPAL} IS NULL THEN
     RETURN NULL;
   END IF;
-  -- created_at comes from the caller, not from the server. The budget
-  -- window is compared against Python's clock, and letting the database
-  -- stamp it here reintroduced a whole timezone offset between the two --
-  -- every window silently wrong, no error anywhere.
+
+  -- The budget is enforced here, not by the caller. Checking it in Python
+  -- and inserting afterwards is a check-then-act: two invitations racing on
+  -- the last slot both see one free and both land. Locking the inviter's
+  -- own row serialises those attempts, and the count and the insert then
+  -- happen with nobody able to interleave.
+  PERFORM 1 FROM persons WHERE id = {PRINCIPAL} FOR UPDATE;
+
+  -- The clock is the database's. An earlier draft took it from the caller
+  -- so it would agree with Python's, which made an arbitrary timestamp part
+  -- of the caller's authority: backdate a row and it never counts again.
+  SELECT count(*) INTO spent FROM persons
+   WHERE invited_by_person_id = {PRINCIPAL}
+     AND created_at >= LOCALTIMESTAMP - make_interval(days => p_window_days);
+  IF spent >= p_budget THEN
+    RETURN NULL;
+  END IF;
+
   INSERT INTO persons (id, email, display_name, invited_by_person_id, created_at)
   VALUES (gen_random_uuid(), lower(p_email), p_display_name, {PRINCIPAL},
-          p_created_at)
+          LOCALTIMESTAMP)
   RETURNING id INTO new_id;
   RETURN new_id;
 END
@@ -626,7 +650,9 @@ def drop_mutation_statements() -> list[str]:
     """
     return [
         "DROP FUNCTION IF EXISTS rif_owns_space(uuid)",
+        "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, int, int)",
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, timestamp)",
+        "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text)",
         "DROP FUNCTION IF EXISTS rif_remove_member(uuid, uuid)",
         "DROP FUNCTION IF EXISTS rif_transfer_space_ownership(uuid, uuid)",
     ]
@@ -642,7 +668,13 @@ def drop_disclosure_statements() -> list[str]:
         "DROP FUNCTION IF EXISTS rif_space_owner(uuid)",
         "DROP FUNCTION IF EXISTS rif_display_names(uuid[])",
         "DROP FUNCTION IF EXISTS rif_person_id_by_email(text)",
+        "DROP FUNCTION IF EXISTS rif_invites_minted(int)",
+        # Earlier signatures. A changed argument list creates a *new*
+        # function rather than replacing the old one, and two candidates make
+        # every call ambiguous -- so the superseded shapes are dropped by
+        # name, the same way _LEGACY_POLICY handles renamed policies.
         "DROP FUNCTION IF EXISTS rif_invites_minted(timestamp)",
+        "DROP FUNCTION IF EXISTS rif_oldest_invite(int)",
         "DROP FUNCTION IF EXISTS rif_oldest_invite(timestamp)",
     ]
 

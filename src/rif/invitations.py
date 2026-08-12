@@ -74,7 +74,7 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     # read the rows they minted, and a count that silently came back 0 would
     # hand out unlimited invites rather than fail closed.
     rows = await Person.raw(
-        "SELECT rif_invites_minted({}) AS spent", _window_start(now)
+        "SELECT rif_invites_minted({}) AS spent", INVITE_WINDOW_DAYS
     )
     return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
@@ -93,7 +93,7 @@ async def next_invite_at(
     """
     await arm(inviter)
     rows = await Person.raw(
-        "SELECT rif_oldest_invite({}) AS oldest", _window_start(now)
+        "SELECT rif_oldest_invite({}) AS oldest", INVITE_WINDOW_DAYS
     )
     oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
@@ -142,26 +142,29 @@ async def allowlist(
     existing_id = rows[0]["id"] if rows else None
     if existing_id is not None:
         return AllowlistEntry(person_id=existing_id, email=email), False
-    if await invites_left(inviter, now) <= 0:
+    # The budget is counted and spent in one statement, by the database.
+    # Checking it here and inserting afterwards is a check-then-act: two
+    # invitations racing for the last slot both see one free and both land.
+    #
+    # The insert is a definer function for a second reason -- save() emits
+    # INSERT ... RETURNING, and Postgres applies SELECT policies to what a
+    # RETURNING gives back, so a self-only persons policy refuses the inviter
+    # their own invitee and reports it as a check-policy violation.
+    rows = await Person.raw(
+        "SELECT rif_allowlist_person({}, {}, {}, {}) AS id",
+        email,
+        display_name or email.split("@")[0],
+        INVITE_WINDOW_DAYS,
+        INVITE_BUDGET,
+    )
+    new_id = rows[0]["id"] if rows else None
+    if new_id is None:
         unlocks = await next_invite_at(inviter, now)
         when = f" Your next invite unlocks {unlocks:%-d %B %Y}." if unlocks else ""
         raise InviteBudgetExceeded(
             f"You have invited {INVITE_BUDGET} new people in the last "
             f"{INVITE_WINDOW_DAYS} days, which is the limit.{when}"
         )
-    # Created by the database rather than by Piccolo. save() emits
-    # INSERT ... RETURNING, and Postgres applies SELECT policies to what a
-    # RETURNING gives back -- so a self-only persons policy refuses the
-    # inviter their own invitee, reporting it as a check-policy violation.
-    rows = await Person.raw(
-        "SELECT rif_allowlist_person({}, {}, {}) AS id",
-        email,
-        display_name or email.split("@")[0],
-        now or _now(),
-    )
-    new_id = rows[0]["id"] if rows else None
-    if new_id is None:
-        raise InviteBudgetExceeded("no principal is armed to be accountable")
     return AllowlistEntry(person_id=new_id, email=email), True
 
 

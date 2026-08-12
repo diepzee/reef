@@ -41,3 +41,27 @@ async def transaction_scope() -> AsyncIterator[None]:
     """
     async with DB.transaction():
         yield
+
+
+async def run_ddl_atomically(statements: list[str]) -> None:
+    """Execute DDL on one connection, inside one transaction.
+
+    Every statement or none. ``PostgresEngine._run_in_new_connection`` opens
+    and closes a fresh connection per statement, so a sequence run through it
+    commits piecemeal -- and a failure part-way through a policy migration
+    can leave a table with row security *enabled* and no policy on it, which
+    denies every row to everyone. On a branch that auto-deploys, that is an
+    outage that persists until an operator repairs it by hand.
+
+    PostgreSQL supports transactional DDL, so the whole set rolls back
+    cleanly on any error.
+
+    :param statements: SQL to execute in order
+    """
+    connection = await DB.get_new_connection()
+    try:
+        async with connection.transaction():
+            for statement in statements:
+                await connection.execute(statement)
+    finally:
+        await connection.close()
