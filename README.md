@@ -36,6 +36,45 @@ Going live: [`docs/runbook.md`](docs/runbook.md).
 Backup and restore: [`docs/restore.md`](docs/restore.md).
 Market landscape: [`docs/competitor-research.md`](docs/competitor-research.md).
 
+## CLI and agent skill
+
+The `reef` CLI mirrors the complete MCP tool surface. Named commands use
+shell-friendly hyphens (`load_index` becomes `load-index`), and `reef call`
+accepts an exact MCP tool name plus a JSON object for lossless passthrough.
+Every result is JSON; an MCP application error such as `not_found` also exits
+nonzero.
+
+Install from a checkout and authenticate once:
+
+```bash
+uv tool install .
+reef login
+reef load-index
+reef get-operating-protocol
+reef read-pages personal profile.md preferences.md
+```
+
+OAuth tokens are cached in a user-private config file. Set `REEF_MCP_URL` to
+use another endpoint (the default is `https://reefwith.me/mcp`), or provide a
+session-scoped `REEF_ACCESS_TOKEN` for a headless invocation. Run `reef tools`
+for the live MCP schemas and `reef <command> --help` for local arguments.
+
+Large Markdown and JSON inputs can come from files or stdin, and file uploads
+are encoded automatically:
+
+```bash
+reef write-page personal plans.md --body-file ./plans.md \
+  --message "Add the summer plan" --title Plans
+reef write-pages personal @./pages.json --message "Reorganize notes"
+reef add-file personal ./lease.pdf --description "Signed rental agreement"
+reef call read_pages '{"space":"personal","paths":["plans.md"]}'
+```
+
+The matching agent skill is [`skills/reef/SKILL.md`](skills/reef/SKILL.md). It
+adds the retrieval protocol, private-by-default writes, optimistic locking,
+and explicit confirmation rules for sharing, invitations, persona changes,
+member removal, and file deletion.
+
 ## Status
 
 **Live since 6 Aug 2026**, deployed on Railway behind WorkOS AuthKit and in
