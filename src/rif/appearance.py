@@ -14,8 +14,8 @@ palette is revised. A name can always be re-pointed.
 
 from uuid import UUID
 
-from rif.access import Principal, arm, space_alias
-from rif.models import Space, SpaceAppearance
+from rif.access import Principal, alias_map, arm
+from rif.models import SpaceAppearance
 
 #: Palette entries a person may pick, mirroring the frontend's
 #: ``spaceColor`` palette. ``seafoam`` is the personal cove's pinned hue,
@@ -72,12 +72,10 @@ async def get_appearances(principal: Principal) -> dict[str, dict[str, str | Non
     )
     if not rows:
         return {}
-    aliases = {
-        space.id: space_alias(space)
-        for space in await Space.objects().where(
-            Space.id.is_in([row.space_id for row in rows])
-        )
-    }
+    # Cove names live on the membership, so this reader's own names are the
+    # only correct ones -- and a cove they have left has no name for them at
+    # all, which the comprehension below drops.
+    aliases = await alias_map(principal)
     return {
         aliases[row.space_id]: {"color": row.color, "glyph": row.glyph}
         for row in rows

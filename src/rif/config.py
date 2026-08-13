@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     test_database_url: str = "postgresql://rif:rif@localhost:5433/rif_test"
     migration_database_url: str = ""
     context_char_budget: int = 150_000
+    # Above context_char_budget on purpose: a page bigger than the whole
+    # context budget cannot be loaded in one piece anyway, so this refuses
+    # only what was never usable memory. See rif.pages.validate_body.
+    page_max_chars: int = 200_000
     s3_endpoint: str = ""
     s3_bucket: str = ""
     s3_access_key: str = ""

@@ -377,3 +377,37 @@ async def test_put_with_an_unrepairable_path_explains_itself(api, world):
     )
     assert response.status_code == 400
     assert "'?'" in response.json()["detail"]
+
+
+async def test_renaming_a_cove_over_http_moves_only_my_own_name(api, world, graph):
+    """The alias is a column on the caller's membership, so a rename is
+    invisible to everybody else -- and it is how somebody admitted under a
+    suffixed name repairs it."""
+    alice, bob, _team = world
+    _login(api, alice)
+
+    renamed = await api.post(
+        "/api/spaces/team/name", json={"name": "squad"}, headers={"x-rif-csrf": "1"}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json() == {"was": "team", "now": "squad"}
+
+    aliases = {s["alias"] for s in (await api.get("/api/index")).json()["spaces"]}
+    assert "squad" in aliases and "team" not in aliases
+
+    # Bob still calls it what he always called it.
+    _login(api, bob)
+    his = {s["alias"] for s in (await api.get("/api/index")).json()["spaces"]}
+    assert "team" in his and "squad" not in his
+
+
+async def test_renaming_to_a_name_i_already_use_is_refused(api, world, graph):
+    alice, _bob, _team = world
+    await graph.shared_space("boat", alice)
+    _login(api, alice)
+
+    clash = await api.post(
+        "/api/spaces/team/name", json={"name": "boat"}, headers={"x-rif-csrf": "1"}
+    )
+    assert clash.status_code == 400
+    assert "already have a cove" in clash.json()["detail"]

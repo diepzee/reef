@@ -15,6 +15,17 @@ from rif.web.session import seal
 # test_web_api_write.py.
 
 
+async def _post(client, path: str, body: dict):
+    """POST with the CSRF header, as the SPA's fetch client does.
+
+    :param client: the HTTP client
+    :param path: the API path
+    :param body: the JSON body
+    :returns: the response
+    """
+    return await client.post(path, json=body, headers={"x-rif-csrf": "1"})
+
+
 async def test_unauthenticated_index_is_401(api):
     """An unauthenticated request to /api/index is rejected with 401."""
     response = await api.get("/api/index")
@@ -174,18 +185,18 @@ async def test_scoped_exports_and_full_dump_download(api, world):
         )
     _login(api, alice)
 
-    markdown = await api.get("/api/export?scope=team&format=markdown")
+    markdown = await _post(api, "/api/export", {"scope": "team", "format": "markdown"})
     assert markdown.status_code == 200
     assert markdown.headers["content-type"] == "application/zip"
     assert "reef-team-markdown.zip" in markdown.headers["content-disposition"]
     with ZipFile(BytesIO(markdown.content)) as archive:
         assert "coves/team/pages/notes.md" in archive.namelist()
 
-    current_json = await api.get("/api/export?scope=team&format=json")
+    current_json = await _post(api, "/api/export", {"scope": "team", "format": "json"})
     assert current_json.status_code == 200
     assert current_json.json()["coves"][0]["pages"][0]["body"] == "Export me."
 
-    dump = await api.get("/api/export/dump")
+    dump = await _post(api, "/api/export/dump", {})
     assert dump.status_code == 200
     assert "reef-my-data.zip" in dump.headers["content-disposition"]
     with ZipFile(BytesIO(dump.content)) as archive:
@@ -197,5 +208,78 @@ async def test_scoped_exports_and_full_dump_download(api, world):
 async def test_export_rejects_bad_format_and_foreign_scope(api, world):
     alice, _bob, _team = world
     _login(api, alice)
-    assert (await api.get("/api/export?format=xml")).status_code == 400
-    assert (await api.get("/api/export?scope=secret&format=json")).status_code == 404
+    assert (await _post(api, "/api/export", {"format": "xml"})).status_code == 400
+    assert (
+        await _post(api, "/api/export", {"scope": "secret", "format": "json"})
+    ).status_code == 404
+
+
+async def test_the_export_routes_refuse_a_request_without_the_csrf_header(api, world):
+    """They are POSTs precisely so a cross-origin navigation cannot reach them.
+
+    A GET here was a drive-by download of the reader's whole reef: the
+    attacker never sees the bytes, but the file lands on the victim's disk,
+    and a ``Lax`` session cookie rides along on that kind of navigation.
+    """
+    alice, _bob, _team = world
+    _login(api, alice)
+
+    for path in ("/api/export", "/api/export/dump"):
+        # No CSRF header: what a cross-origin form or navigation could manage.
+        assert (await api.post(path, json={})).status_code == 403
+        # And the old link shape is simply gone.
+        assert (await api.get(path)).status_code == 405
+
+
+async def test_logout_revokes_a_stolen_cookie(api, world):
+    """Deleting the cookie is not logging out.
+
+    The cookie is a signed bearer token, so a copy taken beforehand used to
+    keep working -- renewing itself on every request, with no way for the
+    person who pressed the button to stop it.
+    """
+    alice, _bob, _team = world
+    _login(api, alice)
+    stolen = api.cookies["rif_session"]
+    assert (await api.get("/api/me")).status_code == 200
+
+    out = await api.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
+    assert out.status_code == 200
+
+    api.cookies.set("rif_session", stolen)
+    assert (await api.get("/api/me")).status_code == 401
+
+
+async def test_a_session_sealed_with_a_stale_epoch_is_refused(api, world, seed):
+    """The revocation primitive, exercised directly: a cookie sealed before
+    the bump is dead even though its signature and expiry are both fine."""
+    alice, _bob, _team = world
+    _login(api, alice)
+    assert (await api.get("/api/me")).status_code == 200
+
+    await seed.execute(
+        "UPDATE persons SET session_epoch = session_epoch + 1 WHERE id = $1",
+        alice.id,
+    )
+    assert (await api.get("/api/me")).status_code == 401
+
+
+async def test_a_surviving_session_is_renewed_without_resetting_its_chain(api, world):
+    """The renewal has to carry ``iat`` forward, or the absolute ceiling
+    restarts on every request and never arrives."""
+    from rif.web.session import unseal
+
+    alice, _bob, _team = world
+    _login(api, alice)
+    before = unseal(api.cookies["rif_session"], secret="test-secret")
+    assert before is not None and before.issued_at is not None
+
+    response = await api.get("/api/me")
+    assert response.status_code == 200
+    # Off the response, not the jar: the jar accumulates same-name cookies
+    # across requests and refuses to pick one.
+    after = unseal(response.cookies["rif_session"], secret="test-secret")
+
+    assert after is not None
+    assert after.issued_at == before.issued_at
+    assert after.expires_at >= before.expires_at

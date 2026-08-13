@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
-from rif.access import Principal, accessible_spaces, space_alias
+from rif.access import Principal, accessible_spaces, alias_map
 from rif.models import Attachment, AttachmentStatus, Page, Revision
 from rif.spaces import display_names
 
@@ -181,6 +181,7 @@ async def build_index(principal: Principal) -> IndexPayload:
     :returns: the index payload
     """
     spaces = await accessible_spaces(principal)
+    aliases = await alias_map(principal)
     space_ids = [space.id for space in spaces]
     pages = await Page.objects().where(Page.space_id.is_in(space_ids))
     attachments = await Attachment.objects().where(
@@ -193,14 +194,14 @@ async def build_index(principal: Principal) -> IndexPayload:
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
     by_space = {
         space.id: SpaceIndex(
-            alias=space_alias(space),
+            alias=aliases[space.id],
             version=space.version,
             pages=[],
             attachments=[],
         )
         for space in spaces
     }
-    alias_by_space_id = {space.id: space_alias(space) for space in spaces}
+    alias_by_space_id = aliases
     visible_pages = {(alias_by_space_id[page.space_id], page.path) for page in pages}
     page_path_by_id = {page.id: page.path for page in pages}
     for page in sorted(pages, key=lambda p: p.path):
@@ -237,7 +238,7 @@ async def build_index(principal: Principal) -> IndexPayload:
         )
 
     version = (
-        ";".join(f"{space_alias(space)}={space.version}" for space in spaces) or "empty"
+        ";".join(f"{aliases[space.id]}={space.version}" for space in spaces) or "empty"
     )
     return IndexPayload(
         version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
@@ -269,6 +270,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
     :returns: the assembled context payload
     """
     spaces = await accessible_spaces(principal)
+    aliases = await alias_map(principal)
     space_ids = [space.id for space in spaces]
     pages = await Page.objects().where(Page.space_id.is_in(space_ids))
     attachments = await Attachment.objects().where(
@@ -297,7 +299,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
 
     by_space = {
         space.id: SpaceContext(
-            alias=space_alias(space),
+            alias=aliases[space.id],
             version=space.version,
             pages=[],
             attachments=[],

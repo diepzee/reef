@@ -202,3 +202,76 @@ async def test_only_an_owner_may_delete_a_cove(probe, graph):
         )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+
+async def test_a_member_may_rename_a_cove_but_not_promote_themselves(probe, graph):
+    """The second column grant, asserted from a role it constrains.
+
+    ``memberships_self_update`` has to admit the whole row so a person can
+    rename their own cove. Row security cannot say *which* column, so
+    without the grant that same policy would let a viewer set their own
+    ``role`` to ``member`` -- turning read-only access into write access with
+    one statement -- or move their membership onto a cove they can see but
+    do not belong to.
+    """
+    person = await graph.person("rename@example.test", "Rename")
+    space = await graph.shared_space("rename-cove", person)
+    other = await graph.shared_space("other-cove", person)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(person.id))
+    try:
+        await probe.execute(
+            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND space_id = $3",
+            "renamed",
+            person.id,
+            space.id,
+        )
+        assert (
+            await probe.fetchval(
+                "SELECT alias FROM memberships WHERE person_id = $1 AND space_id = $2",
+                person.id,
+                space.id,
+            )
+            == "renamed"
+        )
+
+        for column, value in (("role", "member"), ("space_id", str(other.id))):
+            with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+                await probe.execute(
+                    f"UPDATE memberships SET {column} = $1 WHERE person_id = $2",
+                    value,
+                    person.id,
+                )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+
+async def test_a_person_cannot_rename_somebody_elses_membership(probe, graph, seed):
+    """The row half of the same policy: my names, nobody else's."""
+    mine = await graph.person("mine@example.test", "Mine")
+    theirs = await graph.person("theirs@example.test", "Theirs")
+    space = await graph.shared_space("joint-cove", mine, theirs)
+
+    await probe.execute("SELECT set_config('app.person_id', $1, false)", str(mine.id))
+    try:
+        await probe.execute(
+            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND space_id = $3",
+            "hijacked",
+            theirs.id,
+            space.id,
+        )
+    finally:
+        await probe.execute("SELECT set_config('app.person_id', '', false)")
+
+    # A row policy denies by filtering to zero rows, not by raising, so the
+    # UPDATE above "succeeds" having changed nothing. Read back through the
+    # seeding connection -- as this principal the row is invisible either
+    # way, which would make an unchanged value and a hidden one identical.
+    assert (
+        await seed.fetchval(
+            "SELECT alias FROM memberships WHERE person_id = $1 AND space_id = $2",
+            theirs.id,
+            space.id,
+        )
+        == "joint-cove"
+    )

@@ -1,8 +1,10 @@
 import pytest
 
 from rif.access import Principal
+from rif.config import get_settings
 from rif.models import Revision, Space
 from rif.pages import (
+    PageTooLarge,
     ProtectedPath,
     SectionNotFound,
     VersionConflict,
@@ -97,3 +99,21 @@ async def test_meta_paths_are_protected_from_generic_writes(tx, household):
         me, "personal", "meta/persona.md", "legit", message="x", allow_protected=True
     )
     assert page.body == "legit"
+
+
+async def test_a_body_over_the_ceiling_is_refused(tx, household):
+    """Pages had no size limit while files were capped at 25 MB, so prose was
+    the cheapest way to bloat a cove -- and build_index reads every body on
+    every call, so one oversized page taxes every member's every turn."""
+    me = principal_for(household["wouter"])
+    ceiling = get_settings().page_max_chars
+    with pytest.raises(PageTooLarge):
+        await save_page(me, "household", "bloat.md", "A" * (ceiling + 1), message="x")
+    assert await get_page(me, "household", "bloat.md") is None
+
+
+async def test_a_body_at_the_ceiling_is_allowed(tx, household):
+    me = principal_for(household["wouter"])
+    ceiling = get_settings().page_max_chars
+    page = await save_page(me, "household", "big.md", "A" * ceiling, message="x")
+    assert len(page.body) == ceiling

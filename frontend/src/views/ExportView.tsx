@@ -1,8 +1,8 @@
 /** Download current cove content or a complete personal data archive. */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
-import { ApiError, apiSend } from "../api";
+import { ApiError, apiDownload, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 
 type ExportFormat = "markdown" | "json";
@@ -16,11 +16,35 @@ export default function ExportView() {
   const [confirmation, setConfirmation] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const downloadUrl = useMemo(
-    () =>
-      `/api/export?scope=${encodeURIComponent(scope)}&format=${encodeURIComponent(format)}`,
-    [scope, format],
-  );
+  const [downloading, setDownloading] = useState<null | "export" | "dump">(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+
+  /**
+   * Fetch one of the export routes and hand the bytes to the browser.
+   *
+   * They are POSTs so they carry the CSRF header, so a link cannot fetch
+   * them; see `apiDownload`.
+   */
+  async function download(
+    which: "export" | "dump",
+    path: string,
+    body: unknown,
+    fallbackName: string,
+  ) {
+    setDownloading(which);
+    setDownloadError(null);
+    try {
+      await apiDownload(path, body, fallbackName);
+    } catch (problem) {
+      setDownloadError(
+        problem instanceof ApiError
+          ? problem.message
+          : "could not build your download",
+      );
+    } finally {
+      setDownloading(null);
+    }
+  }
 
   async function deleteMyData() {
     setDeleting(true);
@@ -92,9 +116,18 @@ export default function ExportView() {
             : "Current page bodies and metadata in one machine-readable document."}
         </div>
 
-        <a className="button export-download" href={downloadUrl}>
-          Download export
-        </a>
+        {downloadError && <div className="notice">{downloadError}</div>}
+
+        <button
+          type="button"
+          className="button export-download"
+          disabled={downloading !== null}
+          onClick={() =>
+            download("export", "/api/export", { scope, format }, "reef-export.zip")
+          }
+        >
+          {downloading === "export" ? "Preparing…" : "Download export"}
+        </button>
       </section>
 
       <section className="export-card export-dump-card">
@@ -113,9 +146,16 @@ export default function ExportView() {
             keep the archive private.
           </p>
         </div>
-        <a className="button export-dump-button" href="/api/export/dump">
-          Dump my data
-        </a>
+        <button
+          type="button"
+          className="button export-dump-button"
+          disabled={downloading !== null}
+          onClick={() =>
+            download("dump", "/api/export/dump", {}, "reef-my-data.zip")
+          }
+        >
+          {downloading === "dump" ? "Building your archive…" : "Dump my data"}
+        </button>
       </section>
 
       <section className="delete-zone">

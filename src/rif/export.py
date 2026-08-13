@@ -18,7 +18,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from rif.access import AccessDenied, Principal, accessible_spaces, space_alias
+from rif.access import AccessDenied, Principal, accessible_spaces, alias_map
 from rif.attachments import S3ObjectStore
 from rif.context import build_index
 from rif.models import (
@@ -84,15 +84,21 @@ def _safe_archive_path(value: str, *, fallback: str) -> str:
 
 async def _export_rows(
     principal: Principal, alias: str | None = None
-) -> tuple[Person, list, list[Page], list[Attachment]]:
-    """Load the current rows for one cove or every accessible cove."""
+) -> tuple[Person, list, list[Page], list[Attachment], dict]:
+    """Load the current rows for one cove or every accessible cove.
+
+    Returns the alias map too: cove names live on memberships now, so a
+    caller rendering one needs this reader's own names rather than a
+    property of the row.
+    """
     # accessible_spaces arms the principal, so it must precede the person
     # lookup: read first and that query runs unarmed, returning nothing once
     # persons carries a policy, and the export would name nobody.
     spaces = await accessible_spaces(principal)
+    aliases = await alias_map(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if alias is not None:
-        spaces = [space for space in spaces if space_alias(space) == alias]
+        spaces = [space for space in spaces if aliases.get(space.id) == alias]
         if not spaces:
             raise AccessDenied(f"no space {alias!r} for {principal.email}")
     space_ids = [space.id for space in spaces]
@@ -103,7 +109,7 @@ async def _export_rows(
         Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
-    return person, spaces, pages, files
+    return person, spaces, pages, files, aliases
 
 
 def _file_metadata(file: Attachment, page_paths: dict[object, str]) -> dict:
@@ -174,7 +180,7 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
     :param alias: one cove alias, or ``None`` for every accessible cove
     :returns: UTF-8 JSON bytes
     """
-    person, spaces, pages, files = await _export_rows(principal, alias)
+    person, spaces, pages, files, aliases = await _export_rows(principal, alias)
     pages_by_space: dict[object, list[Page]] = {space.id: [] for space in spaces}
     files_by_space: dict[object, list[Attachment]] = {space.id: [] for space in spaces}
     for page in pages:
@@ -193,7 +199,7 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
             },
             "coves": [
                 {
-                    "alias": space_alias(space),
+                    "alias": aliases[space.id],
                     "version": space.version,
                     "pages": [_page_payload(page) for page in pages_by_space[space.id]],
                     "files": [
@@ -216,8 +222,8 @@ async def build_markdown_archive(
     :param alias: one cove alias, or ``None`` for every accessible cove
     :returns: ZIP bytes
     """
-    person, spaces, pages, files = await _export_rows(principal, alias)
-    alias_by_space = {space.id: space_alias(space) for space in spaces}
+    person, spaces, pages, files, aliases = await _export_rows(principal, alias)
+    alias_by_space = aliases
     page_paths = {page.id: page.path for page in pages}
     output = BytesIO()
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
@@ -232,7 +238,7 @@ async def build_markdown_archive(
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": [space_alias(space) for space in spaces],
+                    "coves": [aliases[space.id] for space in spaces],
                     "note": "Current pages only. Use Dump my data for history and file bytes.",
                 }
             ),
@@ -274,8 +280,8 @@ async def build_full_dump(
     :param store: injectable object reader; defaults to R2 when files exist
     :returns: complete ZIP bytes
     """
-    person, spaces, pages, files = await _export_rows(principal)
-    alias_by_space = {space.id: space_alias(space) for space in spaces}
+    person, spaces, pages, files, aliases = await _export_rows(principal)
+    alias_by_space = aliases
     space_by_id = {space.id: space for space in spaces}
     page_by_id = {page.id: page for page in pages}
     page_paths = {page.id: page.path for page in pages}
@@ -306,7 +312,7 @@ async def build_full_dump(
     for space in spaces:
         cove_manifest.append(
             {
-                "alias": space_alias(space),
+                "alias": aliases[space.id],
                 "version": space.version,
                 "you_are_owner": space.owner_person_id == principal.person_id,
                 "your_role": role_by_space.get(space.id),
@@ -351,7 +357,9 @@ async def build_full_dump(
                 "source_cove": alias_by_space.get(source.space_id) if source else None,
                 "source_path": source.path if source else None,
                 "source_version": share.source_version,
-                "destination_cove": space_alias(destination) if destination else None,
+                "destination_cove": (
+                    aliases.get(destination.id) if destination else None
+                ),
                 "destination_path": share.dest_path,
                 "section_text": share.section_text,
                 "created": share.created_at.isoformat(),

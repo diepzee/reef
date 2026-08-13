@@ -294,7 +294,7 @@ class Graph:
             kind=SpaceKind.PERSONAL.value,
             owner_person_id=owner.id,
         )
-        await self._insert_space(space, owner)
+        await self._insert_space(space, owner, alias="personal")
         return space
 
     async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
@@ -306,10 +306,12 @@ class Graph:
         :returns: the saved space
         """
         space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
-        await self._insert_space(space, owner, *members)
+        await self._insert_space(space, owner, *members, alias=slug)
         return space
 
-    async def add_membership(self, person: Person, space: Space, role: str) -> None:
+    async def add_membership(
+        self, person: Person, space: Space, role: str, alias: str | None = None
+    ) -> None:
         """Admit ``person`` to ``space`` with an explicit role.
 
         Seeded rather than inserted through the application: admitting
@@ -322,10 +324,12 @@ class Graph:
         :param role: the role to store
         """
         await self._connection.execute(
-            "INSERT INTO memberships (person_id, space_id, role) VALUES ($1, $2, $3)",
+            "INSERT INTO memberships (person_id, space_id, role, alias) "
+            "VALUES ($1, $2, $3, $4)",
             person.id,
             space.id,
             role,
+            alias or space.slug,
         )
 
     async def bind_subject(self, person: Person, subject: str) -> None:
@@ -390,7 +394,9 @@ class Graph:
             "UPDATE persons SET created_at = $1 WHERE id = $2", created_at, person.id
         )
 
-    async def _insert_space(self, space: Space, *members: Person) -> None:
+    async def _insert_space(
+        self, space: Space, *members: Person, alias: str | None = None
+    ) -> None:
         """Insert a space row and one membership per member.
 
         :param space: the space to write
@@ -407,10 +413,11 @@ class Graph:
         space._exists_in_db = True
         for person in members:
             await self._connection.execute(
-                "INSERT INTO memberships (person_id, space_id, role) "
-                "VALUES ($1, $2, 'member')",
+                "INSERT INTO memberships (person_id, space_id, role, alias) "
+                "VALUES ($1, $2, 'member', $3)",
                 person.id,
                 space.id,
+                alias or space.slug,
             )
 
 

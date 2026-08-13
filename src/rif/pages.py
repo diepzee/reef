@@ -9,10 +9,19 @@ the ambient transaction, and an unarmed one returns nothing.
 import re
 
 from rif import audit
-from rif.access import Principal, resolve_space
-from rif.models import Attachment, Page, Revision, Space
+from rif.access import AccessDenied, Principal, resolve_space
+from rif.config import get_settings
+from rif.leakguard import overlaps
+from rif.models import Attachment, Page, Revision, Space, SpaceKind
 
 PROTECTED_PREFIX = "meta/"
+
+PERSONA_PATH = "meta/persona.md"
+"""The persona page, and the one personal page exempt from the leak guard.
+
+Defined here rather than in :mod:`rif.protocol`, which re-exports it: that
+module imports this one, so the reverse would be a cycle.
+"""
 
 #: Characters a normalized page path may contain.
 _ALLOWED = re.compile(r"[a-z0-9\-/._]")
@@ -32,6 +41,95 @@ class ProtectedPath(Exception):
 
 class InvalidPath(Exception):
     """Raised when a page path cannot be repaired into a usable one."""
+
+
+class PrivateContentLeak(Exception):
+    """Raised when a cove write carries text copied from the personal space."""
+
+
+async def _refuse_private_copy(
+    principal: Principal,
+    alias: str,
+    path: str,
+    body: str,
+    existing: Page | None,
+) -> None:
+    """Refuse a shared write that copies the caller's own personal pages.
+
+    This is what makes the share ceremony a boundary rather than a
+    convention; :mod:`rif.leakguard` explains the threat it answers and,
+    just as importantly, what it does not catch.
+
+    The personal pages are read as the caller, under the same policies as
+    any other read, so this discloses nothing the caller could not already
+    fetch. The persona is skipped: it is seeded from a fixed template, so
+    every person's copy shares its wording with every other's, and matching
+    against it would refuse writes over text that is not private at all.
+
+    :param principal: the authenticated person
+    :param alias: the destination cove
+    :param path: the page being written, for the message
+    :param body: the body about to be written
+    :param existing: the stored page, whose text is exempt
+    :raises PrivateContentLeak: when the write introduces private text
+    """
+    try:
+        personal = await resolve_space(principal, "personal")
+    except AccessDenied:
+        # No personal space, so nothing private to copy out of. Onboarding
+        # creates one for everybody, but a principal without one must still
+        # be able to write to a cove -- a guard that refuses the write it
+        # cannot evaluate would turn a missing row into a lockout.
+        return
+    private = (
+        await Page.select(Page.body)
+        .where(Page.space_id == personal.id, Page.path != PERSONA_PATH)
+        .output(as_list=True)
+    )
+    # Re-arm: resolve_space above bound the principal for the personal
+    # lookup, and the caller's next statement expects the same principal.
+    # It is the same value, so this is belt and braces rather than a fix.
+    await resolve_space(principal, alias)
+    if not overlaps(body, existing.body if existing else "", private):
+        return
+    raise PrivateContentLeak(
+        f"this would copy text from your personal space into {alias!r} "
+        f"({path!r}). Sharing is permanent, so it goes through "
+        "prepare_to_share: it shows the user the exact text and who will be "
+        "able to read it, and confirm_share performs the move after they "
+        "agree. If the wording only coincides, rewrite it in your own words "
+        "for this cove."
+    )
+
+
+class PageTooLarge(Exception):
+    """Raised when a body exceeds the per-page character ceiling."""
+
+
+def validate_body(path: str, body: str) -> None:
+    """Reject a page body past the per-page ceiling.
+
+    Pages had no size limit at all while files were capped at 25 MB, so the
+    cheapest way to bloat a cove was to write prose into it. The cost is not
+    storage: :func:`rif.context.build_index` reads every accessible body on
+    every call to compute descriptions and references, so one oversized page
+    is paid for by every member, in every conversation, forever.
+
+    The ceiling is deliberately above ``context_char_budget`` -- a page
+    larger than the whole context budget cannot be loaded in one piece
+    anyway, so anything at that size is already past the point of being
+    useful memory.
+
+    :param path: the page path, for the message
+    :param body: the full markdown body
+    :raises PageTooLarge: if the body exceeds ``RIF_PAGE_MAX_CHARS``
+    """
+    ceiling = get_settings().page_max_chars
+    if len(body) > ceiling:
+        raise PageTooLarge(
+            f"{path!r} is {len(body)} characters, over the {ceiling}-character "
+            "page limit; split it into several pages"
+        )
 
 
 def normalize_path(path: str) -> str:
@@ -129,6 +227,7 @@ async def save_page(
     tags: list[str] | None = None,
     expected_version: int | None = None,
     allow_protected: bool = False,
+    allow_private_copy: bool = False,
 ) -> Page:
     """Create or overwrite a page: snapshot a revision, bump page and space versions.
 
@@ -141,11 +240,17 @@ async def save_page(
     :param tags: page tags; unchanged on update when omitted
     :param expected_version: optimistic lock; mismatch raises VersionConflict
     :param allow_protected: permit writes under ``meta/`` (dedicated tools only)
+    :param allow_private_copy: permit shared text copied from the personal
+        space. Only the share ceremony passes this -- it *is* the sanctioned
+        copy, having already shown the user the exact disclosure.
+    :raises PrivateContentLeak: for personal text written into a cove
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new page's path cannot be normalized
+    :raises PageTooLarge: for a body over the per-page ceiling
     :raises VersionConflict: when expected_version is stale
     :returns: the saved page
     """
+    validate_body(path, body)
     _refuse_protected(path, allow_protected)
     space = await resolve_space(principal, alias)
     # An existing page is addressed by exactly the name it already carries.
@@ -169,6 +274,8 @@ async def save_page(
             .lock_rows()
             .first()
         )
+    if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
+        await _refuse_private_copy(principal, alias, path, body, page)
     if page is None:
         if expected_version not in (None, 0):
             raise VersionConflict(f"{path!r} does not exist yet")
@@ -217,6 +324,7 @@ async def edit_section(
     message: str,
     expected_version: int | None = None,
     allow_protected: bool = False,
+    allow_private_copy: bool = False,
 ) -> Page:
     """Replace an exact, unique span of a page, leaving the rest untouched.
 

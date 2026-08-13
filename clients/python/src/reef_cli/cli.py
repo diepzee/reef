@@ -275,6 +275,9 @@ def build_parser() -> argparse.ArgumentParser:
     remove = _tool_parser(sub, "remove_member", "remove a shared-space member")
     remove.add_argument("space")
     remove.add_argument("email")
+    rename = _tool_parser(sub, "rename_cove", "change what you call a shared cove")
+    rename.add_argument("space")
+    rename.add_argument("new_name")
     leave = _tool_parser(sub, "leave_space", "leave a shared space, handing it on")
     leave.add_argument("space")
     delete = _tool_parser(
@@ -410,6 +413,8 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         return tool, payload
     if tool == "remove_member":
         return tool, {"space": args.space, "email": args.email}
+    if tool == "rename_cove":
+        return tool, {"space": args.space, "new_name": args.new_name}
     if tool in {"leave_space", "delete_space"}:
         return tool, {"space": args.space}
     if tool == "remember":

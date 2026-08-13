@@ -3,7 +3,13 @@
 import pytest
 
 from rif.access import AccessDenied, Principal, arm
-from rif.attachments import add_attachment, delete_attachment, get_attachment
+from rif.attachments import (
+    INLINE_MIMES,
+    _delivery,
+    add_attachment,
+    delete_attachment,
+    get_attachment,
+)
 from rif.db import transaction_scope
 from rif.models import Attachment, AttachmentStatus
 from rif.pages import save_page
@@ -24,11 +30,15 @@ class FakeStore:
         """
         self.objects[key] = data
 
-    async def signed_url(self, key: str, expires_in: int) -> str:
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
         """Return a fake presigned URL.
 
         :param key: object key
         :param expires_in: lifetime in seconds
+        :param mime: the stored content type, as the real store takes
+        :param filename: the stored filename, as the real store takes
         :returns: a deterministic stand-in URL
         """
         return f"https://example.test/{key}?ttl={expires_in}"
@@ -179,3 +189,94 @@ async def test_ready_flip_survives_a_real_commit_boundary(household):
             .first()
         )
     assert stored is not None
+
+
+@pytest.mark.parametrize("mime", sorted(INLINE_MIMES))
+async def test_raster_images_are_delivered_inline(mime):
+    """The web app embeds these with an <img>, so they must render in place."""
+    content_type, disposition = _delivery(mime, "photo.png")
+    assert content_type == mime
+    assert disposition.startswith("inline;")
+
+
+@pytest.mark.parametrize(
+    "mime", ["text/html", "image/svg+xml", "application/xhtml+xml", "text/plain"]
+)
+async def test_scriptable_and_unknown_types_are_delivered_as_downloads(mime):
+    """A caller-chosen content type must not decide how a reader's browser
+    treats the bytes: add_file will happily store a 'receipt.pdf' declared as
+    text/html, and inline delivery would turn that into a live page."""
+    content_type, disposition = _delivery(mime, "receipt.pdf")
+    assert content_type == "application/octet-stream"
+    assert disposition == 'attachment; filename="receipt.pdf"'
+
+
+async def test_a_filename_cannot_break_out_of_the_disposition_header():
+    _, disposition = _delivery("application/pdf", 'in"; x=y\r\nX-Evil: 1')
+    assert "\r" not in disposition and "\n" not in disposition
+    assert disposition.count('"') == 2
+
+
+async def test_a_pending_attachment_is_not_readable(household):
+    """Its bytes may never have reached the bucket, so a signed URL for it is
+    a link that 404s -- which reads as reef losing a file."""
+    me = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
+    async with transaction_scope():
+        await arm(me)
+        await Attachment(
+            space_id=household["w_personal"].id,
+            object_key="attachments/never-uploaded",
+            filename="ghost.pdf",
+            mime="application/pdf",
+            byte_size=1,
+            description="bytes that never landed",
+            status=AttachmentStatus.PENDING.value,
+        ).save()
+
+    async with transaction_scope():
+        assert (
+            await get_attachment(me, "personal", "attachments/never-uploaded") is None
+        )
+
+
+class BrokenStore(FakeStore):
+    """An object store whose uploads always fail."""
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Fail the way a bucket outage does.
+
+        :param key: object key
+        :param data: raw bytes
+        :param mime: content type
+        :raises RuntimeError: always
+        """
+        raise RuntimeError("bucket unreachable")
+
+
+async def test_a_failed_upload_marks_the_row_failed_rather_than_leaking_pending(
+    household,
+):
+    """Left PENDING it is indistinguishable from an upload still in flight,
+    so it sits there forever -- invisible to readers, cleanable by nobody."""
+    me = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
+
+    with pytest.raises(RuntimeError, match="bucket unreachable"):
+        await add_attachment(
+            me,
+            "personal",
+            b"bytes",
+            "application/pdf",
+            filename="doomed.pdf",
+            description="never lands",
+            store=BrokenStore(),
+        )
+
+    async with transaction_scope():
+        await arm(me)
+        rows = await Attachment.objects().where(
+            Attachment.space_id == household["w_personal"].id
+        )
+    assert [row.status for row in rows] == [AttachmentStatus.FAILED.value]
+    # And it stays unreadable, exactly as the pending row was.
+    async with transaction_scope():
+        assert await get_attachment(me, "personal", rows[0].object_key) is None

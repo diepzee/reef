@@ -1,3 +1,5 @@
+import pytest
+
 from rif.access import Principal, resolve_space
 from rif.db import transaction_scope
 from rif.pages import get_page, save_page
@@ -223,3 +225,51 @@ async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, house
 
     async with transaction_scope():
         assert await get_page(me, "household", "a.md") is None
+
+
+async def test_remember_records_a_fact_contained_in_an_existing_entry(tx, household):
+    """The duplicate check is per entry, not a substring of the whole page.
+
+    A substring test discarded genuinely new facts whenever a longer entry
+    happened to contain their words -- reporting success and storing nothing,
+    which is the worst failure a memory product has -- and let anyone sharing
+    a cove suppress its inbox by padding the page with likely phrasings.
+    """
+    me = principal_for(household["wouter"])
+    await tool_remember(me, "Wouter is allergic to penicillin and nuts")
+
+    second = await tool_remember(me, "allergic to penicillin")
+
+    assert second["duplicate"] is False
+    body = (await get_page(me, "personal", "inbox.md")).body
+    assert body.count("allergic to penicillin") == 2
+
+
+async def test_remember_still_swallows_an_exact_retry_of_an_entry(tx, household):
+    me = principal_for(household["wouter"])
+    await tool_remember(me, "bin day is Tuesday")
+    again = await tool_remember(me, "bin day is Tuesday")
+    assert again["duplicate"] is True
+
+
+@pytest.mark.parametrize(
+    "mime",
+    ["not-a-mime", "text/html; charset=utf-8\r\nX-Evil: 1", "", "/", "text/"],
+)
+async def test_add_file_refuses_a_malformed_content_type(mime):
+    """The value is stored, sent to the object store, and signed into a URL,
+    so it is matched against a shape rather than merely length-checked."""
+    from rif.server import _store_file
+
+    result = await _store_file("personal", "x.bin", "eA==", mime, "a file")
+    assert result["error"] == "invalid_mime"
+
+
+async def test_add_file_accepts_an_ordinary_content_type_shape():
+    """Rejection must be about shape, not about reaching the store: this gets
+    past the mime gate and fails later, on the principal, in this context."""
+    from rif.server import _store_file
+
+    with pytest.raises(Exception) as caught:
+        await _store_file("personal", "x.pdf", "eA==", "application/pdf", "a file")
+    assert "invalid_mime" not in str(caught.value)
