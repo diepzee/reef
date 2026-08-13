@@ -64,11 +64,17 @@ export interface Page {
   last_editor: string | null;
 }
 
-/** `GET /api/me` — the logged-in person's identity. */
+/**
+ * `GET /api/me` — the logged-in person's identity.
+ *
+ * `avatar` is a URL to fetch the picture from, or null when they have not
+ * chosen one and the UI should fall back to their initials.
+ */
 export interface Me {
   person_id: string;
   email: string;
   display_name: string;
+  avatar: string | null;
 }
 
 /** One member of a shared space's roster: display name plus the email removal is keyed by. */

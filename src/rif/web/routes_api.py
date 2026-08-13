@@ -8,6 +8,8 @@ CSRF on mutations, maps domain exceptions onto the Global Constraints error
 table, and renews the session cookie on success.
 """
 
+import base64
+import binascii
 import json
 import os
 from collections.abc import Callable
@@ -20,6 +22,7 @@ from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from rif.access import AccessDenied, Principal, arm, resolve_space
 from rif.account import delete_account_rows
+from rif.appearance import AppearanceError, get_appearances, set_appearance
 from rif.attachments import S3ObjectStore, erase_objects, get_attachment
 from rif.config import get_settings
 from rif.context import build_index, latest_editors
@@ -34,7 +37,15 @@ from rif.invitations import (
     invites_left,
 )
 from rif.models import Page, Person
-from rif.pages import ProtectedPath, VersionConflict, get_page, save_page
+from rif.pages import (
+    InvalidPath,
+    PageNotFound,
+    ProtectedPath,
+    VersionConflict,
+    delete_page,
+    get_page,
+    save_page,
+)
 from rif.spaces import (
     SpaceError,
     create_space,
@@ -206,6 +217,15 @@ def api(handler: Callable) -> Callable:
             return JSONResponse({"error": "version_conflict"}, status_code=409)
         except ProtectedPath:
             return JSONResponse({"error": "protected"}, status_code=403)
+        except PageNotFound:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        except InvalidPath as error:
+            # The detail names what is wrong with the path; the editor shows
+            # it verbatim, so a generic 400 here would lose the only useful
+            # part of the answer.
+            return JSONResponse(
+                {"error": "bad_request", "detail": str(error)}, status_code=400
+            )
         except InviteBudgetExceeded as error:
             # 429 rather than 400: the request is well-formed and would
             # succeed later. The detail names the unlock date, and the UI
@@ -233,16 +253,139 @@ def api(handler: Callable) -> Callable:
 async def _me(request: Request, principal: Principal) -> dict:
     """Return the logged-in person's identity.
 
+    ``avatar`` is a URL rather than the bytes: the picture is read on every
+    screen and changes almost never, so serving it from its own cacheable
+    endpoint keeps it out of this payload. The ``v`` parameter is the byte
+    length, which is enough to break a stale cache when the picture changes
+    without leaking anything the owner does not already know.
+
     :param request: the incoming request, unused
     :param principal: the authenticated person
-    :returns: person id, email, and display name
+    :returns: person id, email, display name, and avatar URL or None
     """
     person = await Person.objects().where(Person.id == principal.person_id).first()
+    avatar = None
+    if person is not None and person.avatar_bytes:
+        avatar = f"/api/me/avatar?v={len(person.avatar_bytes)}"
     return {
         "person_id": str(principal.person_id),
         "email": principal.email,
         "display_name": person.display_name if person else "",
+        "avatar": avatar,
     }
+
+
+#: Ceiling on a stored avatar. Large enough for a retina-sized square from a
+#: phone camera once the browser has downscaled it, small enough that keeping
+#: it in the row rather than the object store stays obviously cheap.
+AVATAR_MAX_BYTES = 512_000
+
+#: Formats accepted for an avatar. Deliberately no SVG: it is a script
+#: carrier, and this endpoint serves bytes back to a browser.
+AVATAR_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
+
+
+async def _appearances(request: Request, principal: Principal) -> dict:
+    """Return how this person has chosen to see each of their coves.
+
+    Its own endpoint rather than a field on ``/api/index``: the index is the
+    MCP surface too, and how a cove is tinted in one person's browser is not
+    something an assistant should be handed.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: ``{"coves": {slug: {color, glyph}}}``
+    """
+    return {"coves": await get_appearances(principal)}
+
+
+async def _set_appearance(request: Request, principal: Principal) -> dict:
+    """Record how this person wants to see one cove.
+
+    :param request: the incoming request, carrying the ``space`` path param
+        and a JSON body with nullable ``color`` and ``glyph``
+    :param principal: the authenticated person
+    :raises BadRequest: if either name is not one of the offered choices
+    :returns: the stored choice
+    """
+    space = await resolve_space(principal, request.path_params["space"])
+    payload = await _json_body(request)
+    try:
+        return await set_appearance(
+            principal,
+            space.id,
+            color=_optional_str(payload, "color"),
+            glyph=_optional_str(payload, "glyph"),
+        )
+    except AppearanceError as exc:
+        raise BadRequest(str(exc)) from exc
+
+
+async def _get_avatar(request: Request, principal: Principal) -> Response:
+    """Serve the caller's own avatar bytes.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the image, or a 404 JSON response when none is set
+    """
+    person = await Person.objects().where(Person.id == principal.person_id).first()
+    if person is None or not person.avatar_bytes:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    return Response(
+        bytes(person.avatar_bytes),
+        media_type=person.avatar_mime or "application/octet-stream",
+        # Immutable is safe because the URL carries the size as a cache key:
+        # a different picture is a different URL.
+        headers={"cache-control": "private, max-age=31536000, immutable"},
+    )
+
+
+async def _put_avatar(request: Request, principal: Principal) -> dict:
+    """Replace the caller's avatar with a base64-encoded image.
+
+    Base64 in JSON rather than multipart: every other write on this surface
+    is JSON, the size ceiling is small enough that the ~33% encoding
+    overhead does not matter, and it keeps the CSRF header requirement
+    uniform across the API.
+
+    :param request: the incoming request, carrying ``mime`` and ``data``
+    :param principal: the authenticated person
+    :raises BadRequest: for an unsupported type, undecodable data, or an
+        image over :data:`AVATAR_MAX_BYTES`
+    :returns: the new avatar URL
+    """
+    payload = await _json_body(request)
+    mime = _require_str(payload, "mime")
+    if mime not in AVATAR_MIMES:
+        raise BadRequest(f"{mime!r} is not one of {', '.join(sorted(AVATAR_MIMES))}")
+    try:
+        raw = base64.b64decode(_require_str(payload, "data"), validate=True)
+    except (binascii.Error, ValueError):
+        raise BadRequest("'data' is not valid base64") from None
+    if not raw:
+        raise BadRequest("'data' decoded to no bytes")
+    if len(raw) > AVATAR_MAX_BYTES:
+        raise BadRequest(
+            f"a picture may be at most {AVATAR_MAX_BYTES // 1000}kB; "
+            f"this one is {len(raw) // 1000}kB"
+        )
+    await Person.update({Person.avatar_mime: mime, Person.avatar_bytes: raw}).where(
+        Person.id == principal.person_id
+    )
+    return {"avatar": f"/api/me/avatar?v={len(raw)}"}
+
+
+async def _delete_avatar(request: Request, principal: Principal) -> dict:
+    """Drop the caller's avatar, falling the UI back to their initials.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the cleared avatar field
+    """
+    await Person.update({Person.avatar_mime: None, Person.avatar_bytes: None}).where(
+        Person.id == principal.person_id
+    )
+    return {"avatar": None}
 
 
 async def _index(request: Request, principal: Principal) -> dict:
@@ -330,6 +473,19 @@ async def _put_page(request: Request, principal: Principal) -> dict:
         expected_version=expected_version,
     )
     return await _page_payload(space, page)
+
+
+async def _delete_page(request: Request, principal: Principal) -> dict:
+    """Delete a page and its history.
+
+    :param request: the incoming request, carrying ``space`` and ``path``
+        path params
+    :param principal: the authenticated person
+    :returns: the deleted path and the number of revisions removed
+    """
+    return await delete_page(
+        principal, request.path_params["space"], request.path_params["path"]
+    )
 
 
 async def _create_space(request: Request, principal: Principal) -> dict:
@@ -592,9 +748,19 @@ def register_api_routes(mcp) -> None:
     _registered.add(id(mcp))
 
     mcp.custom_route("/api/me", methods=["GET"])(api(_me))
+    mcp.custom_route("/api/me/avatar", methods=["GET"])(api(_get_avatar))
+    mcp.custom_route("/api/me/avatar", methods=["PUT"])(api(_put_avatar))
+    mcp.custom_route("/api/me/avatar", methods=["DELETE"])(api(_delete_avatar))
+    mcp.custom_route("/api/appearance", methods=["GET"])(api(_appearances))
+    mcp.custom_route("/api/spaces/{space}/appearance", methods=["PUT"])(
+        api(_set_appearance)
+    )
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["GET"])(api(_get_page))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["PUT"])(api(_put_page))
+    mcp.custom_route("/api/pages/{space}/{path:path}", methods=["DELETE"])(
+        api(_delete_page)
+    )
     mcp.custom_route("/api/files/{space}/{key:path}", methods=["GET"])(api(_get_file))
     # Existing rendered Markdown points here; keep it as a compatibility alias.
     mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_file))

@@ -27,13 +27,26 @@
  * the serif tagline ... under the brand row".
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useLocation } from "react-router-dom";
 
 import { ApiError, apiGet } from "../api";
 import type { Me } from "../types";
+import {
+  AppearanceContext,
+  type AppearanceMap,
+  type CoveAppearance,
+} from "../useAppearance";
+import { MeContext } from "../useMe";
 import { useMediaQuery } from "../useMediaQuery";
 import { MembersSheetContext } from "../useMembersSheet";
+import { AccountMenu } from "./AccountMenu";
 import { MembersSheet } from "./MembersSheet";
 import { FrondGlyph } from "./ReefMark";
 import { Sidebar } from "./Sidebar";
@@ -54,6 +67,35 @@ export function AppShell({ children }: { children: ReactNode }) {
   const closeMembers = useCallback(() => setSheetOpen(false), []);
   const sheetContextValue = useMemo(() => ({ openMembers }), [openMembers]);
 
+  const setAvatar = useCallback((avatar: string | null) => {
+    setMe((current) => (current ? { ...current, avatar } : current));
+  }, []);
+  const meContextValue = useMemo(() => ({ me, setAvatar }), [me, setAvatar]);
+
+  const [appearance, setAppearanceMap] = useState<AppearanceMap>({});
+  const setAppearance = useCallback((alias: string, look: CoveAppearance) => {
+    setAppearanceMap((current) => ({ ...current, [alias]: look }));
+  }, []);
+  const appearanceContextValue = useMemo(
+    () => ({ appearance, setAppearance }),
+    [appearance, setAppearance],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<{ coves: AppearanceMap }>("/api/appearance")
+      .then((payload) => {
+        if (!cancelled) setAppearanceMap(payload.coves);
+      })
+      .catch(() => {
+        // Every cove already has a derived look, so a failure here costs
+        // nothing but the viewer's overrides — not worth a error surface.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     apiGet<Me>("/api/me")
@@ -73,38 +115,47 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
 
   const sheet = sheetSpace !== null && (
-    <MembersSheet key={sheetSpace} space={sheetSpace} open={sheetOpen} onClose={closeMembers} />
+    <MembersSheet
+      key={sheetSpace}
+      space={sheetSpace}
+      open={sheetOpen}
+      onClose={closeMembers}
+    />
   );
 
-  if (isDesktop) {
-    return (
-      <MembersSheetContext.Provider value={sheetContextValue}>
-        <div className="shell">
-          <Sidebar me={me} />
-          <div className="content">
-            <div className="app-stack">{children}</div>
-          </div>
-        </div>
-        {sheet}
-      </MembersSheetContext.Provider>
-    );
-  }
-
   return (
-    <MembersSheetContext.Provider value={sheetContextValue}>
-      <div className="app-stack">
-        <header className="app-header">
-          <Link to="/" className="app-header-link">
-            <FrondGlyph color="var(--accent)" size={17} />
-            <span className="app-header-wordmark">reef</span>
-          </Link>
-          {isHome && (
-            <p className="app-header-tagline">memories you grow together</p>
+    <MeContext.Provider value={meContextValue}>
+      <AppearanceContext.Provider value={appearanceContextValue}>
+        <MembersSheetContext.Provider value={sheetContextValue}>
+          {isDesktop ? (
+            <div className="shell">
+              <Sidebar me={me} />
+              <div className="content">
+                <div className="app-stack">{children}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="app-stack">
+              <header className="app-header">
+                <Link to="/" className="app-header-link">
+                  <FrondGlyph color="var(--accent)" size={17} />
+                  <span className="app-header-wordmark">reef</span>
+                </Link>
+                {/* Without this the phone has no account surface at all —
+                  no profile, and no way to sign out. */}
+                <AccountMenu me={me} placement="down" />
+                {isHome && (
+                  <p className="app-header-tagline">
+                    memories you grow together
+                  </p>
+                )}
+              </header>
+              {children}
+            </div>
           )}
-        </header>
-        {children}
-      </div>
-      {sheet}
-    </MembersSheetContext.Provider>
+          {sheet}
+        </MembersSheetContext.Provider>
+      </AppearanceContext.Provider>
+    </MeContext.Provider>
   );
 }

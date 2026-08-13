@@ -10,7 +10,7 @@ from rif.export import (
     export_space,
     render_page,
 )
-from rif.models import Attachment, AttachmentStatus
+from rif.models import Attachment, AttachmentStatus, Page
 from rif.pages import get_page, save_page
 
 
@@ -56,8 +56,17 @@ async def test_json_export_can_scope_one_cove(tx, household):
 
 
 async def test_markdown_archive_neutralizes_page_path_traversal(tx, household):
+    """A traversal path already in the store must not escape the archive.
+
+    ``save_page`` refuses this path now, so the row is written directly --
+    which is the case that matters. Paths were unconstrained before
+    ``normalize_path`` existed, so a corpus imported back then can still hold
+    one, and the export is the last thing standing between it and the
+    reader's filesystem.
+    """
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "../escape.md", "still contained", message="x")
+    saved = await save_page(me, "personal", "escape.md", "still contained", message="x")
+    await Page.update({Page.path: "../escape.md"}).where(Page.id == saved.id)
 
     with ZipFile(BytesIO(await build_markdown_archive(me, "personal"))) as archive:
         names = archive.namelist()
