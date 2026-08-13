@@ -838,6 +838,52 @@ under Full (strict); on `www` this also appears for the ~1 min before a
 new redirect rule propagates, because unmatched requests fall through to
 the origin under a hostname Railway has no certificate for.
 
+### Why Glama says unhealthy
+
+The [Glama listing](https://glama.ai/mcp/connectors/me.reefwith/mcp) marks
+reef **Unhealthy**, and that is expected rather than a fault to chase. Glama
+defines unhealthy as "unable to successfully connect," and probes anonymously.
+Every `/mcp` request here needs a bearer token — `initialize` included, since
+`server.py` passes the AuthKit provider to `FastMCP` as `auth=`, which guards
+the transport rather than individual tools. A tokenless prober gets `401` with
+a correct `WWW-Authenticate` header, which is the spec-compliant answer and is
+scored as failure. Other OAuth-protected connectors in that directory carry the
+same badge.
+
+Glama's documented escape hatch does not apply. It offers to skip test
+credentials for servers supporting RFC 7591 dynamic client registration, and
+AuthKit does advertise a `registration_endpoint` — but registration yields
+client credentials, not an access token, and AuthKit offers only
+`authorization_code`, `refresh_token`, and `device_code` grants. Every one
+needs a human at a browser, so a headless prober can register and still never
+hold a token.
+
+So do not "fix" this by opening `initialize`/`tools/list` to anonymous callers.
+That means sniffing JSON-RPC method names ahead of FastMCP's auth middleware —
+a hand-rolled bypass of the one boundary that matters, traded for a badge on a
+third-party site. Handing Glama live test credentials is likewise a token into
+production memory: a token is per person and reaches every cove that person is
+in, so it could only ever be a throwaway account holding nothing.
+
+What is safe is claiming the listing, which is what
+`RIF_GLAMA_MAINTAINER_EMAIL` is for. Setting it serves:
+
+```json
+{
+  "$schema": "https://glama.ai/mcp/schemas/connector.json",
+  "maintainers": [{ "email": "..." }]
+}
+```
+
+at `/.well-known/glama.json` — a public, tokenless document (Glama was already
+requesting the path and getting a 404). The email must match a Glama account.
+Claiming controls the listing copy and unlocks its monitoring; it is not itself
+a health signal, and may well leave the badge red.
+
+```bash
+curl -sS https://reefwith.me/.well-known/glama.json
+```
+
 ---
 
 ## Reference
@@ -856,6 +902,7 @@ the origin under a hostname Railway has no certificate for.
 | `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
 | `LOGFIRE_TOKEN` | Write token for the `wouterdurnez/reef` Logfire project (EU instance). **Optional** — unset means telemetry is inert, and a missing token can never fail a request or stop the server booting |
 | `LOGFIRE_BASE_URL` | Only if the Logfire instance moves. Defaults to `https://logfire-eu.pydantic.dev`; the SDK's own default is the US instance, which is the wrong one for this project |
+| `RIF_GLAMA_MAINTAINER_EMAIL` | Email on the Glama account that owns the directory listing, served at `/.well-known/glama.json`. **Optional** — unset means that route 404s and the listing stays unclaimed. See "Why Glama says unhealthy" below |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |
 
 **Escape hatches, in order of severity:**
