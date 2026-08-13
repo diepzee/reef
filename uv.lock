@@ -8,6 +8,12 @@ resolution-markers = [
     "python_full_version < '3.14' and sys_platform != 'win32'",
 ]
 
+[manifest]
+members = [
+    "reefwith",
+    "rif",
+]
+
 [[package]]
 name = "aiofile"
 version = "3.12.3"
@@ -1469,6 +1475,17 @@ wheels = [
 ]
 
 [[package]]
+name = "reefwith"
+version = "0.1.0"
+source = { editable = "clients/python" }
+dependencies = [
+    { name = "fastmcp" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "fastmcp", specifier = ">=2" }]
+
+[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1541,6 +1558,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "reefwith" },
     { name = "ruff" },
 ]
 
@@ -1560,6 +1578,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "reefwith", editable = "clients/python" },
     { name = "ruff", specifier = ">=0.16.1" },
 ]
 

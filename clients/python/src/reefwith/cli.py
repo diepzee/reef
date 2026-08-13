@@ -67,7 +67,9 @@ class JsonTokenStore:
                 temporary.chmod(0o600)
             temporary.replace(self.path)
         except OSError as exc:
-            raise CLIError(f"could not write OAuth state at {self.path}: {exc}") from exc
+            raise CLIError(
+                f"could not write OAuth state at {self.path}: {exc}"
+            ) from exc
 
     @staticmethod
     def _entry_key(key: str, collection: str | None) -> str:
@@ -204,9 +206,13 @@ def _json_source(source: str) -> Any:
 
 def _add_text_source(parser: argparse.ArgumentParser, name: str) -> None:
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument(f"--{name}", help=f"{name.replace('-', ' ')} text; '-' reads stdin")
     group.add_argument(
-        f"--{name}-file", metavar="PATH", help=f"read {name.replace('-', ' ')} from PATH"
+        f"--{name}", help=f"{name.replace('-', ' ')} text; '-' reads stdin"
+    )
+    group.add_argument(
+        f"--{name}-file",
+        metavar="PATH",
+        help=f"read {name.replace('-', ' ')} from PATH",
     )
 
 
@@ -271,7 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
     remove.add_argument("email")
     leave = _tool_parser(sub, "leave_space", "leave a shared space, handing it on")
     leave.add_argument("space")
-    delete = _tool_parser(sub, "delete_space", "destroy a shared space you are alone in")
+    delete = _tool_parser(
+        sub, "delete_space", "destroy a shared space you are alone in"
+    )
     delete.add_argument("space")
     remember = _tool_parser(sub, "remember", "append a fact to a space inbox")
     remember.add_argument("fact", help="fact text; '-' reads stdin")
@@ -308,7 +316,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="confirm that the user agreed to this persona change",
     )
 
-    prepare = _tool_parser(sub, "prepare_to_share", "stage personal content for sharing")
+    prepare = _tool_parser(
+        sub, "prepare_to_share", "stage personal content for sharing"
+    )
     prepare.add_argument("path")
     prepare.add_argument("dest_space")
     prepare.add_argument("--section")
@@ -317,7 +327,9 @@ def build_parser() -> argparse.ArgumentParser:
     confirm = _tool_parser(sub, "confirm_share", "execute a staged share")
     confirm.add_argument("nonce")
 
-    add_file = _tool_parser(sub, "add_file", "upload a file with a searchable description")
+    add_file = _tool_parser(
+        sub, "add_file", "upload a file with a searchable description"
+    )
     add_file.add_argument("space")
     add_file.add_argument("file", type=Path)
     add_file.add_argument("--mime")
@@ -330,7 +342,9 @@ def build_parser() -> argparse.ArgumentParser:
     delete_file.add_argument("space")
     delete_file.add_argument("key")
 
-    add_image = _tool_parser(sub, "add_image", "compatibility alias for uploading an image")
+    add_image = _tool_parser(
+        sub, "add_image", "compatibility alias for uploading an image"
+    )
     add_image.add_argument("space")
     add_image.add_argument("file", type=Path)
     add_image.add_argument("--mime")
@@ -339,7 +353,9 @@ def build_parser() -> argparse.ArgumentParser:
     read_image = _tool_parser(sub, "read_image", "compatibility alias for read-file")
     read_image.add_argument("space")
     read_image.add_argument("key")
-    delete_image = _tool_parser(sub, "delete_image", "compatibility alias for delete-file")
+    delete_image = _tool_parser(
+        sub, "delete_image", "compatibility alias for delete-file"
+    )
     delete_image.add_argument("space")
     delete_image.add_argument("key")
     return parser
@@ -368,7 +384,12 @@ def _file_arguments(args: argparse.Namespace, *, image: bool = False) -> dict[st
 def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     """Translate one parsed named command into its exact MCP call."""
     tool = args.tool
-    if tool in {"load_index", "load_all_context", "get_operating_protocol", "list_spaces"}:
+    if tool in {
+        "load_index",
+        "load_all_context",
+        "get_operating_protocol",
+        "list_spaces",
+    }:
         return tool, {}
     if tool == "read_pages":
         return tool, {"space": args.space, "paths": args.paths}
