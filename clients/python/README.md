@@ -1,9 +1,9 @@
-# reefcli
+# reef-cli
 
 Command-line client for [reef](https://reefwith.me) — shared, living memory
 for people and their AI assistants, reached over MCP.
 
-    uv tool install reefcli
+    uv tool install reef-cli
     reef login
 
 Every MCP tool is mirrored as a subcommand; `reef call <tool> '<json>'` is the
