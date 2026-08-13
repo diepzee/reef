@@ -22,7 +22,9 @@ from rif.rls import (
     AUTHZ_ROLE,
     alias_statements,
     appearance_statements,
+    avatar_statements,
     constraint_statements,
+    drop_avatar_statements,
     drop_disclosure_statements,
     drop_mutation_statements,
     enable_statements,
@@ -181,12 +183,16 @@ async def schema():
     # -- test_migration_chain now catches better, by comparing the migrated
     # schema against what rif.rls actually declares rather than against
     # whatever this database happens to contain.
-    for statement in drop_disclosure_statements() + drop_mutation_statements():
+    for statement in (
+        drop_disclosure_statements()
+        + drop_mutation_statements()
+        + drop_avatar_statements()
+    ):
         await DB._run_in_new_connection(statement)
-    # appearance_statements and open_door_statements are listed separately on
-    # purpose: neither is part of enable_statements, because historical
-    # migrations call that and predate the table and column they need. See
-    # their docstrings.
+    # appearance_statements, avatar_statements and open_door_statements are
+    # listed separately on purpose: none is part of enable_statements,
+    # because historical migrations call that and predate the table and the
+    # columns each needs. See their docstrings.
     for statement in (
         constraint_statements()
         + enable_statements()
@@ -194,6 +200,7 @@ async def schema():
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
+        + avatar_statements()
         + person_column_grant_statements()
     ):
         await DB._run_in_new_connection(statement)

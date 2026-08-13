@@ -1,11 +1,20 @@
-/** A deterministic, dependency-free SVG map of coves and their references. */
+/**
+ * A deterministic, dependency-free SVG map of coves and their references.
+ *
+ * Colour comes from `useCoveLook`, not `spaceColor` directly: this view used
+ * to derive every hue from the alias alone, so it was the one surface that
+ * went on showing a cove in a colour its viewer had explicitly changed. Each
+ * node also carries the cove's own organism, so a node is identifiable as
+ * the same cove the sidebar and cards show.
+ */
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
 import { coveConnections } from "../coveGraph";
 import type { SpaceIndex } from "../types";
-import { spaceColor } from "./spaceColor";
+import { useCoveLook } from "../useAppearance";
+import { SpaceGlyph } from "./spaceGlyph";
 
 interface Point {
   x: number;
@@ -60,6 +69,7 @@ export function CoveGraph({ spaces }: { spaces: SpaceIndex[] }) {
   const connections = coveConnections(spaces);
   const positions = layout(spaces);
   const [active, setActive] = useState<string | null>(null);
+  const look = useCoveLook();
 
   return (
     <div className="graph-wrap">
@@ -87,7 +97,7 @@ export function CoveGraph({ spaces }: { spaces: SpaceIndex[] }) {
                 markerHeight="6"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill={spaceColor(connection.source).base} />
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={look(connection.source).hue.base} />
               </marker>
             ))}
           </defs>
@@ -129,7 +139,7 @@ export function CoveGraph({ spaces }: { spaces: SpaceIndex[] }) {
                   <title>{label}</title>
                   <path
                     d={`M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`}
-                    stroke={spaceColor(connection.source).base}
+                    stroke={look(connection.source).hue.base}
                     strokeWidth={Math.min(5, 2 + Math.log2(connection.referenceCount))}
                     markerEnd={`url(#cove-arrow-${index})`}
                   />
@@ -144,7 +154,7 @@ export function CoveGraph({ spaces }: { spaces: SpaceIndex[] }) {
 
           {spaces.map((space) => {
             const point = positions.get(space.alias)!;
-            const hue = spaceColor(space.alias);
+            const { hue, family } = look(space.alias);
             const isDimmed = active !== null && active !== space.alias;
             return (
               <Link
@@ -161,7 +171,16 @@ export function CoveGraph({ spaces }: { spaces: SpaceIndex[] }) {
                     {space.alias}, {space.pages.length} {space.pages.length === 1 ? "page" : "pages"}
                   </title>
                   <circle r={NODE_RADIUS} className="graph-node" style={{ stroke: hue.base }} />
-                  <circle cy="-29" r="5" fill={hue.base} />
+                  {/* A nested <svg> lands at its group's origin, so the
+                      translate is what centres the 26px organism. */}
+                  <g transform="translate(-13 -44)">
+                    <SpaceGlyph
+                      alias={space.alias}
+                      color={hue.base}
+                      size={26}
+                      family={family}
+                    />
+                  </g>
                   <text y="-5" className="graph-node-name">
                     {shortAlias(space.alias)}
                   </text>

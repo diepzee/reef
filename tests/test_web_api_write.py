@@ -88,8 +88,13 @@ async def test_invite_and_members_and_remove(api, world):
     assert members["owner_email"] == alice.email
     assert len(members["members"]) == 3
     assert all(
-        set(member) == {"display_name", "email"} for member in members["members"]
+        set(member) == {"person_id", "display_name", "email", "avatar"}
+        for member in members["members"]
     )
+    # Nobody in this cove has chosen a picture, so every row says so rather
+    # than pointing at a URL that would 404 -- that is what makes the UI draw
+    # an initial instead of asking.
+    assert all(member["avatar"] is None for member in members["members"])
     assert {member["email"] for member in members["members"]} == {
         alice.email,
         bob.email,

@@ -1,0 +1,96 @@
+# What has to be true before anything reaches main -- and therefore before
+# it reaches production, since Railway deploys every push to main.
+#
+# The database is brought up with the repo's own docker-compose rather than
+# an Actions `services:` container. That is deliberate: the suite's whole
+# claim to honesty rests on *which role* it runs as. The app role must be an
+# ordinary, non-superuser, non-BYPASSRLS role, and a second non-owner role
+# has to exist for the privilege tests -- see the long header in
+# docker/initdb/01-create-app-role-and-databases.sql, which records the five
+# days production ran as a superuser with every policy inert while the tests
+# still passed. Those roles are created by that init script, which only runs
+# on a fresh volume; `services:` containers start before the repo is checked
+# out and so cannot mount it. Using compose keeps CI, dev, and test on one
+# definition of the cluster instead of two that can drift apart.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # On a pull request, a newer push makes the in-flight run irrelevant --
+  # only the tip is going to be merged. On main it is the opposite: every
+  # commit there is deployed, so cancelling means a commit reaches
+  # production with its run showing "cancelled" and nobody having seen
+  # whether it passed. That already happened once, to the commit that
+  # added this file. Merges land in bursts; the runs have to keep up.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  backend:
+    name: Backend (pytest + ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Postgres
+        run: docker compose up -d db
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Wait for the cluster to finish bootstrapping
+        # The app role and rif_test are created by the init script, so
+        # connecting as rif to rif_test is the real readiness condition --
+        # an open port is not, and pg_isready would pass too early.
+        run: |
+          for _ in $(seq 1 60); do
+            if PGPASSWORD=rif psql -h localhost -p 5433 -U rif -d rif_test \
+                 -c 'select 1' >/dev/null 2>&1; then
+              echo "cluster ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Postgres never became ready. Container logs:"
+          docker compose logs db
+          exit 1
+
+      - name: Lint
+        run: uv run ruff check src tests
+
+      - name: Format
+        run: uv run ruff format --check src tests
+
+      - name: Test
+        run: uv run pytest -q
+
+  frontend:
+    name: Frontend (bun test + tsc + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        # Frozen: CI proves the lockfile in the repo resolves, rather than
+        # quietly resolving something else and passing.
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: bun test
+
+      - name: Typecheck
+        run: bunx tsc --noEmit -p tsconfig.json
+
+      - name: Build
+        run: bun run build

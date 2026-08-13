@@ -16,6 +16,13 @@
  * flag flips — so the sheet's content stays in place while it animates
  * away instead of blanking out.
  *
+ * This is also where a cove's per-person settings live — "Rename for me" in
+ * the head and `LookPicker` at the foot. Both change this cove for the
+ * viewer alone and for nobody else in it, which is the property that groups
+ * them; the look picker used to sit loose in `SpaceView`'s body, between
+ * "New page" and the delete zone, where it read as a property of the cove
+ * itself.
+ *
  * Two modes come from `members.is_owner`: owners get the invite form and
  * two-step "Remove…" per non-owner row; non-owners see the roster only.
  * For a non-owner viewer the backend blanks every row's `member.email` to
@@ -38,10 +45,14 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
+import { useCoveLook } from "../useAppearance";
+import { useMe } from "../useMe";
 import { useMediaQuery } from "../useMediaQuery";
 import { useMembers } from "../useMembers";
 import type { InviteResult } from "../types";
 import { Avatar } from "./Avatar";
+import { LookPicker } from "./LookPicker";
+import { SpaceGlyph } from "./spaceGlyph";
 
 /** Props for {@link MembersSheet}. */
 interface MembersSheetProps {
@@ -57,10 +68,24 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
   const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 900px)");
   const { members, error, refresh } = useMembers(space);
+  const { hue, family } = useCoveLook()(space);
+  const { me } = useMe();
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const { refresh: refreshIndex } = useIndex();
+
+  // The way out of the cove, moved here from SpaceView's body.
+  const [leaving, setLeaving] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
+  const [exitError, setExitError] = useState<string | null>(null);
+
+  // Alone implies owner: the owner cannot remove themselves, so the last
+  // person standing in a cove is always the one who owns it.
+  const alone = members !== null && members.members.length === 1;
+  const others = members ? members.members.length - 1 : 0;
 
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -84,6 +109,12 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
       setRemoveError(null);
       setInviteError(null);
       setDisclosure(null);
+      // The exit guards reset too: reopening the sheet must not find a
+      // half-armed "Permanently delete" from a visit the reader abandoned.
+      setConfirmingLeave(false);
+      setShowDelete(false);
+      setConfirmation("");
+      setExitError(null);
     }
   }, [open]);
 
@@ -128,6 +159,29 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
       setRenameError(
         problem instanceof ApiError ? problem.detail ?? problem.message : "could not rename",
       );
+    }
+  }
+
+  /**
+   * Leave or destroy the cove, then send the reader somewhere that still
+   * exists — the sheet is closed first, since it belongs to a cove that is
+   * about to stop being reachable.
+   *
+   * :param request: the call to make
+   */
+  async function exitCove(request: () => Promise<unknown>) {
+    setLeaving(true);
+    setExitError(null);
+    try {
+      await request();
+      await refreshIndex();
+      onClose();
+      navigate("/");
+    } catch (problem) {
+      setExitError(
+        problem instanceof ApiError ? problem.message : "could not complete that",
+      );
+      setLeaving(false);
     }
   }
 
@@ -197,52 +251,13 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         {!isDesktop && <div className="mbs-grip" aria-hidden="true" />}
         <div className="mbs-head">
           <div>
-            <h2 className="mbs-title">People in {space}</h2>
-            <p className="mbs-sub">
-              Everyone sees everything — past and future. There is no
-              per-page hiding.
-            </p>
-            {renaming ? (
-              <form className="mbs-rename" onSubmit={rename}>
-                <label>
-                  Your name for this cove
-                  <input
-                    value={newName}
-                    onChange={(event) => setNewName(event.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-label="New cove name"
-                  />
-                </label>
-                <div className="mbs-rename-actions">
-                  <button type="submit">Save</button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenaming(false);
-                      setRenameError(null);
-                    }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                <p className="muted">
-                  Only you see this name. Everyone else keeps calling it
-                  whatever they call it.
-                </p>
-              </form>
-            ) : (
-              <button
-                type="button"
-                className="mbs-rename-open"
-                onClick={() => {
-                  setNewName(space);
-                  setRenaming(true);
-                }}
-              >
-                Rename for me
-              </button>
-            )}
+            <h2 className="mbs-title">
+              <span className="mbs-glyph" aria-hidden="true">
+                <SpaceGlyph alias={space} color={hue.base} size={20} family={family} />
+              </span>
+              People in {space}
+            </h2>
+            <p className="mbs-sub">Everyone here can see every page.</p>
           </div>
           <button
             type="button"
@@ -255,13 +270,14 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         </div>
 
         {error && <div className="notice">{error}</div>}
-        {renameError && <div className="notice">{renameError}</div>}
         {removeError && <div className="notice">{removeError}</div>}
         {members === null && !error && <p className="muted">Loading members…</p>}
 
+        {members && <div className="mbs-label">Members</div>}
+
         {members && (
           <ul className="mbs-roster">
-            {members.members.map((member, index) => {
+            {members.members.map((member) => {
               // The API blanks every row's `email` to "" for non-owner
               // viewers (including the owner's own row) while always
               // returning the real `owner_email` — so this match can only
@@ -269,20 +285,26 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               // throughout). Non-owners simply don't get an OWNER tag
               // rather than risk a wrong one from name-based guessing.
               const isOwnerRow = Boolean(member.email) && member.email === members.owner_email;
-              // `member.email` alone collides for every row in non-owner
-              // mode (all blanked to "") — React logged "two children with
-              // the same key" for it live. The list order is stable
-              // (server-sorted by display name, re-fetched wholesale on
-              // every change) so the index makes a safe tiebreaker.
+              // Which row is the reader's own. `person_id` answers it for
+              // every viewer; `email` could not, being blanked for non-owners
+              // — the very people for whom the rest of the roster is most
+              // anonymous, and who therefore benefit most from the marker.
+              const isYou = me !== null && member.person_id === me.person_id;
+              // `person_id` is the real key. `member.email` alone collided
+              // for every row in non-owner mode (all blanked to "") — React
+              // logged "two children with the same key" for it live — and
+              // the `${email}-${index}` tiebreaker that replaced it was only
+              // ever stable because the server sorts the roster.
               return (
-                <li key={`${member.email}-${index}`} className="mbs-person">
-                  <Avatar name={member.display_name} />
+                <li key={member.person_id} className="mbs-person">
+                  <Avatar name={member.display_name} src={member.avatar} size="lg" />
                   <div className="mbs-person-info">
                     <div className="mbs-person-name">{member.display_name}</div>
                     {member.email && (
                       <div className="mbs-person-email">{member.email}</div>
                     )}
                   </div>
+                  {isYou && <span className="mbs-you-tag">You</span>}
                   {isOwnerRow && <span className="mbs-owner-tag">Owner</span>}
                   {members.is_owner && !isOwnerRow && (
                     <span className="mbs-person-actions">
@@ -324,36 +346,203 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
 
         {members?.is_owner && (
           <>
+            <div className="mbs-label">Invite a person</div>
             <form className="mbs-invite" onSubmit={handleInvite}>
-              <div className="mbs-invite-title">Invite someone</div>
               {inviteError && <div className="notice">{inviteError}</div>}
-              <label htmlFor="mbs-invite-email" className="sr-only">
-                Email
-              </label>
-              <input
-                id="mbs-invite-email"
-                type="email"
-                placeholder="email address"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="off"
-                required
-              />
+              <div className="mbs-invite-row">
+                <label htmlFor="mbs-invite-email" className="sr-only">
+                  Email address
+                </label>
+                <input
+                  id="mbs-invite-email"
+                  type="email"
+                  placeholder="Email address"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="off"
+                  required
+                />
+                <button type="submit" disabled={inviting || !email}>
+                  {inviting ? "Sending…" : "Invite"}
+                </button>
+              </div>
+              {/* Secondary, and below: an address is all an invite needs,
+                  and this only spares the invitee an ugly auto-name. */}
               <label htmlFor="mbs-invite-name" className="sr-only">
                 Display name (optional)
               </label>
               <input
                 id="mbs-invite-name"
-                placeholder="display name (optional)"
+                className="mbs-invite-name"
+                placeholder="Their name (optional)"
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
                 autoComplete="off"
               />
-              <button type="submit" disabled={inviting || !email}>
-                {inviting ? "Sending…" : "Send invite"}
-              </button>
             </form>
             {disclosure && <div className="mbs-disclose">⚠ {disclosure}</div>}
+          </>
+        )}
+
+        {/*
+          For everybody, not just owners: how a cove reads to you is the one
+          thing in this sheet a non-owner can change. All three settings here
+          — the name, the colour, the creature — change this cove for you and
+          for nobody else in it, which is why they share a section and why
+          the note below says it once rather than three times.
+        */}
+        <div className="mbs-label">Appearance</div>
+        <p className="mbs-note">
+          Only you. Everyone else keeps seeing this cove their own way.
+        </p>
+        {renameError && <div className="notice">{renameError}</div>}
+        <div className="look-field">
+          <div className="look-label">Name</div>
+          {renaming ? (
+            <form className="mbs-rename" onSubmit={rename}>
+              <input
+                value={newName}
+                onChange={(event) => setNewName(event.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                aria-label="New cove name"
+              />
+              <button type="submit">Save</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRenaming(false);
+                  setRenameError(null);
+                }}
+              >
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              className="mbs-rename-open"
+              onClick={() => {
+                setNewName(space);
+                setRenaming(true);
+              }}
+            >
+              {space}
+              <span className="mbs-rename-hint">Rename for me</span>
+            </button>
+          )}
+        </div>
+        <LookPicker alias={space} />
+
+        {/*
+          The way out, moved here from SpaceView's body. Which way is on
+          offer depends on who else is in the cove — they are different acts,
+          so only the one that applies is ever shown:
+
+          - somebody else is here: Leave. If you own it, it passes to another
+            member rather than closing. Leaving never destroys what others keep.
+          - you are alone: Delete, behind the cove's typed name, because there
+            is nobody left for it to pass to and nothing of anyone else's to lose.
+        */}
+        {members && (
+          <>
+            <div className="mbs-label mbs-label-danger">Danger zone</div>
+            <p className="mbs-note">
+              {alone
+                ? "You are the only member. Its pages, files, and history go with it, permanently."
+                : members.is_owner
+                  ? `Ownership passes to another member and ${space} stays for the ` +
+                    `${others === 1 ? "one other person" : `${others} other people`} in it. ` +
+                    "You lose your own access; it cannot unread what you already saw."
+                  : `You lose access to ${space}. It stays for everyone else, ` +
+                    "and this cannot unread what you already saw."}
+            </p>
+            {exitError && <div className="notice">{exitError}</div>}
+
+            {alone ? (
+              !showDelete ? (
+                <button
+                  type="button"
+                  className="mbs-danger"
+                  onClick={() => setShowDelete(true)}
+                >
+                  Delete this cove…
+                </button>
+              ) : (
+                <div className="mbs-danger-guards">
+                  <label className="mbs-danger-phrase">
+                    Type <strong>{space}</strong> to confirm
+                    <input
+                      value={confirmation}
+                      onChange={(event) => setConfirmation(event.target.value)}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </label>
+                  <div className="mbs-danger-actions">
+                    <button
+                      type="button"
+                      className="mbs-danger mbs-danger-final"
+                      disabled={confirmation !== space || leaving}
+                      onClick={() =>
+                        exitCove(() =>
+                          apiSend(
+                            "DELETE",
+                            `/api/spaces/${encodeURIComponent(space)}`,
+                            { confirmation: space },
+                          ),
+                        )
+                      }
+                    >
+                      {leaving ? "Deleting…" : `Permanently delete ${space}`}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={leaving}
+                      onClick={() => {
+                        setShowDelete(false);
+                        setConfirmation("");
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )
+            ) : confirmingLeave ? (
+              <div className="mbs-danger-actions">
+                <button
+                  type="button"
+                  className="mbs-danger mbs-danger-final"
+                  disabled={leaving}
+                  onClick={() =>
+                    exitCove(() =>
+                      apiSend(
+                        "POST",
+                        `/api/spaces/${encodeURIComponent(space)}/leave`,
+                      ),
+                    )
+                  }
+                >
+                  {leaving ? "Leaving…" : `Confirm — leave ${space}`}
+                </button>
+                <button
+                  type="button"
+                  disabled={leaving}
+                  onClick={() => setConfirmingLeave(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="mbs-danger"
+                onClick={() => setConfirmingLeave(true)}
+              >
+                Leave this cove
+              </button>
+            )}
           </>
         )}
       </div>

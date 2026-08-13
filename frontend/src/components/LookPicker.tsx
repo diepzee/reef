@@ -1,14 +1,24 @@
 /**
- * "How this cove looks to me" — a hue row and a creature row.
+ * A colour row and a creature row, for how one viewer sees one cove.
  *
- * Deliberately phrased in the first person throughout, because that is the
- * surprising part: this changes nothing for anybody else in the cove. Two
- * members can hold entirely different pictures of the same place, and
- * neither can restyle it for the other.
+ * Renders the two rows and nothing around them: no heading and no "only
+ * you" note, because both callers already sit inside a section that says
+ * so once — the members sheet's "Appearance", and `SpaceView`'s for the
+ * personal cove. Saying it twice under one heading read as a warning
+ * rather than a fact.
  *
- * Both rows offer a "derive it" option rather than only concrete choices,
- * so a cove can always be put back to the colour and creature its name
- * gives it — the state it was in before anyone chose.
+ * Both rows lead with a "from its name" tile rather than offering only
+ * concrete choices, so a cove can always be put back to the colour and
+ * creature its name gives it — the state it was in before anyone chose.
+ * That tile is painted in the derived value itself, so it shows what
+ * choosing it would give you rather than describing it.
+ *
+ * The two rows mark their choice differently, and deliberately. A ring
+ * around a colour reads as one more shade, so the chosen colour carries a
+ * check instead; the icon tiles are drawings on a neutral tile, where a
+ * ring is unambiguous and a check laid over the creature only obscures it.
+ * The "from its name" tile is badged in both rows, since it is otherwise
+ * indistinguishable from whichever concrete tile the name happens to give.
  */
 
 import { useState } from "react";
@@ -32,6 +42,28 @@ const FAMILY_NAMES = [
   "bubbles",
   "seagrass",
 ] as const;
+
+/** The check drawn on the chosen tile. */
+function Tick({ color }: { color: string }) {
+  return (
+    <svg
+      className="look-tick"
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      aria-hidden="true"
+    >
+      <path
+        d="M3 7.3 5.8 10 11 4.4"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export function LookPicker({ alias }: { alias: string }) {
   const { appearance, setAppearance } = useAppearance();
@@ -62,73 +94,93 @@ export function LookPicker({ alias }: { alias: string }) {
   }
 
   const preview = spaceColor(alias, chosen.color);
+  const derived = spaceColor(alias, null);
 
   return (
     <div className="look">
-      <div className="section-label">How this cove looks to me</div>
-      <p className="muted look-note">
-        Only to you. Everyone else keeps seeing it their own way.
-      </p>
       {error && <div className="notice">{error}</div>}
 
-      <div className="look-row" role="group" aria-label="Colour">
-        <button
-          type="button"
-          className={`look-swatch look-auto ${chosen.color === null ? "on" : ""}`}
-          disabled={busy}
-          title="From its name"
-          aria-label="Colour from its name"
-          aria-pressed={chosen.color === null}
-          onClick={() => choose({ ...chosen, color: null })}
+      <div className="look-field">
+        <div className="look-label" id={`look-colour-${alias}`}>
+          Colour
+        </div>
+        <div
+          className="look-row"
+          role="group"
+          aria-labelledby={`look-colour-${alias}`}
         >
-          auto
-        </button>
-        {HUE_NAMES.map((name) => (
           <button
-            key={name}
             type="button"
-            className={`look-swatch ${chosen.color === name ? "on" : ""}`}
-            style={{ background: HUES[name].base }}
+            className={`look-tile look-tile-auto ${chosen.color === null ? "on" : ""}`}
+            style={{ background: derived.base }}
             disabled={busy}
-            title={name}
-            aria-label={name}
-            aria-pressed={chosen.color === name}
-            onClick={() => choose({ ...chosen, color: name })}
-          />
-        ))}
+            title="From its name"
+            aria-label="Colour from its name"
+            aria-pressed={chosen.color === null}
+            onClick={() => choose({ ...chosen, color: null })}
+          >
+            {chosen.color === null && <Tick color="#fff" />}
+          </button>
+          {HUE_NAMES.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className={`look-tile ${chosen.color === name ? "on" : ""}`}
+              style={{ background: HUES[name].base }}
+              disabled={busy}
+              title={name}
+              aria-label={name}
+              aria-pressed={chosen.color === name}
+              onClick={() => choose({ ...chosen, color: name })}
+            >
+              {chosen.color === name && <Tick color="#fff" />}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="look-row" role="group" aria-label="Creature">
-        <button
-          type="button"
-          className={`look-glyph look-auto ${chosen.glyph === null ? "on" : ""}`}
-          disabled={busy}
-          title="From its name"
-          aria-label="Creature from its name"
-          aria-pressed={chosen.glyph === null}
-          onClick={() => choose({ ...chosen, glyph: null })}
+      <div className="look-field">
+        <div className="look-label" id={`look-icon-${alias}`}>
+          Icon
+        </div>
+        <div
+          className="look-row"
+          role="group"
+          aria-labelledby={`look-icon-${alias}`}
         >
-          auto
-        </button>
-        {FAMILY_NAMES.map((family) => (
           <button
-            key={family}
             type="button"
-            className={`look-glyph ${chosen.glyph === family ? "on" : ""}`}
+            className={`look-tile look-tile-glyph look-tile-auto ${
+              chosen.glyph === null ? "on" : ""
+            }`}
             disabled={busy}
-            title={family}
-            aria-label={family}
-            aria-pressed={chosen.glyph === family}
-            onClick={() => choose({ ...chosen, glyph: family })}
+            title="From its name"
+            aria-label="Icon from its name"
+            aria-pressed={chosen.glyph === null}
+            onClick={() => choose({ ...chosen, glyph: null })}
           >
-            <SpaceGlyph
-              alias={alias}
-              color={preview.base}
-              size={22}
-              family={family}
-            />
+            <SpaceGlyph alias={alias} color={preview.base} size={20} family={null} />
           </button>
-        ))}
+          {FAMILY_NAMES.map((family) => (
+            <button
+              key={family}
+              type="button"
+              className={`look-tile look-tile-glyph ${chosen.glyph === family ? "on" : ""}`}
+              disabled={busy}
+              title={family}
+              aria-label={family}
+              aria-pressed={chosen.glyph === family}
+              onClick={() => choose({ ...chosen, glyph: family })}
+            >
+              <SpaceGlyph
+                alias={alias}
+                color={preview.base}
+                size={20}
+                family={family}
+              />
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

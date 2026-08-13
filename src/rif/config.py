@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     open_seats: int = 0
     open_until: str = ""
 
+    # Email on the Glama account that owns this deployment's listing, served
+    # at /.well-known/glama.json to claim it. Deliberately unset by default:
+    # it is a personal address, and a fork claiming ours would only publish
+    # it on their domain to no effect. Unset means the route 404s, which is
+    # the honest answer -- nobody has claimed this deployment.
+    glama_maintainer_email: str = ""
+
     @property
     def dsn(self) -> str:
         """Return the connection DSN, preferring Railway's injected value.

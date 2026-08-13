@@ -182,3 +182,61 @@ async def test_privacy_404s_without_a_site_tree(static_client):
     """No site/ packaged: a clean 404 rather than a 500."""
     response = await static_client.get("/privacy")
     assert response.status_code == 404
+
+
+async def test_glama_claim_served_when_configured(static_client, monkeypatch):
+    """The claim document names the configured maintainer, unauthenticated.
+
+    Glama fetches this anonymously -- it is the one thing about this server
+    it *can* read without a token -- so the assertion that matters is that
+    an unauthenticated client gets the document, not a 401.
+    """
+    from rif.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "glama_maintainer_email", "a@example.com")
+    response = await static_client.get("/.well-known/glama.json")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "maintainers": [{"email": "a@example.com"}],
+    }
+
+
+async def test_glama_claim_404s_when_unconfigured(static_client):
+    """With no maintainer set, there is nobody to claim it: 404, not an empty claim.
+
+    A document with an empty ``maintainers`` array would fail Glama's own
+    schema, so serving one would be worse than serving nothing.
+    """
+    response = await static_client.get("/.well-known/glama.json")
+    assert response.status_code == 404
+
+
+async def test_the_spa_shell_is_never_served_stale(static_client):
+    """``index.html`` must be revalidated, not cached on a browser's guess.
+
+    The shell names the content-hashed bundle, so a stale copy pins a
+    browser to an old frontend against a new backend -- which is exactly
+    how a fixed avatar upload kept failing after the fix had deployed. A
+    response carrying no freshness information at all is the trap: browsers
+    may then cache it heuristically off ``Last-Modified``.
+    """
+    response = await static_client.get("/app")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
+async def test_a_content_hashed_asset_is_immutable(static_client, tmp_path):
+    """A hashed name can never change its bytes, so it is cached hard."""
+    (tmp_path / "index-a1b2c3d4.js").write_text("console.log(2)")
+    response = await static_client.get("/app/index-a1b2c3d4.js")
+    assert response.status_code == 200
+    assert "immutable" in response.headers["cache-control"]
+
+
+async def test_an_unhashed_asset_is_not_frozen(static_client):
+    """The mark and favicon are copied under plain names and change in place."""
+    response = await static_client.get("/app/app.js")
+    assert response.status_code == 200
+    assert "immutable" not in response.headers["cache-control"]

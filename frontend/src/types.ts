@@ -77,10 +77,19 @@ export interface Me {
   avatar: string | null;
 }
 
-/** One member of a shared space's roster: display name plus the email removal is keyed by. */
+/**
+ * One member of a shared space's roster.
+ *
+ * `email` is blanked to `""` for every viewer but the cove's owner, so it is
+ * not a key the UI can rely on — `person_id` is. `avatar` is a URL to fetch
+ * the picture from, or null when they have chosen none and the UI should
+ * fall back to their initial, exactly as `Me.avatar` works.
+ */
 export interface Member {
+  person_id: string;
   display_name: string;
   email: string;
+  avatar: string | null;
 }
 
 /** `GET /api/spaces/{space}/members` — a shared space's roster. */
