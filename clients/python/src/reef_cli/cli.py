@@ -294,6 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
     write.add_argument("--tag", dest="tags", action="append")
     write.add_argument("--expected-version", type=int)
 
+    delete_page = _tool_parser(
+        sub, "delete_page", "permanently delete a page and its history"
+    )
+    delete_page.add_argument("space")
+    delete_page.add_argument("path")
+
     writes = _tool_parser(sub, "write_pages", "atomically write up to 20 pages")
     writes.add_argument("space")
     writes.add_argument("pages", help="JSON array, @file, or '-' for stdin")

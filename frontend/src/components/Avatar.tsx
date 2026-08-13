@@ -6,13 +6,23 @@ interface AvatarProps {
   name: string;
   /** Avatar size: "md" (26px default) or "sm" (20px). */
   size?: "md" | "sm";
+  /** Picture URL; falls back to the coloured initial when absent. */
+  src?: string | null;
 }
 
 /**
- * Circular avatar with initial and deterministic color.
+ * Circular avatar: the person's picture when they have one, otherwise their
+ * initial on a colour derived from their name.
  */
-export function Avatar({ name, size = "md" }: AvatarProps): React.ReactNode {
+export function Avatar({
+  name,
+  size = "md",
+  src,
+}: AvatarProps): React.ReactNode {
   const className = `avatar ${size === "sm" ? "avatar-sm" : ""}`.trim();
+  if (src) {
+    return <img className={className} src={src} alt={name} title={name} />;
+  }
   return (
     <div
       className={className}

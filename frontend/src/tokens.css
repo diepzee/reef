@@ -35,6 +35,11 @@
   --danger-bg: #fdecea;
   --danger-border: #c0392b;
   --danger-ink: #8b1f11;
+  /* Confirmation banners (.notice.ok) — same triad shape again. Success
+     used to borrow --danger-*, so a landed invite was announced in red. */
+  --ok-bg: #e7f9f4;
+  --ok-border: #0d9488;
+  --ok-ink: #0b5f56;
   /* ReefMark's tile fill — light seafoam here, but dark teal in both dark
      blocks below, since the light tile clashes on a bioluminescent-dark
      ground. Keeps one SVG asset correct in both themes. */
@@ -66,6 +71,9 @@
     --danger-bg: #3a1a16;
     --danger-border: #e57368;
     --danger-ink: #f6b4ac;
+    --ok-bg: #0e3630;
+    --ok-border: #38bdd8;
+    --ok-ink: #9fe8dc;
     --mark-tile: #10312e;
     --night-ground: radial-gradient(
       120% 80% at 80% -10%,
@@ -95,6 +103,9 @@
   --danger-bg: #3a1a16;
   --danger-border: #e57368;
   --danger-ink: #f6b4ac;
+  --ok-bg: #0e3630;
+  --ok-border: #38bdd8;
+  --ok-ink: #9fe8dc;
   --mark-tile: #10312e;
   --night-ground: radial-gradient(
     120% 80% at 80% -10%,

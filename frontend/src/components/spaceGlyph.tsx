@@ -73,11 +73,18 @@ interface SpaceGlyphProps {
   color: string;
   /** Rendered width AND height in px — the organism box is square. Default 20. */
   size?: number;
+  /** Body plan the viewer chose, if any; the alias still seeds the individual. */
+  family?: string | null;
 }
 
 /** A space's own procedurally grown reef organism, single-colored. */
-export function SpaceGlyph({ alias, color, size = 20 }: SpaceGlyphProps) {
-  const organism = organismFor(alias);
+export function SpaceGlyph({
+  alias,
+  color,
+  size = 20,
+  family,
+}: SpaceGlyphProps) {
+  const organism = organismFor(alias, family);
   const group = useRef<SVGGElement>(null);
   const [viewBox, setViewBox] = useState(UNMEASURED);
 
@@ -86,7 +93,7 @@ export function SpaceGlyph({ alias, color, size = 20 }: SpaceGlyphProps) {
     if (!group.current) return;
     const strokePad = organism.paths.reduce((w, p) => Math.max(w, p.stroke ?? 0), 0) / 2;
     setViewBox(frame(group.current, strokePad));
-  }, [alias]);
+  }, [alias, family]);
 
   return (
     <svg viewBox={viewBox} width={size} height={size} style={{ color }} aria-hidden="true">

@@ -48,6 +48,7 @@ TABLES = (
     "revisions",
     "attachments",
     "promotions",
+    "space_appearances",
 )
 
 # Tables carrying RLS policies (see rif.rls). Used only to verify enforcement.
