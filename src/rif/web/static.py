@@ -11,7 +11,9 @@ to own everything under ``/app``. Alongside those, ``GET /favicon.ico``,
 ``GET /favicon.svg``, and ``GET /apple-touch-icon.png`` serve the reef mark
 at the origin root, since favicon fetchers -- including MCP clients like
 claude.ai's connector list -- request those paths outside ``/app`` and
-nothing else answers them there.
+nothing else answers them there. ``GET /.well-known/glama.json`` serves the
+Glama directory's ownership claim on the same footing: a public, tokenless
+document at a fixed path that a third party fetches on its own schedule.
 """
 
 from pathlib import Path
@@ -19,6 +21,7 @@ from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
+    JSONResponse,
     PlainTextResponse,
     RedirectResponse,
     Response,
@@ -190,6 +193,31 @@ def register_static_routes(mcp) -> None:
         """
         return _serve_icon("reef.svg", "image/svg+xml")
 
+    async def glama_claim(request: Request) -> Response:
+        """Serve the Glama ownership claim, or 404 if nobody is configured.
+
+        Glama's directory probes this server anonymously and, because every
+        ``/mcp`` request needs a bearer token, can never complete a session
+        -- so its listing shows the server as unhealthy no matter how well
+        it is running. This document does not change that: it proves who
+        maintains the deployment, which is what lets a human control the
+        listing and read its monitoring, rather than being an assertion
+        about health.
+
+        :param request: the incoming request
+        :returns: the claim document, or a 404 plain-text response when
+            ``glama_maintainer_email`` is unset
+        """
+        email = get_settings().glama_maintainer_email
+        if not email:
+            return PlainTextResponse("Not Found", status_code=404)
+        return JSONResponse(
+            {
+                "$schema": "https://glama.ai/mcp/schemas/connector.json",
+                "maintainers": [{"email": email}],
+            }
+        )
+
     async def app_root(request: Request) -> Response:
         """Serve the SPA shell for ``/app`` itself.
 
@@ -213,5 +241,6 @@ def register_static_routes(mcp) -> None:
     mcp.custom_route("/favicon.ico", methods=["GET"])(favicon_ico)
     mcp.custom_route("/apple-touch-icon.png", methods=["GET"])(apple_touch_icon)
     mcp.custom_route("/favicon.svg", methods=["GET"])(favicon_svg)
+    mcp.custom_route("/.well-known/glama.json", methods=["GET"])(glama_claim)
     mcp.custom_route("/app", methods=["GET"])(app_root)
     mcp.custom_route("/app/{path:path}", methods=["GET"])(app_path)

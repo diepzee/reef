@@ -182,3 +182,32 @@ async def test_privacy_404s_without_a_site_tree(static_client):
     """No site/ packaged: a clean 404 rather than a 500."""
     response = await static_client.get("/privacy")
     assert response.status_code == 404
+
+
+async def test_glama_claim_served_when_configured(static_client, monkeypatch):
+    """The claim document names the configured maintainer, unauthenticated.
+
+    Glama fetches this anonymously -- it is the one thing about this server
+    it *can* read without a token -- so the assertion that matters is that
+    an unauthenticated client gets the document, not a 401.
+    """
+    from rif.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "glama_maintainer_email", "a@example.com")
+    response = await static_client.get("/.well-known/glama.json")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {
+        "$schema": "https://glama.ai/mcp/schemas/connector.json",
+        "maintainers": [{"email": "a@example.com"}],
+    }
+
+
+async def test_glama_claim_404s_when_unconfigured(static_client):
+    """With no maintainer set, there is nobody to claim it: 404, not an empty claim.
+
+    A document with an empty ``maintainers`` array would fail Glama's own
+    schema, so serving one would be worse than serving nothing.
+    """
+    response = await static_client.get("/.well-known/glama.json")
+    assert response.status_code == 404
