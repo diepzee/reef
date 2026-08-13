@@ -17,6 +17,7 @@ from uuid import uuid4
 from piccolo.columns import (
     UUID,
     Array,
+    Bytea,
     ForeignKey,
     Integer,
     OnDelete,
@@ -69,12 +70,22 @@ class AttachmentStatus(StrEnum):
 
 
 class Person(Table, tablename="persons", db=DB):
-    """A human principal. Provider subject is durable identity; email binds it."""
+    """A human principal. Provider subject is durable identity; email binds it.
+
+    The avatar lives in the row rather than the object store. It is capped at
+    a size where that is cheap (see ``rif.web.routes_api.AVATAR_MAX_BYTES``),
+    it is read on nearly every screen so a signed-URL round trip per face
+    would be the dominant cost, and keeping it here means it travels with
+    ``pg_dump`` — the same "leave with everything" property the pages have.
+    Attachments, which are unbounded and rarely read, stay in S3.
+    """
 
     id = UUID(primary_key=True, default=uuid4)
     email = Varchar(unique=True)
     subject = Varchar(null=True, unique=True, default=None)
     display_name = Varchar()
+    avatar_mime = Varchar(null=True, default=None)
+    avatar_bytes = Bytea(null=True, default=None)
     invited_by_person_id = ForeignKey(
         "self", null=True, default=None, on_delete=OnDelete.set_null
     )
@@ -166,4 +177,43 @@ class Promotion(Table, tablename="promotions", db=DB):
     consumed_at = Timestamp(null=True, default=None)
 
 
-TABLES = [Person, Space, Membership, Page, Revision, Attachment, Promotion]
+class SpaceAppearance(Table, tablename="space_appearances", db=DB):
+    """How one person has chosen to see one cove.
+
+    A cove's colour and creature are derived from its alias, and this
+    overrides that derivation *for one viewer only* -- two members of the
+    same cove can see it differently, and neither can restyle it for the
+    other. That is why this is its own table rather than columns on
+    ``spaces`` or ``memberships``.
+
+    On ``spaces`` it would be shared, so changing it would be an act of
+    administration and would mean widening the deliberately narrow
+    column grant that today lets a member update nothing but ``version``.
+    On ``memberships`` it would need a self-update policy on a table that
+    also carries ``role`` -- and row security cannot say *which column*, so
+    a viewer could promote themselves to member. Here there is simply
+    nothing worth escalating to: every column is a preference, so a blanket
+    "your own rows" policy is safe.
+
+    Null means "not chosen": the alias-derived value stands. The composite
+    uniqueness of ``(person_id, space_id)`` is a raw constraint, as on
+    ``memberships``.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    person_id = ForeignKey(Person)
+    space_id = ForeignKey(Space)
+    color = Varchar(null=True, default=None)
+    glyph = Varchar(null=True, default=None)
+
+
+TABLES = [
+    Person,
+    Space,
+    Membership,
+    Page,
+    Revision,
+    Attachment,
+    Promotion,
+    SpaceAppearance,
+]

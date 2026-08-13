@@ -11,6 +11,7 @@ import InviteToReef from "./views/InviteToReef";
 import NewPage from "./views/NewPage";
 import NewSpace from "./views/NewSpace";
 import PageView from "./views/PageView";
+import Profile from "./views/Profile";
 import { Gallery } from "./views/Gallery";
 import SignedOut from "./views/SignedOut";
 import SpaceView from "./views/SpaceView";
@@ -24,6 +25,7 @@ function AuthedApp() {
           <Route path="/" element={<Home />} />
           <Route path="/index" element={<IndexView />} />
           <Route path="/export" element={<ExportView />} />
+          <Route path="/profile" element={<Profile />} />
           <Route path="/spaces/new" element={<NewSpace />} />
           <Route path="/invite" element={<InviteToReef />} />
           <Route path="/connect" element={<Connect />} />

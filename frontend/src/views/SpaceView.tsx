@@ -22,6 +22,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
 import { AvatarStack } from "../components/Avatar";
+import { LookPicker } from "../components/LookPicker";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
 import { useMembers } from "../useMembers";
@@ -144,6 +145,7 @@ export default function SpaceView() {
           <Link to={`/s/${space}/new`} className="page-new">
             ＋ New page
           </Link>
+          <LookPicker alias={space} />
         </>
       )}
 
