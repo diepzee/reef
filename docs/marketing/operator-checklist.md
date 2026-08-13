@@ -5,7 +5,7 @@ advertise install commands before the packages exist.
 
 1. [ ] Review + merge this branch's PR — EXCEPT do not merge before steps 2–3
        if the PR already contains the new site install copy.
-2. [ ] Publish the Python CLI: `uv build clients/python && uv publish`
+2. [ ] Publish the Python CLI: `rm -rf dist && uv build clients/python && uv publish dist/reefwith-*`
        (needs a PyPI token for a new `reefwith` project).
 3. [ ] Publish the TS CLI: `cd clients/ts && npm publish` (needs `npm login`;
        first publish of `reefwith`).

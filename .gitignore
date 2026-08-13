@@ -2,6 +2,7 @@
 .superpowers/
 __pycache__/
 .venv/
+dist/
 clients/ts/node_modules/
 clients/ts/dist/
 clients/ts/dist-test/

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseArgs } from "../src/args.js";
+import { parseArgs, USAGE } from "../src/args.js";
 
 test("defaults", () => {
   const parsed = parseArgs(["tools"], {});
@@ -32,4 +32,11 @@ test("call defaults arguments to {}", () => {
 
 test("unknown command throws", () => {
   assert.throws(() => parseArgs(["frobnicate"], {}), /unknown command/);
+});
+
+test("--help short-circuits even mid-command, e.g. `reef call --help`", () => {
+  assert.throws(
+    () => parseArgs(["call", "--help"], {}),
+    (err: unknown) => err instanceof Error && err.message === USAGE,
+  );
 });

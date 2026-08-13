@@ -27,7 +27,7 @@ export function parseArgs(argv: string[], env: Record<string, string | undefined
     } else if (a === "--compact") {
       compact = true;
     } else if (a === "--help" || a === "-h") {
-      rest.push("help");
+      throw new UsageError(USAGE);
     } else {
       rest.push(a);
     }
