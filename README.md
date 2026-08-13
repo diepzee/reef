@@ -44,10 +44,11 @@ accepts an exact MCP tool name plus a JSON object for lossless passthrough.
 Every result is JSON; an MCP application error such as `not_found` also exits
 nonzero.
 
-Install from a checkout and authenticate once:
+Both distributions install the same `reef` command and share the same OAuth
+login, so pick whichever toolchain you already have on hand.
 
 ```bash
-uv tool install .
+uv tool install reefwith    # or: npm install -g reefwith
 reef login
 reef load-index
 reef get-operating-protocol
