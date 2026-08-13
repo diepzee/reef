@@ -42,9 +42,16 @@ def test_marketing_site_offers_cli_and_agent_skill_setup():
     """The terminal-first path is visible and gives both working entry points."""
     page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
     assert '<option value="cli"' in page
-    assert "uv tool install git+https://github.com/diepzee/rif.git" in page
+    assert "uv tool install reefwith" in page
+    assert "npm install -g reefwith" in page
     assert "reef login" in page
     assert "github.com/diepzee/rif/tree/main/skills/reef" in page
+
+
+def test_marketing_site_tells_the_invite_only_story():
+    """The landing page states the door: no sign-up, invitation only."""
+    page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
+    assert "no sign-up" in page.lower()
 
 
 async def test_root_redirects_to_app_without_site(static_client):
