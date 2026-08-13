@@ -97,6 +97,27 @@ async def test_oversized_picture_is_refused(api, world):
     assert (await api.get("/api/me/avatar")).status_code == 404
 
 
+async def test_a_refusal_names_its_reason(api, world):
+    """A refused picture says why, rather than a bare ``bad_request``.
+
+    The handler writes a reason for every refusal -- the ceiling in kB, the
+    types it accepts -- and a 400 that drops it leaves the person with
+    nothing to act on and reads as a bug in the app rather than a rule.
+    """
+    alice, _bob, _ = world
+    _login(api, alice)
+    response = await api.put(
+        "/api/me/avatar",
+        json={
+            "mime": "image/png",
+            "data": base64.b64encode(b"\x00" * (AVATAR_MAX_BYTES + 1)).decode(),
+        },
+        headers=CSRF,
+    )
+    assert response.status_code == 400
+    assert "512kB" in response.json()["detail"]
+
+
 async def test_undecodable_data_is_refused(api, world):
     """Data that is not base64 is a bad request, not a 500."""
     alice, _bob, _ = world

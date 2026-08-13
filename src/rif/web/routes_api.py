@@ -86,9 +86,11 @@ class BadRequest(Exception):
     """Raised when a request's JSON body is malformed, absent, or mistyped.
 
     Every write handler raises this instead of reaching into the domain
-    layer with untrusted shapes: :func:`api` maps it to a clean 400
-    ``{"error": "bad_request"}`` so a bare int, a JSON syntax error, or a
-    wrong-typed field never reaches ``save_page`` or the database driver.
+    layer with untrusted shapes: :func:`api` maps it to a 400
+    ``{"error": "bad_request", "detail": ...}`` so a bare int, a JSON syntax
+    error, or a wrong-typed field never reaches ``save_page`` or the
+    database driver. The message becomes the ``detail`` and is shown to the
+    person, so write it for them: name what is wrong and what would fix it.
     """
 
 
@@ -217,8 +219,14 @@ def api(handler: Callable) -> Callable:
                 result = await handler(request, principal)
         except Unauthenticated:
             return JSONResponse({"error": "unauthenticated"}, status_code=401)
-        except BadRequest:
-            return JSONResponse({"error": "bad_request"}, status_code=400)
+        except BadRequest as error:
+            # The message names the one thing the caller can act on -- the
+            # size ceiling, the types accepted, the field that was missing.
+            # Dropping it leaves a bare code that reads as a bug in the app
+            # rather than as a rule, and the UI has nothing to show.
+            return JSONResponse(
+                {"error": "bad_request", "detail": str(error)}, status_code=400
+            )
         except AccessDenied:
             return JSONResponse({"error": "not_found"}, status_code=404)
         except VersionConflict:
