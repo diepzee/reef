@@ -27,9 +27,10 @@ Secondary framing kept intact: reef remains invite-only consumer software for
 households and small circles. We are choosing who the *door* is, not changing
 what the product is for.
 
-Deferred: a TypeScript/npm CLI. Real backlog item (npx-installable, reaches
-Node-based agent sandboxes) but it duplicates the OAuth flow and creates a
-permanent two-CLI sync tax. Revisit once outsiders actually use the Python CLI.
+In scope after all: a TypeScript/npm CLI (npx-installable, reaches Node-based
+agent sandboxes and the npm discovery surface). Designed as a minimal wrapper
+over the remote MCP endpoint so the two-CLI sync tax stays small — the generic
+`call <tool> <json>` passthrough is the contract; per-tool sugar stays thin.
 
 ## Work items
 
@@ -86,7 +87,6 @@ Markdown you can leave with. Wouter posts when ready.
 
 - Waitlist, sign-up form, pricing page (invite-only stance is deliberate and
   is itself the story).
-- TypeScript CLI (backlog, see above).
 - New product features of any kind.
 
 ## Success criteria
