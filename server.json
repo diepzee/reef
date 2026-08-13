@@ -1,0 +1,10 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "me.reefwith/reef",
+  "description": "Shared, living memory for you and your people — coves your AI assistant can read and write.",
+  "repository": { "url": "https://github.com/diepzee/rif", "source": "github" },
+  "version": "0.1.0",
+  "remotes": [
+    { "type": "streamable-http", "url": "https://reefwith.me/mcp" }
+  ]
+}
