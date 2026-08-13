@@ -117,7 +117,13 @@ class Space(Table, tablename="spaces", db=DB):
     id = UUID(primary_key=True, default=uuid4)
     slug = Varchar()
     kind = Varchar(choices=SpaceKind)
-    owner_person_id = ForeignKey(Person)
+    # null=False because the migrations made this column NOT NULL and
+    # Piccolo's ForeignKey defaults to nullable. Unstated, the schema the
+    # tests build is *laxer* than the one production runs, and this repo has
+    # already paid once for tests proving a shape production does not have.
+    # tests/test_migration_chain.py compares the two and fails on any new
+    # instance of it.
+    owner_person_id = ForeignKey(Person, null=False)
     version = Integer(default=0)
 
 
@@ -198,7 +204,8 @@ class Promotion(Table, tablename="promotions", db=DB):
     person_id = ForeignKey(Person)
     source_page_id = ForeignKey(Page)
     source_version = Integer()
-    dest_space_id = ForeignKey(Space)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    dest_space_id = ForeignKey(Space, null=False)
     dest_path = Varchar()
     section_text = Varchar(length=None, null=True, default=None)
     created_at = Timestamp(default=utc_now)
@@ -229,8 +236,9 @@ class SpaceAppearance(Table, tablename="space_appearances", db=DB):
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    person_id = ForeignKey(Person)
-    space_id = ForeignKey(Space)
+    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    space_id = ForeignKey(Space, null=False)
     color = Varchar(null=True, default=None)
     glyph = Varchar(null=True, default=None)
 

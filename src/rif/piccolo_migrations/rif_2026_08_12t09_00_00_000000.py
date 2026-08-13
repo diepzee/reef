@@ -4,16 +4,92 @@ import asyncpg
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from rif.db import DB
-from rif.rls import (
-    AUTHZ_ROLE,
-    create_authz_role_statements,
-    disable_statements,
-    enable_statements,
-)
+from rif.rls import AUTHZ_ROLE, create_authz_role_statements
 
 ID = "2026-08-12T09:00:00:000000"
 VERSION = "1.36.0"
 DESCRIPTION = "authz helper functions; content predicates rewritten onto them"
+
+
+# --- frozen snapshot -------------------------------------------------------
+#
+# These lists held `disable_statements()` and `enable_statements()` imported
+# live from `rif.rls`. That import is what made this migration a moving
+# target: it runs against the schema of its own day, while the functions it
+# called kept growing new columns. `session_epoch` and `memberships.alias`
+# both landed inside `enable_statements` and broke every build from scratch,
+# silently, because production was already past this point.
+#
+# Frozen here as the DDL actually stood on the day, following
+# `2026-08-06T12:20:00`. History is inert; the newest migration is the one
+# that re-applies today's policies, so drift has exactly one place to live.
+
+
+_FROZEN_DISABLE = [
+    "DROP POLICY IF EXISTS promotions_owner ON promotions",
+    "ALTER TABLE promotions NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE promotions DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS revisions_select ON revisions",
+    "DROP POLICY IF EXISTS revisions_insert ON revisions",
+    "DROP POLICY IF EXISTS revisions_update ON revisions",
+    "DROP POLICY IF EXISTS revisions_delete ON revisions",
+    "DROP POLICY IF EXISTS revisions_member ON revisions",
+    "ALTER TABLE revisions NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE revisions DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS attachments_select ON attachments",
+    "DROP POLICY IF EXISTS attachments_insert ON attachments",
+    "DROP POLICY IF EXISTS attachments_update ON attachments",
+    "DROP POLICY IF EXISTS attachments_delete ON attachments",
+    "DROP POLICY IF EXISTS attachments_member ON attachments",
+    "ALTER TABLE attachments NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE attachments DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS pages_select ON pages",
+    "DROP POLICY IF EXISTS pages_insert ON pages",
+    "DROP POLICY IF EXISTS pages_update ON pages",
+    "DROP POLICY IF EXISTS pages_delete ON pages",
+    "DROP POLICY IF EXISTS pages_member ON pages",
+    "ALTER TABLE pages NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE pages DISABLE ROW LEVEL SECURITY",
+    "DROP FUNCTION IF EXISTS rif_space_ids()",
+    "DROP FUNCTION IF EXISTS rif_member_space_ids()",
+]
+
+_FROZEN_ENABLE = [
+    "CREATE OR REPLACE FUNCTION rif_space_ids() RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $rif$SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid$rif$",
+    "ALTER FUNCTION rif_space_ids() OWNER TO rif_authz",
+    "REVOKE ALL ON FUNCTION rif_space_ids() FROM PUBLIC",
+    "GRANT SELECT ON memberships TO rif_authz",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION rif_space_ids() TO rif_app'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION rif_space_ids() TO rif'; END IF; END $do$",
+    "CREATE OR REPLACE FUNCTION rif_member_space_ids() RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $rif$SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'$rif$",
+    "ALTER FUNCTION rif_member_space_ids() OWNER TO rif_authz",
+    "REVOKE ALL ON FUNCTION rif_member_space_ids() FROM PUBLIC",
+    "GRANT SELECT ON memberships TO rif_authz",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION rif_member_space_ids() TO rif_app'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION rif_member_space_ids() TO rif'; END IF; END $do$",
+    "ALTER TABLE pages ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE pages FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY pages_select ON pages FOR SELECT USING (space_id IN (SELECT rif_space_ids()))",
+    "CREATE POLICY pages_insert ON pages FOR INSERT WITH CHECK (space_id IN (SELECT rif_member_space_ids()))",
+    "CREATE POLICY pages_update ON pages FOR UPDATE USING (space_id IN (SELECT rif_member_space_ids())) WITH CHECK (space_id IN (SELECT rif_member_space_ids()))",
+    "CREATE POLICY pages_delete ON pages FOR DELETE USING (space_id IN (SELECT rif_member_space_ids()))",
+    "ALTER TABLE attachments ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE attachments FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY attachments_select ON attachments FOR SELECT USING (space_id IN (SELECT rif_space_ids()))",
+    "CREATE POLICY attachments_insert ON attachments FOR INSERT WITH CHECK (space_id IN (SELECT rif_member_space_ids()))",
+    "CREATE POLICY attachments_update ON attachments FOR UPDATE USING (space_id IN (SELECT rif_member_space_ids())) WITH CHECK (space_id IN (SELECT rif_member_space_ids()))",
+    "CREATE POLICY attachments_delete ON attachments FOR DELETE USING (space_id IN (SELECT rif_member_space_ids()))",
+    "ALTER TABLE revisions ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE revisions FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY revisions_select ON revisions FOR SELECT USING (page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_space_ids())))",
+    "CREATE POLICY revisions_insert ON revisions FOR INSERT WITH CHECK (page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_member_space_ids())))",
+    "CREATE POLICY revisions_update ON revisions FOR UPDATE USING (page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_member_space_ids()))) WITH CHECK (page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_member_space_ids())))",
+    "CREATE POLICY revisions_delete ON revisions FOR DELETE USING (page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT rif_member_space_ids())))",
+    "ALTER TABLE promotions ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE promotions FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS promotions_owner ON promotions",
+    "CREATE POLICY promotions_owner ON promotions USING (person_id = NULLIF(current_setting('app.person_id', true), '')::uuid) WITH CHECK (person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)",
+]
 
 _ROLE_MISSING = f"""{AUTHZ_ROLE} does not exist and this connection may not create it.
 
@@ -81,9 +157,9 @@ async def forwards() -> MigrationManager:
         # FOR ALL names) and then the functions; enable_statements recreates
         # the functions first, then the policies that call them. Both are
         # idempotent, so a re-run after a partial failure is safe.
-        for statement in disable_statements():
+        for statement in _FROZEN_DISABLE:
             await DB._run_in_new_connection(statement)
-        for statement in enable_statements():
+        for statement in _FROZEN_ENABLE:
             await DB._run_in_new_connection(statement)
 
     manager.add_raw(run)

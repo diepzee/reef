@@ -172,6 +172,15 @@ async def schema():
     # Superseded function signatures are dropped before the schema is built:
     # changing an argument list creates a second function rather than
     # replacing the first, and two candidates make every call ambiguous.
+    #
+    # Deliberately this list rather than a blanket sweep of every rif_*
+    # function. A sweep was tried and reverted: dropping them CASCADE takes
+    # the policies of any table drop_db_tables did not own with them, and the
+    # suite went from green to intermittently failing whole sessions. What a
+    # sweep would have caught -- a function left behind by a rewritten branch
+    # -- test_migration_chain now catches better, by comparing the migrated
+    # schema against what rif.rls actually declares rather than against
+    # whatever this database happens to contain.
     for statement in drop_disclosure_statements() + drop_mutation_statements():
         await DB._run_in_new_connection(statement)
     # appearance_statements and open_door_statements are listed separately on
