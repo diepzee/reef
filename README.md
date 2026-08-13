@@ -5,7 +5,7 @@ for the AI assistants you both already use.**
 
 [![PyPI](https://img.shields.io/pypi/v/reef-cli?label=reef-cli&logo=pypi&logoColor=white)](https://pypi.org/project/reef-cli/)
 [![npm](https://img.shields.io/npm/v/%40haai%2Freef-cli?label=%40haai%2Freef-cli&logo=npm)](https://www.npmjs.com/package/@haai/reef-cli)
-[![Python](https://img.shields.io/pypi/pyversions/reef-cli?logo=python&logoColor=white)](https://pypi.org/project/reef-cli/)
+[![Python](https://img.shields.io/badge/python-3.13%2B-3776AB?logo=python&logoColor=white)](https://pypi.org/project/reef-cli/)
 [![MCP](https://img.shields.io/badge/MCP-remote%20server-1f6feb)](https://modelcontextprotocol.io)
 [![Live](https://img.shields.io/website?url=https%3A%2F%2Freefwith.me&label=reefwith.me)](https://reefwith.me)
 
