@@ -11,6 +11,8 @@ import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+import { AppearanceContext } from "../useAppearance";
+
 let index: unknown = null;
 let error: string | null = null;
 
@@ -22,9 +24,15 @@ const { default: IndexView } = await import("./IndexView");
 
 function renderIndex() {
   render(
-    <MemoryRouter>
-      <IndexView />
-    </MemoryRouter>,
+    // Each cove wears its own creature here now, and that is read from the
+    // viewer's appearance choices — so the view needs the provider.
+    <AppearanceContext.Provider
+      value={{ appearance: {} as never, setAppearance: () => {} }}
+    >
+      <MemoryRouter>
+        <IndexView />
+      </MemoryRouter>
+    </AppearanceContext.Provider>,
   );
 }
 

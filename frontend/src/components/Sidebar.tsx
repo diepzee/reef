@@ -14,10 +14,11 @@
  * the personal space, which has no membership to administer) shows its
  * page count instead.
  *
- * Each space row's dot is tinted with that space's `spaceColor(alias).base`
- * (the identity pass's per-space hue), same discipline `Home`'s cards and
- * `PageView`'s page-bar dot use — so a space's color reads consistently
- * everywhere it appears.
+ * Each space row wears that space's own organism in its own hue, the same
+ * mark `Home`'s cards and `PageView`'s page bar carry — so a cove is
+ * recognized by its creature everywhere it appears, not just on the landing
+ * screen. It replaced a plain tinted dot, which carried the hue but threw
+ * away the half of a cove's identity that is actually distinctive.
  */
 
 import { useCallback, useState } from "react";
@@ -32,6 +33,7 @@ import type { Me } from "../types";
 import { AccountMenu } from "./AccountMenu";
 import { AvatarStack } from "./Avatar";
 import { FrondGlyph } from "./ReefMark";
+import { SpaceGlyph } from "./spaceGlyph";
 
 /** Parse the active space alias and (if on a page route) active page path from a pathname. */
 function parseLocation(pathname: string): { space: string | null; page: string | null } {
@@ -84,7 +86,7 @@ export function Sidebar({ me }: { me: Me | null }) {
       {index?.spaces.map((space) => {
         const isActive = space.alias === activeSpace;
         const isPersonal = space.alias === "personal";
-        const hue = look(space.alias).hue;
+        const { hue, family } = look(space.alias);
         const hasPages = space.pages.length > 0;
         const isOpen = isCoveOpen(folds, space.alias, isActive, hasPages);
 
@@ -117,7 +119,14 @@ export function Sidebar({ me }: { me: Me | null }) {
                 <span className="side-twist side-twist-blank" aria-hidden="true" />
               )}
               <Link to={`/s/${space.alias}`} className="side-item">
-                <span className="side-dot" style={{ background: hue.base }} />
+                <span className="side-glyph" aria-hidden="true">
+                  <SpaceGlyph
+                    alias={space.alias}
+                    color={hue.base}
+                    size={16}
+                    family={family}
+                  />
+                </span>
                 <span>{space.alias}</span>
                 {isActive && !isPersonal ? (
                   members && (
@@ -141,7 +150,10 @@ export function Sidebar({ me }: { me: Me | null }) {
                       }}
                     >
                       <AvatarStack
-                        names={members.members.map((member) => member.display_name)}
+                        people={members.members.map((member) => ({
+                          name: member.display_name,
+                          src: member.avatar,
+                        }))}
                         size="sm"
                         onClick={() => openMembers(space.alias)}
                         ariaLabel={`Members of ${space.alias}`}
@@ -175,9 +187,10 @@ export function Sidebar({ me }: { me: Me | null }) {
       })}
 
       {/*
-        Both of these used to wear a `side-dot` and sit in the cove list, which
-        made two actions read as two more coves — the dot is the mark of a cove
-        in this pane, so lending it to a link that is not one is a lie. "New
+        Both of these used to wear a cove's mark and sit in the cove list,
+        which made two actions read as two more coves — that mark means "a
+        cove" in this pane, so lending it to a link that is not one is a lie.
+        "New
         cove" stays with the list because that is what it adds to. Inviting
         someone to reef adds a person to the product rather than to any cove,
         so it goes below with the account, behind a rule.
