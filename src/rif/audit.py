@@ -46,6 +46,7 @@ MEMBER_ADMITTED = "cove.member_admitted"
 MEMBER_REMOVED = "cove.member_removed"
 OWNERSHIP_TRANSFERRED = "cove.ownership_transferred"
 COVE_DELETED = "cove.deleted"
+PAGE_DELETED = "cove.page_deleted"
 ACCOUNT_ERASED = "account.erased"
 
 

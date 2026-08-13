@@ -316,3 +316,64 @@ async def test_deleting_the_last_cove_over_http_destroys_it(api, world):
     assert response.json()["deleted"] is True
     index = await api.get("/api/index")
     assert "team" not in {space["alias"] for space in index.json()["spaces"]}
+
+
+async def test_delete_removes_a_page_over_http(api, world):
+    """The web surface can take a mistyped page back out again."""
+    alice, _bob, _ = world
+    _login(api, alice)
+    await api.put(
+        "/api/pages/team/notes/typo.md",
+        json={"body": "oops", "message": "create"},
+        headers=CSRF,
+    )
+    removed = await api.delete("/api/pages/team/notes/typo.md", headers=CSRF)
+    assert removed.status_code == 200
+    assert removed.json()["deleted"] is True
+    assert (await api.get("/api/pages/team/notes/typo.md")).status_code == 404
+
+
+async def test_delete_of_a_missing_page_is_404(api, world):
+    """A path naming nothing is a clean 404, not a 500."""
+    alice, _bob, _ = world
+    _login(api, alice)
+    response = await api.delete("/api/pages/team/notes/nope.md", headers=CSRF)
+    assert response.status_code == 404
+
+
+async def test_delete_requires_the_csrf_header(api, world):
+    """Destroying a page sits behind the same guard as writing one."""
+    alice, _bob, _ = world
+    _login(api, alice)
+    assert (await api.delete("/api/pages/team/notes/a.md")).status_code == 403
+
+
+async def test_put_normalizes_a_new_pages_path(api, world):
+    """A path typed without ``.md`` lands under the tidy name."""
+    alice, _bob, _ = world
+    _login(api, alice)
+    created = await api.put(
+        "/api/pages/team/Notes/Packing List",
+        json={"body": "socks", "message": "create"},
+        headers=CSRF,
+    )
+    assert created.status_code == 200
+    assert created.json()["path"] == "notes/packing-list.md"
+
+
+async def test_put_with_an_unrepairable_path_explains_itself(api, world):
+    """The 400 carries the reason, which the editor shows verbatim.
+
+    Percent-encoded so the ``?`` arrives as part of the path rather than
+    starting a query string -- which is exactly how a browser would send it,
+    and proves the check runs on the decoded value.
+    """
+    alice, _bob, _ = world
+    _login(api, alice)
+    response = await api.put(
+        "/api/pages/team/notes/what%3F.md",
+        json={"body": "x", "message": "m"},
+        headers=CSRF,
+    )
+    assert response.status_code == 400
+    assert "'?'" in response.json()["detail"]

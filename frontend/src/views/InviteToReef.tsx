@@ -83,7 +83,7 @@ export default function InviteToReef() {
       {error && <div className="notice"><ReefText text={error} /></div>}
 
       {result && (
-        <div className="notice">
+        <div className="notice ok">
           <strong>{result.email}</strong>{" "}
           {result.already_known ? (
             <>was already on <span className="reef-name">reef</span>.</>

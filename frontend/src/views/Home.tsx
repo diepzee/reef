@@ -21,16 +21,16 @@ import { Link } from "react-router-dom";
 import { AvatarStack } from "../components/Avatar";
 import { CoveGraph } from "../components/CoveGraph";
 import { SpaceGlyph } from "../components/spaceGlyph";
-import { spaceColor } from "../components/spaceColor";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
 import { getSpacesView, setSpacesView, type SpacesView } from "../spacesView";
 import type { SpaceIndex } from "../types";
+import { useCoveLook } from "../useAppearance";
 
 /** One space's card: hue stripe, tinted frond chip, alias, subline, and (shared spaces) its member stack. */
 function SpaceCard({ space }: { space: SpaceIndex }) {
   const isPersonal = space.alias === "personal";
-  const hue = spaceColor(space.alias);
+  const { hue, family } = useCoveLook()(space.alias);
   const { members } = useMembers(space.alias);
   const pageCount = space.pages.length;
 
@@ -43,7 +43,7 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
       <span className="space-card-stripe" aria-hidden="true" />
       <span className="space-card-row">
         <span className="space-card-chip" aria-hidden="true">
-          <SpaceGlyph alias={space.alias} color={hue.base} />
+          <SpaceGlyph alias={space.alias} color={hue.base} family={family} />
         </span>
         <span className="space-card-text">
           <span className="space-card-alias">
@@ -69,7 +69,7 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
 /** One space as a grid tile: coral glyph in a circular hue "pool", alias, subline. */
 function SpaceTile({ space }: { space: SpaceIndex }) {
   const isPersonal = space.alias === "personal";
-  const hue = spaceColor(space.alias);
+  const { hue, family } = useCoveLook()(space.alias);
   const { members } = useMembers(space.alias);
   const pageCount = space.pages.length;
 
@@ -80,7 +80,7 @@ function SpaceTile({ space }: { space: SpaceIndex }) {
       style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
     >
       <span className="space-tile-pool" aria-hidden="true">
-        <SpaceGlyph alias={space.alias} color={hue.base} size={24} />
+        <SpaceGlyph alias={space.alias} color={hue.base} size={24} family={family} />
       </span>
       <span className="space-card-alias">{isPersonal ? "Personal" : space.alias}</span>
       <span className="space-card-sub muted">

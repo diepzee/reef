@@ -23,15 +23,15 @@
 import { useCallback, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import { apiSend } from "../api";
 import { getCoveFolds, isCoveOpen, setCoveFold } from "../coveFolds";
 import { useIndex } from "../IndexProvider";
+import { useCoveLook } from "../useAppearance";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 import type { Me } from "../types";
-import { Avatar, AvatarStack } from "./Avatar";
+import { AccountMenu } from "./AccountMenu";
+import { AvatarStack } from "./Avatar";
 import { FrondGlyph } from "./ReefMark";
-import { spaceColor } from "./spaceColor";
 
 /** Parse the active space alias and (if on a page route) active page path from a pathname. */
 function parseLocation(pathname: string): { space: string | null; page: string | null } {
@@ -52,29 +52,12 @@ export function Sidebar({ me }: { me: Me | null }) {
 
   const { members } = useMembers(activeSpace);
   const { openMembers } = useMembersSheet();
-  const [signingOut, setSigningOut] = useState(false);
   const [folds, setFolds] = useState(getCoveFolds);
+  const look = useCoveLook();
 
   const toggleFold = useCallback((alias: string, open: boolean) => {
     setFolds((previous) => setCoveFold(previous, alias, open));
   }, []);
-
-  async function handleSignOut() {
-    setSigningOut(true);
-    try {
-      // The backend hands back a WorkOS logout URL when it knows the
-      // upstream AuthKit session id; navigating there ends that session
-      // too. Without it, only reef's cookie is gone and the next login
-      // redirect would silently sign the user right back in.
-      const result = await apiSend<{ ok: boolean; logout_url?: string }>(
-        "POST",
-        "/api/auth/logout",
-      );
-      window.location.href = result.logout_url ?? "/app/signed-out";
-    } catch {
-      setSigningOut(false);
-    }
-  }
 
   return (
     <nav className="side">
@@ -93,16 +76,6 @@ export function Sidebar({ me }: { me: Me | null }) {
         <span>Index</span>
       </Link>
 
-      <Link
-        to="/export"
-        className={`side-item ${location.pathname === "/export" ? "active" : ""}`}
-      >
-        <svg className="side-index-icon" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-          <path d="M6 1.5v6M3.5 5 6 7.5 8.5 5M2 10h8" />
-        </svg>
-        <span>Export</span>
-      </Link>
-
       {/* Names what the list holds rather than repeating the wordmark two
           rows below it — and in small-caps --faint, which is not how the
           brand is set anywhere else. */}
@@ -111,7 +84,7 @@ export function Sidebar({ me }: { me: Me | null }) {
       {index?.spaces.map((space) => {
         const isActive = space.alias === activeSpace;
         const isPersonal = space.alias === "personal";
-        const hue = spaceColor(space.alias);
+        const hue = look(space.alias).hue;
         const hasPages = space.pages.length > 0;
         const isOpen = isCoveOpen(folds, space.alias, isActive, hasPages);
 
@@ -219,19 +192,7 @@ export function Sidebar({ me }: { me: Me | null }) {
         </Link>
       </div>
 
-      <div className="side-me">
-        {me && <Avatar name={me.display_name} size="sm" />}
-        <span className="side-me-name">{me?.display_name ?? ""}</span>
-        <span aria-hidden="true"> · </span>
-        <button
-          type="button"
-          className="side-signout"
-          disabled={signingOut}
-          onClick={handleSignOut}
-        >
-          Sign out
-        </button>
-      </div>
+      <AccountMenu me={me} />
     </nav>
   );
 }

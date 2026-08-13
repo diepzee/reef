@@ -53,7 +53,9 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     FakeClient.calls = []
     FakeClient.result = {"spaces": []}
-    args = build_parser().parse_args(["--url", "https://example.test/mcp", "load-index"])
+    args = build_parser().parse_args(
+        ["--url", "https://example.test/mcp", "load-index"]
+    )
 
     status = await run(args, client_class=FakeClient)
 

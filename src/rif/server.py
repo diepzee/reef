@@ -31,12 +31,17 @@ from rif.db import transaction_scope
 from rif.invitations import InviteBudgetExceeded
 from rif.models import Page
 from rif.pages import (
+    InvalidPath,
+    PageNotFound,
     ProtectedPath,
     SectionNotFound,
     VersionConflict,
     edit_section,
     get_page,
     save_page,
+)
+from rif.pages import (
+    delete_page as delete_page_rows,
 )
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import PERSONA_PATH, build_instructions
@@ -519,6 +524,30 @@ async def delete_space(space: str) -> dict:
 
 
 @mcp.tool
+async def delete_page(space: str, path: str) -> dict:
+    """Permanently delete a page and its entire history.
+
+    The page, every revision of it, and the record of who wrote what all go.
+    This cannot be undone, so confirm with the user before calling, naming
+    the page. To remove a page's *content* while keeping its history, write
+    an empty body instead.
+
+    Files attached to the page survive it and stay in the cove's file list.
+
+    :param space: the space name, from list_spaces
+    :param path: the page's exact path, as it appears in load_index
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        try:
+            return await delete_page_rows(principal, space, path)
+        except PageNotFound as exc:
+            return {"error": "not_found", "detail": str(exc)}
+        except ProtectedPath as exc:
+            return {"error": "protected_path", "detail": str(exc)}
+
+
+@mcp.tool
 async def remember(fact: str, space: str = "personal") -> dict:
     """Record a fact. Defaults to the private personal space.
 
@@ -574,6 +603,8 @@ async def write_page(
             return {"error": "version_conflict", "detail": str(exc)}
         except ProtectedPath as exc:
             return {"error": "protected_path", "detail": str(exc)}
+        except InvalidPath as exc:
+            return {"error": "invalid_path", "detail": str(exc)}
         return {"space": space, "path": page.path, "version": page.version}
 
 
@@ -718,6 +749,12 @@ async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
     except ProtectedPath as exc:
         return {
             "error": "protected_path",
+            "detail": str(exc),
+            "note": "nothing was written",
+        }
+    except InvalidPath as exc:
+        return {
+            "error": "invalid_path",
             "detail": str(exc),
             "note": "nothing was written",
         }

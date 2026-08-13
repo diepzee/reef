@@ -477,9 +477,21 @@ export function generateFamily(family: Family, seed: number): Organism {
  * A hashed family may be one of the `RETIRED` plans, in which case its
  * survivor grows instead — from the same seed, so the individual is still
  * that alias's own.
+ *
+ * A viewer who has chosen a body plan overrides only *which* family grows,
+ * never the seed. The individual stays this alias's own — the same cove,
+ * still recognisably itself, wearing a different body.
+ *
+ * :param alias: the space's alias
+ * :param chosen: a family the viewer picked, if any; ignored when it is not
+ *     a living family, so an unknown stored value falls back to the hash
+ * :returns: the grown organism
  */
-export function organismFor(alias: string): Organism {
+export function organismFor(alias: string, chosen?: string | null): Organism {
   const seed = fnv1a(alias);
+  if (chosen && (LIVING_FAMILIES as readonly string[]).includes(chosen)) {
+    return generateFamily(chosen as Family, seed);
+  }
   const hashed = FAMILIES[seed % FAMILIES.length]!;
   return generateFamily(RETIRED[hashed] ?? hashed, seed);
 }

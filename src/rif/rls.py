@@ -813,6 +813,48 @@ def _table_policies(table: str) -> list[str]:
     ]
 
 
+def appearance_statements() -> list[str]:
+    """Return idempotent DDL arming RLS on ``space_appearances``.
+
+    Deliberately **not** called from :func:`enable_statements`, unlike every
+    other group here. Two historical migrations (``2026-08-08T10:00:00`` and
+    ``2026-08-12T09:00:00``) call ``enable_statements`` to re-apply the
+    policies of their day, and they run long before ``space_appearances``
+    exists. Putting this in there breaks the chain on any database built from
+    scratch -- a fresh deploy, or the restore drill in ``docs/restore.md`` --
+    with ``relation "space_appearances" does not exist``. Production would
+    never have noticed, having those migrations already behind it.
+
+    So the two callers name it explicitly: the migration that creates the
+    table, and the test suite's schema fixture. Anything adding a table from
+    here on wants the same treatment.
+
+    One ``FOR ALL`` policy, which is the right shape here and nowhere else
+    in this module: the table holds only a viewer's own display preferences,
+    so there is no column whose write needs narrowing and no row anybody but
+    its owner should ever see. ``person_id = principal`` on both sides means
+    a person can read and write their own choices and cannot observe, let
+    alone change, how anyone else sees the same cove.
+
+    Deliberately no membership test. Losing access to a cove should not make
+    the row unreachable -- it would strand a row the person can no longer
+    delete -- and a preference for a cove you cannot see discloses nothing,
+    since the cove itself stays invisible.
+
+    :returns: SQL statements to execute in order
+    """
+    predicate = f"person_id = {PRINCIPAL}"
+    return [
+        "ALTER TABLE space_appearances ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE space_appearances FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS space_appearances_self ON space_appearances",
+        (
+            f"CREATE POLICY space_appearances_self ON space_appearances "
+            f"USING ({predicate}) WITH CHECK ({predicate})"
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 
