@@ -26,13 +26,13 @@ build-backend = "uv_build"
 members = ["clients/python"]
 
 [tool.uv.sources]
-reefwith = { workspace = true }
+reefcli = { workspace = true }
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "reefwith",
+    "reefcli",
     "ruff>=0.16.1",
 ]
 

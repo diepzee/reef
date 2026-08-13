@@ -25,8 +25,8 @@ Design choices HN might find interesting:
   it's deliberate — memory this personal should arrive through trust.
 
 Works from Claude (including the phone app), ChatGPT desktop, and Codex as a
-remote MCP connector, plus a CLI (`uv tool install reefwith` or
-`npm install -g reefwith`) and an agent skill.
+remote MCP connector, plus a CLI (`uv tool install reefcli` or
+`npm install -g reefcli`) and an agent skill.
 
 Site: https://reefwith.me — Source: https://github.com/diepzee/rif
 

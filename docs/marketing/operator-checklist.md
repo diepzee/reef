@@ -5,12 +5,12 @@ advertise install commands before the packages exist.
 
 1. [ ] Review + merge this branch's PR — EXCEPT do not merge before steps 2–3
        if the PR already contains the new site install copy.
-2. [ ] Publish the Python CLI: `rm -rf dist && uv build clients/python && uv publish dist/reefwith-*`
-       (needs a PyPI token for a new `reefwith` project).
+2. [ ] Publish the Python CLI: `rm -rf dist && uv build clients/python && uv publish dist/reefcli-*`
+       (needs a PyPI token for a new `reefcli` project).
 3. [ ] Publish the TS CLI: `cd clients/ts && npm publish` (needs `npm login`;
-       first publish of `reefwith`).
+       first publish of `reefcli`).
 4. [ ] Verify both installs from clean environments:
-       `uv tool install reefwith && reef --help`, `npx reefwith --help`.
+       `uv tool install reefcli && reef --help`, `npx reefcli --help`.
 5. [ ] Merge the branch; confirm reefwith.me shows the new copy.
 6. [ ] Flip the repo public: GitHub → Settings → General → Danger zone →
        Change visibility. (gitleaks scanned all history 2026-08-13: clean.)
