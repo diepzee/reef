@@ -56,7 +56,10 @@ function SpaceCard({ space }: { space: SpaceIndex }) {
         </span>
         {!isPersonal && members && (
           <AvatarStack
-            names={members.members.map((member) => member.display_name)}
+            people={members.members.map((member) => ({
+              name: member.display_name,
+              src: member.avatar,
+            }))}
             size="sm"
             ariaLabel={`Members of ${space.alias}`}
           />
@@ -89,7 +92,10 @@ function SpaceTile({ space }: { space: SpaceIndex }) {
       </span>
       {!isPersonal && members && (
         <AvatarStack
-          names={members.members.map((member) => member.display_name)}
+          people={members.members.map((member) => ({
+            name: member.display_name,
+            src: member.avatar,
+          }))}
           size="sm"
           ariaLabel={`Members of ${space.alias}`}
         />

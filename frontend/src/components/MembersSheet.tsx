@@ -16,6 +16,13 @@
  * flag flips — so the sheet's content stays in place while it animates
  * away instead of blanking out.
  *
+ * This is also where a cove's per-person settings live — "Rename for me" in
+ * the head and `LookPicker` at the foot. Both change this cove for the
+ * viewer alone and for nobody else in it, which is the property that groups
+ * them; the look picker used to sit loose in `SpaceView`'s body, between
+ * "New page" and the delete zone, where it read as a property of the cove
+ * itself.
+ *
  * Two modes come from `members.is_owner`: owners get the invite form and
  * two-step "Remove…" per non-owner row; non-owners see the roster only.
  * For a non-owner viewer the backend blanks every row's `member.email` to
@@ -38,10 +45,13 @@ import { useNavigate } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
+import { useCoveLook } from "../useAppearance";
 import { useMediaQuery } from "../useMediaQuery";
 import { useMembers } from "../useMembers";
 import type { InviteResult } from "../types";
 import { Avatar } from "./Avatar";
+import { LookPicker } from "./LookPicker";
+import { SpaceGlyph } from "./spaceGlyph";
 
 /** Props for {@link MembersSheet}. */
 interface MembersSheetProps {
@@ -57,6 +67,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
   const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 900px)");
   const { members, error, refresh } = useMembers(space);
+  const { hue, family } = useCoveLook()(space);
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -197,7 +208,12 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         {!isDesktop && <div className="mbs-grip" aria-hidden="true" />}
         <div className="mbs-head">
           <div>
-            <h2 className="mbs-title">People in {space}</h2>
+            <h2 className="mbs-title">
+              <span className="mbs-glyph" aria-hidden="true">
+                <SpaceGlyph alias={space} color={hue.base} size={20} family={family} />
+              </span>
+              People in {space}
+            </h2>
             <p className="mbs-sub">
               Everyone sees everything — past and future. There is no
               per-page hiding.
@@ -261,7 +277,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
 
         {members && (
           <ul className="mbs-roster">
-            {members.members.map((member, index) => {
+            {members.members.map((member) => {
               // The API blanks every row's `email` to "" for non-owner
               // viewers (including the owner's own row) while always
               // returning the real `owner_email` — so this match can only
@@ -269,14 +285,14 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               // throughout). Non-owners simply don't get an OWNER tag
               // rather than risk a wrong one from name-based guessing.
               const isOwnerRow = Boolean(member.email) && member.email === members.owner_email;
-              // `member.email` alone collides for every row in non-owner
-              // mode (all blanked to "") — React logged "two children with
-              // the same key" for it live. The list order is stable
-              // (server-sorted by display name, re-fetched wholesale on
-              // every change) so the index makes a safe tiebreaker.
+              // `person_id` is the real key. `member.email` alone collided
+              // for every row in non-owner mode (all blanked to "") — React
+              // logged "two children with the same key" for it live — and
+              // the `${email}-${index}` tiebreaker that replaced it was only
+              // ever stable because the server sorts the roster.
               return (
-                <li key={`${member.email}-${index}`} className="mbs-person">
-                  <Avatar name={member.display_name} />
+                <li key={member.person_id} className="mbs-person">
+                  <Avatar name={member.display_name} src={member.avatar} />
                   <div className="mbs-person-info">
                     <div className="mbs-person-name">{member.display_name}</div>
                     {member.email && (
@@ -356,6 +372,14 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
             {disclosure && <div className="mbs-disclose">⚠ {disclosure}</div>}
           </>
         )}
+
+        {/*
+          Last, and for everybody — not just owners. Changing the colour and
+          creature is the one thing in this sheet a non-owner can actually do,
+          and it sits beside "Rename for me" in the head as the other setting
+          that changes this cove for you alone.
+        */}
+        <LookPicker alias={space} />
       </div>
     </>
   );

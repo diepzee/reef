@@ -74,7 +74,7 @@ async def _membership(person_id: UUID, space_id: UUID) -> Membership | None:
 
 
 async def member_roster(space_id: UUID) -> list[dict]:
-    """Return a space's members as display name/email pairs, sorted by name.
+    """Return a space's members, sorted by display name.
 
     Both consent surfaces read through this: ``list_spaces`` tells a person
     who is in the room, ``prepare_promotion``'s warning names every reader a
@@ -88,13 +88,31 @@ async def member_roster(space_id: UUID) -> list[dict]:
     answer rather than the whole roster. The old version selected
     ``Person.email`` outright and trusted every caller to blank it.
 
+    Two queries rather than one, and not by preference: ``rif_roster`` lives
+    in ``disclosure_statements`` which historical migrations re-run against
+    the August schema, so it cannot name the avatar columns without breaking
+    every database built from scratch. ``rif_member_faces`` names them from
+    ``avatar_statements``, which those migrations never call. See
+    :func:`rif.rls.avatar_statements`.
+
+    ``avatar_len`` is ``None`` for a member who has chosen no picture, which
+    is what tells the UI to draw their initials instead.
+
     :param space_id: the space to list
-    :returns: ``[{"display_name": str, "email": str}, ...]``, sorted by
-        display name; ``email`` is ``""`` unless the caller owns the space
+    :returns: ``[{"person_id": UUID, "display_name": str, "email": str,
+        "avatar_len": int | None}, ...]``, sorted by display name; ``email``
+        is ``""`` unless the caller owns the space
     """
     rows = await Person.raw("SELECT * FROM rif_roster({})", space_id)
+    faces = await Person.raw("SELECT * FROM rif_member_faces({})", space_id)
+    sizes = {face["person_id"]: face["avatar_len"] for face in faces}
     return [
-        {"display_name": row["member_name"], "email": row["member_email"]}
+        {
+            "person_id": row["person_id"],
+            "display_name": row["member_name"],
+            "email": row["member_email"],
+            "avatar_len": sizes.get(row["person_id"]),
+        }
         for row in rows
     ]
 

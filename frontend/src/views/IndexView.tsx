@@ -2,10 +2,13 @@
 
 import { Link } from "react-router-dom";
 
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { useIndex } from "../IndexProvider";
+import { useCoveLook } from "../useAppearance";
 
 export default function IndexView() {
   const { rawIndex: index, error } = useIndex();
+  const look = useCoveLook();
   const pageCount = index?.spaces.reduce((total, space) => total + space.pages.length, 0) ?? 0;
 
   return (
@@ -31,6 +34,14 @@ export default function IndexView() {
       {index?.spaces.map((space) => (
         <section key={space.alias} className="index-cove">
           <div className="index-cove-head">
+            <span className="index-cove-glyph" aria-hidden="true">
+              <SpaceGlyph
+                alias={space.alias}
+                color={look(space.alias).hue.base}
+                size={18}
+                family={look(space.alias).family}
+              />
+            </span>
             <h2>
               <Link to={`/s/${space.alias}`}>{space.alias}</Link>
             </h2>

@@ -14,7 +14,8 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import asdict
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
+from uuid import UUID
 
 from starlette.background import BackgroundTask
 from starlette.requests import Request
@@ -552,9 +553,16 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     roster keeps the same shape with each ``email`` blanked to ``""``
     rather than the field dropped.
 
+    Each member carries a ``person_id`` and an ``avatar`` URL (or ``None``
+    when they have chosen no picture), on the same reasoning as :func:`_me`:
+    the bytes are served from their own cacheable endpoint rather than
+    inlined here, and the ``v`` parameter is the byte length, which busts a
+    stale cache when the picture changes without disclosing anything the
+    viewer could not already fetch.
+
     :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
-    :returns: member display name/email pairs (email blank for
+    :returns: member id/name/email/avatar records (email blank for
         non-owners), the owner's email, and whether the caller is the owner
     """
     slug = request.path_params["space"]
@@ -567,10 +575,71 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     # had already fetched.
     roster = await member_roster(space.id)
     return {
-        "members": roster,
+        "members": [
+            {
+                "person_id": str(member["person_id"]),
+                "display_name": member["display_name"],
+                "email": member["email"],
+                "avatar": (
+                    f"/api/spaces/{quote(slug)}/members/"
+                    f"{member['person_id']}/avatar?v={member['avatar_len']}"
+                    if member["avatar_len"] is not None
+                    else None
+                ),
+            }
+            for member in roster
+        ],
         "owner_email": owner["email"] if owner else "",
         "is_owner": is_owner,
     }
+
+
+async def _get_member_avatar(request: Request, principal: Principal) -> Response:
+    """Serve a co-member's avatar bytes.
+
+    The counterpart to :func:`_get_avatar`, which is scoped to the caller by
+    construction and so can never show anybody else's face. Here the id is in
+    the path and therefore tamperable, so the rule is not this handler's to
+    enforce: ``rif_member_avatar`` returns rows only when the caller and the
+    person asked about are both members of this cove. A miss is a 404 whether
+    the cove is invisible, the person is not in it, or they simply have no
+    picture -- the three are indistinguishable from outside, which is the
+    point.
+
+    :param request: the incoming request, carrying ``space`` and ``person``
+        path params
+    :param principal: the authenticated person
+    :returns: the image, or a 404 JSON response
+    """
+    slug = request.path_params["space"]
+    try:
+        person_id = UUID(request.path_params["person"])
+    except ValueError:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    space = await resolve_space(principal, slug)
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_avatar({}, {})", space.id, person_id
+    )
+    if not rows:
+        return JSONResponse({"error": "not_found"}, status_code=404)
+    # Re-checked against the allowlist rather than trusted from the row.
+    # ``_put_avatar`` is the only writer and already refuses anything else
+    # (SVG above all, a script carrier), but this is the one endpoint that
+    # serves one person's bytes to *another* person's browser, so a stored
+    # value that ever escaped that check must not become an active type here.
+    mime = rows[0]["avatar_mime"]
+    return Response(
+        bytes(rows[0]["avatar_bytes"]),
+        media_type=mime if mime in AVATAR_MIMES else "application/octet-stream",
+        headers={
+            # Private, not public: a shared cache must never hand one
+            # person's face to a viewer who is not in the cove. Immutable is
+            # safe because the URL carries the size, so a different picture
+            # is a different URL.
+            "cache-control": "private, max-age=31536000, immutable",
+            "x-content-type-options": "nosniff",
+        },
+    )
 
 
 async def _invite(request: Request, principal: Principal) -> dict:
@@ -858,6 +927,9 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/spaces", methods=["POST"])(api(_create_space))
     mcp.custom_route("/api/spaces/{space}/members", methods=["GET"])(
         api(_space_members)
+    )
+    mcp.custom_route("/api/spaces/{space}/members/{person}/avatar", methods=["GET"])(
+        api(_get_member_avatar)
     )
     mcp.custom_route("/api/spaces/{space}/invites", methods=["POST"])(api(_invite))
     mcp.custom_route("/api/invites", methods=["GET"])(api(_invites_left))

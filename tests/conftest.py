@@ -21,7 +21,9 @@ from rif.models import TABLES, Person, Space, SpaceKind
 from rif.rls import (
     AUTHZ_ROLE,
     appearance_statements,
+    avatar_statements,
     constraint_statements,
+    drop_avatar_statements,
     drop_disclosure_statements,
     drop_mutation_statements,
     enable_statements,
@@ -168,13 +170,21 @@ async def schema():
     # Superseded function signatures are dropped before the schema is built:
     # changing an argument list creates a second function rather than
     # replacing the first, and two candidates make every call ambiguous.
-    for statement in drop_disclosure_statements() + drop_mutation_statements():
-        await DB._run_in_new_connection(statement)
-    # appearance_statements is listed separately on purpose: it is not part
-    # of enable_statements, because historical migrations call that and
-    # predate the table. See its docstring.
     for statement in (
-        constraint_statements() + enable_statements() + appearance_statements()
+        drop_disclosure_statements()
+        + drop_mutation_statements()
+        + drop_avatar_statements()
+    ):
+        await DB._run_in_new_connection(statement)
+    # appearance_statements and avatar_statements are listed separately on
+    # purpose: neither is part of enable_statements, because historical
+    # migrations call that and predate the table (appearance) and the avatar
+    # columns. See their docstrings.
+    for statement in (
+        constraint_statements()
+        + enable_statements()
+        + appearance_statements()
+        + avatar_statements()
     ):
         await DB._run_in_new_connection(statement)
     yield

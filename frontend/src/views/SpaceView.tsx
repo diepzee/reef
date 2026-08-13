@@ -3,6 +3,14 @@
  * who can see it, whose avatar stack and "Manage" link open the shared
  * `MembersSheet` (owned by `AppShell`, reached via `useMembersSheet`).
  *
+ * The hero wears the cove's own organism. This is the one screen whose whole
+ * subject is a single cove, so it carried the weakest mark of it — a bare
+ * title, no hue, while `Home`'s cards showed the creature. The controls that
+ * *change* that creature live in `MembersSheet` (behind "Manage"), next to
+ * "Rename for me": both are per-person settings for this cove that alter
+ * nothing for anybody else, and they belong together rather than one being
+ * stranded in the page body between "New page" and the delete zone.
+ *
  * The personal space has no membership to administer, so the members
  * fetch is skipped entirely for it (`useMembers` already treats "personal"
  * as no-space) and the whobar shows a plain "only you" instead.
@@ -17,14 +25,16 @@
  *   is nobody left for it to pass to and nothing of anyone else's to lose.
  */
 
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { LookPicker } from "../components/LookPicker";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
+import { useCoveLook } from "../useAppearance";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 
@@ -35,6 +45,7 @@ export default function SpaceView() {
   const { index, error: indexError, refresh } = useIndex();
   const { members, error: membersError } = useMembers(space);
   const { openMembers } = useMembersSheet();
+  const { hue, family } = useCoveLook()(space);
   const navigate = useNavigate();
 
   const [leaving, setLeaving] = useState(false);
@@ -71,7 +82,13 @@ export default function SpaceView() {
 
   return (
     <div>
-      <div className="hero">
+      <div
+        className="hero"
+        style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
+      >
+        <span className="hero-chip" aria-hidden="true">
+          <SpaceGlyph alias={space} color={hue.base} size={26} family={family} />
+        </span>
         <h1 className="hero-title">{space}</h1>
       </div>
 
@@ -91,7 +108,10 @@ export default function SpaceView() {
           {members && (
             <>
               <AvatarStack
-                names={members.members.map((member) => member.display_name)}
+                people={members.members.map((member) => ({
+                  name: member.display_name,
+                  src: member.avatar,
+                }))}
                 onClick={() => openMembers(space)}
                 ariaLabel={`Members of ${space}`}
               />
@@ -145,7 +165,12 @@ export default function SpaceView() {
           <Link to={`/s/${space}/new`} className="page-new">
             ＋ New page
           </Link>
-          <LookPicker alias={space} />
+          {/*
+            The personal cove is the one place this stays in the page body:
+            it has no roster, so no "Manage" and no sheet to move it into.
+            Every shared cove reaches the same control from Manage instead.
+          */}
+          {isPersonal && <LookPicker alias={space} />}
         </>
       )}
 

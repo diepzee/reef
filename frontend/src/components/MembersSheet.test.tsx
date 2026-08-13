@@ -22,6 +22,8 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+import { AppearanceContext } from "../useAppearance";
+
 class FakeApiError extends Error {
   status: number;
   code: string;
@@ -67,20 +69,41 @@ const { MembersSheet } = await import("./MembersSheet");
 /** Render the sheet, open unless told otherwise. */
 function renderSheet(open = true, onClose = () => {}) {
   return render(
-    <MemoryRouter>
-      <MembersSheet space="trip" open={open} onClose={onClose} />
-    </MemoryRouter>,
+    // The sheet wears the cove's creature and carries the look picker, both
+    // of which read the viewer's appearance choices.
+    <AppearanceContext.Provider
+      value={{ appearance: {} as never, setAppearance: () => {} }}
+    >
+      <MemoryRouter>
+        <MembersSheet space="trip" open={open} onClose={onClose} />
+      </MemoryRouter>
+    </AppearanceContext.Provider>,
   );
 }
 
-/** A roster where the viewer is or is not the owner. */
+/**
+ * A roster where the viewer is or is not the owner.
+ *
+ * `person_id` is what each row is keyed by: `email` is blanked for a
+ * non-owner, so it collides across every row in that mode.
+ */
 function roster(is_owner: boolean) {
   return {
     is_owner,
     owner_email: is_owner ? "own@example.com" : "",
     members: [
-      { display_name: "Ada", email: is_owner ? "own@example.com" : "" },
-      { display_name: "Guest", email: is_owner ? "guest@example.com" : "" },
+      {
+        person_id: "11111111-1111-4111-8111-111111111111",
+        display_name: "Ada",
+        email: is_owner ? "own@example.com" : "",
+        avatar: null,
+      },
+      {
+        person_id: "22222222-2222-4222-8222-222222222222",
+        display_name: "Guest",
+        email: is_owner ? "guest@example.com" : "",
+        avatar: null,
+      },
     ],
   };
 }
@@ -97,6 +120,52 @@ test("everyone in the cove is listed", () => {
   renderSheet();
   expect(screen.getByText("Ada")).toBeDefined();
   expect(screen.getByText("Guest")).toBeDefined();
+});
+
+test("a member with a picture is shown it, not their initial", () => {
+  // The complaint this fixes: every face here was a coloured initial,
+  // because the roster carried no picture and no endpoint could serve one.
+  members = {
+    ...roster(true),
+    members: [
+      {
+        person_id: "33333333-3333-4333-8333-333333333333",
+        display_name: "Ada",
+        email: "own@example.com",
+        avatar: "/api/spaces/trip/members/33333333-3333-4333-8333-333333333333/avatar?v=7",
+      },
+      {
+        person_id: "44444444-4444-4444-8444-444444444444",
+        display_name: "Guest",
+        email: "guest@example.com",
+        avatar: null,
+      },
+    ],
+  };
+  renderSheet();
+  const face = screen.getByTitle("Ada") as HTMLImageElement;
+  expect(face.tagName).toBe("IMG");
+  expect(face.getAttribute("src")).toContain("/avatar?v=7");
+  expect(screen.getByTitle("Guest").tagName).not.toBe("IMG");
+});
+
+test("the cove's own look is changed from here", () => {
+  // It used to sit loose in SpaceView's body, between "New page" and the
+  // delete zone, where it read as a property of the cove rather than of the
+  // viewer. It belongs with "Rename for me": both change this cove for you
+  // and for nobody else in it.
+  renderSheet();
+  expect(screen.getByText("How this cove looks to me")).toBeDefined();
+  expect(screen.getByText("Rename for me")).toBeDefined();
+});
+
+test("a non-owner may still restyle the cove for themselves", () => {
+  // The one control in this sheet a non-owner can actually use — hiding it
+  // with the owner-only controls would strand it entirely for them.
+  members = roster(false);
+  renderSheet();
+  expect(screen.getByText("How this cove looks to me")).toBeDefined();
+  expect(screen.queryByText("Invite someone")).toBeNull();
 });
 
 test("an owner sees who owns it and can remove the others", () => {

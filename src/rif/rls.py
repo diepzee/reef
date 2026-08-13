@@ -267,17 +267,23 @@ def disclosure_statements() -> list[str]:
     it. It exists because revision authorship has to keep rendering names for
     people the reader cannot otherwise see.
 
+    ``rif_roster`` returns ``person_id`` on the same reasoning. A roster row
+    needs a stable key its viewer can actually hold: ``email`` is blanked to
+    ``''`` for everyone but the owner, so keying on it leaves non-owners with
+    no key at all -- which is precisely who needs one to fetch a co-member's
+    picture (:func:`avatar_statements`).
+
     :returns: SQL statements to execute in order
     """
     return [
         *_function_ddl(
             "rif_roster(p_space uuid)",
-            "SELECT p.display_name, "
+            "SELECT p.id, p.display_name, "
             f"CASE WHEN {_CALLER_IS_OWNER} THEN p.email ELSE '' END "
             "FROM persons p WHERE p.id IN "
             "(SELECT person_id FROM memberships WHERE space_id = p_space) "
             f"AND {_CALLER_IS_MEMBER} ORDER BY p.display_name",
-            returns="TABLE(member_name text, member_email text)",
+            returns="TABLE(person_id uuid, member_name text, member_email text)",
             reads=("persons", "memberships", "spaces"),
         ),
         *_function_ddl(
@@ -950,6 +956,76 @@ def appearance_statements() -> list[str]:
             f"CREATE POLICY space_appearances_self ON space_appearances "
             f"USING ({predicate}) WITH CHECK ({predicate})"
         ),
+    ]
+
+
+def avatar_statements() -> list[str]:
+    """Return DDL for the functions that show a co-member's face.
+
+    Deliberately **not** called from :func:`enable_statements`, for the same
+    reason as :func:`appearance_statements` but by a narrower route: three
+    historical migrations (``2026-08-07T11:00:00``, ``2026-08-08T10:00:00``
+    and ``2026-08-12T09:00:00``) call ``enable_statements`` to re-apply the
+    policies of their day, and ``persons.avatar_mime``/``avatar_bytes`` only
+    arrive in ``2026-08-13T09:30:00``. A ``LANGUAGE sql`` body is parsed and
+    validated when the function is *created*, so naming those columns from
+    inside ``enable_statements`` refuses at that point and kills the chain on
+    every database built from scratch -- while production, long past those
+    migrations, would never notice. The two callers name it explicitly: the
+    migration that adds these functions, and the suite's schema fixture.
+
+    Why functions at all: ``persons`` is self-only under RLS
+    (:func:`identity_policy_statements`), so a co-member's row -- picture
+    included -- is unreachable by an ordinary query no matter how the web
+    layer asks. The rule that *should* hold is "the people who share a cove
+    with you may see your face", and it is expressed here, in SQL, against
+    the armed principal, rather than in a handler that has to remember.
+
+    Both functions demand the caller is a member of ``p_space`` **and** that
+    the person asked about is one too. The second half is not redundant:
+    without it a member of any cove could name any person id and pull their
+    picture, turning a cove membership into a lookup oracle over every
+    account. Non-membership returns no rows rather than an error, matching
+    :func:`rif_roster` -- a stranger learns nothing, not even that the cove
+    exists.
+
+    Byte length rather than the bytes for the roster: it is what mints a
+    cache-busting URL and tells the UI whether to fall back to initials, and
+    it keeps a roster response from carrying every member's picture inline.
+
+    :returns: SQL statements to execute in order
+    """
+    target_is_member = (
+        "p.id IN (SELECT person_id FROM memberships WHERE space_id = p_space)"
+    )
+    return [
+        *_function_ddl(
+            "rif_member_faces(p_space uuid)",
+            "SELECT p.id, octet_length(p.avatar_bytes)::int FROM persons p "
+            f"WHERE {target_is_member} AND p.avatar_bytes IS NOT NULL "
+            f"AND {_CALLER_IS_MEMBER}",
+            returns="TABLE(person_id uuid, avatar_len int)",
+            reads=("persons", "memberships"),
+        ),
+        *_function_ddl(
+            "rif_member_avatar(p_space uuid, p_person uuid)",
+            "SELECT p.avatar_mime, p.avatar_bytes FROM persons p "
+            f"WHERE p.id = p_person AND {target_is_member} "
+            f"AND p.avatar_bytes IS NOT NULL AND {_CALLER_IS_MEMBER}",
+            returns="TABLE(avatar_mime text, avatar_bytes bytea)",
+            reads=("persons", "memberships"),
+        ),
+    ]
+
+
+def drop_avatar_statements() -> list[str]:
+    """Return DDL undoing :func:`avatar_statements`.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "DROP FUNCTION IF EXISTS rif_member_faces(uuid)",
+        "DROP FUNCTION IF EXISTS rif_member_avatar(uuid, uuid)",
     ]
 
 

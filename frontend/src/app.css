@@ -467,12 +467,22 @@ textarea {
   overflow: hidden;
 }
 
+/* `center`, not `baseline`: the glyph has no text baseline to sit on. */
 .index-cove-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid var(--hairline);
+}
+
+.index-cove-glyph {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .index-cove-head h2 {
@@ -1072,6 +1082,12 @@ button.danger {
   margin-block: 0.75rem;
 }
 
+/*
+ * One rule for both shapes the component renders — an <img> when the person
+ * has a picture, a <div> holding their initial when they have not.
+ * `object-fit` only bites on the image, and keeps a picture that is not
+ * square cropped to the circle rather than squashed into it.
+ */
 .avatar {
   width: 26px;
   height: 26px;
@@ -1084,6 +1100,7 @@ button.danger {
   color: #fff;
   border: 2px solid var(--ground);
   flex-shrink: 0;
+  object-fit: cover;
 }
 
 .avatar + .avatar {
@@ -1282,19 +1299,18 @@ button.danger {
 }
 
 /*
- * Base fallback only — every rendered dot sets its own `background` inline
- * from `spaceColor(alias).base` (identity pass), so this value never
- * actually shows; it exists so the element isn't invisible if that ever
- * changes. The old `.side-item.active .side-dot { background: var(--accent) }`
- * override is gone: per the spec, the dot keeps the space's own hue even
- * when active — only the row's background goes accent-soft.
+ * Just a box to centre the organism in — `SpaceGlyph` carries its own
+ * colour, sized to sit inside the 26px row without changing its rhythm.
+ * The mark keeps the cove's own hue even when the row is active; only the
+ * row's background goes accent-soft.
  */
-.side-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
-  background: var(--faint);
+.side-glyph {
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .side-index-icon {
@@ -1507,8 +1523,11 @@ button.danger {
   margin-block: 28px;
 }
 
+/* --text-sm to match `.mbs-sub`: this now sits in the members sheet, where
+   inheriting the 16px body size made the aside louder than the heading. */
 .look-note {
   margin-block: 2px 10px;
+  font-size: var(--text-sm);
 }
 
 .look-row {
@@ -1687,12 +1706,32 @@ button.danger {
  */
 .hero {
   padding: 8px 0 2px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/*
+ * The same tinted well the Home card's chip uses, so a cove is recognizably
+ * the same object on the screen you arrive from and the screen you land on.
+ */
+.hero-chip {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--hue-base) 12%, white);
 }
 
 .hero-title {
   font-size: var(--text-xl);
   letter-spacing: -0.02em;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .section-label {
@@ -1799,12 +1838,14 @@ button.danger {
   border-bottom: 1px solid var(--hairline-soft);
 }
 
-/* Identity pass: the space hue dot before the crumb (see PageView). */
-.page-bar-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 3px;
+/* Identity pass: the cove's own organism before the crumb (see PageView). */
+.page-bar-glyph {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .page-bar-crumb {
@@ -1951,6 +1992,18 @@ button.danger {
 .mbs-title {
   font-size: var(--text-lg);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mbs-glyph {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .mbs-sub {
@@ -2177,9 +2230,11 @@ button.danger {
       box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
     }
 
-    /* Home card chip + tile pool: same --hue-base, darker mix target (see Home.tsx). */
+    /* Home card chip + tile pool + SpaceView hero chip: same --hue-base,
+       darker mix target (see Home.tsx, SpaceView.tsx). */
     .space-card-chip,
-    .space-tile-pool {
+    .space-tile-pool,
+    .hero-chip {
       background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
     }
   }
@@ -2230,7 +2285,8 @@ button.danger {
   }
 
   .space-card-chip,
-  .space-tile-pool {
+  .space-tile-pool,
+  .hero-chip {
     background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
   }
 }

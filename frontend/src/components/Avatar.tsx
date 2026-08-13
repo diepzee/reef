@@ -34,9 +34,22 @@ export function Avatar({
   );
 }
 
+/**
+ * One face in a stack: who it is, and their picture if they have one.
+ *
+ * Deliberately not `Member` from `types.ts` — a stack only ever needs these
+ * two fields, and taking the wire type would tie every caller to a roster.
+ */
+export interface Face {
+  /** Display name, used for the initial, the colour, and the tooltip. */
+  name: string;
+  /** Picture URL, or null/absent to fall back to the coloured initial. */
+  src?: string | null;
+}
+
 interface AvatarStackProps {
-  /** Array of display names. */
-  names: string[];
+  /** The people to show, in order. */
+  people: Face[];
   /** Maximum avatars to show before adding a +N chip (default 4). */
   max?: number;
   /** Avatar size for every avatar in the stack (default "md"). */
@@ -51,14 +64,14 @@ interface AvatarStackProps {
  * Overlapped avatar stack with +N chip for overflow.
  */
 export function AvatarStack({
-  names,
+  people,
   max = 4,
   size = "md",
   onClick,
   ariaLabel = "Members",
 }: AvatarStackProps): React.ReactNode {
-  const shown = names.slice(0, max);
-  const overflow = names.length - max;
+  const shown = people.slice(0, max);
+  const overflow = people.length - max;
   const stackClassName = `avatar-stack ${size === "sm" ? "avatar-stack-sm" : ""}`.trim();
   const moreClassName = `avatar-more ${size === "sm" ? "avatar-more-sm" : ""}`.trim();
 
@@ -82,8 +95,10 @@ export function AvatarStack({
 
   return (
     <div className={stackClassName} onClick={onClick} {...stackProps}>
-      {shown.map((name) => (
-        <Avatar key={name} name={name} size={size} />
+      {/* Index as key, not name: two members may share a display name, and
+          the roster's order is stable (server-sorted, re-fetched whole). */}
+      {shown.map((person, index) => (
+        <Avatar key={index} name={person.name} src={person.src} size={size} />
       ))}
       {overflow > 0 && (
         <div className={moreClassName} title={`${overflow} more`}>

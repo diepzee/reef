@@ -12,6 +12,7 @@ with everything else. Hence functions with the check inside.
 
 from rif.access import Principal, arm
 from rif.db import DB
+from rif.models import Person
 from rif.rls import AUTHZ_ROLE
 from rif.spaces import display_names, member_names, member_roster, space_owner
 
@@ -30,9 +31,10 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
         "SELECT p.proname, pg_get_userbyid(p.proowner) AS owner, p.prosecdef, "
         "p.proconfig FROM pg_proc p WHERE p.proname IN "
         "('rif_roster', 'rif_space_owner', 'rif_display_names', "
-        "'rif_person_id_by_email', 'rif_invites_minted', 'rif_oldest_invite')"
+        "'rif_person_id_by_email', 'rif_invites_minted', 'rif_oldest_invite', "
+        "'rif_member_faces', 'rif_member_avatar')"
     )
-    assert len(rows) == 6
+    assert len(rows) == 8
     for row in rows:
         assert row["owner"] == AUTHZ_ROLE, row["proname"]
         assert row["prosecdef"] is True, row["proname"]
@@ -103,3 +105,109 @@ async def test_display_names_ignores_ids_that_do_not_exist(tx, household):
 
     names = await display_names([uuid4()])
     assert names == {}
+
+
+#: Stand-in picture bytes. Not a real PNG -- nothing here decodes one, and
+#: these functions are about who may read the bytes, not what they contain.
+FACE = b"\x89PNG-pretend"
+
+
+async def _set_avatar(seed, person, raw: bytes = FACE) -> None:
+    """Give ``person`` a stored picture, as pre-existing state.
+
+    Through ``seed`` rather than the ORM: ``persons`` is self-only under
+    ``FORCE ROW LEVEL SECURITY``, so an update armed as anybody but the
+    subject silently matches no rows, and the tests below would then assert
+    against a picture that was never stored.
+
+    :param seed: the seeding connection
+    :param person: the person to give a picture to
+    :param raw: the bytes to store
+    """
+    await seed.execute(
+        "UPDATE persons SET avatar_mime = 'image/png', avatar_bytes = $1 WHERE id = $2",
+        raw,
+        person.id,
+    )
+
+
+async def test_a_member_sees_a_co_members_picture(tx, household, seed):
+    """The whole point: faces are shared with the people who share the cove."""
+    await _set_avatar(seed, household["wouter"])
+    await _arm(household["partner"])
+
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_avatar({}, {})",
+        household["shared"].id,
+        household["wouter"].id,
+    )
+    assert len(rows) == 1
+    assert bytes(rows[0]["avatar_bytes"]) == FACE
+    assert rows[0]["avatar_mime"] == "image/png"
+
+
+async def test_a_non_member_cannot_see_a_picture(tx, household, graph, seed):
+    """A stranger asking about a cove they are not in gets nothing."""
+    await _set_avatar(seed, household["wouter"])
+    stranger = await graph.person("stranger@example.test", "Stranger")
+    await _arm(stranger)
+
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_avatar({}, {})",
+        household["shared"].id,
+        household["wouter"].id,
+    )
+    assert rows == []
+
+
+async def test_a_cove_is_not_a_lookup_oracle_over_every_account(
+    tx, household, graph, seed
+):
+    """Naming a cove you *are* in does not fetch the face of somebody outside it.
+
+    Without the "target is a member too" half of the rule, any membership
+    anywhere would turn into a way to pull any person's picture by id.
+    """
+    outsider = await graph.person("outsider@example.test", "Outsider")
+    await _set_avatar(seed, outsider)
+    await _arm(household["partner"])  # a real member of the shared cove
+
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_avatar({}, {})",
+        household["shared"].id,
+        outsider.id,
+    )
+    assert rows == []
+
+
+async def test_an_unarmed_caller_sees_no_picture(tx, household, seed):
+    """Fail closed when no principal is bound at all."""
+    await _set_avatar(seed, household["wouter"])
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_avatar({}, {})",
+        household["shared"].id,
+        household["wouter"].id,
+    )
+    assert rows == []
+
+
+async def test_the_roster_reports_who_has_a_picture(tx, household, seed):
+    """``avatar_len`` is what tells the UI to draw a face or an initial."""
+    await _set_avatar(seed, household["wouter"])
+    await _arm(household["partner"])
+    roster = await member_roster(household["shared"].id)
+
+    sizes = {member["display_name"]: member["avatar_len"] for member in roster}
+    assert sizes == {"Wouter": len(FACE), "Partner": None}
+
+
+async def test_a_non_member_learns_no_face_sizes(tx, household, graph, seed):
+    """The roster's picture column stops at the cove's edge like the rest of it."""
+    await _set_avatar(seed, household["wouter"])
+    stranger = await graph.person("nobody@example.test", "Nobody")
+    await _arm(stranger)
+
+    rows = await Person.raw(
+        "SELECT * FROM rif_member_faces({})", household["shared"].id
+    )
+    assert rows == []

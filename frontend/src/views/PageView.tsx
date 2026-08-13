@@ -13,8 +13,10 @@
  * so the stack simply doesn't render there, per the brief's "the user's
  * own avatar or none" allowance.
  *
- * A small `spaceColor(alias).base` dot sits before the crumb, same hue
- * threading as `Sidebar`'s space dots and `Home`'s card stripes.
+ * The cove's own organism sits before the crumb, in its own hue — the same
+ * mark `Sidebar`'s rows and `Home`'s cards carry, so the page announces
+ * which cove it belongs to by the creature, not by a dot that every cove
+ * wears the same shape of.
  */
 
 import { useEffect, useState } from "react";
@@ -23,6 +25,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, apiGet, apiSend } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { pageMetaSentence } from "../components/pageMeta";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { useCoveLook } from "../useAppearance";
 import { renderMarkdown } from "../markdown";
 import { useIndex } from "../IndexProvider";
@@ -47,7 +50,7 @@ export default function PageView() {
   // Above the early returns below: this is a hook, so calling it after a
   // conditional `return` would change the hook order between the loading
   // and loaded renders.
-  const hue = useCoveLook()(space).hue;
+  const { hue, family } = useCoveLook()(space);
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -99,14 +102,19 @@ export default function PageView() {
   return (
     <div>
       <div className="page-bar">
-        <span className="page-bar-dot" aria-hidden="true" style={{ background: hue.base }} />
+        <span className="page-bar-glyph" aria-hidden="true">
+          <SpaceGlyph alias={space} color={hue.base} size={18} family={family} />
+        </span>
         <Link to={`/s/${space}`} className="page-bar-crumb">
           ‹ <b>{isPersonal ? "Personal" : space}</b>
         </Link>
         <span className="page-bar-spacer" />
         {!isPersonal && members && (
           <AvatarStack
-            names={members.members.map((member) => member.display_name)}
+            people={members.members.map((member) => ({
+              name: member.display_name,
+              src: member.avatar,
+            }))}
             onClick={() => openMembers(space)}
             ariaLabel={`Members of ${space}`}
           />

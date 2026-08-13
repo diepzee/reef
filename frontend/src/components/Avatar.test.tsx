@@ -41,14 +41,17 @@ test("the small variant is marked as such", () => {
 });
 
 test("a stack shows everyone when they fit", () => {
-  render(<AvatarStack names={["Ann", "Bo", "Cy"]} />);
+  render(<AvatarStack people={[{ name: "Ann" }, { name: "Bo" }, { name: "Cy" }]} />);
   for (const name of ["Ann", "Bo", "Cy"])
     expect(screen.getByTitle(name)).toBeDefined();
   expect(screen.queryByText(/^\+/)).toBeNull();
 });
 
 test("a stack counts the people it had no room for", () => {
-  render(<AvatarStack names={["Ann", "Bo", "Cy", "Di", "Ed", "Fi"]} max={4} />);
+  render(<AvatarStack
+      people={["Ann", "Bo", "Cy", "Di", "Ed", "Fi"].map((name) => ({ name }))}
+      max={4}
+    />);
   expect(screen.getByText("+2")).toBeDefined();
   expect(screen.getByTitle("2 more")).toBeDefined();
   // The overflowed people are not drawn, only counted.
@@ -59,7 +62,7 @@ test("a clickable stack opens from the keyboard, not only the mouse", () => {
   // The members sheet is reachable from this stack, so a keyboard user who
   // cannot open it cannot see who is in a cove at all.
   let opened = 0;
-  render(<AvatarStack names={["Ann"]} onClick={() => (opened += 1)} />);
+  render(<AvatarStack people={[{ name: "Ann" }]} onClick={() => (opened += 1)} />);
   const stack = screen.getByRole("button");
   fireEvent.keyDown(stack, { key: "Enter" });
   fireEvent.keyDown(stack, { key: " " });
@@ -69,13 +72,44 @@ test("a clickable stack opens from the keyboard, not only the mouse", () => {
 });
 
 test("a stack nobody can click is not announced as a button", () => {
-  render(<AvatarStack names={["Ann"]} />);
+  render(<AvatarStack people={[{ name: "Ann" }]} />);
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("a stack draws each person's picture, and initials for those without", () => {
+  // The stack used to take names alone, so it could not carry a picture even
+  // when one existed: every member but yourself showed as a coloured initial.
+  render(
+    <AvatarStack
+      people={[
+        { name: "Ann", src: "/api/spaces/team/members/a1/avatar?v=9" },
+        { name: "Bo", src: null },
+      ]}
+    />,
+  );
+  const drawn = screen.getByTitle("Ann") as HTMLImageElement;
+  expect(drawn.tagName).toBe("IMG");
+  expect(drawn.getAttribute("src")).toBe("/api/spaces/team/members/a1/avatar?v=9");
+  // Bo has chosen no picture, so their initial stands in rather than a
+  // request that would only 404.
+  expect(screen.getByTitle("Bo").tagName).not.toBe("IMG");
+  expect(screen.getByTitle("Bo").textContent).toBe("B");
+});
+
+test("two people sharing a display name are both drawn", () => {
+  // Keyed by name, the second would have collided with the first and React
+  // would have rendered one of them.
+  render(<AvatarStack people={[{ name: "Sam" }, { name: "Sam" }]} />);
+  expect(screen.getAllByTitle("Sam").length).toBe(2);
 });
 
 test("a clickable stack carries the label it was given", () => {
   render(
-    <AvatarStack names={["Ann"]} onClick={() => {}} ariaLabel="Cove members" />,
+    <AvatarStack
+      people={[{ name: "Ann" }]}
+      onClick={() => {}}
+      ariaLabel="Cove members"
+    />,
   );
   expect(screen.getByLabelText("Cove members")).toBeDefined();
 });
