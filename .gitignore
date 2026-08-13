@@ -13,3 +13,6 @@ clients/ts/dist-test/
 .env
 .env.*
 !.env.example
+
+# Local planning artifacts (specs/plans stay out of the published repo)
+docs/superpowers/
