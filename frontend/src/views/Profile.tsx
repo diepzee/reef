@@ -10,12 +10,15 @@
  * The picture is downscaled in the browser before it is sent. A photo
  * straight off a phone is several megabytes and the endpoint caps the stored
  * bytes well below that, so resizing here is the difference between "choose
- * a picture" and "choose a picture, then be told it was too big".
+ * a picture" and "choose a picture, then be told it was too big". Resizing
+ * alone does not get there — see `../avatarEncode`, which picks the encoding
+ * by the size it actually produced.
  */
 
 import { useRef, useState } from "react";
 
 import { ApiError, apiSend } from "../api";
+import { encodeWithinLimit, TooLarge, type Encoded } from "../avatarEncode";
 import { Avatar } from "../components/Avatar";
 import { useMe } from "../useMe";
 
@@ -33,14 +36,24 @@ const ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
  * avatar shows it in a circle; fitting the whole image inside that circle
  * would shrink the face and leave transparent corners.
  */
-async function squareEncode(file: File): Promise<{ mime: string; data: string }> {
+async function squareEncode(file: File): Promise<Encoded> {
   const bitmap = await createImageBitmap(file);
   const edge = Math.min(bitmap.width, bitmap.height, MAX_EDGE);
+  if (edge < 1) {
+    bitmap.close();
+    throw new TooLarge("that picture has no width or height");
+  }
   const canvas = document.createElement("canvas");
   canvas.width = edge;
   canvas.height = edge;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("no 2d context");
+
+  // JPEG carries no alpha, and it is one of the encodings tried below, so a
+  // picture with transparent corners would flatten onto black. White is the
+  // predictable choice, and the avatar is masked to a circle anyway.
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, edge, edge);
 
   const source = Math.min(bitmap.width, bitmap.height);
   context.drawImage(
@@ -56,20 +69,7 @@ async function squareEncode(file: File): Promise<{ mime: string; data: string }>
   );
   bitmap.close();
 
-  // toDataURL always succeeds for png; webp is preferred when the browser
-  // encodes it, which it signals by returning a data URL with that type.
-  const encoded = canvas.toDataURL("image/webp", 0.9);
-  const usable = encoded.startsWith("data:image/webp")
-    ? encoded
-    : canvas.toDataURL("image/png");
-  // "data:image/webp;base64,AAAA…" — sliced rather than split so the parts
-  // are plain strings, not possibly-absent array entries.
-  const comma = usable.indexOf(",");
-  const header = usable.slice(0, comma);
-  return {
-    mime: header.slice("data:".length, header.indexOf(";")),
-    data: usable.slice(comma + 1),
-  };
+  return encodeWithinLimit((type, quality) => canvas.toDataURL(type, quality));
 }
 
 export default function Profile() {
@@ -91,11 +91,13 @@ export default function Profile() {
       );
       onChange(result.avatar);
     } catch (failure) {
-      setError(
-        failure instanceof ApiError
-          ? failure.detail || failure.message
-          : "that picture could not be read",
-      );
+      // TooLarge already names the size and the limit; an ApiError carries
+      // the server's reason. Anything else is a decoding failure the person
+      // can do nothing with, so it gets the plain sentence.
+      if (failure instanceof TooLarge) setError(failure.message);
+      else if (failure instanceof ApiError)
+        setError(failure.detail || failure.message);
+      else setError("that picture could not be read");
     } finally {
       setBusy(false);
       // Let the same file be chosen again after a failure.
