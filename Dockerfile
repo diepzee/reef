@@ -29,6 +29,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
+# The CLI workspace member must exist in the image: any plain `uv run`
+# (service overrides, one-off commands) resolves the whole workspace, and a
+# missing member aborts the run before Python even starts.
+COPY clients/python ./clients/python
 COPY --from=frontend /fe/dist ./frontend/dist
 COPY scripts ./scripts
 COPY site ./site
@@ -51,4 +55,4 @@ ENV PYTHONPATH=/app/src
 # and the restore runbook pulls the credential from the Railway control
 # plane, so neither is affected. RIF_BACKUP_DATABASE_URL is scrubbed too in
 # case it is ever set here; `env -u` on an unset name is a no-op.
-CMD ["sh", "-c", "uv run python scripts/migrate.py && exec env -u RIF_MIGRATION_DATABASE_URL -u RIF_BACKUP_DATABASE_URL uv run python -m rif.server"]
+CMD ["sh", "-c", "uv run --frozen --no-dev python scripts/migrate.py && exec env -u RIF_MIGRATION_DATABASE_URL -u RIF_BACKUP_DATABASE_URL uv run --frozen --no-dev python -m rif.server"]
