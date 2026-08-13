@@ -211,3 +211,32 @@ async def test_glama_claim_404s_when_unconfigured(static_client):
     """
     response = await static_client.get("/.well-known/glama.json")
     assert response.status_code == 404
+
+
+async def test_the_spa_shell_is_never_served_stale(static_client):
+    """``index.html`` must be revalidated, not cached on a browser's guess.
+
+    The shell names the content-hashed bundle, so a stale copy pins a
+    browser to an old frontend against a new backend -- which is exactly
+    how a fixed avatar upload kept failing after the fix had deployed. A
+    response carrying no freshness information at all is the trap: browsers
+    may then cache it heuristically off ``Last-Modified``.
+    """
+    response = await static_client.get("/app")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
+async def test_a_content_hashed_asset_is_immutable(static_client, tmp_path):
+    """A hashed name can never change its bytes, so it is cached hard."""
+    (tmp_path / "index-a1b2c3d4.js").write_text("console.log(2)")
+    response = await static_client.get("/app/index-a1b2c3d4.js")
+    assert response.status_code == 200
+    assert "immutable" in response.headers["cache-control"]
+
+
+async def test_an_unhashed_asset_is_not_frozen(static_client):
+    """The mark and favicon are copied under plain names and change in place."""
+    response = await static_client.get("/app/app.js")
+    assert response.status_code == 200
+    assert "immutable" not in response.headers["cache-control"]
