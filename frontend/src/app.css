@@ -97,7 +97,13 @@ textarea {
   width: 100%;
 }
 
+/* Wraps rather than a two-column grid: the wordmark and the account control
+   share the first line, and the tagline (Home only) takes a full line of its
+   own underneath by claiming the whole basis. */
 .app-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   padding: 1rem;
   border-bottom: 1px solid var(--hairline);
 }
@@ -119,6 +125,7 @@ textarea {
 
 /* The tagline under the mobile header's brand row, Home only (see AppShell). */
 .app-header-tagline {
+  flex-basis: 100%;
   margin: 4px 0 0;
   font-size: var(--text-sm);
   color: var(--muted);
@@ -139,6 +146,15 @@ textarea {
   border-radius: 0.375rem;
   background: var(--danger-bg);
   color: var(--danger-ink);
+}
+
+/* A .notice says "read this"; the danger palette above says "something went
+   wrong". Everything that lands successfully wears this instead, so an
+   invite that worked is not announced in the same red as one that failed. */
+.notice.ok {
+  border-color: var(--ok-border);
+  background: var(--ok-bg);
+  color: var(--ok-ink);
 }
 
 .disclosure {
@@ -688,6 +704,38 @@ a.export-dump-button {
   border-top: 1px solid var(--danger-border);
 }
 
+/* A page's way out. Lighter than .delete-zone's red rule: losing one page
+   is a smaller act than losing a cove, and the control sits under every
+   page rather than under a screen you went to deliberately. */
+.page-danger {
+  margin: 2.5rem 0 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.page-delete {
+  min-height: auto;
+  min-width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.page-delete:hover {
+  color: var(--danger-ink);
+}
+
+button.danger {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-ink);
+  font-weight: 700;
+}
+
 .delete-zone .export-card-copy h2 {
   color: var(--danger-ink);
 }
@@ -917,6 +965,17 @@ a.export-dump-button {
   font-size: var(--text-base);
   color: var(--ink);
   width: 100%;
+}
+
+.ed-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+/* Inline, while-you-type field feedback. Deliberately not a .notice banner:
+   it sits in the hint's place and swaps with it, so the form does not jump
+   as the text changes on every keystroke. */
+.ed-problem {
+  color: var(--danger);
 }
 
 .editor-preview {
@@ -1331,6 +1390,207 @@ a.export-dump-button {
   color: inherit;
   text-decoration: underline;
   font-size: inherit;
+}
+
+/* The account row is the menu's anchor, so it has to establish the
+   positioning context the popup is placed against. */
+.acct {
+  position: relative;
+  display: flex;
+  align-items: center;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+/* In the sidebar it is the last row, under a rule, and full width. */
+.acct-up {
+  gap: 8px;
+  padding: 10px 8px 2px;
+  border-top: 1px solid var(--hairline);
+}
+
+/* In the mobile header it is a corner control, so it shrinks to its
+   contents and gives up the name to leave room for the wordmark. */
+.acct-down {
+  margin-left: auto;
+}
+
+.acct-down .side-me-name {
+  display: none;
+}
+
+.acct-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  min-height: auto;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+}
+
+.acct-trigger:hover {
+  background: var(--panel);
+}
+
+.acct-caret {
+  margin-left: auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 120ms ease;
+}
+
+.acct-caret.open {
+  transform: rotate(180deg);
+}
+
+.acct-menu {
+  position: absolute;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--ground);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+}
+
+/* The sidebar trigger is the last row in the pane, so a menu below it
+   would be off-screen; the header trigger has the same problem upwards. */
+.acct-up .acct-menu {
+  bottom: calc(100% - 4px);
+  left: 0;
+  right: 0;
+}
+
+.acct-down .acct-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 10rem;
+}
+
+.acct-item {
+  min-height: auto;
+  min-width: auto;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+  text-decoration: none;
+}
+
+.acct-item:hover {
+  background: var(--panel);
+}
+
+.acct-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--hairline);
+}
+
+.look {
+  margin-block: 28px;
+}
+
+.look-note {
+  margin-block: 2px 10px;
+}
+
+.look-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-block: 8px;
+}
+
+/* Swatch and creature share a footprint so the two rows line up as a grid,
+   even though one is a colour chip and the other a drawing. */
+.look-swatch,
+.look-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  background: var(--panel);
+  cursor: pointer;
+}
+
+.look-swatch.on,
+.look-glyph.on {
+  border-color: var(--ink);
+}
+
+.look-swatch:disabled,
+.look-glyph:disabled {
+  cursor: default;
+}
+
+/* "From its name" is a word, not a colour, so it needs to read as a label
+   at the same size as the chips beside it. */
+.look-auto {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: none;
+  border-color: var(--hairline);
+}
+
+.look-auto.on {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block: 16px;
+}
+
+/* The one place an avatar is a portrait rather than a chip. */
+.profile-head .avatar {
+  width: 64px;
+  height: 64px;
+  font-size: var(--text-lg);
+}
+
+.profile-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.profile-section {
+  margin-block: 26px 6px;
+  font-size: var(--text-base);
+}
+
+/* Driven by the button beside it, which says what it does; the native
+   control's "no file chosen" would only contradict that. */
+.profile-file {
+  display: none;
 }
 
 /* Lockup C — splash-only: coral + wordmark growing from a shared accent "seabed" rule. */

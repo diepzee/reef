@@ -18,13 +18,14 @@
  */
 
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
-import { ApiError, apiGet } from "../api";
+import { ApiError, apiGet, apiSend } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { pageMetaSentence } from "../components/pageMeta";
-import { spaceColor } from "../components/spaceColor";
+import { useCoveLook } from "../useAppearance";
 import { renderMarkdown } from "../markdown";
+import { useIndex } from "../IndexProvider";
 import type { Page } from "../types";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
@@ -41,6 +42,33 @@ export default function PageView() {
 
   const { members } = useMembers(space);
   const { openMembers } = useMembersSheet();
+  const { refresh } = useIndex();
+  const navigate = useNavigate();
+  // Above the early returns below: this is a hook, so calling it after a
+  // conditional `return` would change the hook order between the loading
+  // and loaded renders.
+  const hue = useCoveLook()(space).hue;
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function removePage(pagePath: string) {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiSend("DELETE", `/api/pages/${space}/${pagePath}`);
+      await refresh();
+      navigate(`/s/${space}`);
+    } catch (failure) {
+      setDeleting(false);
+      setDeleteError(
+        failure instanceof ApiError
+          ? failure.detail || failure.message
+          : "could not delete that page",
+      );
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -67,7 +95,6 @@ export default function PageView() {
   }
 
   const isProtected = page.path.startsWith(PROTECTED_PREFIX);
-  const hue = spaceColor(space);
 
   return (
     <div>
@@ -123,6 +150,47 @@ export default function PageView() {
           </div>
         )}
       </div>
+
+      {/* At the foot, behind a confirm, and absent for meta/ — the same
+          shape SpaceView gives leaving or destroying a cove. */}
+      {!isProtected && (
+        <section className="page-danger">
+          {deleteError && <div className="notice">{deleteError}</div>}
+          {confirmingDelete ? (
+            <>
+              <p className="muted">
+                This deletes <b>{page.title || page.path}</b> and its whole
+                history, permanently. Files attached to it stay in the cove.
+              </p>
+              <div className="ed-toolbar">
+                <button
+                  type="button"
+                  className="danger"
+                  disabled={deleting}
+                  onClick={() => removePage(page.path)}
+                >
+                  {deleting ? "Deleting…" : "Delete permanently"}
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => setConfirmingDelete(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="page-delete"
+              onClick={() => setConfirmingDelete(true)}
+            >
+              Delete this page…
+            </button>
+          )}
+        </section>
+      )}
     </div>
   );
 }

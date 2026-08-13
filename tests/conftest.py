@@ -20,6 +20,7 @@ from rif.db import DB, transaction_scope
 from rif.models import TABLES, Person, Space, SpaceKind
 from rif.rls import (
     AUTHZ_ROLE,
+    appearance_statements,
     constraint_statements,
     drop_disclosure_statements,
     drop_mutation_statements,
@@ -147,7 +148,13 @@ async def schema():
     # UPDATE on spaces and grants back only the version column, and a blanket
     # grant afterwards would silently undo it -- leaving a member able to
     # rewrite a cove's slug while the suite reported success.
-    for table in (*CONTENT_TABLES, "memberships", "spaces", "persons"):
+    for table in (
+        *CONTENT_TABLES,
+        "memberships",
+        "spaces",
+        "persons",
+        "space_appearances",
+    ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
         )
@@ -163,7 +170,12 @@ async def schema():
     # replacing the first, and two candidates make every call ambiguous.
     for statement in drop_disclosure_statements() + drop_mutation_statements():
         await DB._run_in_new_connection(statement)
-    for statement in constraint_statements() + enable_statements():
+    # appearance_statements is listed separately on purpose: it is not part
+    # of enable_statements, because historical migrations call that and
+    # predate the table. See its docstring.
+    for statement in (
+        constraint_statements() + enable_statements() + appearance_statements()
+    ):
         await DB._run_in_new_connection(statement)
     yield
     await DB.close_connection_pool()
@@ -481,11 +493,26 @@ async def api(monkeypatch, graph):
 def _login(client: httpx.AsyncClient, person) -> None:
     """Seal a session token for ``person`` and attach it to the client's cookies.
 
+    Every existing session cookie is dropped first, and that is load-bearing
+    rather than tidiness. ``api()`` renews the session on each successful
+    response, so the jar ends up holding a *second* ``rif_session`` -- the
+    server's, scoped to the ``rif.example`` domain -- alongside the
+    domain-less one this helper sets. ``Cookies.set`` only replaces the
+    latter, so a second ``_login`` in the same test would leave the first
+    person's server-issued cookie in place and keep sending it.
+
+    The failure that causes is silent and points the wrong way: a test that
+    logs in as one person, switches to another, and asserts the second
+    cannot reach something passes while never having switched at all.
+
     :param client: the HTTP client to log in
     :param person: the person to seal a session for
     """
     from rif.web.session import seal
 
+    for cookie in list(client.cookies.jar):
+        if cookie.name == "rif_session":
+            client.cookies.jar.clear(cookie.domain, cookie.path, cookie.name)
     token = seal(person.id, person.email, secret="test-secret")
     client.cookies.set("rif_session", token)
 
