@@ -3,7 +3,8 @@ import json
 import os
 from typing import Any, ClassVar
 
-from rif.cli import JsonTokenStore, build_parser, run
+from reefwith.cli import JsonTokenStore, build_parser, run
+
 from rif.server import mcp
 
 
@@ -53,7 +54,9 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     FakeClient.calls = []
     FakeClient.result = {"spaces": []}
-    args = build_parser().parse_args(["--url", "https://example.test/mcp", "load-index"])
+    args = build_parser().parse_args(
+        ["--url", "https://example.test/mcp", "load-index"]
+    )
 
     status = await run(args, client_class=FakeClient)
 
@@ -181,7 +184,7 @@ async def test_tool_error_payload_sets_failure_status(monkeypatch, tmp_path, cap
 
 async def test_json_token_store_persists_and_expires(tmp_path, monkeypatch):
     clock = [1000.0]
-    monkeypatch.setattr("rif.cli.time.time", lambda: clock[0])
+    monkeypatch.setattr("reefwith.cli.time.time", lambda: clock[0])
     path = tmp_path / "reef" / "oauth.json"
     store = JsonTokenStore(path)
 

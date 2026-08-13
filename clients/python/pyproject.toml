@@ -1,0 +1,25 @@
+[project]
+name = "reefwith"
+version = "0.1.0"
+description = "Command-line client for reef — shared, living memory for people and their AI assistants"
+readme = "README.md"
+authors = [
+    { name = "WOUTER DURNEZ", email = "wouter.durnez@gmail.com" }
+]
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "fastmcp>=2",
+]
+keywords = ["mcp", "memory", "cli", "reef"]
+
+[project.urls]
+Homepage = "https://reefwith.me"
+Repository = "https://github.com/diepzee/rif"
+
+[project.scripts]
+reef = "reefwith.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"

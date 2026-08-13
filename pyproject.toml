@@ -18,22 +18,26 @@ dependencies = [
     "pyyaml>=6.0.3",
 ]
 
-[project.scripts]
-reef = "rif.cli:main"
-
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.workspace]
+members = ["clients/python"]
+
+[tool.uv.sources]
+reefwith = { workspace = true }
 
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "reefwith",
     "ruff>=0.16.1",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = ["src", "clients/python/src"]
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
