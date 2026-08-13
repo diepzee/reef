@@ -2,6 +2,9 @@
 .superpowers/
 __pycache__/
 .venv/
+clients/ts/node_modules/
+clients/ts/dist/
+clients/ts/dist-test/
 
 # Local secrets. Nothing in the repo reads these today (settings come from the
 # real environment, and Railway injects them in production) -- this is here so

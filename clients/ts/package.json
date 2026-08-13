@@ -1,0 +1,24 @@
+{
+  "name": "reefwith",
+  "version": "0.1.0",
+  "description": "Command-line client for reef — shared, living memory for people and their AI assistants",
+  "keywords": ["mcp", "memory", "cli", "reef"],
+  "homepage": "https://reefwith.me",
+  "repository": { "type": "git", "url": "git+https://github.com/diepzee/rif.git", "directory": "clients/ts" },
+  "license": "MIT",
+  "type": "module",
+  "bin": { "reef": "dist/index.js", "reefwith": "dist/index.js" },
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.10.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
