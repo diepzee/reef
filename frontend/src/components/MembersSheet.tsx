@@ -34,6 +34,7 @@
  */
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
@@ -53,8 +54,12 @@ interface MembersSheetProps {
 }
 
 export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
+  const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 900px)");
   const { members, error, refresh } = useMembers(space);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
   const { refresh: refreshIndex } = useIndex();
 
   const [pendingRemove, setPendingRemove] = useState<string | null>(null);
@@ -93,6 +98,38 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
+
+  /**
+   * Rename this cove for the signed-in person only.
+   *
+   * The name lives on their own membership, so nobody else's changes — but
+   * it is also what the URL addresses, so the old path stops resolving the
+   * moment this succeeds and the view has to follow it.
+   */
+  async function rename(event: FormEvent) {
+    event.preventDefault();
+    const wanted = newName.trim();
+    if (!wanted || wanted === space) {
+      setRenaming(false);
+      return;
+    }
+    setRenameError(null);
+    try {
+      await apiSend<{ was: string; now: string }>(
+        "POST",
+        `/api/spaces/${encodeURIComponent(space)}/name`,
+        { name: wanted },
+      );
+      await refreshIndex();
+      setRenaming(false);
+      onClose();
+      navigate(`/s/${encodeURIComponent(wanted)}`, { replace: true });
+    } catch (problem) {
+      setRenameError(
+        problem instanceof ApiError ? problem.detail ?? problem.message : "could not rename",
+      );
+    }
+  }
 
   async function confirmRemove(memberEmail: string) {
     setRemoving(true);
@@ -165,6 +202,47 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               Everyone sees everything — past and future. There is no
               per-page hiding.
             </p>
+            {renaming ? (
+              <form className="mbs-rename" onSubmit={rename}>
+                <label>
+                  Your name for this cove
+                  <input
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-label="New cove name"
+                  />
+                </label>
+                <div className="mbs-rename-actions">
+                  <button type="submit">Save</button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenaming(false);
+                      setRenameError(null);
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+                <p className="muted">
+                  Only you see this name. Everyone else keeps calling it
+                  whatever they call it.
+                </p>
+              </form>
+            ) : (
+              <button
+                type="button"
+                className="mbs-rename-open"
+                onClick={() => {
+                  setNewName(space);
+                  setRenaming(true);
+                }}
+              >
+                Rename for me
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -177,6 +255,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         </div>
 
         {error && <div className="notice">{error}</div>}
+        {renameError && <div className="notice">{renameError}</div>}
         {removeError && <div className="notice">{removeError}</div>}
         {members === null && !error && <p className="muted">Loading members…</p>}
 

@@ -11,8 +11,11 @@ app, or Codex — by adding this server as a remote MCP connector.
 
 The store is Postgres. Row-Level Security is the privacy boundary, so a
 forgotten filter in application code fails closed rather than leaking. A space
-is addressed by `personal` or by its slug, resolved per principal, so nobody
-can name anybody else's private space.
+is addressed by `personal` or by the name the reader gave it, resolved against
+their own memberships, so nobody can name anybody else's space. Those names are
+per person — `UNIQUE (person_id, alias)` on the membership, never a global
+namespace — so two households may each have a `family` without either being
+able to tell the other exists, and no name can be squatted.
 
 That boundary only holds if the app connects as an ordinary role: a superuser
 carries `BYPASSRLS` and ignores every policy. The app therefore runs as

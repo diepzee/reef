@@ -100,3 +100,35 @@ async def person_exists(person_id: UUID) -> bool:
     """
     rows = await Person.raw("SELECT rif_person_alive({}) AS alive", person_id)
     return bool(rows and rows[0]["alive"])
+
+
+async def person_session_epoch(person_id: UUID) -> int | None:
+    """Return a person's current session epoch, or None if they are gone.
+
+    Folds the two questions the request path asks of a signed cookie into
+    one round trip: the row may have been deleted since the token was
+    sealed, and the epoch may have moved past it. Both answers deny, so a
+    missing row and a stale epoch are deliberately indistinguishable to the
+    caller.
+
+    :param person_id: the id sealed into the session cookie
+    :returns: the epoch, or None when no such person exists
+    """
+    rows = await Person.raw("SELECT rif_person_session_epoch({}) AS epoch", person_id)
+    if not rows:
+        return None
+    return rows[0]["epoch"]
+
+
+async def revoke_sessions(person_id: UUID) -> None:
+    """End every session this person holds, by moving their epoch on.
+
+    Runs under the caller's own policies -- ``persons_self_update`` permits
+    exactly this and nothing wider -- so the principal must be armed and can
+    only ever revoke themselves.
+
+    :param person_id: the person whose sessions end
+    """
+    await Person.update({Person.session_epoch: Person.session_epoch + 1}).where(
+        Person.id == person_id
+    )

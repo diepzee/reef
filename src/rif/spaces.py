@@ -22,7 +22,7 @@ import re
 from uuid import UUID
 
 from rif import audit
-from rif.access import Principal, arm, resolve_space
+from rif.access import PERSONAL_ALIAS, Principal, arm, resolve_space
 from rif.invitations import allowlist
 from rif.models import (
     Attachment,
@@ -149,9 +149,15 @@ async def display_names(person_ids: list[UUID]) -> dict[UUID, str]:
 async def create_space(principal: Principal, slug: str) -> Space:
     """Create a shared space; the creator becomes owner and first member.
 
+    The name is *this person's* name for the cove, stored on their
+    membership. Cove names are no longer a global namespace, so a name
+    somebody else already uses is not a collision at all -- only a name
+    already in this person's own list is, and that one they can see, so the
+    check below is honest rather than a race against an invisible row.
+
     :param principal: the authenticated person
-    :param slug: the space's name — lowercase letters, digits, hyphens
-    :raises SpaceError: for an invalid, reserved, or already-taken name
+    :param slug: the cove's name — lowercase letters, digits, hyphens
+    :raises SpaceError: for an invalid, reserved, or already-used name
     :returns: the created space
     """
     if not _SLUG_RE.fullmatch(slug) or slug.startswith(_RESERVED_PREFIXES):
@@ -164,14 +170,74 @@ async def create_space(principal: Principal, slug: str) -> Space:
     # so nothing else arms the principal -- and both the rows it inserts are
     # checked against it once spaces and memberships carry policies.
     await arm(principal)
-    if await Space.objects().where(Space.slug == slug).first() is not None:
-        raise SpaceError(f"a space named {slug!r} already exists; pick another name")
+    if await _alias_taken(principal.person_id, slug):
+        raise SpaceError(f"you already have a cove called {slug!r}; pick another name")
     space = Space(
         slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=principal.person_id
     )
     await space.save()
-    await Membership(person_id=principal.person_id, space_id=space.id).save()
+    # Through the definer function like every other admission, so the alias
+    # is chosen and taken in one statement. The creator owns the cove by the
+    # line above, which is what the function checks.
+    admitted = await Space.raw(
+        "SELECT rif_admit_member({}, {}, {}) AS alias",
+        space.id,
+        principal.person_id,
+        slug,
+    )
+    if not admitted or admitted[0]["alias"] is None:
+        raise SpaceError(f"could not create {slug!r}; nothing was changed")
     return space
+
+
+async def _alias_taken(person_id: UUID, alias: str) -> bool:
+    """Report whether this person already uses this cove name.
+
+    :param person_id: the person whose names are in question
+    :param alias: the name to test
+    :returns: True when the name is already theirs
+    """
+    return (
+        await Membership.objects()
+        .where(Membership.person_id == person_id, Membership.alias == alias)
+        .first()
+    ) is not None
+
+
+async def rename_cove(principal: Principal, alias: str, new_alias: str) -> dict:
+    """Change what this principal calls a cove, for this principal only.
+
+    Nobody else's name for it moves: the alias is a column on the caller's
+    own membership row, which is the whole point of keeping it there. It is
+    also what makes an admitted name repairable -- an invitee whose preferred
+    name was taken is admitted under a suffixed one, and this is how they fix
+    it.
+
+    :param principal: the authenticated person
+    :param alias: the cove's current name, as this principal knows it
+    :param new_alias: the name to use instead
+    :raises SpaceError: for an invalid, reserved, or already-used new name
+    :raises AccessDenied: if no such cove is reachable
+    :returns: the old and new names
+    """
+    space = await resolve_space(principal, alias)
+    if space.kind == SpaceKind.PERSONAL.value:
+        raise SpaceError("the personal space is always called 'personal'")
+    if not _SLUG_RE.fullmatch(new_alias) or new_alias.startswith(_RESERVED_PREFIXES):
+        raise SpaceError(
+            f"{new_alias!r} is not a usable space name: 2-64 characters, "
+            "lowercase letters, digits, and hyphens, starting with a letter; "
+            "names beginning 'personal' are reserved"
+        )
+    if new_alias != alias and await _alias_taken(principal.person_id, new_alias):
+        raise SpaceError(
+            f"you already have a cove called {new_alias!r}; pick another name"
+        )
+    await Membership.update({Membership.alias: new_alias}).where(
+        Membership.person_id == principal.person_id,
+        Membership.space_id == space.id,
+    )
+    return {"was": alias, "now": new_alias}
 
 
 async def _owned_shared_space(principal: Principal, slug: str) -> Space:
@@ -221,7 +287,18 @@ async def invite(
     membership = await _membership(entry.person_id, space.id)
     already = membership is not None
     if not already:
-        await Membership(person_id=entry.person_id, space_id=space.id).save()
+        # The alias has to be free for the *invitee*, whose other memberships
+        # the inviter cannot see -- so choosing it and taking it happen in one
+        # statement inside the database. The cove's own name is offered first
+        # and suffixed only if the invitee already uses it for something else.
+        admitted = await Space.raw(
+            "SELECT rif_admit_member({}, {}, {}) AS alias",
+            space.id,
+            entry.person_id,
+            space.slug,
+        )
+        if not admitted or admitted[0]["alias"] is None:
+            raise SpaceError(f"could not admit {email} to {slug!r}")
         audit.record(
             audit.MEMBER_ADMITTED,
             actor=principal.person_id,
@@ -472,7 +549,9 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
         owner_person_id=person_id,
     )
     await space.save()
-    await Membership(person_id=person_id, space_id=space.id).save()
+    await Membership(
+        person_id=person_id, space_id=space.id, alias=PERSONAL_ALIAS
+    ).save()
     await save_page(
         principal,
         "personal",

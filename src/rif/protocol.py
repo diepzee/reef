@@ -10,9 +10,9 @@ module, versioned with the code and served fresh on every call.
 from pathlib import Path
 
 from rif.access import Principal
-from rif.pages import get_page
+from rif.pages import PERSONA_PATH, get_page
 
-PERSONA_PATH = "meta/persona.md"
+__all__ = ["PERSONA_PATH", "PERSONA_STUB", "PROTOCOL", "build_instructions"]
 
 PROTOCOL = (Path(__file__).parent / "protocol.md").read_text()
 

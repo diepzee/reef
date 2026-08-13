@@ -7,7 +7,7 @@ through :mod:`rif.pages`, which arms RLS.
 from datetime import timedelta
 from uuid import UUID
 
-from rif.access import AccessDenied, Principal, resolve_space
+from rif.access import AccessDenied, Principal, alias_map, resolve_space
 from rif.models import Page, Promotion, Space, utc_now
 from rif.pages import get_page, save_page
 from rif.spaces import member_names
@@ -116,18 +116,23 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     )
     if staged is None or staged.person_id != principal.person_id:
         raise PromotionError("unknown promotion nonce")
+    aliases = await alias_map(principal)
     dest = await Space.objects().where(Space.id == staged.dest_space_id).first()
+    # The caller's own name for the destination. A cove has no single name
+    # any more, and the one staged at prepare time is the one this person
+    # used then -- read it fresh in case they have renamed it since.
+    dest_alias = aliases.get(staged.dest_space_id) if dest else None
     # A nonce outlives the membership that justified it. Once spaces carry a
     # policy, losing that membership makes the destination invisible rather
     # than merely unauthorised, so this is the recheck: without it the code
     # below dereferences None and the caller gets an AttributeError where it
     # should get a refusal.
-    if dest is None:
+    if dest is None or dest_alias is None:
         raise PromotionError("you are no longer a member of that cove")
     if staged.consumed_at is not None:
         return {
             "promoted": True,
-            "dest_space": dest.slug,
+            "dest_space": dest_alias,
             "dest_path": staged.dest_path,
             "already_done": True,
         }
@@ -139,26 +144,31 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     if source is None or source.version != staged.source_version:
         raise PromotionError("the page changed since it was prepared; prepare again")
     try:
-        await resolve_space(principal, dest.slug)
+        await resolve_space(principal, dest_alias)
     except AccessDenied as exc:
         raise PromotionError(str(exc)) from exc
-    if await get_page(principal, dest.slug, staged.dest_path) is not None:
+    if await get_page(principal, dest_alias, staged.dest_path) is not None:
         raise PromotionError(
-            f"{staged.dest_path!r} already exists in the {dest.slug} space; "
+            f"{staged.dest_path!r} already exists in the {dest_alias} space; "
             "merge through normal edits instead"
         )
 
     if staged.section_text is not None:
         await save_page(
             principal,
-            dest.slug,
+            dest_alias,
             staged.dest_path,
             staged.section_text,
             message=f"section shared from personal by {principal.email}",
+            # This is the sanctioned copy: the user has been shown this exact
+            # text and who will read it, and has agreed. The guard in
+            # save_page exists to force writes through here, so here is the
+            # one place it must not fire.
+            allow_private_copy=True,
             title=staged.dest_path.removesuffix(".md"),
         )
         marker = (
-            f"*(section moved to the {dest.slug} space — see "
+            f"*(section moved to the {dest_alias} space — see "
             f"`{staged.dest_path}` there)*"
         )
         await save_page(
@@ -166,17 +176,18 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             "personal",
             source.path,
             source.body.replace(staged.section_text, marker),
-            message=f"section extracted to {dest.slug} as {staged.dest_path}",
+            message=f"section extracted to {dest_alias} as {staged.dest_path}",
             title=source.title,
             tags=list(source.tags),
         )
     else:
         await save_page(
             principal,
-            dest.slug,
+            dest_alias,
             staged.dest_path,
             source.body,
             message=f"promoted from personal by {principal.email}",
+            allow_private_copy=True,
             title=source.title,
             tags=list(source.tags),
         )
@@ -189,7 +200,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             principal,
             "personal",
             source.path,
-            f"# {source.title}\n\nMoved to the {dest.slug} space; "
+            f"# {source.title}\n\nMoved to the {dest_alias} space; "
             f"see `{staged.dest_path}` there.",
             message="stubbed after promotion",
             title=source.title,
@@ -199,7 +210,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     await staged.save()
     return {
         "promoted": True,
-        "dest_space": dest.slug,
+        "dest_space": dest_alias,
         "dest_path": staged.dest_path,
         "already_done": False,
     }

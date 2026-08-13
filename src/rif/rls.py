@@ -74,6 +74,15 @@ def constraint_statements() -> list[str]:
             "ALTER TABLE memberships ADD CONSTRAINT memberships_person_space "
             "UNIQUE (person_id, space_id)"
         ),
+        # The rule the tool surface actually depends on: whatever a person
+        # types resolves to exactly one cove. Stated as a property of the
+        # person, because that is what it is -- a cove's name being unique
+        # *globally* would be a far stronger claim, and was the one that let
+        # anybody squat 'family' for every future user.
+        (
+            "ALTER TABLE memberships ADD CONSTRAINT memberships_person_alias "
+            "UNIQUE (person_id, alias)"
+        ),
         ("ALTER TABLE pages ADD CONSTRAINT pages_space_path UNIQUE (space_id, path)"),
         (
             "CREATE UNIQUE INDEX uq_personal_owner_person ON spaces "
@@ -414,6 +423,14 @@ def identity_policy_statements() -> list[str]:
             f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
             f"USING (person_id = {PRINCIPAL})"
         ),
+        # Renaming a cove is editing your own membership, and nobody else's.
+        # The row scope is here; the *column* scope is a grant, because row
+        # security cannot say "alias but not role" -- without that half this
+        # policy would also let a viewer promote themselves to member.
+        (
+            f"CREATE POLICY memberships_self_update ON memberships FOR UPDATE "
+            f"USING (person_id = {PRINCIPAL}) WITH CHECK (person_id = {PRINCIPAL})"
+        ),
     ]
     return statements
 
@@ -443,6 +460,17 @@ def identity_grant_statements() -> list[str]:
             f"EXECUTE 'GRANT UPDATE (version) ON spaces TO {role}'; "
             f"END IF; END $do$"
         )
+        # memberships_self_update admits the whole row; only the alias may
+        # actually move. role and space_id stay out of reach of the app role,
+        # so a member cannot promote themselves or graft their membership
+        # onto another cove. Ownership transfer changes role from inside a
+        # definer function, which a grant on the caller does not constrain.
+        statements.append(
+            f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+            f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON memberships FROM {role}'; "
+            f"EXECUTE 'GRANT UPDATE (alias) ON memberships TO {role}'; "
+            f"END IF; END $do$"
+        )
     return statements
 
 
@@ -468,6 +496,7 @@ def drop_identity_policy_statements() -> list[str]:
             "covis_select",
             "insert",
             "self_delete",
+            "self_update",
         ),
     }
     statements: list[str] = []
@@ -479,6 +508,7 @@ def drop_identity_policy_statements() -> list[str]:
         statements.append(
             f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
             f"'{role}') THEN EXECUTE 'GRANT UPDATE ON spaces TO {role}'; "
+            f"EXECUTE 'GRANT UPDATE ON memberships TO {role}'; "
             f"END IF; END $do$"
         )
     for table in reversed(_IDENTITY_TABLES):
@@ -524,6 +554,12 @@ def mutation_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     return [
+        # ``BYPASSRLS`` suspends row security, not privileges, and a table
+        # grant does not reach the sequence behind a serial key. Without
+        # this, ``rif_admit_member``'s INSERT into ``memberships`` fails with
+        # "permission denied for sequence" -- which reads as a policy
+        # refusal and is not one.
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {AUTHZ_ROLE}",
         *_function_ddl(
             "rif_owns_space(p_space uuid)",
             "SELECT EXISTS (SELECT 1 FROM spaces WHERE id = p_space "
@@ -572,6 +608,56 @@ END
 """,
             returns="uuid",
             writes=("persons",),
+            volatility="VOLATILE",
+            language="plpgsql",
+        ),
+        *_function_ddl(
+            "rif_admit_member(p_space uuid, p_person uuid, p_alias text)",
+            f"""
+DECLARE
+  candidate text;
+  suffix int := 1;
+BEGIN
+  -- Only the cove's owner admits anybody, matching memberships_insert.
+  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+                 AND owner_person_id = {PRINCIPAL}) THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
+             AND person_id = p_person) THEN
+    RETURN NULL;
+  END IF;
+  -- The alias has to be free for the *invitee*, and the owner cannot see
+  -- the invitee's other memberships -- persons are self-only and
+  -- memberships are visible per cove, so evaluated in Python this check
+  -- would come back clear and the insert would hit the unique constraint.
+  -- In here it is both correct and atomic: no window between choosing a
+  -- name and taking it.
+  --
+  -- 'personal' is refused outright rather than suffixed. It is the one
+  -- alias whose meaning is fixed for everybody, and a cove admitted under
+  -- it would shadow the private space in every later call.
+  candidate := p_alias;
+  IF candidate = 'personal' OR candidate IS NULL OR candidate = '' THEN
+    candidate := 'cove';
+  END IF;
+  WHILE EXISTS (SELECT 1 FROM memberships WHERE person_id = p_person
+                AND alias = candidate) LOOP
+    suffix := suffix + 1;
+    candidate := p_alias || '-' || suffix;
+    -- A person with thousands of coves is not a case worth looping over.
+    IF suffix > 999 THEN
+      RETURN NULL;
+    END IF;
+  END LOOP;
+  INSERT INTO memberships (person_id, space_id, role, alias)
+  VALUES (p_person, p_space, 'member', candidate);
+  RETURN candidate;
+END
+""",
+            returns="text",
+            writes=("memberships",),
+            reads=("spaces",),
             volatility="VOLATILE",
             language="plpgsql",
         ),
@@ -653,6 +739,7 @@ def drop_mutation_statements() -> list[str]:
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, int, int)",
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, timestamp)",
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text)",
+        "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text)",
         "DROP FUNCTION IF EXISTS rif_remove_member(uuid, uuid)",
         "DROP FUNCTION IF EXISTS rif_transfer_space_ownership(uuid, uuid)",
     ]
@@ -739,6 +826,16 @@ def identity_statements() -> list[str]:
             returns="boolean",
             reads=("persons",),
         ),
+        # Answers both questions the request path asks of a sealed cookie --
+        # does this person still exist, and has their session been revoked --
+        # in one round trip, before any principal is armed. NULL means the
+        # row is gone, which denies exactly as a mismatched epoch does.
+        *_function_ddl(
+            "rif_person_session_epoch(p_id uuid)",
+            "SELECT session_epoch FROM persons WHERE id = p_id",
+            returns="integer",
+            reads=("persons",),
+        ),
     ]
 
 
@@ -752,6 +849,7 @@ def drop_identity_statements() -> list[str]:
         "DROP FUNCTION IF EXISTS rif_person_by_email(text)",
         "DROP FUNCTION IF EXISTS rif_person_bind(text, text)",
         "DROP FUNCTION IF EXISTS rif_person_alive(uuid)",
+        "DROP FUNCTION IF EXISTS rif_person_session_epoch(uuid)",
     ]
 
 

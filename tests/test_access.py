@@ -69,8 +69,46 @@ async def test_one_person_in_two_shared_spaces(tx, household, graph):
     assert {a.id, b.id} == {household["shared"].id, trip.id}
 
 
-async def test_space_alias_names_personal_and_slugs(household):
-    from rif.access import space_alias
+async def test_alias_map_names_a_persons_own_coves(tx, household):
+    """Names live on the membership, so this is per reader, not per cove."""
+    from rif.access import alias_map
 
-    assert space_alias(household["w_personal"]) == "personal"
-    assert space_alias(household["shared"]) == "household"
+    names = await alias_map(principal_for(household["wouter"]))
+    assert names[household["w_personal"].id] == "personal"
+    assert names[household["shared"].id] == "household"
+    assert household["p_personal"].id not in names
+
+
+async def test_two_people_can_each_have_a_cove_called_family(tx, graph):
+    """The squat this whole change exists to kill. Cove names used to be one
+    global namespace, so the first person to take 'family' took it from
+    everybody -- and the collision surfaced as a raw driver error that
+    doubled as a cross-tenant existence oracle."""
+    from rif.access import alias_map
+    from rif.spaces import create_space
+
+    ann = await graph.person("ann@x.test", "Ann")
+    bo = await graph.person("bo@x.test", "Bo")
+    await graph.personal_space(ann)
+    await graph.personal_space(bo)
+
+    hers = await create_space(principal_for(ann), "family")
+    his = await create_space(principal_for(bo), "family")
+
+    assert hers.id != his.id
+    assert (await alias_map(principal_for(ann)))[hers.id] == "family"
+    assert (await alias_map(principal_for(bo)))[his.id] == "family"
+    # And each resolves only their own.
+    assert (await resolve_space(principal_for(ann), "family")).id == hers.id
+    assert (await resolve_space(principal_for(bo), "family")).id == his.id
+
+
+async def test_one_person_cannot_reuse_their_own_cove_name(tx, graph):
+    """The constraint that does hold: unique per person, not per cluster."""
+    from rif.spaces import SpaceError, create_space
+
+    ann = await graph.person("ann2@x.test", "Ann")
+    await graph.personal_space(ann)
+    await create_space(principal_for(ann), "family")
+    with pytest.raises(SpaceError, match="already have a cove"):
+        await create_space(principal_for(ann), "family")

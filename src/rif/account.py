@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from rif import audit
-from rif.access import Principal, accessible_spaces, space_alias
+from rif.access import Principal, accessible_spaces, alias_map
 from rif.models import (
     Attachment,
     MemberRole,
@@ -47,6 +47,7 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
     # persons carries a policy returns nothing -- and this function would
     # report that it deleted an account it had not touched.
     spaces = await accessible_spaces(principal)
+    aliases = await alias_map(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if person is None:
         return AccountDeletion([], [], [])
@@ -96,7 +97,7 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
             space_id=space.id,
             successor_id=successor.person_id,
         )
-        transferred_coves.append(space_alias(space))
+        transferred_coves.append(aliases[space.id])
 
     deleted_ids = [space.id for space in deleted_spaces]
     file_keys = (
@@ -106,7 +107,7 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
         if deleted_ids
         else []
     )
-    deleted_coves = [space_alias(space) for space in deleted_spaces]
+    deleted_coves = [aliases[space.id] for space in deleted_spaces]
 
     # Delete cove content explicitly while the principal's membership still
     # arms every write policy. Relying on simultaneous cascades from Person ->

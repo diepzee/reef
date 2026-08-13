@@ -17,10 +17,11 @@ from urllib.parse import urlencode
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
-from rif.access import AccessDenied
+from rif.access import AccessDenied, Principal, arm
 from rif.auth import principal_from_claims
 from rif.config import get_settings
 from rif.db import transaction_scope
+from rif.identity import person_session_epoch, revoke_sessions
 from rif.web.oidc import (
     OAUTH_COOKIE_TTL_SECONDS,
     AuthKitOIDC,
@@ -37,6 +38,7 @@ from rif.web.requests import (
     CsrfRejected,
     cookie_secure,
     require_csrf,
+    session_from_request,
     session_sid,
     set_session_cookie,
 )
@@ -182,18 +184,49 @@ def register_auth_routes(
         try:
             async with transaction_scope():
                 principal = await principal_from_claims(claims)
+                # Sealed into the cookie and compared on every later request,
+                # so a bump ends this session. Read here rather than assumed
+                # zero: a person who has revoked before is past zero, and a
+                # cookie carrying the wrong epoch would be dead on arrival.
+                epoch = await person_session_epoch(principal.person_id) or 0
         except AccessDenied:
             return HTMLResponse(_denied_page(claims.get("email")), status_code=403)
 
         response = RedirectResponse("/app", status_code=303)
+        # A genuinely new session, so issued_at is left to default to now:
+        # this is the one place that starts a renewal chain rather than
+        # continuing one.
         set_session_cookie(
-            response, principal, secure=cookie_secure(), sid=token_sid(access_token)
+            response,
+            principal,
+            secure=cookie_secure(),
+            sid=token_sid(access_token),
+            epoch=epoch,
         )
         response.delete_cookie(OAUTH_COOKIE)
         return response
 
     async def logout(request: Request) -> Response:
-        """Clear the session cookie and hand back the upstream logout URL.
+        """End every session this person holds, and hand back the upstream URL.
+
+        Deleting the cookie is not logging out. The cookie is a signed
+        bearer token: a copy taken beforehand keeps working, renewing itself
+        on every request, and the person who pressed the button has no way
+        to stop it. So logout moves the person's ``session_epoch`` on, which
+        invalidates every token sealed before this moment.
+
+        That makes logout global rather than per-device, which is a real
+        cost -- signing out on a laptop signs out the phone. It is the right
+        trade here: the thing being protected is the whole of somebody's
+        private memory, the cost of being too aggressive is signing in
+        again, and the cost of being too weak is silent, permanent access by
+        whoever holds a copy. Anyone wanting per-device logout needs a stored
+        session per device, which is a different design, not a smaller one.
+
+        Revocation is deliberately best-effort about the rest: if the epoch
+        bump fails the cookie is still cleared and the upstream URL still
+        returned, because a logout that reports failure teaches people to
+        ignore it.
 
         :param request: the incoming request; must carry the CSRF header
         :returns: ``{"ok": true}`` plus, when the session carries a sid,
@@ -205,6 +238,12 @@ def register_auth_routes(
         except CsrfRejected:
             return JSONResponse({"error": "csrf"}, status_code=403)
         body: dict = {"ok": True}
+        session = session_from_request(request)
+        if session is not None:
+            async with transaction_scope():
+                principal = Principal(person_id=session.person_id, email=session.email)
+                await arm(principal)
+                await revoke_sessions(session.person_id)
         sid = session_sid(request)
         if sid:
             query = urlencode(

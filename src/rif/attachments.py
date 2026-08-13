@@ -9,6 +9,7 @@ transaction. Callers must therefore not wrap it.
 
 import asyncio
 import logging
+import re
 from hashlib import sha256
 from typing import Protocol
 from uuid import uuid4
@@ -22,6 +23,68 @@ from rif.models import Attachment, AttachmentStatus, Page
 
 logger = logging.getLogger(__name__)
 
+MIME_RE = re.compile(r"[A-Za-z0-9][\w.+-]*/[A-Za-z0-9][\w.+-]*\Z")
+"""A content type, and nothing else.
+
+The value is echoed into an S3 ``ContentType`` and into a signed URL's query
+string, so it is matched against a shape rather than merely length-checked.
+"""
+
+INLINE_MIMES = frozenset(
+    {"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif"}
+)
+"""Types a browser may render in place, because a page embeds them.
+
+Raster images only. ``image/svg+xml`` is deliberately absent: an SVG is a
+document that can carry script, and it is embedded by exactly the same
+Markdown syntax as a PNG, so a co-member could hand a reader a drawing that
+is really a program. Everything outside this set is delivered as an opaque
+download instead -- which is what the ``/api/files`` link surface wants
+anyway.
+"""
+
+_DOWNLOAD_MIME = "application/octet-stream"
+
+
+def _delivery(mime: str, filename: str) -> tuple[str, str]:
+    """Return the content type and disposition a stored file is served with.
+
+    Bytes arrive with a caller-supplied type and are stored with it, so
+    ``add_file`` can be told a ``receipt.pdf`` is ``text/html`` and the
+    object store will faithfully serve it as a document. The bucket is a
+    different origin from the app, so this is not an XSS into reef -- but it
+    is a reader clicking a file their cove described as a receipt and getting
+    a live page, which is a good enough phishing primitive to close.
+
+    Overriding at signing time rather than at upload keeps the stored bytes
+    and their declared type intact for export, and fixes the existing objects
+    too: every fetch goes through a fresh signature.
+
+    :param mime: the stored content type
+    :param filename: the stored filename, for the download's name
+    :returns: the ``Content-Type`` and ``Content-Disposition`` to sign with
+    """
+    safe_name = _header_safe(filename) or "download"
+    if mime in INLINE_MIMES:
+        return mime, f'inline; filename="{safe_name}"'
+    return _DOWNLOAD_MIME, f'attachment; filename="{safe_name}"'
+
+
+def _header_safe(value: str) -> str:
+    """Strip what must never reach a ``Content-Disposition`` header.
+
+    Quotes and separators would end the quoted filename early; control
+    characters -- carriage return and newline above all -- are the classic
+    header-splitting payload. Both are removed rather than escaped, because
+    a filename is a label here and nothing depends on it round-tripping.
+
+    :param value: the stored filename
+    :returns: the filename with unsafe characters removed
+    """
+    return "".join(
+        char for char in value if ord(char) >= 32 and char not in '"\\;\x7f'
+    ).strip()
+
 
 class ObjectStore(Protocol):
     """Blob storage for attachment bytes."""
@@ -29,8 +92,10 @@ class ObjectStore(Protocol):
     async def put(self, key: str, data: bytes, mime: str) -> None:
         """Store bytes under a key."""
 
-    async def signed_url(self, key: str, expires_in: int) -> str:
-        """Return a time-limited URL for a key."""
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
+        """Return a time-limited URL for a key, with safe delivery headers."""
 
     async def get(self, key: str) -> bytes:
         """Return the bytes stored under a key."""
@@ -74,17 +139,35 @@ class S3ObjectStore:
             ContentType=mime,
         )
 
-    async def signed_url(self, key: str, expires_in: int) -> str:
-        """Return a presigned URL.
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
+        """Return a presigned URL that dictates how the bytes are delivered.
+
+        ``response-content-type`` and ``response-content-disposition`` are
+        part of the signature, so a reader cannot strip them off the URL to
+        get the stored type back -- an altered query string simply fails to
+        verify. See :func:`_delivery` for what is chosen and why.
+
+        Called without a ``mime`` (an export, a caller that has no row) the
+        object is delivered as an opaque download, which is the safe default.
 
         :param key: object key
         :param expires_in: lifetime in seconds
+        :param mime: the stored content type, when the caller has the row
+        :param filename: the stored filename, for the download's name
         :returns: the URL
         """
+        content_type, disposition = _delivery(mime, filename)
         return await asyncio.to_thread(
             self._client.generate_presigned_url,
             "get_object",
-            Params={"Bucket": self._bucket, "Key": key},
+            Params={
+                "Bucket": self._bucket,
+                "Key": key,
+                "ResponseContentType": content_type,
+                "ResponseContentDisposition": disposition,
+            },
             ExpiresIn=expires_in,
         )
 
@@ -188,7 +271,24 @@ async def add_attachment(
         )
         await attachment.save()
 
-    await store.put(key, data, mime)
+    try:
+        await store.put(key, data, mime)
+    except Exception:
+        # The row is committed and the bytes are not coming. Left PENDING it
+        # is indistinguishable from an upload still in flight, so it sits
+        # there forever: invisible to every reader, counted by nothing,
+        # cleanable by nobody. FAILED says what happened, and is a state a
+        # sweep can act on. Best effort -- if this write fails too the
+        # original error is still what the caller must hear, so it is
+        # swallowed rather than allowed to mask the cause.
+        try:
+            async with transaction_scope():
+                await arm(principal)
+                attachment.status = AttachmentStatus.FAILED.value
+                await attachment.save()
+        except Exception:
+            logger.exception("could not mark attachment %s failed", key)
+        raise
 
     # A second transaction, because the first one had to commit. The RLS
     # principal was bound transaction-locally and is therefore gone; without
@@ -270,6 +370,13 @@ async def get_attachment(
 ) -> Attachment | None:
     """Fetch attachment metadata, scoped to a space the principal can see.
 
+    READY only, matching every other reader (the index and the context loader
+    both filter on it). A PENDING row is one whose bytes have not reached the
+    object store yet -- or never did, because the upload failed between the
+    two transactions :func:`add_attachment` uses. Handing back a signed URL
+    for one produces a link that 404s at the bucket, which reads as reef
+    losing a file rather than as an upload that never finished.
+
     :param principal: the authenticated person
     :param alias: ``personal`` or a shared-space slug
     :param key: object key
@@ -278,6 +385,10 @@ async def get_attachment(
     space = await resolve_space(principal, alias)
     return (
         await Attachment.objects()
-        .where(Attachment.space_id == space.id, Attachment.object_key == key)
+        .where(
+            Attachment.space_id == space.id,
+            Attachment.object_key == key,
+            Attachment.status == AttachmentStatus.READY.value,
+        )
         .first()
     )

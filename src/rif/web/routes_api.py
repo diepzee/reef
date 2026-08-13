@@ -28,7 +28,7 @@ from rif.config import get_settings
 from rif.context import build_index, latest_editors
 from rif.db import transaction_scope
 from rif.export import build_full_dump, build_json_export, build_markdown_archive
-from rif.identity import person_by_email, person_exists
+from rif.identity import person_by_email, person_session_epoch
 from rif.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
@@ -40,6 +40,8 @@ from rif.models import Page, Person
 from rif.pages import (
     InvalidPath,
     PageNotFound,
+    PageTooLarge,
+    PrivateContentLeak,
     ProtectedPath,
     VersionConflict,
     delete_page,
@@ -54,6 +56,7 @@ from rif.spaces import (
     leave_space,
     member_roster,
     remove_member,
+    rename_cove,
     space_owner,
 )
 from rif.web.requests import (
@@ -64,6 +67,7 @@ from rif.web.requests import (
     cookie_secure,
     principal_from_request,
     require_csrf,
+    session_from_request,
     session_sid,
     set_session_cookie,
 )
@@ -182,6 +186,8 @@ def api(handler: Callable) -> Callable:
             require_csrf(request)
         except CsrfRejected:
             return JSONResponse({"error": "csrf"}, status_code=403)
+        session = session_from_request(request)
+        epoch = 0
         try:
             async with transaction_scope():
                 try:
@@ -194,13 +200,15 @@ def api(handler: Callable) -> Callable:
                         person_id=identity.person_id, email=identity.email
                     )
                 else:
-                    # A validly-signed cookie can outlive the person it names
-                    # (deleted since sealing) -- confirm the row still exists
-                    # rather than let a phantom principal reach the handler.
-                    # Only a boolean crosses the boundary: the id is already
-                    # known, and nothing else about the row is needed here.
-                    if not await person_exists(principal.person_id):
+                    # A validly-signed cookie can outlive both the person it
+                    # names (deleted since sealing) and its own authority
+                    # (revoked since sealing). One lookup answers both: None
+                    # means the row is gone, and a moved-on epoch means every
+                    # token sealed before the bump is finished.
+                    current = await person_session_epoch(principal.person_id)
+                    if current is None or session is None or current != session.epoch:
                         raise Unauthenticated from None
+                    epoch = current
                 # Armed before the handler rather than inside it, so a handler
                 # that reads an identity table sees the same principal every
                 # other query does. Handlers that call resolve_space re-arm
@@ -219,6 +227,20 @@ def api(handler: Callable) -> Callable:
             return JSONResponse({"error": "protected"}, status_code=403)
         except PageNotFound:
             return JSONResponse({"error": "not_found"}, status_code=404)
+        except PrivateContentLeak as error:
+            # 409, not 403: the caller is entitled to write here, and the
+            # content is theirs. What is refused is this route to it, and the
+            # detail names the one that is open.
+            return JSONResponse(
+                {"error": "private_content", "detail": str(error)}, status_code=409
+            )
+        except PageTooLarge as error:
+            # 400 with the reason: it names something the caller can fix by
+            # splitting the page, and a bare "bad_request" reads as a bug in
+            # the app rather than as a rule.
+            return JSONResponse(
+                {"error": "page_too_large", "detail": str(error)}, status_code=400
+            )
         except InvalidPath as error:
             # The detail names what is wrong with the path; the editor shows
             # it verbatim, so a generic 400 here would lose the only useful
@@ -242,8 +264,17 @@ def api(handler: Callable) -> Callable:
             del response.headers[_ACCOUNT_DELETED_HEADER]
             response.delete_cookie(SESSION_COOKIE)
         else:
+            # issued_at is carried from the incoming cookie, never reset: a
+            # renewal that restarts it makes the absolute ceiling unreachable
+            # for exactly the session that most needs it, one being used
+            # every day. See rif.web.session.
             set_session_cookie(
-                response, principal, secure=cookie_secure(), sid=session_sid(request)
+                response,
+                principal,
+                secure=cookie_secure(),
+                sid=session.sid if session else None,
+                issued_at=session.issued_at if session else None,
+                epoch=epoch,
             )
         return response
 
@@ -602,6 +633,21 @@ async def _remove_member(request: Request, principal: Principal) -> dict:
     return await remove_member(principal, slug, email)
 
 
+async def _rename_space(request: Request, principal: Principal) -> dict:
+    """Change what the caller calls a cove, for the caller only.
+
+    :param request: the incoming request, carrying a ``space`` path param and
+        a JSON body with ``name`` required
+    :param principal: the authenticated person
+    :raises BadRequest: for a malformed body or a missing ``name``
+    :returns: the old and new names
+    """
+    payload = await _json_body(request)
+    return await rename_cove(
+        principal, request.path_params["space"], _require_str(payload, "name")
+    )
+
+
 async def _leave_space(request: Request, principal: Principal) -> dict:
     """Leave a shared space, handing it on if the caller owned it.
 
@@ -651,7 +697,12 @@ async def _get_file(request: Request, principal: Principal) -> Response:
     if attachment is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
     settings = get_settings()
-    url = await S3ObjectStore().signed_url(key, settings.signed_url_ttl_seconds)
+    url = await S3ObjectStore().signed_url(
+        key,
+        settings.signed_url_ttl_seconds,
+        mime=attachment.mime,
+        filename=attachment.filename or key.rsplit("/", 1)[-1],
+    )
     return RedirectResponse(url, status_code=302)
 
 
@@ -672,9 +723,27 @@ async def _export(request: Request, principal: Principal) -> Response:
 
     ``scope=all`` exports every accessible cove; any other value is resolved
     as one cove alias through the same access checks as page reads.
+
+    POST, not GET, and the options travel in the body. Two reasons, both
+    about what a GET is: it is reachable by navigation, so a hostile page
+    could point a logged-in reader's browser at this route and trigger a
+    drive-by download of their whole reef -- the attacker cannot read the
+    bytes cross-origin, but the file lands on the victim's disk, and the
+    ``Lax`` session cookie is sent on exactly that kind of top-level
+    navigation. And a GET puts cove names, which are the user's own words,
+    into request lines that proxies and access logs keep. As a POST the
+    route needs the ``X-Rif-Csrf`` header, which no cross-origin navigation
+    or form can set.
+
+    :param request: the incoming request; ``scope`` and ``format`` come from
+        the JSON body
+    :param principal: the authenticated person
+    :raises BadRequest: for a malformed body or an unknown format
+    :returns: the archive as a private download
     """
-    export_format = request.query_params.get("format", "markdown")
-    scope = request.query_params.get("scope", "all")
+    payload = await _json_body(request)
+    export_format = _optional_str(payload, "format") or "markdown"
+    scope = _optional_str(payload, "scope") or "all"
     alias = None if scope == "all" else scope
     name = "all-coves" if alias is None else alias
     if export_format == "markdown":
@@ -693,7 +762,16 @@ async def _export(request: Request, principal: Principal) -> Response:
 
 
 async def _dump(request: Request, principal: Principal) -> Response:
-    """Download every portable datum visible to the principal as one ZIP."""
+    """Download every portable datum visible to the principal as one ZIP.
+
+    POST for the reason :func:`_export` sets out, and more sharply: this is
+    the single request that returns a person's entire reef, page bodies and
+    file bytes included.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the complete archive as a private download
+    """
     return _download(
         await build_full_dump(principal),
         "reef-my-data.zip",
@@ -764,8 +842,10 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/files/{space}/{key:path}", methods=["GET"])(api(_get_file))
     # Existing rendered Markdown points here; keep it as a compatibility alias.
     mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_file))
-    mcp.custom_route("/api/export", methods=["GET"])(api(_export))
-    mcp.custom_route("/api/export/dump", methods=["GET"])(api(_dump))
+    # POST rather than GET: both return the caller's content in bulk, and a
+    # GET is reachable by cross-origin navigation. See :func:`_export`.
+    mcp.custom_route("/api/export", methods=["POST"])(api(_export))
+    mcp.custom_route("/api/export/dump", methods=["POST"])(api(_dump))
     mcp.custom_route("/api/account/delete", methods=["POST"])(api(_delete_account))
     mcp.custom_route("/api/spaces", methods=["POST"])(api(_create_space))
     mcp.custom_route("/api/spaces/{space}/members", methods=["GET"])(
@@ -777,5 +857,6 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/spaces/{space}/members/{email}", methods=["DELETE"])(
         api(_remove_member)
     )
+    mcp.custom_route("/api/spaces/{space}/name", methods=["POST"])(api(_rename_space))
     mcp.custom_route("/api/spaces/{space}/leave", methods=["POST"])(api(_leave_space))
     mcp.custom_route("/api/spaces/{space}", methods=["DELETE"])(api(_delete_space))

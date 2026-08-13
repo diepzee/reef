@@ -92,3 +92,63 @@ export async function apiSend<T>(
   }
   return (await response.json()) as T;
 }
+
+/**
+ * Read the filename out of a `Content-Disposition` header.
+ *
+ * :param header: the raw header value, or null when absent
+ * :returns: the quoted filename, or null when there isn't a usable one
+ */
+function dispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const match = /filename="([^"]+)"/.exec(header);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Download a file from a POST endpoint, preserving the server's filename.
+ *
+ * The export routes are POSTs rather than plain links so that they carry the
+ * CSRF header (see `src/rif/web/routes_api.py:_export`), which means a bare
+ * `<a href>` can no longer fetch them: the response has to be read here and
+ * handed to the browser as a blob.
+ *
+ * :param path: the API path
+ * :param body: an optional JSON-serializable request body
+ * :param fallbackName: filename to use if the response doesn't name one
+ */
+export async function apiDownload(
+  path: string,
+  body: unknown,
+  fallbackName: string,
+): Promise<void> {
+  const response = await fetch(path, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "X-Rif-Csrf": "1",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!response.ok) {
+    await handleError(response);
+  }
+  const filename = dispositionFilename(
+    response.headers.get("Content-Disposition"),
+  );
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename ?? fallbackName;
+    document.body.append(link);
+    link.click();
+    link.remove();
+  } finally {
+    // Revoking immediately can cancel the download in some browsers, so the
+    // handle is released on the next turn of the event loop instead.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+}

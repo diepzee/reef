@@ -302,3 +302,95 @@ async def test_ensure_personal_space_seeds_only_the_persona_once(tx, graph):
     assert await get_page(me, "personal", "meta/protocol.md") is None
     spaces = await Space.objects().where(Space.owner_person_id == anna.id)
     assert len(spaces) == 1
+
+
+async def test_a_stranger_using_the_same_name_is_not_a_collision(tx, graph):
+    """Superseded assertion, kept as the record of what changed.
+
+    This used to expect a refusal: cove names were one global namespace, so
+    the first person to take 'family' took it from everybody, and the
+    collision surfaced as a raw driver error that doubled as a cross-tenant
+    existence oracle. Names now live on the membership, so a stranger's cove
+    is not in this person's namespace at all and there is nothing to refuse.
+    """
+    squatter = await graph.person("squatter@x.test", "Squatter")
+    victim = await graph.person("victim@x.test", "Victim")
+    await graph.personal_space(squatter)
+    await graph.personal_space(victim)
+    theirs = await create_space(principal_for(squatter), "family")
+
+    mine = await create_space(principal_for(victim), "family")
+
+    assert mine.id != theirs.id
+    assert await resolve_space(principal_for(victim), "family") is not None
+    # Reusing one of *your own* names is still refused, and still leaves the
+    # transaction usable.
+    with pytest.raises(SpaceError, match="already have a cove"):
+        await create_space(principal_for(victim), "family")
+    second = await create_space(principal_for(victim), "family-jones")
+    assert second.slug == "family-jones"
+
+
+async def test_renaming_a_cove_moves_only_my_own_name_for_it(tx, graph):
+    """The alias is a column on my membership, so a rename is invisible to
+    everybody else -- and it is how an invitee repairs a suffixed name."""
+    from rif.spaces import rename_cove
+
+    ann = await graph.person("ann3@x.test", "Ann")
+    bo = await graph.person("bo3@x.test", "Bo")
+    await graph.personal_space(ann)
+    await graph.personal_space(bo)
+    cove = await graph.shared_space("house", ann, bo)
+
+    outcome = await rename_cove(principal_for(ann), "house", "home")
+
+    assert outcome == {"was": "house", "now": "home"}
+    assert (await resolve_space(principal_for(ann), "home")).id == cove.id
+    with pytest.raises(AccessDenied):
+        await resolve_space(principal_for(ann), "house")
+    # Bo is untouched.
+    assert (await resolve_space(principal_for(bo), "house")).id == cove.id
+
+
+async def test_a_rename_cannot_take_a_name_i_already_use(tx, graph):
+    from rif.spaces import rename_cove
+
+    ann = await graph.person("ann4@x.test", "Ann")
+    await graph.personal_space(ann)
+    await graph.shared_space("house", ann)
+    await graph.shared_space("boat", ann)
+
+    with pytest.raises(SpaceError, match="already have a cove"):
+        await rename_cove(principal_for(ann), "boat", "house")
+
+
+async def test_a_cove_cannot_be_renamed_to_personal(tx, graph):
+    """It would shadow the private space in every later call."""
+    from rif.spaces import rename_cove
+
+    ann = await graph.person("ann5@x.test", "Ann")
+    await graph.personal_space(ann)
+    await graph.shared_space("house", ann)
+
+    with pytest.raises(SpaceError, match="reserved"):
+        await rename_cove(principal_for(ann), "house", "personal")
+
+
+async def test_an_invitee_who_already_uses_the_name_gets_a_suffixed_one(tx, graph):
+    """The inviter cannot see the invitee's other coves, so the alias is
+    chosen and taken inside the database rather than guessed here."""
+    from rif.access import alias_map
+
+    owner = await graph.person("owner@x.test", "Owner")
+    guest = await graph.person("guest@x.test", "Guest")
+    await graph.personal_space(owner)
+    await graph.personal_space(guest)
+    # The guest already calls something 'family'.
+    await graph.shared_space("family", guest)
+    theirs = await create_space(principal_for(owner), "family")
+
+    await invite(principal_for(owner), "family", "guest@x.test")
+
+    names = await alias_map(principal_for(guest))
+    assert names[theirs.id] == "family-2"
+    assert (await resolve_space(principal_for(guest), "family-2")).id == theirs.id

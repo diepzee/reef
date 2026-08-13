@@ -39,52 +39,77 @@ async def arm(principal: Principal) -> None:
     )
 
 
-def space_alias(space: Space) -> str:
-    """Return the name a space goes by at the tool boundary.
+PERSONAL_ALIAS = "personal"
+"""The one alias whose meaning is fixed for everybody.
 
-    The principal's own personal space is always addressed as ``personal``;
-    every shared space is addressed by its slug. Piccolo stores the kind as
-    the enum's string value, so the comparison is against ``.value`` rather
-    than the member.
+Reserved per person rather than globally: it names *your* private space, and
+:func:`resolve_space` resolves it through ownership so no membership row,
+however malformed, can point it somewhere else.
+"""
 
-    :param space: the space to name
-    :returns: ``personal`` or the space's slug
+
+async def alias_map(principal: Principal) -> dict[UUID, str]:
+    """Return the name this principal addresses each of their coves by.
+
+    Aliases live on the membership, so a cove has no single name: two people
+    may call the same cove different things, and two people may each have a
+    cove called ``family`` with no relation between them. Everything that
+    renders a cove name therefore needs the reader's own mapping rather than
+    a property of the row -- which is why the old ``space_alias(space)``,
+    a pure function of the space, no longer exists.
+
+    :param principal: the authenticated person
+    :returns: space id to the alias this principal uses for it
     """
-    return "personal" if space.kind == SpaceKind.PERSONAL.value else space.slug
+    await arm(principal)
+    rows = await Membership.select(Membership.space_id, Membership.alias).where(
+        Membership.person_id == principal.person_id
+    )
+    return {row["space_id"]: row["alias"] for row in rows}
 
 
 async def resolve_space(principal: Principal, alias: str) -> Space:
-    """Resolve a space name for a principal, arming RLS as a side effect.
+    """Resolve a cove name for a principal, arming RLS as a side effect.
 
-    ``personal`` resolves through ownership, not just membership, so
-    malformed membership rows cannot hand someone another person's space.
-    Any other name is a shared-space slug, resolved through membership. The
-    denial message is identical for a missing slug and a slug the principal
-    is not a member of, so probing cannot reveal which spaces exist.
+    Every name is looked up on the principal's *own* membership rows, so a
+    name means whatever this person decided it means and nothing outside
+    their memberships is reachable by guessing.
+
+    ``personal`` is checked twice over: the membership must carry that alias
+    *and* the space must be a personal one this principal owns. Alias
+    uniqueness is per person, so a cove admitted under that name would
+    otherwise shadow the private space in every later call -- the admit path
+    refuses it, and this refuses it again on the read side.
+
+    The denial message is identical for a name nobody uses and a name that
+    belongs to somebody else, so probing reveals nothing about what exists.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or one of this principal's cove names
     :raises AccessDenied: if no such space is reachable by this principal
     :returns: the resolved space
     """
     await arm(principal)
-    query = Space.objects().where(
-        Space.id.is_in(
-            Membership.select(Membership.space_id).where(
-                Membership.person_id == principal.person_id
-            )
+    denied = AccessDenied(f"no space {alias!r} for {principal.email}")
+    membership = (
+        await Membership.objects()
+        .where(
+            Membership.person_id == principal.person_id,
+            Membership.alias == alias,
         )
+        .first()
     )
-    if alias == "personal":
+    if membership is None:
+        raise denied
+    query = Space.objects().where(Space.id == membership.space_id)
+    if alias == PERSONAL_ALIAS:
         query = query.where(
             Space.kind == SpaceKind.PERSONAL.value,
             Space.owner_person_id == principal.person_id,
         )
-    else:
-        query = query.where(Space.kind == SpaceKind.SHARED.value, Space.slug == alias)
     space = await query.first()
     if space is None:
-        raise AccessDenied(f"no space {alias!r} for {principal.email}")
+        raise denied
     return space
 
 

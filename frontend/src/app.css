@@ -651,8 +651,8 @@ textarea {
   font-size: var(--text-xs);
 }
 
-a.export-download,
-a.export-dump-button {
+.export-download,
+.export-dump-button {
   margin-top: 1rem;
   color: var(--accent-deep);
   font-weight: 700;
@@ -683,7 +683,7 @@ a.export-dump-button {
   margin-top: 0.55rem !important;
 }
 
-a.export-dump-button {
+.export-dump-button {
   grid-column: 2;
   justify-self: start;
   background: var(--accent);
@@ -2287,4 +2287,38 @@ button.danger {
   /* Baseline alignment puts a flex item's own first baseline on the row's,
      which for a centred digit sits too low; nudge the circle instead. */
   transform: translateY(0.2em);
+}
+
+/* Renaming a cove is per person: the name lives on the reader's own
+   membership, so this control sits with the roster rather than anywhere
+   that would imply it changes the cove for everybody. */
+.mbs-rename-open {
+  margin-top: 0.6rem;
+  min-height: 0;
+  padding: 0.25rem 0.6rem;
+  font-size: var(--text-xs);
+  background: transparent;
+}
+
+.mbs-rename {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.mbs-rename label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: var(--text-xs);
+}
+
+.mbs-rename-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mbs-rename-actions button {
+  min-height: 0;
+  padding: 0.35rem 0.75rem;
+  font-size: var(--text-xs);
 }

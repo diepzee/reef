@@ -90,29 +90,51 @@ class Person(Table, tablename="persons", db=DB):
         "self", null=True, default=None, on_delete=OnDelete.set_null
     )
     created_at = Timestamp(default=TimestampNow())
+    # Bumped to end every session this person holds. reef issues its own
+    # session cookie, which is signed rather than stored, so there is no row
+    # to delete when one has to be revoked -- this counter is what a sealed
+    # token is checked against instead. See rif.web.session.
+    session_epoch = Integer(default=0)
 
 
 class Space(Table, tablename="spaces", db=DB):
-    """A named group of people. Every space has one accountable owner."""
+    """A group of people. Every space has one accountable owner.
+
+    ``slug`` is the name its creator chose, kept for provenance and as the
+    alias offered to each new member. It is deliberately **not** unique: a
+    globally unique cove name is a cross-tenant namespace, which let anyone
+    squat ``family`` or ``home`` for everybody and turned a collision into an
+    existence oracle. What a person actually addresses a cove by lives on
+    their own membership row, unique per person -- see :class:`Membership`.
+    """
 
     id = UUID(primary_key=True, default=uuid4)
-    slug = Varchar(unique=True)
+    slug = Varchar()
     kind = Varchar(choices=SpaceKind)
     owner_person_id = ForeignKey(Person)
     version = Integer(default=0)
 
 
 class Membership(Table, tablename="memberships", db=DB):
-    """Who may see which space, and what the membership grants.
+    """Who may see which space, what it grants, and what they call it.
 
     The real key is ``(person_id, space_id)``; Piccolo's surrogate ``id`` is
     an artefact, and the composite uniqueness is enforced by a raw
     constraint rather than by this definition.
+
+    ``alias`` is the name this person addresses this cove by, and it is the
+    only name the tool surface accepts. It lives here rather than on
+    ``spaces`` because the constraint that actually has to hold is "the
+    aliases *one person* can reach are unique" -- which is
+    ``UNIQUE (person_id, alias)``, an ordinary index, and is not expressible
+    as a property of the cove. Two people may each have a cove called
+    ``family`` without either knowing the other exists.
     """
 
     person_id = ForeignKey(Person)
     space_id = ForeignKey(Space)
     role = Varchar(choices=MemberRole, default=MemberRole.MEMBER.value)
+    alias = Varchar()
 
 
 class Page(Table, tablename="pages", db=DB):
