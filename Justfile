@@ -106,13 +106,18 @@ db-reset-test:
 # Everything CI would run: lint, format check, backend and frontend tests.
 test: lint test-py test-js
 
+# Every worktree shares one rif_test, and the schema fixture rebuilds the
+# helper functions globally — so two suites at once clobber each other and
+# the second reports a screenful of failures that are not about the code.
+# scripts/run_tests.py holds a machine-wide lock so the second one waits.
+
 # Run the Python test suite. Pass a path or -k expression: just test-py tests/test_rls.py
 test-py *args:
-    {{python}} -m pytest {{args}}
+    {{python}} scripts/run_tests.py {{args}}
 
 # Run the Python suite in a fixed order, for reproducing an ordering bug.
 test-py-ordered *args:
-    {{python}} -m pytest -p no:randomly {{args}}
+    {{python}} scripts/run_tests.py -p no:randomly {{args}}
 
 # Run the frontend test suite.
 test-js *args:
