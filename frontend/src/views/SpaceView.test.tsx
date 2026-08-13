@@ -56,7 +56,14 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    index: { spaces: [{ alias: "trip", pages: [] }] },
+    // "personal" too: the page list, and the appearance section under it,
+    // only render for a cove the index actually holds.
+    index: {
+      spaces: [
+        { alias: "trip", pages: [] },
+        { alias: "personal", pages: [] },
+      ],
+    },
     error: null,
     refresh: () => Promise.resolve(),
   }),
@@ -109,82 +116,24 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("with others here, the exit is leaving — never deleting", () => {
+test("no cove is left or deleted from this screen", () => {
+  // Leaving and deleting moved into the members sheet's danger zone — see
+  // MembersSheet.test.tsx, which holds the guards. What matters here is that
+  // a permanent delete no longer sits one scroll under the page list.
   renderSpace();
-  expect(screen.getByText("Leave this cove")).toBeDefined();
-  expect(screen.queryByText("Delete this cove")).toBeNull();
-});
-
-test("an owner leaving is told the cove survives without them", () => {
-  renderSpace();
-  expect(screen.getByText(/Ownership passes to another member/)).toBeDefined();
-  expect(screen.getByText(/2 other people/)).toBeDefined();
-});
-
-test("a member leaving is told it stays for everyone else", () => {
-  members = roster(3, false);
-  renderSpace();
-  expect(screen.getByText(/It stays for everyone else/)).toBeDefined();
-});
-
-test("leaving asks once, then posts", async () => {
-  renderSpace();
-  fireEvent.click(screen.getByText("Leave trip…"));
-  expect(sent).toEqual([]);
-  fireEvent.click(screen.getByText("Confirm — leave trip"));
-  await waitFor(() => expect(navigated).toEqual(["/"]));
-  expect(sent).toEqual([
-    { method: "POST", path: "/api/spaces/trip/leave", body: undefined },
-  ]);
-});
-
-test("alone in a cove, the exit is deletion and says what goes with it", () => {
-  members = roster(1);
-  renderSpace();
-  expect(screen.getByText("Delete this cove")).toBeDefined();
-  expect(screen.getByText(/pages, files, and history go with it, permanently/))
-    .toBeDefined();
-  expect(screen.queryByText("Leave trip…")).toBeNull();
-});
-
-test("deleting needs the cove's own name typed", () => {
-  members = roster(1);
-  renderSpace();
-  fireEvent.click(screen.getByText("Delete trip…"));
-  const confirm = screen.getByText("Permanently delete trip") as HTMLButtonElement;
-  expect(confirm.disabled).toBe(true);
-  fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "trp" } });
-  expect(confirm.disabled).toBe(true);
-});
-
-test("the typed name unlocks deletion, and it sends the confirmation", async () => {
-  members = roster(1);
-  renderSpace();
-  fireEvent.click(screen.getByText("Delete trip…"));
-  fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "trip" } });
-  fireEvent.click(screen.getByText("Permanently delete trip"));
-  await waitFor(() => expect(sent.length).toBe(1));
-  expect(sent[0]).toMatchObject({
-    method: "DELETE",
-    path: "/api/spaces/trip",
-    body: { confirmation: "trip" },
-  });
-});
-
-test("a refused exit is reported and the reader stays put", async () => {
-  response = () => {
-    throw new FakeApiError(403, "not_allowed");
-  };
-  renderSpace();
-  fireEvent.click(screen.getByText("Leave trip…"));
-  fireEvent.click(screen.getByText("Confirm — leave trip"));
-  await waitFor(() => expect(screen.getByText("not_allowed")).toBeDefined());
-  expect(navigated).toEqual([]);
-});
-
-test("the personal cove offers no way out at all", () => {
-  // There is nothing to leave and nothing to hand over.
-  renderSpace("personal");
   expect(screen.queryByText(/Leave this cove/)).toBeNull();
   expect(screen.queryByText(/Delete this cove/)).toBeNull();
+});
+
+test("the personal cove is styled from this screen, having no sheet", () => {
+  // Every shared cove reaches the picker from Manage. The personal one has
+  // no roster and so no sheet, and would otherwise lose the control.
+  renderSpace("personal");
+  expect(screen.getByText("Appearance")).toBeDefined();
+  expect(screen.getByText("Colour")).toBeDefined();
+});
+
+test("a shared cove keeps its appearance behind Manage, not in the body", () => {
+  renderSpace();
+  expect(screen.queryByText("Appearance")).toBeNull();
 });

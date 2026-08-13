@@ -1113,6 +1113,14 @@ button.danger {
   font-size: 9px;
 }
 
+/* The roster, where a face is the row's subject rather than a marker
+   beside one. */
+.avatar-lg {
+  width: 38px;
+  height: 38px;
+  font-size: var(--text-base);
+}
+
 .avatar-stack {
   display: inline-flex;
   align-items: center;
@@ -1520,66 +1528,112 @@ button.danger {
 }
 
 .look {
-  margin-block: 28px;
+  margin-block: 4px;
 }
 
-/* --text-sm to match `.mbs-sub`: this now sits in the members sheet, where
+/* --text-sm to match `.mbs-sub`: this sits under a section heading, where
    inheriting the 16px body size made the aside louder than the heading. */
 .look-note {
   margin-block: 2px 10px;
   font-size: var(--text-sm);
 }
 
-.look-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-block: 8px;
+/* One labelled control — "Colour", "Icon", "Name" — stacked under a section
+   heading. The label is quieter than the heading and louder than the note. */
+.look-field {
+  margin-block: 12px;
 }
 
-/* Swatch and creature share a footprint so the two rows line up as a grid,
-   even though one is a colour chip and the other a drawing. */
-.look-swatch,
-.look-glyph {
+/* Inside the sheet these line up with every other section, which is inset
+   from the sheet's edge rather than flush to it. Scoped, because the same
+   picker renders in SpaceView's body for the personal cove, where the page
+   already provides the margin. */
+.mbs-sheet .look-field {
+  margin-inline: 20px;
+}
+
+.look-label {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+/*
+ * A fixed nine-column grid, not a wrapping flex row: the rows hold nine
+ * tiles each ("from its name" plus eight), and flex-wrap broke them 8 + 1,
+ * which read as a stray tile rather than a set. The grid keeps both rows
+ * aligned column for column, at whatever width the sheet happens to be.
+ */
+.look-row {
+  display: grid;
+  /* Capped rather than `1fr`: in the sheet the tiles shrink to fit, but in
+     SpaceView's much wider body `1fr` grew them to about 70px each, which
+     turned a row of swatches into a row of tiles the size of buttons. */
+  grid-template-columns: repeat(9, minmax(0, 40px));
+  gap: 6px;
+  justify-content: start;
+}
+
+/* Colour chip and creature share a footprint so the two rows line up as a
+   grid, even though one is a colour and the other a drawing. */
+.look-tile {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 100%;
+  aspect-ratio: 1;
   min-width: 0;
   min-height: 0;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 9px;
-  background: var(--panel);
+  border-radius: 10px;
   cursor: pointer;
 }
 
-.look-swatch.on,
-.look-glyph.on {
-  border-color: var(--ink);
-}
-
-.look-swatch:disabled,
-.look-glyph:disabled {
-  cursor: default;
-}
-
-/* "From its name" is a word, not a colour, so it needs to read as a label
-   at the same size as the chips beside it. */
-.look-auto {
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--faint);
-  background: none;
+/* The glyph tiles sit on a neutral ground, so a ring marks the chosen one
+   unambiguously. A colour tile cannot use a ring — see `.look-tile .look-tick`. */
+.look-tile-glyph {
+  background: var(--panel);
   border-color: var(--hairline);
 }
 
-.look-auto.on {
-  color: var(--ink);
-  border-color: var(--ink);
+.look-tile-glyph.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* A ring around a colour reads as one more shade rather than as a state, so
+   the chosen colour is marked inside it instead. */
+.look-tile .look-tick {
+  filter: drop-shadow(0 0 1.5px rgb(0 0 0 / 0.45));
+}
+
+/*
+ * "From its name" is otherwise identical to whichever concrete tile the name
+ * happens to give, so it carries a corner pip. Not a letter: it sits over a
+ * colour that could be any of eight, and a glyph in the other row.
+ */
+.look-tile-auto::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ground);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.25);
+}
+
+.look-tile:disabled {
+  cursor: default;
+}
+
+.look-tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .profile-head {
@@ -2031,6 +2085,33 @@ button.danger {
   padding: 0;
 }
 
+/*
+ * The sheet's section headings — MEMBERS, INVITE A PERSON, APPEARANCE,
+ * DANGER ZONE. Small caps and faint, so they group without competing with
+ * the sheet's own title; the sheet is long enough that unlabelled runs of
+ * controls read as one undifferentiated list.
+ */
+.mbs-label {
+  margin: 20px 20px 8px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.mbs-label-danger {
+  color: var(--danger);
+}
+
+/* The one-line aside under a section heading. */
+.mbs-note {
+  margin: 0 20px 10px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .mbs-person {
   display: flex;
   align-items: center;
@@ -2064,6 +2145,27 @@ button.danger {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--faint);
+}
+
+/*
+ * Which row is you. A chip rather than faint text like the OWNER tag: for a
+ * non-owner every address is blanked, so this is the only thing on the whole
+ * roster that tells them where they are in it.
+ */
+.mbs-you-tag {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* Both can land on one row — the owner looking at their own. The first
+   claims the free space; the second must not claim it again. */
+.mbs-you-tag + .mbs-owner-tag {
+  margin-left: 8px;
 }
 
 .mbs-person-actions {
@@ -2100,32 +2202,105 @@ button.danger {
 }
 
 .mbs-invite {
-  margin: 12px 20px 0;
-  border: 1px dashed var(--hairline);
-  border-radius: 10px;
-  padding: 12px;
+  margin: 0 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
-.mbs-invite-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  margin-bottom: 2px;
+/* Address and action on one line: an address is the whole of an invite, so
+   the two belong together rather than stacked with the button orphaned. */
+.mbs-invite-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.mbs-invite-row input {
+  flex: 1;
+  min-height: 40px;
 }
 
 .mbs-invite button[type="submit"] {
-  align-self: flex-start;
-  min-height: auto;
+  flex: none;
+  min-height: 40px;
   background: var(--accent);
   color: var(--ground);
   font-size: var(--text-sm);
   font-weight: 600;
-  padding: 7px 13px;
+  padding: 0 18px;
   border: none;
-  border-radius: 7px;
-  margin-top: 2px;
+  border-radius: 8px;
+}
+
+.mbs-invite button[type="submit"]:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.mbs-invite-name {
+  min-height: 40px;
+}
+
+/*
+ * The way out of a cove, at the foot of the sheet. Outlined rather than
+ * filled: it is the only destructive control here, and a filled red button
+ * would pull the eye straight past the roster it sits under.
+ */
+.mbs-danger {
+  margin: 0 20px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--danger-ink);
+  font-weight: 600;
+}
+
+.mbs-danger:hover {
+  background: var(--danger-bg);
+}
+
+.mbs-danger-final:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.mbs-danger-guards {
+  margin: 0 20px;
+}
+
+.mbs-danger-phrase {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.mbs-danger-phrase input {
+  margin-top: 0.3rem;
+  min-height: 40px;
+  border-color: var(--danger-border);
+}
+
+.mbs-danger-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.7rem;
+}
+
+/* The buttons inside a guarded block carry the block's own margin, so they
+   must not add the standalone control's. */
+.mbs-danger-guards .mbs-danger,
+.mbs-danger-actions .mbs-danger {
+  margin: 0;
+}
+
+.mbs-danger-actions button {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: var(--text-sm);
 }
 
 .mbs-disclose {
@@ -2348,18 +2523,49 @@ button.danger {
 /* Renaming a cove is per person: the name lives on the reader's own
    membership, so this control sits with the roster rather than anywhere
    that would imply it changes the cove for everybody. */
+/*
+ * Reads as the field it stands in for — the cove's name as you call it —
+ * with the action as a quiet hint on the right, so the row shows the current
+ * value rather than only offering to change it.
+ */
 .mbs-rename-open {
-  margin-top: 0.6rem;
-  min-height: 0;
-  padding: 0.25rem 0.6rem;
-  font-size: var(--text-xs);
-  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--field);
+  font-size: var(--text-base);
+  text-align: left;
+}
+
+.mbs-rename-hint {
+  flex: none;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .mbs-rename {
-  margin-top: 0.6rem;
-  display: grid;
-  gap: 0.5rem;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.mbs-rename input {
+  flex: 1;
+  min-height: 40px;
+}
+
+.mbs-rename button {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: var(--text-sm);
 }
 
 .mbs-rename label {
