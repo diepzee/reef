@@ -1,5 +1,5 @@
 [project]
-name = "reefwith"
+name = "reefcli"
 version = "0.1.0"
 description = "Command-line client for reef — shared, living memory for people and their AI assistants"
 readme = "README.md"
@@ -18,7 +18,7 @@ Homepage = "https://reefwith.me"
 Repository = "https://github.com/diepzee/rif"
 
 [project.scripts]
-reef = "reefwith.cli:main"
+reef = "reefcli.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]

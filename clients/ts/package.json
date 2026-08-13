@@ -1,13 +1,13 @@
 {
-  "name": "reefwith",
-  "version": "0.1.0",
+  "name": "reefcli",
+  "version": "0.1.1",
   "description": "Command-line client for reef — shared, living memory for people and their AI assistants",
   "keywords": ["mcp", "memory", "cli", "reef"],
   "homepage": "https://reefwith.me",
   "repository": { "type": "git", "url": "git+https://github.com/diepzee/rif.git", "directory": "clients/ts" },
   "license": "MIT",
   "type": "module",
-  "bin": { "reef": "dist/index.js", "reefwith": "dist/index.js" },
+  "bin": { "reef": "dist/index.js", "reefcli": "dist/index.js" },
   "files": ["dist"],
   "engines": { "node": ">=20" },
   "scripts": {

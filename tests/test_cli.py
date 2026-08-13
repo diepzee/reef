@@ -3,7 +3,7 @@ import json
 import os
 from typing import Any, ClassVar
 
-from reefwith.cli import JsonTokenStore, build_parser, run
+from reefcli.cli import JsonTokenStore, build_parser, run
 
 from rif.server import mcp
 
@@ -184,7 +184,7 @@ async def test_tool_error_payload_sets_failure_status(monkeypatch, tmp_path, cap
 
 async def test_json_token_store_persists_and_expires(tmp_path, monkeypatch):
     clock = [1000.0]
-    monkeypatch.setattr("reefwith.cli.time.time", lambda: clock[0])
+    monkeypatch.setattr("reefcli.cli.time.time", lambda: clock[0])
     path = tmp_path / "reef" / "oauth.json"
     store = JsonTokenStore(path)
 
