@@ -16,6 +16,7 @@ Glama directory's ownership claim on the same footing: a public, tokenless
 document at a fixed path that a third party fetches on its own schedule.
 """
 
+import re
 from pathlib import Path
 
 from starlette.requests import Request
@@ -35,6 +36,49 @@ from rif.config import get_settings
 # rif.web.routes_auth's _registered set; both assume mcp is a process-wide
 # singleton, so keying by id(mcp) never collides with a second live server.
 _registered: set[int] = set()
+
+#: Cache policy for HTML. ``no-cache`` does not mean "do not store" -- it
+#: means "revalidate before reuse", so a browser still gets a cheap 304 and
+#: never runs a stale page. This is load-bearing rather than tidy: the SPA
+#: shell names the content-hashed bundle, so a browser holding a stale
+#: index.html runs an old frontend against a new backend indefinitely. That
+#: is not hypothetical -- it is how a fixed avatar upload went on failing
+#: for a person whose browser had cached the shell from before the fix.
+#: Sending nothing at all, as this module used to, is the trap: a response
+#: with no freshness information may be cached on the browser's own guess,
+#: commonly a fraction of its ``Last-Modified`` age.
+_HTML_CACHE = "no-cache"
+
+#: Cache policy for a build asset whose name carries a content hash. A new
+#: build gives it a new name, so these bytes can never change: caching them
+#: for a year is safe, and is the point of hashing the name.
+_HASHED_CACHE = "public, max-age=31536000, immutable"
+
+#: Cache policy for everything else -- assets served under a plain name,
+#: like the mark and favicon the frontend build copies through unhashed.
+#: Those change in place, so freezing them for a year would strand a new
+#: one behind an old one.
+_PLAIN_CACHE = "public, max-age=3600"
+
+#: A build asset whose name carries a content hash, e.g. ``index-psy8engk.js``.
+_HASHED_NAME = re.compile(r"-[A-Za-z0-9_]{8,}\.[A-Za-z0-9]+$")
+
+
+def _cached(path: Path, media_type: str | None = None) -> FileResponse:
+    """Serve a file with the cache policy its name and type earn.
+
+    :param path: the file to serve; assumed already validated by the caller
+    :param media_type: an explicit content type, or None to let Starlette
+        infer it from the suffix
+    :returns: a :class:`FileResponse` carrying ``cache-control``
+    """
+    if path.suffix.lower() in {".html", ".htm"}:
+        policy = _HTML_CACHE
+    elif _HASHED_NAME.search(path.name):
+        policy = _HASHED_CACHE
+    else:
+        policy = _PLAIN_CACHE
+    return FileResponse(path, media_type=media_type, headers={"cache-control": policy})
 
 
 def _serve_or_fallback(path: str) -> Response:
@@ -63,9 +107,9 @@ def _serve_or_fallback(path: str) -> Response:
     except (ValueError, OSError):
         valid = False
     if valid:
-        return FileResponse(candidate)
+        return _cached(candidate)
     if index.is_file():
-        return FileResponse(index)
+        return _cached(index)
     return PlainTextResponse("frontend not built", status_code=503)
 
 
@@ -88,7 +132,7 @@ def _serve_site_asset(path: str) -> Response:
     except (ValueError, OSError):
         valid = False
     if valid:
-        return FileResponse(candidate)
+        return _cached(candidate)
     return PlainTextResponse("not found", status_code=404)
 
 
@@ -110,7 +154,7 @@ def _serve_icon(filename: str, media_type: str) -> Response:
     candidate = Path(get_settings().static_dir) / filename
     if not candidate.is_file():
         return PlainTextResponse("not found", status_code=404)
-    return FileResponse(candidate, media_type=media_type)
+    return _cached(candidate, media_type=media_type)
 
 
 def register_static_routes(mcp) -> None:
@@ -137,7 +181,7 @@ def register_static_routes(mcp) -> None:
         """
         index = Path(get_settings().site_dir) / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return _cached(index)
         return RedirectResponse("/app", status_code=307)
 
     async def privacy(request: Request) -> Response:
@@ -153,7 +197,7 @@ def register_static_routes(mcp) -> None:
         """
         page = Path(get_settings().site_dir) / "privacy.html"
         if page.is_file():
-            return FileResponse(page)
+            return _cached(page)
         return PlainTextResponse("Not Found", status_code=404)
 
     async def site_asset(request: Request) -> Response:
