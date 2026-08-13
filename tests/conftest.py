@@ -20,11 +20,15 @@ from rif.db import DB, transaction_scope
 from rif.models import TABLES, Person, Space, SpaceKind
 from rif.rls import (
     AUTHZ_ROLE,
+    alias_statements,
     appearance_statements,
     constraint_statements,
     drop_disclosure_statements,
     drop_mutation_statements,
     enable_statements,
+    open_door_statements,
+    person_column_grant_statements,
+    session_epoch_statements,
 )
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
@@ -170,11 +174,18 @@ async def schema():
     # replacing the first, and two candidates make every call ambiguous.
     for statement in drop_disclosure_statements() + drop_mutation_statements():
         await DB._run_in_new_connection(statement)
-    # appearance_statements is listed separately on purpose: it is not part
-    # of enable_statements, because historical migrations call that and
-    # predate the table. See its docstring.
+    # appearance_statements and open_door_statements are listed separately on
+    # purpose: neither is part of enable_statements, because historical
+    # migrations call that and predate the table and column they need. See
+    # their docstrings.
     for statement in (
-        constraint_statements() + enable_statements() + appearance_statements()
+        constraint_statements()
+        + enable_statements()
+        + appearance_statements()
+        + session_epoch_statements()
+        + alias_statements()
+        + open_door_statements()
+        + person_column_grant_statements()
     ):
         await DB._run_in_new_connection(statement)
     yield

@@ -1,9 +1,10 @@
 """Browser OIDC login: the authorization-code + PKCE dance against AuthKit.
 
-Three plain Starlette routes, registered onto the FastMCP server via
+Four plain Starlette routes, registered onto the FastMCP server via
 ``custom_route``: ``GET /api/auth/login`` starts the redirect, ``GET
 /api/auth/callback`` binds the returning code to a principal and opens a
-session, and ``POST /api/auth/logout`` clears it.
+session, ``POST /api/auth/join`` admits a stranger while the launch door is
+open (:mod:`rif.opendoor`), and ``POST /api/auth/logout`` clears it.
 """
 
 import hmac
@@ -17,11 +18,14 @@ from urllib.parse import urlencode
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
+from rif import audit
 from rif.access import AccessDenied, Principal, arm
 from rif.auth import principal_from_claims
 from rif.config import get_settings
 from rif.db import transaction_scope
 from rif.identity import person_session_epoch, revoke_sessions
+from rif.opendoor import admit, door_policy
+from rif.spaces import ensure_personal_space
 from rif.web.oidc import (
     OAUTH_COOKIE_TTL_SECONDS,
     AuthKitOIDC,
@@ -31,7 +35,9 @@ from rif.web.oidc import (
     _unseal_oauth,
     authkit_domain,
     pkce_pair,
+    seal_join,
     token_sid,
+    unseal_join,
 )
 from rif.web.requests import (
     SESSION_COOKIE,
@@ -52,6 +58,10 @@ WORKOS_LOGOUT_URL = "https://api.workos.com/user_management/sessions/logout"
 
 OAUTH_COOKIE = "rif_oauth"
 
+#: Carries the verified claims across the click on the open door. Separate
+#: from OAUTH_COOKIE because it outlives the callback that set it.
+OPEN_DOOR_COOKIE = "rif_join"
+
 #: Placeholder in ``site/invite-only.html`` where the rejected address goes.
 _EMAIL_SLOT = "__EMAIL__"
 
@@ -61,6 +71,61 @@ _DENIED_FALLBACK = (
     "This site is invite-only. You get in when someone already using it "
     "invites the address you signed in with."
 )
+
+
+def _open_door_page(email: str) -> str:
+    """Render the launch page, naming the address that will be admitted.
+
+    Falls back to the plain refusal if the page is missing from the image:
+    a packaging mistake should shut the door, never open it wider than the
+    operator asked for.
+
+    :param email: the verified address the button will admit
+    :returns: the page's HTML
+    """
+    path = Path(get_settings().site_dir) / "open-door.html"
+    try:
+        template = path.read_text(encoding="utf-8")
+    except OSError:
+        return _DENIED_FALLBACK
+    return template.replace(_EMAIL_SLOT, escape(email))
+
+
+def _wall(claims: dict) -> Response:
+    """Return what an uninvited but verified visitor should see.
+
+    One place decides, so the closed-door behaviour and the launch behaviour
+    cannot drift: with the door shut this is byte-for-byte what every
+    deployment has served until now.
+
+    :param claims: the verified OIDC claims
+    :returns: the 403 refusal, or a 200 page carrying the sealed claims
+    """
+    email = claims.get("email")
+    subject = claims.get("sub")
+    policy = door_policy()
+    if not policy.is_open or not email or not subject:
+        return HTMLResponse(_denied_page(email), status_code=403)
+    response = HTMLResponse(_open_door_page(email))
+    response.set_cookie(
+        OPEN_DOOR_COOKIE,
+        seal_join(
+            email,
+            subject,
+            claims.get("name") or email.split("@")[0],
+            secret=get_settings().session_secret,
+        ),
+        max_age=OAUTH_COOKIE_TTL_SECONDS,
+        httponly=True,
+        # Lax is doing real work, not ceremony: it is what stops a
+        # cross-site POST from carrying this cookie to the join route. The
+        # CSRF header is the other half, and neither is sufficient alone --
+        # the header because a plain form cannot set one, this because a
+        # top-level navigation still sends it.
+        samesite="lax",
+        secure=cookie_secure(),
+    )
+    return response
 
 
 def _denied_page(email: str | None) -> str:
@@ -190,7 +255,12 @@ def register_auth_routes(
                 # cookie carrying the wrong epoch would be dead on arrival.
                 epoch = await person_session_epoch(principal.person_id) or 0
         except AccessDenied:
-            return HTMLResponse(_denied_page(claims.get("email")), status_code=403)
+            # principal_from_claims is deliberately untouched by the launch
+            # exception: its rule stays "unknown subject, no allowlist row,
+            # denied". Admission is a separate and explicit act, so a
+            # misconfigured flag can never make this callback quietly mint
+            # accounts -- the most it can do is offer a button.
+            return _wall(claims)
 
         response = RedirectResponse("/app", status_code=303)
         # A genuinely new session, so issued_at is left to default to now:
@@ -259,6 +329,59 @@ def register_auth_routes(
         response.delete_cookie(SESSION_COOKIE)
         return response
 
+    async def join(request: Request) -> Response:
+        """Admit a verified stranger through the open door, if it is open.
+
+        The launch exception's only entry point. Everything it needs arrives
+        in the sealed cookie the wall set, because the caller has no session
+        -- and everything it grants is checked here rather than there: the
+        seats can run out while somebody reads the page, so the button is an
+        offer, never authority.
+
+        :param request: the incoming request; must carry the CSRF header and
+            the sealed claims cookie
+        :returns: ``{"ok": true}`` with a session cookie on success; 403 for
+            a missing header, missing or defective claims, or a door that is
+            shut or full
+        """
+        try:
+            require_csrf(request)
+        except CsrfRejected:
+            return JSONResponse({"error": "csrf"}, status_code=403)
+        sealed = request.cookies.get(OPEN_DOOR_COOKIE)
+        unsealed = (
+            unseal_join(sealed, secret=get_settings().session_secret)
+            if sealed
+            else None
+        )
+        if unsealed is None:
+            return JSONResponse({"error": "no_claims"}, status_code=403)
+        email, subject, display_name = unsealed
+
+        async with transaction_scope():
+            identity = await admit(email, subject, display_name)
+            if identity is None:
+                return JSONResponse({"error": "door_closed"}, status_code=403)
+            principal = Principal(person_id=identity.person_id, email=identity.email)
+            # Armed before onboarding, for the reason principal_from_claims
+            # spells out: ensure_personal_space inserts a space and a
+            # membership, and those inserts are checked against the armed
+            # principal.
+            await arm(principal)
+            await ensure_personal_space(identity.person_id, identity.email)
+            audit.record(audit.OPEN_DOOR_ADMITTED, actor=identity.person_id)
+            epoch = await person_session_epoch(identity.person_id) or 0
+
+        response = JSONResponse({"ok": True})
+        set_session_cookie(response, principal, secure=cookie_secure(), epoch=epoch)
+        # The claims have been spent. Leaving the cookie would let a second
+        # POST run the whole admission again, which the unique index on
+        # email would refuse -- as a 403 rather than anything worse, but a
+        # spent credential should not outlive its use.
+        response.delete_cookie(OPEN_DOOR_COOKIE)
+        return response
+
     mcp.custom_route("/api/auth/login", methods=["GET"])(login)
     mcp.custom_route("/api/auth/callback", methods=["GET"])(callback)
+    mcp.custom_route("/api/auth/join", methods=["POST"])(join)
     mcp.custom_route("/api/auth/logout", methods=["POST"])(logout)

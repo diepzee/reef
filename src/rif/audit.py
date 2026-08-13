@@ -42,6 +42,10 @@ from rif.telemetry import is_configured
 # something past recovering -- both worth noticing in review rather than
 # discovering in a log.
 INVITE_MINTED = "invite.minted"
+# The launch exception (rif.opendoor). Its actor is the new person themselves,
+# uniquely among these: nobody else is accountable for the admission, which is
+# exactly why it is worth a line in the log.
+OPEN_DOOR_ADMITTED = "invite.open_door_admitted"
 MEMBER_ADMITTED = "cove.member_admitted"
 MEMBER_REMOVED = "cove.member_removed"
 OWNERSHIP_TRANSFERRED = "cove.ownership_transferred"

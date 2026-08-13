@@ -170,6 +170,80 @@ def _unseal_oauth(
     return state, verifier
 
 
+def seal_join(
+    email: str,
+    subject: str,
+    display_name: str,
+    *,
+    secret: str,
+    now: float | None = None,
+) -> str:
+    """Seal verified claims so they survive the click on the open door.
+
+    The stranger meeting the launch wall has no session -- that instant is
+    the only time reef has ever seen them -- so their proven identity has to
+    ride the round trip somewhere. Signed and short-lived, exactly like the
+    oauth cookie, and for the same reason: the payload is authority, and an
+    unsigned one would let anybody type themselves an account.
+
+    :param email: the verified address from the claims
+    :param subject: the provider's durable subject claim
+    :param display_name: how members will see them
+    :param secret: the signing secret
+    :param now: clock override for tests; defaults to wall time
+    :returns: the token string
+    """
+    issued = time.time() if now is None else now
+    payload = json.dumps(
+        {
+            "em": email,
+            "sb": subject,
+            "dn": display_name,
+            "exp": issued + OAUTH_COOKIE_TTL_SECONDS,
+        },
+        separators=(",", ":"),
+    ).encode()
+    return f"{_b64(payload)}.{_sign(payload, secret)}"
+
+
+def unseal_join(
+    token: str, *, secret: str, now: float | None = None
+) -> tuple[str, str, str] | None:
+    """Verify a sealed join cookie and return its claims, or None.
+
+    None for any defect -- bad format, bad signature, expired, wrong shape --
+    because the caller's only decision is whether to admit.
+
+    :param token: the cookie value
+    :param secret: the signing secret
+    :param now: clock override for tests; defaults to wall time
+    :returns: the (email, subject, display_name) triple, or None
+    """
+    parts = token.rsplit(".", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        payload = _unb64(parts[0])
+    except ValueError:
+        return None
+    if not hmac.compare_digest(_sign(payload, secret), parts[1]):
+        return None
+    try:
+        doc = json.loads(payload)
+        email = doc["em"]
+        subject = doc["sb"]
+        display_name = doc["dn"]
+        exp = doc["exp"]
+        if not all(isinstance(v, str) for v in (email, subject, display_name)):
+            return None
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    current = time.time() if now is None else now
+    if current >= float(exp):
+        return None
+    return email, subject, display_name
+
+
 class AuthKitOIDC:
     """The real OIDC client; tests substitute a fake via the protocol."""
 

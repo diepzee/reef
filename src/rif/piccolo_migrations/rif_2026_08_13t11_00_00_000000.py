@@ -3,7 +3,7 @@
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from rif.db import run_ddl_atomically
-from rif.rls import identity_statements
+from rif.rls import identity_statements, session_epoch_statements
 
 ID = "2026-08-13T11:00:00:000000"
 VERSION = "1.36.0"
@@ -30,6 +30,16 @@ async def forwards() -> MigrationManager:
     exist yet (every request 500s) or reads a column that does not exist yet
     (the same). Both orders are broken, so neither is used.
 
+    The function comes from :func:`session_epoch_statements` rather than
+    :func:`identity_statements`, which is where it originally lived. Inside
+    that group it was also created by ``enable_statements`` -- which three
+    migrations from August call, all of them running before this column
+    exists -- so every database built from scratch died here with ``column
+    "session_epoch" does not exist``. Production, already past those
+    migrations, never saw it. Corrected in place rather than by a follow-up
+    migration: this one could not have run to completion anywhere it had not
+    already run, so there is no deployment carrying its old effect.
+
     :returns: configured migration manager
     """
     manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
@@ -42,6 +52,7 @@ async def forwards() -> MigrationManager:
                     "session_epoch INTEGER NOT NULL DEFAULT 0"
                 ),
                 *identity_statements(),
+                *session_epoch_statements(),
             ]
         )
 

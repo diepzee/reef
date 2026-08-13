@@ -4,6 +4,7 @@ from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from rif.db import run_ddl_atomically
 from rif.rls import (
+    alias_statements,
     identity_grant_statements,
     mutation_statements,
 )
@@ -116,6 +117,11 @@ async def forwards() -> MigrationManager:
                 # see. identity_grant_statements adds the column-level
                 # narrowing that lets a person rewrite alias and nothing else.
                 *mutation_statements(),
+                # rif_admit_member and the GRANT UPDATE (alias) live here
+                # rather than in the two groups above, because both are
+                # also run by August migrations that predate this column.
+                # See alias_statements.
+                *alias_statements(),
                 "DROP POLICY IF EXISTS memberships_self_update ON memberships",
                 (
                     "CREATE POLICY memberships_self_update ON memberships FOR UPDATE "

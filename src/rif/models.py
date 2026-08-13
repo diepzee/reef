@@ -17,6 +17,7 @@ from uuid import uuid4
 from piccolo.columns import (
     UUID,
     Array,
+    Boolean,
     Bytea,
     ForeignKey,
     Integer,
@@ -95,6 +96,11 @@ class Person(Table, tablename="persons", db=DB):
     # to delete when one has to be revoked -- this counter is what a sealed
     # token is checked against instead. See rif.web.session.
     session_epoch = Integer(default=0)
+    # Set only by the launch exception in rif.opendoor. A row admitted that
+    # way has no inviter, which on its own is indistinguishable from the
+    # founding person's row -- this flag is the difference, and it is what
+    # the seat ceiling is counted over.
+    joined_open_door = Boolean(default=False)
 
 
 class Space(Table, tablename="spaces", db=DB):

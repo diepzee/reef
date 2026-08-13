@@ -91,3 +91,27 @@ async def test_a_person_may_own_many_shared_spaces(household, graph):
         await graph.shared_space(slug, household["wouter"])
     owned = await seed_owned_shared(household["wouter"])
     assert owned == {"household", "trip", "admin"}
+
+
+def test_enable_statements_names_no_column_the_old_migrations_predate():
+    """The trap this project has now fallen into three times.
+
+    Three historical migrations call ``enable_statements`` to re-apply the
+    policies of their day. Anything added to that set is therefore executed
+    against a database as it looked in August, so a statement naming a column
+    added later fails every build from scratch -- a fresh deploy, and the
+    restore drill in ``docs/restore.md`` -- while production, already past
+    those migrations, never notices.
+
+    ``space_appearances`` was caught in review and split out.
+    ``session_epoch`` was not, and shipped broken. This asserts the rule
+    directly rather than trusting the next person to remember it.
+    """
+    from rif.rls import enable_statements
+
+    combined = " ".join(enable_statements())
+    for column in ("session_epoch", "joined_open_door", "space_appearances"):
+        assert column not in combined, (
+            f"{column} postdates the migrations that call enable_statements; "
+            f"give it its own statements group, as appearance_statements has"
+        )

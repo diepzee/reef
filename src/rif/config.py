@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     session_secret: str = ""
     static_dir: str = "frontend/dist"
     site_dir: str = "site"
+    # The launch exception. Both default to the closed position, and both
+    # have to be set for the door to admit anybody -- see rif.opendoor for
+    # why it fails closed on either one alone.
+    open_seats: int = 0
+    open_until: str = ""
 
     @property
     def dsn(self) -> str:
