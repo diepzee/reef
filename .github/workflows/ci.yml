@@ -21,9 +21,14 @@ on:
     branches: [main]
 
 concurrency:
-  # A newer push to the same branch makes an in-flight run irrelevant.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # On a pull request, a newer push makes the in-flight run irrelevant --
+  # only the tip is going to be merged. On main it is the opposite: every
+  # commit there is deployed, so cancelling means a commit reaches
+  # production with its run showing "cancelled" and nobody having seen
+  # whether it passed. That already happened once, to the commit that
+  # added this file. Merges land in bursts; the runs have to keep up.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
