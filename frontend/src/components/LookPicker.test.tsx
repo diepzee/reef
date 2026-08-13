@@ -59,10 +59,14 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("it says the choice is yours alone", () => {
-  // A per-person setting that looked shared would stop people using it.
+test("it renders the two rows and nothing around them", () => {
+  // "Only you" is the caller's to say, once, over the whole section it puts
+  // this in — the sheet's Appearance heading covers the name too. Said here
+  // as well it appeared twice under one heading. MembersSheet.test.tsx
+  // holds the assertion that it is still said.
   renderPicker();
-  expect(screen.getByText(/Only to you/)).toBeDefined();
+  expect(screen.queryByText(/Only to you/)).toBeNull();
+  expect(screen.getAllByRole("group").length).toBe(2);
 });
 
 test("choosing a colour records it and saves it", async () => {
@@ -97,5 +101,14 @@ test("the derive-from-name options are offered for both colour and creature", ()
   // picked.
   renderPicker();
   expect(screen.getByLabelText("Colour from its name")).toBeDefined();
-  expect(screen.getByLabelText("Creature from its name")).toBeDefined();
+  expect(screen.getByLabelText("Icon from its name")).toBeDefined();
+});
+
+test("the chosen colour is marked by something other than colour", () => {
+  // The tiles are colours, so a ring around one reads as another shade
+  // rather than as a state; the check is what actually says "this one".
+  renderPicker({ trip: { color: "amber", glyph: null } });
+  const chosen = screen.getByLabelText("amber");
+  expect(chosen.querySelector("svg.look-tick")).not.toBeNull();
+  expect(screen.getByLabelText("indigo").querySelector("svg.look-tick")).toBeNull();
 });

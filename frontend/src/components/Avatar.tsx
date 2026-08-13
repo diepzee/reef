@@ -4,8 +4,8 @@ import { avatarColor, initialOf } from "./avatarColor";
 interface AvatarProps {
   /** Display name for the avatar. */
   name: string;
-  /** Avatar size: "md" (26px default) or "sm" (20px). */
-  size?: "md" | "sm";
+  /** Avatar size: "md" (26px default), "sm" (20px), or "lg" (38px). */
+  size?: "md" | "sm" | "lg";
   /** Picture URL; falls back to the coloured initial when absent. */
   src?: string | null;
 }
@@ -19,7 +19,7 @@ export function Avatar({
   size = "md",
   src,
 }: AvatarProps): React.ReactNode {
-  const className = `avatar ${size === "sm" ? "avatar-sm" : ""}`.trim();
+  const className = `avatar ${size === "md" ? "" : `avatar-${size}`}`.trim();
   if (src) {
     return <img className={className} src={src} alt={name} title={name} />;
   }
