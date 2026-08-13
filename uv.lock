@@ -10,7 +10,7 @@ resolution-markers = [
 
 [manifest]
 members = [
-    "reefcli",
+    "reef-cli",
     "rif",
 ]
 
@@ -1475,7 +1475,7 @@ wheels = [
 ]
 
 [[package]]
-name = "reefcli"
+name = "reef-cli"
 version = "0.1.0"
 source = { editable = "clients/python" }
 dependencies = [
@@ -1558,7 +1558,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
-    { name = "reefcli" },
+    { name = "reef-cli" },
     { name = "ruff" },
 ]
 
@@ -1578,7 +1578,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
-    { name = "reefcli", editable = "clients/python" },
+    { name = "reef-cli", editable = "clients/python" },
     { name = "ruff", specifier = ">=0.16.1" },
 ]
 

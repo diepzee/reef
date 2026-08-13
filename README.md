@@ -38,13 +38,13 @@ Market landscape: [`docs/competitor-research.md`](docs/competitor-research.md).
 
 ## CLI and agent skill
 
-The `uv`/PyPI package (`uv tool install reefcli`) is the full CLI: it mirrors
+The `uv`/PyPI package (`uv tool install reef-cli`) is the full CLI: it mirrors
 the complete MCP tool surface as named commands using shell-friendly hyphens
 (`load_index` becomes `load-index`), plus `reef call` for an exact MCP tool
 name and a JSON object as lossless passthrough. Every result is JSON; an MCP
 application error such as `not_found` also exits nonzero.
 
-The npm package (`npm install -g reefcli`) is a minimal client: `reef login`,
+The npm package (`npm install -g @haai/reef-cli`) is a minimal client: `reef login`,
 `reef tools` to list the live MCP schemas, and `reef call <tool> '<json>'` —
 the same passthrough covers everything the full CLI's named commands do, just
 without the per-tool shortcuts. Both distributions install a `reef` command
@@ -52,7 +52,7 @@ and both sign in through the same secure browser flow, but each caches its
 own OAuth tokens, so logging in with one doesn't log in the other.
 
 ```bash
-uv tool install reefcli
+uv tool install reef-cli
 reef login
 reef load-index
 reef get-operating-protocol

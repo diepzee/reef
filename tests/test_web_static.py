@@ -42,8 +42,8 @@ def test_marketing_site_offers_cli_and_agent_skill_setup():
     """The terminal-first path is visible and gives both working entry points."""
     page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
     assert '<option value="cli"' in page
-    assert "uv tool install reefcli" in page
-    assert "npm install -g reefcli" in page
+    assert "uv tool install reef-cli" in page
+    assert "npm install -g @haai/reef-cli" in page
     assert "reef login" in page
     assert "github.com/diepzee/rif/tree/main/skills/reef" in page
 
