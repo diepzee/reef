@@ -290,7 +290,9 @@ a scheduled cloud agent for `mark`) repoints at the MCP and gains one step:
    household space may mean one person is wrong rather than that the page is
    stale. Flag, never silently resolve.
 
-Until then, inbox compilation happens by asking either assistant for a tidy-up.
+The tidy-up ritual (compile inboxes, staleness sweep, contradiction check)
+now ships in the operating protocol and the agent skill, so any assistant
+runs it on request. The Monday automation that runs it unasked remains open.
 
 ## Surfaces
 
@@ -325,8 +327,19 @@ drill that verifies `memberships` survived — an untested backup is not a backu
 
 ## Out of scope for v1
 
-Web UI, PWA, WhatsApp adapter, push notifications, full-text search, more than
-two people, and any sharing granularity finer than a space.
+As written for v1: web UI, PWA, WhatsApp adapter, push notifications,
+full-text search, more than two people, and any sharing granularity finer
+than a space.
+
+Since shipped anyway: the web UI (reefwith.me/app) and multi-user spaces
+with owner-managed invitations. Still out: PWA, WhatsApp adapter, push
+notifications, and finer-than-space sharing granularity.
+
+Full-text search has moved from "out" to "next": Postgres FTS exposed as a
+search tool inside the same RLS session, per the close/adapt/refuse calls
+in [`competitor-research.md`](competitor-research.md). The no-vector-database
+position above stands — FTS is the index-plus-selective-read escalation that
+section already names, not an embeddings turn.
 
 The PWA and a WhatsApp bot remain viable later and neither is wasted work: both
 are clients of this MCP. Keep agent-facing logic free of transport knowledge.

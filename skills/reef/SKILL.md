@@ -44,6 +44,11 @@ the user; never print, commit, or persist that environment value yourself.
   private `personal` space. Add `--space <name>` only when the fact clearly
   belongs to that group: jointly owned information, a joint decision, or a
   shared obligation. Keep ambiguous information personal.
+- `remember` stages: it appends a dated line to that space's `inbox.md`, it
+  does not file anything. Before the conversation ends, tell the user what
+  you are about to remember — one line per fact — and let them strike
+  entries before you write. Never end a conversation having silently
+  recorded something.
 - Use `reef tools` to inspect the live server schemas when the local command
   help and server appear out of sync.
 
@@ -125,6 +130,46 @@ Use `reef read-file <space> <key>` to receive metadata and a short-lived URL.
 Before `reef delete-file <space> <key>`, obtain explicit confirmation: deletion
 cannot be undone. The `add-image`, `read-image`, and `delete-image` commands are
 compatibility aliases; prefer the general file commands.
+
+## Maintenance: the tidy-up ritual
+
+When the user asks for a tidy-up, or grants idle time, run three passes in
+order — the only work `reef load-all-context` exists for:
+
+1. **Compile inboxes.** Move every `inbox.md` entry onto the page where it
+   belongs (create the page if none fits) and remove it from the inbox.
+   Batch the result with `reef write-pages`.
+2. **Staleness sweep.** Flag pages untouched for a couple of months whose
+   content sounds current. Ask, update, or record the uncertainty in the
+   page.
+3. **Contradiction check.** Where a personal page and a shared page state
+   the same fact differently, tell the user. Never silently resolve: the
+   disagreement may mean a person is wrong, not a page.
+
+## Load the index without being asked
+
+Memory only helps if it arrives before the conversation needs it. In Claude
+Code, wire the index into session start rather than trusting recall
+mid-conversation — add to `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "reef load-index 2>/dev/null || true"}
+        ]
+      }
+    ]
+  }
+}
+```
+
+The hook's stdout lands in the session's context, so every conversation
+opens already knowing what pages exist. The `|| true` keeps a logged-out
+machine from failing the session; the protocol and page bodies still come
+from the ordinary flow above.
 
 ## Exact passthrough
 
