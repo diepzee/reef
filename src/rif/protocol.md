@@ -14,6 +14,12 @@ conversation, after loading the index.
 Fetch again whenever the topic moves. Never answer from a description alone:
 descriptions exist to help you choose what to read, not to be read instead.
 
+When the index does not settle which pages to read — the topic's words are
+inside bodies, not descriptions — call `search_pages`. It matches words and
+quoted phrases across every page you can see and returns snippets, not
+pages: fetch anything promising with `read_pages` before answering. Search
+finds candidates; it does not replace reading them.
+
 ## Referring to other pages
 
 A page's `path` is its permanent name. Link to it by path:

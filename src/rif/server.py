@@ -49,6 +49,7 @@ from rif.pages import (
 )
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import PERSONA_PATH, build_instructions
+from rif.search import search_pages as run_search
 from rif.spaces import SpaceError, member_names
 from rif.web.routes_api import register_api_routes
 from rif.web.routes_auth import register_auth_routes
@@ -443,6 +444,27 @@ async def read_page(space: str, path: str) -> dict:
     async with transaction_scope():
         principal = await current_principal()
         return await tool_read_page(principal, space, path)
+
+
+@mcp.tool
+async def search_pages(
+    query: str, space: str | None = None, limit: int = 10
+) -> list[dict]:
+    """Search page text across every space you can see, best match first.
+
+    Use this when the index's descriptions do not settle which pages to
+    read — it matches words inside bodies and titles that descriptions
+    omit. Results carry a snippet, not the page: fetch anything promising
+    with read_pages before answering. Plain words, quoted phrases, and
+    -exclusions all work.
+
+    :param query: words to search for
+    :param space: restrict to ``personal`` or a space name from list_spaces
+    :param limit: maximum results
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await run_search(principal, query, space=space, limit=limit)
 
 
 @mcp.tool

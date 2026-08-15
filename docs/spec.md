@@ -194,6 +194,7 @@ less.
 |---|---|
 | `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, one-line description, and resolved references, plus described files and a cache `version`. No bodies. |
 | `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
+| `search_pages(query, space?, limit?)` | Postgres FTS over titles and bodies, run inside the same armed transaction as every read, so RLS scopes it: a search can only rank pages the caller could read, and a forgotten filter returns nothing. Returns snippets to drive `read_pages`, never a substitute for reading. `websearch_to_tsquery` parses the query, so malformed input cannot error. No embeddings — see the Stack note. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_file` / `read_file` | Any MIME type, original filename and mandatory description in; short-lived signed URL out, behind the same ACL. The old image-named tools remain compatibility aliases. |
 | `delete_file(space, key)` | The destructive file tool. Removes the row and bytes; the ACL check runs before object storage is touched. The old `delete_image` name remains a compatibility alias. |
@@ -335,9 +336,9 @@ Since shipped anyway: the web UI (reefwith.me/app) and multi-user spaces
 with owner-managed invitations. Still out: PWA, WhatsApp adapter, push
 notifications, and finer-than-space sharing granularity.
 
-Full-text search has moved from "out" to "next": Postgres FTS exposed as a
-search tool inside the same RLS session, per the close/adapt/refuse calls
-in [`competitor-research.md`](competitor-research.md). The no-vector-database
+Full-text search has since shipped as `search_pages`: Postgres FTS inside
+the same RLS session, per the close/adapt/refuse calls in
+[`competitor-research.md`](competitor-research.md). The no-vector-database
 position above stands — FTS is the index-plus-selective-read escalation that
 section already names, not an embeddings turn.
 

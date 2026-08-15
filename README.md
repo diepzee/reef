@@ -71,7 +71,10 @@ adapted for shared, permissioned memory.
    path, title, tags, and a one-line description. No page bodies.
 2. It reads the map, decides what this conversation needs, and fetches only
    that with `read_pages`.
-3. It fetches again as the topic moves.
+3. It fetches again as the topic moves. When the map alone cannot settle
+   what to read, `search_pages` matches words inside page bodies — and
+   because it runs under the same row-level security as every read, a
+   search can never surface a page its caller could not open.
 
 The index is rebuilt from the database on every call, so it cannot fall out of
 date.
