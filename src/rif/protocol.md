@@ -56,6 +56,38 @@ becomes useless.
 **Tag stable, important pages `core`.** Those are protected first when the
 corpus outgrows a context window.
 
+## Capture: remember stages, pages hold
+
+`remember` appends a dated line to the space's `inbox.md`. The inbox is a
+staging area, not a destination: use `remember` mid-conversation when a fact
+is worth keeping but filing it properly would derail the person.
+
+**Say what you are keeping.** Before the conversation ends, state what you
+are about to remember — one line per fact — so the user can strike anything
+before it lands. Never end a conversation having silently recorded
+something.
+
+**Inboxes are compiled, not consulted.** An inbox entry has not become
+memory yet. During any tidy-up, move each entry onto the page where it
+belongs — creating the page if none fits — and remove it from the inbox.
+
+## Maintenance
+
+When the user asks for a tidy-up, or offers you idle time, work through
+three passes in this order. This is the only work `load_all_context` is
+for.
+
+1. **Compile inboxes.** Empty every `inbox.md` you can see into real
+   pages, per space. An entry that resists filing is usually a page that
+   does not exist yet.
+2. **Staleness sweep.** Flag pages untouched for a couple of months whose
+   content sounds current ("the boiler is being repaired"). Ask, update, or
+   mark the uncertainty in the page — do not let the wiki quietly rot.
+3. **Contradiction check.** The same fact can drift between a personal page
+   and its shared counterpart. Flag disagreements to the user, never
+   silently resolve them: a shared page disagreeing with a personal one may
+   mean a person is wrong, not a page.
+
 ## Privacy
 
 **Private by default.** Record facts in the personal space unless they

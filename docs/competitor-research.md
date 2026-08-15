@@ -134,3 +134,174 @@ consumer path to the Claude mobile app, and essentially zero distribution
   first-party — the open feature request shows they know the demand
   exists. The consumer/household position is open today and rif is,
   as far as this sweep found, alone in it.
+
+---
+
+# Addendum: the glama.ai sweep — 15 Aug 2026
+
+glama.ai is the largest MCP directory (~72,000 servers). rif is listed
+there as `diepzee/rif`, categorised under Knowledge & Memory, RAG
+Systems, and Note Taking. This sweep asked the reverse of the question
+above: not "what does rif have that nobody else does" but **"what does
+the field have that rif does not"** — and then, per capability, whether
+rif should close the gap, adapt the idea, or refuse it on purpose.
+
+## Who is on glama that resembles rif
+
+**Multi-user shared memory (rif's own category).** Basic Memory
+Cloud/Teams (covered above; on glama with 40+ releases/yr and same-day
+maintainer response), Memlord (`MyrikLD/memlord`, AGPL, self-hosted),
+**Lore** (`agentkitai/lore`), SharedMemory.ai, Pathrule
+(`pathrule/mcp`), bikky (`bikky-dev/bikky`), Sylex Memory
+(E2E-encrypted vaults + shared commons + agent-to-agent DMs; 24 stars,
+stale), xmszm-memory (multi-user namespaces, file-backed).
+
+**Memory platforms with MCP servers.** Mem0/OpenMemory, Supermemory,
+Zep/Graphiti, Cognee, Letta, and Anthropic's official Knowledge Graph
+Memory server (the reference implementation; the most-installed memory
+MCP anywhere).
+
+**Single-user but feature-rich.** docmancer (121 stars, the healthiest
+independent project found), Lians, Amber, MnemoQ, SAE4U, Ragionex,
+Memphora.
+
+Traction check: among the rif-like group, only Basic Memory has real
+adoption. Lore has 7 stars, Memlord/Sylex/bikky/Memphora are near zero,
+SharedMemory.ai carries a D maintenance score on glama. The projects
+with genuine traction are all single-user, developer infrastructure, or
+engineering-team tools.
+
+**Lore is the one to watch.** Self-hosted (Docker + Postgres/pgvector,
+MIT, 305 commits), it is the only surveyed server that combines
+private→shared visibility promotion, per-user scoping, workspaces with
+RBAC and OIDC, audit logs, write-side PII redaction, bi-temporal facts
+with supersession chains, and hybrid vector/full-text/graph recall. It
+is rif's feature set re-imagined for engineering teams and coding
+agents — no hosted offering, no human web app, no consent flow, no
+consumer path. If anyone repositions toward households with a hosted
+product, this architecture is the threat.
+
+## What the field can do that rif cannot
+
+1. **Semantic / hybrid search** — near-universal: Mem0, Basic Memory
+   (with reranking), Amber (vector + FTS + rank fusion), docmancer
+   (offline hybrid), Lore, bikky, Cognee, Graphiti. rif retrieves by
+   index descriptions alone.
+2. **Automatic capture** — Mem0 auto-extracts and compresses; Amber
+   captures as you talk; bikky harvests facts from Claude Code and
+   Copilot transcripts; Lore auto-stores via hooks. rif writes only
+   deliberately.
+3. **Hook-time injection** — Pathrule injects path-relevant team
+   knowledge before the model's first tool call; Lore auto-injects in
+   ~20 ms; docmancer bakes memory into always-loaded context. rif
+   depends on the model choosing to call `load_index`.
+4. **Knowledge-graph structure** — entities, relations, traversal
+   (official server, Graphiti, Cognee, Lore, SharedMemory). rif stores
+   prose pages.
+5. **Temporal reasoning** — Lians answers point-in-time recall with
+   fact lineage and conflict lists; Lore has valid-time vs system-time
+   with supersession chains; Graphiti's whole model is temporal. rif
+   keeps history but cannot answer "what did we believe on June 1st?"
+   through a tool.
+6. **Memory lifecycle** — decay, TTL, consolidation, contradiction
+   resolution (Lore, bikky, MnemoQ's spaced repetition, Mem0's
+   compression). rif pages live until someone edits them.
+7. **Self-hosting / local-first** — most of the field runs on your own
+   machine; Pathrule and Basic Memory offer it as a tier. rif is
+   hosted-only. Sylex adds E2E encryption on top.
+8. **Org machinery and developer APIs** — RBAC roles, SSO, audit logs,
+   real-time co-editing (Basic Memory Teams), per-end-user memory SDKs
+   (Mem0, Zep, Letta). rif has none of these.
+
+## How rif beats them, gap by gap
+
+The strategy is not to close all eight. Half of these "gaps" are the
+product. The calls:
+
+**Close — search, on the existing terms.** The one gap that will
+genuinely hurt. Index-first holds while the index fits the context
+budget — the spec's own escalation path ("index-plus-selective-read,
+not embeddings") and the unmeasured phone context ceiling both point
+the same way. The move that beats the field: **Postgres full-text
+search as a `search_pages` tool, inside the same RLS session.** Every
+competitor bolts retrieval onto a vector store with no per-person
+guarantee — bikky shares a raw Qdrant collection; a forgotten filter
+returns someone else's memories. In rif, a search that forgets a filter
+returns *nothing*. "Search that cannot leak across spaces, by
+construction" is a sentence no competitor can say, and it needs no
+embeddings, no new infrastructure, and no revision of the
+no-vector-database position. Embeddings stay refused until FTS
+measurably fails.
+
+**Close — cheap temporal reads.** The revision history already exists;
+an `as_of` parameter on `read_page` is a small, honest feature that
+matches Lians/Lore's headline capability for households ("what did the
+plan say before we changed it?"). Low priority, high
+capability-per-effort.
+
+**Adapt — capture, without surveillance.** Auto-capture is the field's
+answer to "writing memory is work," and for a household product the
+literal version is disqualifying: a family assistant that silently
+records is the creepy thing rif exists not to be. But the *labour
+problem* is real. rif's answer is already half-built: `remember`
+appends to inbox pages, and the spec's maintenance routine compiles
+them. Finish that loop and frame it as **review-then-keep**: the
+assistant proposes at conversation end, inbox pages stage, the Monday
+compile promotes — a human sees everything before it becomes memory.
+Deliberate stays the brand; the friction goes.
+
+**Adapt — presence, without hooks.** Pathrule's real insight is that
+memory must arrive without being asked for. rif's equivalent is
+distribution, not architecture: the shipped agent skill already
+instructs index-loading; add a Claude Code plugin/hook that calls
+`load_index` at session start, and make the operating protocol do the
+same for other surfaces. Same effect as hook-time injection, no new
+server capability.
+
+**Adapt — lifecycle as ritual, not decay.** Silent forgetting is wrong
+for a memory humans co-own; a fact does not become false because nobody
+mentioned it for a month. But staleness *surfacing* is right, and the
+spec's maintenance pass (staleness sweep, cross-space contradiction
+check, flag-never-resolve) is precisely the humane version of what
+bikky and MnemoQ automate. Shipping that routine converts a spec
+section into a differentiator: the competitors' lifecycle features
+delete quietly; rif's asks.
+
+**Refuse — knowledge graphs.** Triples are for machines; rif's readers
+are people. A wiki humans actually read *is* the product. Wiki-style
+links between pages give the useful fraction of graph structure without
+abandoning prose. Anyone who wants entity extraction is not rif's
+customer.
+
+**Refuse — self-hosting, for now.** It serves the privacy-conscious,
+but it forks scarce effort into packaging, support, and upgrade paths,
+and rif's trust story is already load-bearing without it: RLS enforced
+at the database, full export with history ("one-way, out — nothing
+locks you in"), and invite-only intimacy. Revisit only if hosted-trust
+objections actually block adoption. The export hatch is the honest
+answer until then.
+
+**Refuse — org machinery and SDKs.** RBAC, SSO, per-end-user memory
+APIs serve markets rif is deliberately not in. Basic Memory and Mem0
+can keep them. The moment rif grows roles and seat pricing it becomes
+the eighth team-memory product instead of the only household one. (One
+narrow exception worth watching: a read-only member — the accountant
+who may read the `taxes` space but not write it — is a *household*
+need, not an org one.)
+
+## The standing moats, restated against this field
+
+Nothing in the glama sweep touches: the two-step consent flow with
+named readers; per-person privacy a database enforces rather than an
+application promises; one person in several named spaces plus a private
+space; the operating protocol as a first-class artifact; a web app a
+non-technical person can read and edit. Lore has the architecture but
+not the audience, the surface, or the hosting; Basic Memory has the
+audience machinery but not the space model or the consent flow.
+
+The durable play is therefore: ship RLS-scoped FTS before the corpus
+ceiling bites, finish the inbox-compile loop and the maintenance
+ritual, make the index arrive by default on every surface — and keep
+refusing, loudly and in the README, the features whose absence *is* the
+positioning: no silent capture, no silent forgetting, no un-sharing,
+no seat pricing.
