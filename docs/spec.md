@@ -193,7 +193,7 @@ less.
 | Tool | Notes |
 |---|---|
 | `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, one-line description, and resolved references, plus described files and a cache `version`. No bodies. |
-| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
+| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. `read_page` takes an optional `as_of`: the page reconstructed from its revisions as it stood at that moment, under the same RLS as a present-day read — the "what did we know about the boiler in March" query the data-model section promises, exposed as a tool. |
 | `search_pages(query, space?, limit?)` | Postgres FTS over titles and bodies, run inside the same armed transaction as every read, so RLS scopes it: a search can only rank pages the caller could read, and a forgotten filter returns nothing. Returns snippets to drive `read_pages`, never a substitute for reading. `websearch_to_tsquery` parses the query, so malformed input cannot error. No embeddings — see the Stack note. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_file` / `read_file` | Any MIME type, original filename and mandatory description in; short-lived signed URL out, behind the same ACL. The old image-named tools remain compatibility aliases. |
