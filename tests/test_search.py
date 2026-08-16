@@ -132,5 +132,5 @@ async def test_shared_space_matches_reach_both_members(tx, household):
 async def test_query_syntax_garbage_cannot_error(tx, household):
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "notes.md", "The boiler manual.", message="x")
-    for garbage in ['boiler AND (', '"unclosed phrase', "a OR OR b", "-"]:
+    for garbage in ["boiler AND (", '"unclosed phrase', "a OR OR b", "-"]:
         await search_pages(me, garbage)
