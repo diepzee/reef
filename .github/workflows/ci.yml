@@ -41,12 +41,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          # The dry-run step below needs the full tag and commit history to
-          # find the last release and compute a real next version; the
-          # default shallow checkout has neither, so a fetch-depth-1 clone
-          # would make every PR look like the first release ever cut.
-          fetch-depth: 0
 
       - name: Start Postgres
         run: docker compose up -d db
@@ -80,22 +74,6 @@ jobs:
 
       - name: Test
         run: uv run pytest -q
-
-      # A no-write semantic-release run, so a broken .releaserc.json or an
-      # unparseable commit history fails in review rather than on main --
-      # where it would sit between a merge and a production deploy.
-      - name: 🔎 semantic-release dry run
-        if: github.event_name == 'pull_request'
-        uses: cycjimmy/semantic-release-action@v4
-        with:
-          dry_run: true
-          extra_plugins: |
-            @semantic-release/changelog@6
-            @semantic-release/git@10
-            @semantic-release/exec@6
-            conventional-changelog-conventionalcommits@7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   frontend:
     name: Frontend (bun test + tsc + build)
@@ -172,6 +150,40 @@ jobs:
           # in the Checks panel. %0A is a newline inside a single annotation.
           echo "::error::Say what changed, or say that nothing did.%0A%0AIf a person using reef would notice this change, add one sentence for them in changes/<pr-number>-<slug>.md -- see changes/README.md for how to write it.%0A%0AIf they would notice nothing (tests, CI, refactors), add the no-changelog label to this PR instead."
           exit 1
+
+  # A no-write semantic-release run, so a broken .releaserc.json or an
+  # unparseable commit history fails in review rather than on main -- where it
+  # would sit between a merge and a production deploy.
+  #
+  # Its own job, mirroring `changelog` above, rather than a step in `backend`.
+  # semantic-release reads the full tag history, and this action runs against
+  # the job's existing checkout rather than cloning its own -- so as a step in
+  # `backend` it would need fetch-depth: 0 there, deepening the clone on every
+  # push to main as well, for a step that only ever runs on pull requests.
+  release-dry-run:
+    name: Release dry run
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release reads full tag and commit history
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # same as the release job, so both resolve alike
+
+      - name: Semantic-release dry run
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Cut a SemVer release from the conventional commits since the last tag.
   # Gated on backend and frontend so a failing build never tags a release.
