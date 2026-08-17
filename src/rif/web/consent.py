@@ -166,7 +166,9 @@ def create_consent_html(
     :param csrf_token: CSRF token the form must post back
     :param client_name: self-asserted display name from registration
     :param title: page title override (unused; reef sets its own)
-    :param server_name: this server's name, for the header
+    :param server_name: accepted and unused -- the brand header always
+        reads "reef", the product name, never the FastMCP server's
+        internal name (``"rif"``)
     :param server_icon_url: this server's icon, if advertised
     :param server_website_url: accepted and unused (this design has no
         server-site link)
@@ -222,7 +224,7 @@ def create_consent_html(
 </head>
 <body>
 <main>
-  <div class="brand">{icon}<span>{esc(server_name or "reef")}</span></div>
+  <div class="brand">{icon}<span>reef</span></div>
   <h1><em>{name}</em> wants to access your reef</h1>
   <p class="lead">Approving sends you to sign in; your memory is only
   reachable with your account.</p>

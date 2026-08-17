@@ -87,6 +87,7 @@ async def test_approve_continues_to_authkit(consent_client):
     location = response.headers["location"]
     assert location.startswith(DOMAIN)
     assert "/oauth2/authorize" in location
+    assert "offline_access" in location
 
 
 async def test_deny_returns_to_the_client_with_access_denied(consent_client):
@@ -110,4 +111,4 @@ async def test_wrong_csrf_is_rejected(consent_client):
         "/consent",
         data={"txn_id": "txn-1", "csrf_token": "forged", "action": "approve"},
     )
-    assert response.status_code != 302
+    assert response.status_code == 400
