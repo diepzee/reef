@@ -221,3 +221,76 @@ jobs:
             conventional-changelog-conventionalcommits@7
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+  # Publish only what actually changed. Both clients carry the repo-wide
+  # version, so a server-only release would otherwise push two byte-identical
+  # packages to two public registries and burn a version number saying
+  # nothing. Client versions therefore skip -- 0.3.0 to 0.7.0 -- and every
+  # number on a registry corresponds to a real change to that client.
+  #
+  # The diff ends at HEAD~1 because HEAD is semantic-release's own
+  # "chore(release)" commit, which touches every manifest and would make the
+  # gate always true. That is correct only while @semantic-release/git makes
+  # exactly one commit; if that ever changes, this gate goes quietly false
+  # instead of loudly wrong, so the step logs its decision either way.
+  publish:
+    name: 📦 Publish changed clients
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 🔎 Decide what changed
+        id: changed
+        run: |
+          previous=$(git describe --tags --abbrev=0 "v${{ needs.release.outputs.version }}^" 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "No previous tag: first release, publishing both clients."
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "ts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Comparing $previous..HEAD~1 (HEAD is the release commit)."
+          changed=$(git diff --name-only "$previous" HEAD~1)
+          echo "$changed"
+          if echo "$changed" | grep -q '^clients/python/'; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "reef-cli changed: will publish."
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+            echo "reef-cli unchanged: SKIPPING publish."
+          fi
+          if echo "$changed" | grep -q '^clients/ts/'; then
+            echo "ts=true" >> "$GITHUB_OUTPUT"
+            echo "@haai/reef-cli changed: will publish."
+          else
+            echo "ts=false" >> "$GITHUB_OUTPUT"
+            echo "@haai/reef-cli unchanged: SKIPPING publish."
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.changed.outputs.python == 'true'
+      - name: 🐍 Publish reef-cli to PyPI
+        if: steps.changed.outputs.python == 'true'
+        run: |
+          uv build --package reef-cli
+          uv publish   # trusted publishing; no token in the repo
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.ts == 'true'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: 📦 Publish @haai/reef-cli to npm
+        if: steps.changed.outputs.ts == 'true'
+        working-directory: clients/ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
