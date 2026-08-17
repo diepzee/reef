@@ -265,6 +265,8 @@ def build_parser() -> argparse.ArgumentParser:
     read_page.add_argument("space")
     read_page.add_argument("path")
     read_page.add_argument("--as-of", help="ISO-8601 moment to read the page as of")
+    whats_new = _tool_parser(sub, "whats_new", "list recent changes across spaces")
+    whats_new.add_argument("--since", help="ISO-8601 moment to report changes after")
     _tool_parser(sub, "list_spaces", "list spaces, members, ownership, and versions")
     create_space = _tool_parser(sub, "create_space", "create a shared space")
     create_space.add_argument("slug")
@@ -414,6 +416,8 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         if args.as_of is not None:
             payload["as_of"] = args.as_of
         return tool, payload
+    if tool == "whats_new":
+        return tool, {"since": args.since} if args.since is not None else {}
     if tool == "create_space":
         return tool, {"slug": args.slug}
     if tool in {"invite", "invite_to_reef"}:

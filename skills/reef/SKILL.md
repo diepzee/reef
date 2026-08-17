@@ -46,6 +46,9 @@ the user; never print, commit, or persist that environment value yourself.
 ## Read and remember
 
 - Inspect membership before using a shared space: `reef list-spaces`.
+- See what changed while the user was away: `reef whats-new`, optionally
+  `--since 2026-08-01T00:00:00`. Surface notable changes by other members
+  unprompted — that is what keeps a shared space alive.
 - Read one page with `reef read-page <space> <path>` or several with
   `reef read-pages <space> <path>...`.
 - Read a page as it stood at a past moment with
