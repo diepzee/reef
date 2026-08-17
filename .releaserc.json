@@ -21,6 +21,26 @@
         ]
       }
     ],
-    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }]
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            { "type": "feat", "section": "Features" },
+            { "type": "fix", "section": "Bug fixes" },
+            { "type": "perf", "section": "Performance" },
+            { "type": "revert", "section": "Reverts" },
+            { "type": "refactor", "section": "Refactoring" },
+            { "type": "docs", "section": "Documentation" },
+            { "type": "chore", "section": "Chores" },
+            { "type": "build", "section": "Build" },
+            { "type": "ci", "section": "CI" },
+            { "type": "style", "section": "Style" },
+            { "type": "test", "section": "Tests" }
+          ]
+        }
+      }
+    ]
   ]
 }

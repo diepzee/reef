@@ -227,16 +227,54 @@ jobs:
             echo "::error::Could not parse a full semver out of '$subject'."
             exit 1
           fi
-          if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
-            # A re-run of a run whose tag already landed must not fail the
-            # board or double-publish.
-            echo "v$version already exists; nothing to do."
+
+          # The subject alone is not proof this is a real release commit --
+          # any write-access user can self-merge "chore(release): 9.9.9" and
+          # otherwise mint a tag, a release, and a publish attempt. Cross-
+          # check it against the version release-pr.yml actually stamped
+          # into the manifest. (An author-identity check was considered and
+          # rejected: it would break legitimate manual recovery commits.)
+          stamped=$(sed -nE 's/^version = "([^"]+)"$/\1/p' pyproject.toml | head -1)
+          if [ "$version" != "$stamped" ]; then
+            echo "::error::Subject says $version but pyproject.toml is stamped $stamped -- this is not a release commit built by release-pr.yml. Refusing to tag."
+            exit 1
+          fi
+
+          # The trailer proves which base commit-analysis actually ran
+          # against. If main moved between release-pr.yml's build and this
+          # merge, the squash commit's parent will not match it -- commits
+          # in that window were never analysed for this release, and their
+          # notes silently would not appear. Refuse rather than tag a release
+          # that dropped commits.
+          release_base=$(git log -1 --format=%b | sed -nE 's/^Release-base: ([0-9a-f]{40})$/\1/p')
+          parent=$(git rev-parse HEAD^)
+          if [ -z "$release_base" ]; then
+            echo "::error::The release commit carries no Release-base trailer -- it was not built by release-pr.yml. Refusing to tag."
+            exit 1
+          fi
+          if [ "$release_base" != "$parent" ]; then
+            echo "::error::Stale release merge: the release PR was built on $release_base but merged onto $parent. Commits between them were never analysed. Do not re-run; close nothing -- the bot will refresh a corrected release PR on the next push to main (or trigger the Release PR workflow manually), then squash-merge that."
+            exit 1
+          fi
+
+          # Idempotency is keyed on the GitHub release, not the tag: a
+          # re-run after a tag-only partial failure (tag pushed, release
+          # creation failed) must finish the job, not no-op green while
+          # never actually publishing a release.
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "v$version release already exists; nothing to do."
             echo "published=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          git tag "v$version"
-          git push origin "v$version"
-          git log -1 --format=%b > /tmp/notes.md
+          if ! git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
+            git tag "v$version"
+            git push origin "v$version"
+          else
+            echo "Tag v$version exists but the release does not -- completing the release."
+          fi
+          # Trailers are for machines, not readers of a GitHub release --
+          # strip them before they land in the release body.
+          git log -1 --format=%b | sed -E '/^(Co-authored-by|Release-base):/d' > /tmp/notes.md
           gh release create "v$version" --title "v$version" --notes-file /tmp/notes.md
           echo "published=true" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -247,12 +285,14 @@ jobs:
   # nothing. Client versions therefore skip -- 0.3.0 to 0.7.0 -- and every
   # number on a registry corresponds to a real change to that client.
   #
-  # The diff ends at HEAD~1 because HEAD is semantic-release's own
-  # "chore(release)" commit, which touches every manifest and would make the
-  # gate always true. That holds only while @semantic-release/git makes exactly
-  # one commit, and the failure is NOT one-directional: zero commits would skip
-  # wrongly, but *two* would leave a release commit inside the diff range and
-  # publish both clients on every release -- the expensive direction. So the
+  # The diff ends at HEAD~1 because HEAD is the release commit, produced by
+  # squash-merging the bot's release PR, which touches every manifest and
+  # would make the gate always true. That holds only because the release PR
+  # is squash-merged as exactly one commit -- the ruleset only allows squash
+  # merges, so a merge- or rebase-commit strategy can't land here -- and the
+  # failure is NOT one-directional: zero commits would skip wrongly, but
+  # *two* would leave a release commit inside the diff range and publish
+  # both clients on every release -- the expensive direction. So the
   # assumption is asserted below rather than trusted, and every branch logs
   # what it decided.
   publish:
@@ -266,7 +306,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          # The tag itself, not main. Checking out main here would race any
+          # merge that lands between the tag job finishing and this step
+          # running: a moved main puts the next release commit's manifest
+          # stamps inside HEAD~1's range too, and the assertion below can't
+          # catch it since it only counts chore(release) subjects, not
+          # which commit HEAD actually is. The tag is immutable the moment
+          # it's pushed, so pinning to it makes this checkout race-free.
+          ref: v${{ needs.tag.outputs.version }}
           fetch-depth: 0
 
       - name: 🔎 Decide what changed
