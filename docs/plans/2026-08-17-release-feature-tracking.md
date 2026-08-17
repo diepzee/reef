@@ -526,9 +526,7 @@ def feed_as_json(entries: list[Entry]) -> dict:
     }
 
 
-def fold(
-    fragments_dir: Path, feed_path: Path, version: str, date: str
-) -> Entry | None:
+def fold(fragments_dir: Path, feed_path: Path, version: str, date: str) -> Entry | None:
     """Fold this release's fragments into the feed and consume them.
 
     Returns ``None`` and writes nothing when there are no fragments: a

@@ -101,6 +101,14 @@ class Person(Table, tablename="persons", db=DB):
     # founding person's row -- this flag is the difference, and it is what
     # the seat ceiling is counted over.
     joined_open_door = Boolean(default=False)
+    #: Version whose "what's new" this person has already read, or ``None``
+    #: for somebody who has never opened the panel -- including everybody
+    #: who predates it, who should see the dot exactly once. A column on
+    #: ``persons`` rather than a table of its own: ``persons_self_select``
+    #: and ``persons_self_update`` already say "yours and only yours", so
+    #: this inherits the rule instead of restating it, and nothing has to
+    #: be added to ``enable_statements``.
+    last_seen_release = Varchar(null=True, default=None)
 
 
 class Space(Table, tablename="spaces", db=DB):

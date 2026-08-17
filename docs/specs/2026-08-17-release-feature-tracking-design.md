@@ -179,7 +179,7 @@ with the list it decorates.
 A single nullable column:
 
 ```python
-last_seen_release = Varchar(null=True, default=None)   # on Person
+last_seen_release = Varchar(null=True, default=None)  # on Person
 ```
 
 **This is why the design is cheap.** `persons` already carries
