@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What's new in reef</title>
+<meta name="description" content="What has changed in reef, newest first.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0;
+  --ink: #1c2b33; --muted: #7b8a92;
+  --accent: #0d9488;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d;
+    --ink: #e2f1f5; --muted: #8fb0ba;
+    --accent: #38bdd8;
+  }
+}
+body {
+  margin: 0 auto; padding: 3rem 1.25rem 6rem; max-width: 42rem;
+  font-family: "Nunito", system-ui, sans-serif; font-size: 1.0625rem;
+  line-height: 1.6; color: var(--ink); background: var(--ground);
+}
+h1 { font-size: 1.9rem; font-weight: 800; margin: 0 0 2.5rem; }
+h1 a { color: var(--accent); text-decoration: none; }
+section { border-top: 1px solid var(--hairline); padding-top: 1.5rem;
+  margin-top: 2.5rem; }
+h2 { font-size: 1.25rem; font-weight: 800; margin: 0 0 1rem;
+  display: flex; align-items: baseline; gap: 0.75rem; }
+h2 .date { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
+h3 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); margin: 1.25rem 0 0.5rem; }
+ul { margin: 0; padding-left: 1.25rem; }
+li { margin-bottom: 0.4rem; }
+.empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>What's new in <a href="/">reef</a></h1>
+<p class='empty'>Nothing to report yet — check back after the next release.</p>
+</body>
+</html>

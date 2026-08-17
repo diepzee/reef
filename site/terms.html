@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reef — terms</title>
+<meta name="description" content="The agreement between you and Haai BV when you use reef: what you can expect, what is expected of you.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0; --hairline-soft: #eef3f5;
+  --ink: #1c2b33; --muted: #7b8a92; --faint: #b3bec4;
+  --accent: #0d9488; --accent-deep: #0b6b62;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d; --hairline-soft: #16292f;
+    --ink: #e2f1f5; --muted: #8fb0ba; --faint: #5b7681;
+    --accent: #38bdd8; --accent-deep: #7ce3d3;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px; line-height: 1.65;
+}
+a { color: var(--accent); }
+.reef-name { color: var(--accent); }
+.wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+nav { display: flex; align-items: center; padding: 1.4rem 0; }
+.brand {
+  display: inline-flex; align-items: baseline; gap: 7px; font-weight: 800;
+  font-size: 1.25rem; color: var(--accent); text-decoration: none;
+}
+h1 { font-size: 2.1rem; line-height: 1.15; letter-spacing: -0.015em; margin: 1.5rem 0 0.5rem; }
+h2 { font-size: 1.2rem; margin: 2.4rem 0 0.6rem; }
+p, li { margin: 0 0 0.9rem; }
+ul { padding-left: 1.2rem; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+.updated { color: var(--faint); font-size: 0.85rem; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 1.2rem; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+th { color: var(--muted); font-weight: 700; }
+footer {
+  margin-top: 4.5rem; border-top: 1px solid var(--hairline-soft);
+  padding: 1.6rem 0 2.2rem; display: flex; justify-content: center; align-items: baseline;
+  gap: 0.4rem 1.1rem; flex-wrap: wrap; text-align: center; color: var(--faint); font-size: 0.85rem;
+}
+footer a { color: var(--muted); }
+/* The haai mark swoops in beside the credit on hover. It occupies no width
+   at rest, so the footer reads as plain text until you reach for it; the
+   overshoot in the easing is what makes it arrive rather than merely fade. */
+/* Inline, not inline-flex: an inline-flex anchor takes its baseline from
+   its first flex item, and an <svg> has none, so the word "haai" drifted off
+   the baseline "made by" sits on. Inline-block + an explicit baseline offset
+   puts the mark, the credit and the label on one line. */
+.haai { text-decoration: none; white-space: nowrap; }
+.haai-mark {
+  display: inline-block; vertical-align: -0.13em;
+  height: 0.95em; width: 0; opacity: 0;
+  transform: translateX(-0.45em) rotate(-14deg);
+  transition: width 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              margin-right 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              opacity 0.22s ease;
+}
+.haai:hover .haai-mark, .haai:focus-visible .haai-mark {
+  width: 0.95em; margin-right: 0.38em; opacity: 1;
+  transform: translateX(0) rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) { .haai-mark { transition: none; } }
+
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><a class="brand" href="/">reef</a></nav>
+
+  <h1>Terms of service</h1>
+  <p class="lede">
+    Using <span class="reef-name">reef</span> is an agreement between you and Haai BV. This page says
+    plainly what you can expect from <span class="reef-name">reef</span>, and what is expected of you.
+    How your data is handled lives on the <a href="/privacy">privacy page</a>.
+  </p>
+  <p class="updated">Last updated 17 August 2026.</p>
+
+  <h2>What <span class="reef-name">reef</span> is</h2>
+  <p>
+    <span class="reef-name">reef</span> is a shared, living memory for you and the people you invite:
+    pages you keep together, readable and writable by you and by an AI
+    assistant you choose to connect. It is invite-only and young — it is
+    offered as it is today, and it will keep changing as it grows.
+  </p>
+
+  <h2>Your account</h2>
+  <p>
+    You get in when someone already on <span class="reef-name">reef</span> invites your email address,
+    and you sign in with that address. Your account is for you: keep access to
+    your sign-in method to yourself, and tell us if you think someone else has
+    used it. You must be at least 16 to use <span class="reef-name">reef</span>.
+  </p>
+
+  <h2>Your content stays yours</h2>
+  <p>
+    Everything you write or add remains yours. You give Haai BV only the
+    permission it needs to run the service: to store your pages, back them up,
+    and show them to the people you share a cove with. Nothing more is done
+    with them — no advertising, no training of models, as the
+    <a href="/privacy">privacy page</a> spells out.
+  </p>
+  <p>
+    Sharing is real and lasting: everything in a shared cove can be read by
+    every member, including everything written before they joined. Removing
+    someone stops their future access, but it cannot unsee what they read.
+    Only share what you have the right to share.
+  </p>
+
+  <h2>What you agree not to do</h2>
+  <ul>
+    <li>Use <span class="reef-name">reef</span> for anything unlawful, or store content you have no right to hold or share.</li>
+    <li>Use it to harass or harm other people, in or outside your coves.</li>
+    <li>Probe, overload, or try to break into the service, or access other people's spaces.</li>
+    <li>Resell the service or pass your account to someone else.</li>
+  </ul>
+  <p>
+    If an account does these things, Haai BV can suspend or close it. When
+    that is reasonable, you will be warned first and given the chance to
+    export your content.
+  </p>
+
+  <h2>Your AI assistant</h2>
+  <p>
+    When you connect an assistant such as Claude, the pages it reads are sent
+    to whoever runs that assistant, under their terms — not
+    <span class="reef-name">reef</span>'s. You choose the assistant; <span class="reef-name">reef</span> sends nothing
+    anywhere on its own. You remain responsible for what you let an assistant
+    write into a shared cove.
+  </p>
+
+  <h2>Leaving</h2>
+  <p>
+    You can leave at any time, and take everything with you: one export turns
+    every page into plain files on your machine. If you want your account
+    deleted, ask — the <a href="/privacy">privacy page</a> says how, and what
+    happens to content you contributed to shared coves.
+  </p>
+
+  <h2>What <span class="reef-name">reef</span> promises — and does not</h2>
+  <p>
+    <span class="reef-name">reef</span> is run with care: your memory is backed up, and separation
+    between spaces is enforced by the database itself. But it is an early
+    service provided as it is, without a guarantee that it is always available
+    or free of faults. To the extent Belgian law allows, Haai BV's liability
+    for using <span class="reef-name">reef</span> is limited to what you paid for it — which is,
+    today, nothing. None of this limits liability for intent, gross
+    negligence, or anything that cannot lawfully be excluded, and none of it
+    touches your statutory rights as a consumer.
+  </p>
+
+  <h2>Who you are dealing with</h2>
+  <table>
+    <tr><th>Company</th><td>Haai BV</td></tr>
+    <tr><th>Address</th><td>Karel de Stoutestraat 184, 9000 Gent, Belgium</td></tr>
+    <tr><th>VAT / KBO</th><td>BE 1027.736.279</td></tr>
+    <tr><th>Contact</th><td><a href="mailto:wouter@rugvin.be">wouter@rugvin.be</a></td></tr>
+  </table>
+  <p>
+    These terms are governed by Belgian law. Disputes go to the courts of
+    Ghent, unless the law gives you, as a consumer, the right to your own
+    courts.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If these terms change in a way that matters, the date above changes and
+    you will be told before it takes effect. If you keep using
+    <span class="reef-name">reef</span> after that, the new terms apply; if you do not agree, you
+    can leave with everything, as described above.
+  </p>
+
+  <footer>
+    <span>made by <a class="haai" href="https://www.rugvin.be" target="_blank" rel="noopener" aria-label="haai"><svg class="haai-mark" viewBox="0 0 146.8 146.8" fill="currentColor" aria-hidden="true" focusable="false"><path d="M0,0v146.8h146.8V0H0ZM141.8,115.2c-.4,0-.8,0-1.2,0-.6,0-1.2,0-1.8,0-.8,0-1.6,0-2.4,0-.5,0-1,0-1.5,0-.9,0-1.9,0-2.8,0-.4,0-.7,0-1.1,0-1.3,0-2.6,0-3.9,0-.5,0-.9,0-1.4,0-.2,0-.3,0-.5,0-.3,0-.6,0-.9,0,0,0-.1,0-.2,0,2.5-.9,5.9-1.9,8.5-2.4l3.4-.6-3.2-1.5c-1.7-.8-3.4-1.6-5-2.4-3.5-1.7-6.7-3.3-10.1-4.7-8.7-3.6-13.8-10.1-15.2-19.4-1.4-9.3-3-19.9-3.3-30.2,0-3.5-.5-5.8-2.2-7.1-1.3-1-3.2-1.1-6.1-.4-5.5,1.4-7.7,2.6-13.5,7.4-1.6,1.1-3.1,2.3-4.4,3.7-10.1,8.6-18,19.6-25.7,30.2-2.2,3.1-4.5,6.2-6.8,9.3-8.3,11-16.4,16.2-27.1,17.3-2.2.2-4.3.5-6.5.7l-1.8.2V5.1h136.7v110.2Z"/></svg>haai</a></span>
+    <span>© 2026 · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/site/changelog.html">Changelog</a></span>
+  </footer>
+</div>
+</body>
+</html>
