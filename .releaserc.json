@@ -21,29 +21,6 @@
         ]
       }
     ],
-    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
-    "@semantic-release/changelog",
-    [
-      "@semantic-release/exec",
-      {
-        "prepareCmd": "python3 scripts/stamp_version.py ${nextRelease.version} && python3 scripts/fold_changes.py ${nextRelease.version} $(date -u +%Y-%m-%d)"
-      }
-    ],
-    [
-      "@semantic-release/git",
-      {
-        "assets": [
-          "CHANGELOG.md",
-          "site/release-notes.json",
-          "site/changelog.html",
-          "pyproject.toml",
-          "clients/python/pyproject.toml",
-          "clients/ts/package.json",
-          "changes"
-        ],
-        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
-      }
-    ],
-    ["@semantic-release/github", { "successComment": false, "failComment": false }]
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }]
   ]
 }

@@ -15,6 +15,7 @@ from rif.releasenotes import (
     load_feed,
     parse_fragment,
     parse_version,
+    prepend_changelog,
     read_fragments,
 )
 
@@ -237,3 +238,29 @@ def test_an_empty_feed_still_renders_a_page():
     html = render_page([])
     assert html.startswith("<!doctype html>")
     assert "Nothing to report yet" in html
+
+
+def test_prepend_changelog_puts_new_notes_first(tmp_path):
+    """A new release's notes land above the previous release's section."""
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## [0.2.0](x) (2026-08-17)\n\nold\n", encoding="utf-8")
+    prepend_changelog("## [0.3.0](y) (2026-08-18)\n\nnew", changelog)
+    text = changelog.read_text(encoding="utf-8")
+    assert text.index("0.3.0") < text.index("0.2.0")
+    assert text.endswith("old\n")
+
+
+def test_prepend_changelog_creates_the_file_when_absent(tmp_path):
+    """The very first release has no CHANGELOG.md to prepend into."""
+    changelog = tmp_path / "CHANGELOG.md"
+    prepend_changelog("## [0.1.0](z) (2026-08-01)\n\nfirst", changelog)
+    assert changelog.read_text(encoding="utf-8").startswith("## [0.1.0]")
+
+
+def test_prepend_changelog_refuses_empty_notes(tmp_path):
+    """Blank notes mean the caller's dry run produced nothing; fail loudly."""
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("## old\n", encoding="utf-8")
+    with pytest.raises(FragmentError):
+        prepend_changelog("   \n", changelog)
+    assert changelog.read_text(encoding="utf-8") == "## old\n"

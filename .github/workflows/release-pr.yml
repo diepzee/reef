@@ -1,0 +1,122 @@
+# Prepares the release as a pull request instead of a push to main.
+#
+# Every push to main refreshes (or opens) one PR, from the bot/release
+# branch, containing exactly what the old semantic-release job used to
+# push directly: stamped manifests, folded changelog fragments, and a
+# prepended CHANGELOG.md, under a single "chore(release): X.Y.Z" commit
+# whose body is the release notes. Merging that PR -- squash only, so it
+# stays one commit -- is how a release happens now; ci.yml's tag job
+# picks the merged commit up and does the tagging and publishing.
+#
+# Why a PR at all: the push-to-main model needed a bypass actor on the
+# main ruleset, i.e. an identity allowed to skip review. This model needs
+# none -- the ruleset is strict for everyone, bot included.
+#
+# The bot's app token, not GITHUB_TOKEN, does every push and API call
+# here. That is load-bearing: branches pushed with the workflow's own
+# token do not trigger pull_request workflows, so a release PR pushed
+# that way would never get its required checks and could never merge.
+name: Release PR
+
+on:
+  push:
+    branches: [main]
+  # For the rare tag-race failure (see the guard below) and for a first
+  # manual run without waiting for a merge.
+  workflow_dispatch:
+
+concurrency:
+  # One refresh at a time, newest wins. Merges land in bursts; only the
+  # PR matching main's tip is worth finishing.
+  group: release-pr
+  cancel-in-progress: true
+
+jobs:
+  release-pr:
+    name: Prepare release PR
+    # The release merge itself must not spawn the next release PR: with
+    # every commit type bumping at least a patch, chore(release) would
+    # otherwise re-trigger this forever.
+    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release):')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v2
+        id: bot
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0 # the dry run reads the full tag and commit history
+          token: ${{ steps.bot.outputs.token }}
+
+      - name: Guard against the tag race
+        # If a feature merges seconds after a release merge, this workflow
+        # can run before the tag job has pushed vX.Y.Z -- and the dry run
+        # below would then count the release commit as unreleased and
+        # compute a wrong version. Detect that window and fail loudly;
+        # re-run via workflow_dispatch once the tag exists.
+        run: |
+          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          range=${last_tag:+$last_tag..}HEAD
+          if git log --format=%s "$range" | grep -q '^chore(release):'; then
+            echo "::error::An untagged chore(release) commit is in the analysis range -- the tag job for it has not finished. Re-run this workflow (workflow_dispatch) once the tag exists."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compute next version and notes
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+          extra_plugins: |
+            conventional-changelog-conventionalcommits@8
+        env:
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+
+      - name: Prepare the release commit on bot/release
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          NOTES: ${{ steps.semantic.outputs.new_release_notes }}
+        run: |
+          set -euo pipefail
+          git switch -c bot/release
+          python3 scripts/stamp_version.py "$VERSION"
+          python3 scripts/fold_changes.py "$VERSION" "$(date -u +%Y-%m-%d)"
+          printf '%s' "$NOTES" | python3 scripts/prepend_changelog.py CHANGELOG.md
+          git config user.name "rif-release-bot[bot]"
+          git config user.email "rif-release-bot[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore(release): $VERSION" -m "$NOTES"
+          # Force: the branch is rebuilt from main's tip on every push, and
+          # only the newest build is meaningful.
+          git push --force origin bot/release
+
+      - name: Open or refresh the PR
+        if: steps.semantic.outputs.new_release_published == 'true'
+        env:
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+          VERSION: ${{ steps.semantic.outputs.new_release_version }}
+          NOTES: ${{ steps.semantic.outputs.new_release_notes }}
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list --head bot/release --state open --json number -q '.[0].number')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "chore(release): $VERSION" --body "$NOTES"
+            echo "Refreshed release PR #$existing for $VERSION."
+          else
+            # no-changelog: this PR *consumes* fragments rather than adding
+            # one, which is exactly the case the label exists for.
+            gh pr create --head bot/release \
+              --title "chore(release): $VERSION" --body "$NOTES" \
+              --label release --label no-changelog
+            echo "Opened release PR for $VERSION."
+          fi
+          echo "Squash-merge this PR to release $VERSION. Do not rebase- or merge-commit it: the publish gate requires the release to land as exactly one commit."
