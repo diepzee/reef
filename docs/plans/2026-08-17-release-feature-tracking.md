@@ -2168,7 +2168,7 @@ These are hand steps and none of them can be done in code. The first release fai
 - [ ] **npm token**: create an automation token with publish rights on `@haai/reef-cli`, store it as the `NPM_TOKEN` repo secret.
 - [ ] **`RELEASE_TOKEN`**: a fine-grained PAT with `contents: write` on this repo, stored as a repo secret. Branch protection on `main` rejects the default `GITHUB_TOKEN`'s push, and the release fails at the very last step with a permissions error that reads like a bug.
 - [ ] **Create the `no-changelog` label** on the repo.
-- [ ] **Make `changelog` a required check** in branch protection, so the enforcement in Task 7 is not merely advisory.
+- [ ] **Add the two new checks to branch protection**, by the names they report under: **`Changelog fragment`** and **`Release dry run`**. Both are gated with a job-level `if:`, so each appears as its own named check rather than as a step inside an existing one — and neither is enforced until it is named in branch protection. Without this, Task 7's enforcement is advisory and the dry run is decoration.
 
 - [ ] **Step 3: Point contributors at it**
 
