@@ -891,6 +891,88 @@ curl -sS https://reefwith.me/.well-known/glama.json
 
 ---
 
+## reef as the authorization server
+
+`rif.server._build_auth()` picks one of three worlds by what is set in the
+environment. None of this is forced — the OAuth-proxy world is opt-in
+behind the four vars in the table above, and unsetting two of them falls
+straight back to how reef has run since go-live.
+
+1. **Nothing set** (`WORKOS_AUTHKIT_DOMAIN` and `RIF_BASE_URL` both empty)
+   — no auth provider at all. Local dev and tests only; mirrors
+   `current_principal`'s dev fallback.
+2. **`WORKOS_AUTHKIT_DOMAIN` + `RIF_BASE_URL`, nothing else** — AuthKit is
+   the authorization server; reef only validates the tokens it issues.
+   This is the world reef has run in since go-live, and it is the
+   rollback target below.
+3. **Those two, plus `WORKOS_MCP_CLIENT_ID`/`WORKOS_MCP_CLIENT_SECRET`**
+   (which in turn requires `RIF_JWT_SIGNING_KEY` and
+   `RIF_OAUTH_STORE_DIR`) — reef itself becomes the authorization server,
+   using FastMCP's OAuth proxy. AuthKit stays the identity provider,
+   behind a single WorkOS Connect app ("Rif MCP"), and reef serves the
+   consent page a connecting client sees.
+
+**A partial proxy configuration refuses to boot, on purpose.** Setting
+only `WORKOS_MCP_CLIENT_ID` (or only `_SECRET`, or either one without the
+JWT key or the store dir) raises at startup instead of silently falling
+back to world 2. The alternative — quietly reverting the auth boundary
+because one variable was missed — would be invisible in production until
+someone went and audited the metadata by hand.
+
+**The storage trap.** FastMCP's default client-storage is encrypted, but
+it lives in a platformdirs cache directory — ephemeral on Railway, where
+every push to `main` redeploys the container, so every merge would wipe
+every connector's registration. `src/rif/oauth_store.py` points the store
+at `RIF_OAUTH_STORE_DIR` instead (the Railway volume), and mirrors
+FastMCP's own construction to keep the encryption, which otherwise only
+wraps the store FastMCP builds itself. The encryption key derives from
+`RIF_JWT_SIGNING_KEY`, deliberately not from the WorkOS client secret, so
+rotating that secret can never orphan the store — but rotating the
+signing key does: every stored entry becomes an undecryptable miss, which
+surfaces as every connector having to re-register.
+
+**The volume grows and nothing shrinks it.** Public dynamic client
+registration writes one permanent file per registering client to
+`RIF_OAUTH_STORE_DIR`, and the file store never deletes expired entries —
+they are only filtered out on read, not removed on disk. reef has no rate
+limiting in front of registration, so a scripted flood of DCR requests
+grows the volume without bound. Watch usage with `railway volume list`; a
+safe reset is `rm -rf /data/oauth`, at the cost of every connector having
+to re-register.
+
+### Cutover checklist
+
+1. WorkOS dashboard: create a Connect app named "Rif MCP"; register its
+   redirect URI, `https://reefwith.me/auth/callback`. Web login is
+   unaffected — it keeps `/api/auth/callback` on the separate "Rif Web"
+   app: different app, different path.
+2. `railway volume add --mount-path /data` on `rif-app`. Attaching a
+   volume redeploys the service; harmless to do before the four vars
+   below exist.
+3. Set the four vars from the table above with
+   `railway variables --set ... --skip-deploys`.
+4. Merge the OAuth-proxy PR → auto-deploy (see Phase 3, "How deploys
+   actually happen").
+5. Verify: the metadata endpoint names reef, not the AuthKit domain (see
+   the commands below); add a real Claude connector end-to-end and
+   confirm the stock consent page appears; confirm the cove landed in on
+   sign-in is the **existing** personal cove, not a new one; `reef login`
+   still works; push a trivial change and confirm the connector
+   **survives the redeploy** — the whole point of step 2.
+6. **Rollback:** unset both `WORKOS_MCP_CLIENT_ID` and
+   `WORKOS_MCP_CLIENT_SECRET`. reef falls back to world 2 above — AuthKit
+   as the authorization server — with nothing else to undo.
+
+*Verifying the cutover:*
+
+```bash
+curl -sS https://reefwith.me/.well-known/oauth-protected-resource/mcp
+# authorization_servers must name https://reefwith.me, not the authkit domain
+curl -sSI https://reefwith.me/mcp | grep -i www-authenticate
+```
+
+---
+
 ## Reference
 
 **Env vars (Railway):**
@@ -901,6 +983,10 @@ curl -sS https://reefwith.me/.well-known/glama.json
 | `WORKOS_CLIENT_ID` | Client id of the "Rif Web" **Connect OAuth application** (browser login only; the MCP path never reads it). Not the environment/default application client id — that one gets `application_not_found` |
 | `RIF_SESSION_SECRET` | 64-char hex; seals the browser session + OAuth state cookies |
 | `RIF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
+| `WORKOS_MCP_CLIENT_ID` / `WORKOS_MCP_CLIENT_SECRET` | The "Rif MCP" Connect app (NOT "Rif Web"). Setting either selects the OAuth-proxy branch: reef becomes the authorization server. Unset both to roll back to AuthKit-as-AS |
+| `RIF_JWT_SIGNING_KEY` | 64-char hex (generate like `RIF_SESSION_SECRET`). Signs reef-issued JWTs and keys the OAuth store's encryption. Rotating it = every connector re-registers |
+| `RIF_OAUTH_STORE_DIR` | OAuth state directory; must live on the volume (`/data/oauth`) or every deploy wipes every connector registration |
+| `RIF_ALLOWED_CLIENT_REDIRECTS` | Optional comma-separated redirect-URI patterns; default allows Claude, ChatGPT, and loopback CLIs |
 | `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
 | `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
 | `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |

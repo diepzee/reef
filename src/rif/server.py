@@ -5,9 +5,13 @@ import os
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 from mcp.types import Icon
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth.auth import AuthProvider
 
 from rif import invitations, telemetry
 from rif import spaces as space_admin
@@ -57,26 +61,93 @@ from rif.web.routes_api import register_api_routes
 from rif.web.routes_auth import register_auth_routes
 from rif.web.static import register_static_routes
 
+#: Redirect-URI patterns MCP clients may register when
+#: RIF_ALLOWED_CLIENT_REDIRECTS is unset: the two Claude origins, ChatGPT,
+#: and loopback for CLI clients (reef login, Codex). FastMCP's own default
+#: allows *every* URI; the consent page names the destination, but there
+#: is no reason to let a registration point anywhere else at all.
+_DEFAULT_CLIENT_REDIRECTS: list[str] = [
+    "https://claude.ai/*",
+    "https://claude.com/*",
+    "https://chatgpt.com/*",
+    "http://localhost:*",
+    "http://127.0.0.1:*",
+]
 
-def _build_auth():
-    """Construct the WorkOS AuthKit auth provider, per spike/NOTES.md's recipe.
 
-    Production (Railway) sets ``WORKOS_AUTHKIT_DOMAIN`` and ``RIF_BASE_URL``,
-    exactly as ``spike/server.py`` proved out in Task 1. Local dev and the
-    test suite import this module without either set, so the provider is
-    left unwired there rather than raising at import time; that mirrors
-    ``current_principal``'s stdio/dev fallback, which never runs in
-    production because ``PORT`` is always set there.
+def _build_auth() -> "AuthProvider | None":
+    """Construct the MCP auth provider from the environment.
 
-    :returns: the configured AuthKitProvider, or None if unconfigured
+    Three worlds, selected by what is set:
+
+    - Nothing (local stdio, tests): no provider, mirroring
+      ``current_principal``'s dev fallback.
+    - ``WORKOS_AUTHKIT_DOMAIN`` + ``RIF_BASE_URL`` only: AuthKit is the
+      authorization server and reef merely validates its tokens -- the
+      pre-proxy world, kept as the rollback path.
+    - Those plus ``WORKOS_MCP_CLIENT_ID``/``SECRET`` and the settings
+      fields below: reef itself is the authorization server (FastMCP's
+      OAuth proxy), AuthKit stays the IdP behind a single Connect app,
+      and reef serves the consent page.
+
+    A *partial* proxy configuration raises instead of falling back:
+    silently reverting the auth boundary because one variable is missing
+    would be invisible in production until someone audited the metadata.
+
+    :raises RuntimeError: when the proxy is half-configured
+    :returns: the configured provider, or None if unconfigured
     """
     domain = os.environ.get("WORKOS_AUTHKIT_DOMAIN")
     base_url = os.environ.get("RIF_BASE_URL")
     if not domain or not base_url:
         return None
-    from fastmcp.server.auth.providers.workos import AuthKitProvider
 
-    return AuthKitProvider(authkit_domain=domain, base_url=base_url)
+    client_id = os.environ.get("WORKOS_MCP_CLIENT_ID")
+    client_secret = os.environ.get("WORKOS_MCP_CLIENT_SECRET")
+    if not client_id and not client_secret:
+        from fastmcp.server.auth.providers.workos import AuthKitProvider
+
+        return AuthKitProvider(authkit_domain=domain, base_url=base_url)
+
+    settings = get_settings()
+    required = {
+        "WORKOS_MCP_CLIENT_ID": client_id,
+        "WORKOS_MCP_CLIENT_SECRET": client_secret,
+        "RIF_JWT_SIGNING_KEY": settings.jwt_signing_key,
+        "RIF_OAUTH_STORE_DIR": settings.oauth_store_dir,
+    }
+    missing = [name for name, value in required.items() if not value]
+    if missing:
+        raise RuntimeError(
+            "refusing to boot with a partial OAuth-proxy configuration; "
+            f"missing: {', '.join(missing)}. Set them all, or unset "
+            "WORKOS_MCP_CLIENT_ID and WORKOS_MCP_CLIENT_SECRET to fall "
+            "back to AuthKit as the authorization server."
+        )
+
+    from fastmcp.server.auth.providers.workos import WorkOSProvider
+
+    from rif.oauth_store import build_oauth_store
+
+    configured = settings.allowed_client_redirects
+    redirects = [p.strip() for p in configured.split(",") if p.strip()]
+    return WorkOSProvider(
+        client_id=client_id,
+        client_secret=client_secret,
+        authkit_domain=domain,
+        base_url=base_url,
+        jwt_signing_key=settings.jwt_signing_key,
+        client_storage=build_oauth_store(
+            settings.oauth_store_dir, settings.jwt_signing_key
+        ),
+        allowed_client_redirect_uris=redirects or _DEFAULT_CLIENT_REDIRECTS,
+        # Without offline_access AuthKit issues no refresh token, and every
+        # connector dies when the first upstream access token expires.
+        extra_authorize_params={"scope": "openid profile email offline_access"},
+        # Prompt on first connect per client per browser; FastMCP forces
+        # the prompt again for cross-site navigations (Sec-Fetch-Site).
+        require_authorization_consent="remember",
+    )
 
 
 def _brand_icons() -> list[Icon] | None:
