@@ -132,13 +132,7 @@ jobs:
     name: Release dry run
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # semantic-release's verifyConditions runs `git push --dry-run` to check it
-    # *could* push before it computes anything. With the default read-only
-    # token that fails EGITNOPERMISSION, so the job needs write here even
-    # though dry_run means it writes nothing. A fork's PR gets a read-only
-    # token regardless of this line, so it grants nothing to a stranger.
-    permissions:
-      contents: write
+    # Analysis-only config: the dry run needs no write permission and no token beyond the default.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -180,15 +174,7 @@ jobs:
           # GitHub Actions variables so it falls back to the checked-out git
           # branch, which `ref` above pins to the PR's head.
           unset_gha_env: true
-          # Must match the release job's list exactly. .releaserc.json names
-          # all four, and semantic-release resolves plugins from the repo
-          # root -- so omitting them here fails with "Cannot find module
-          # '@semantic-release/exec'" before any commit is analysed, which is
-          # precisely how this line came to be restored.
           extra_plugins: |
-            @semantic-release/changelog@6
-            @semantic-release/git@10
-            @semantic-release/exec@6
             conventional-changelog-conventionalcommits@8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
