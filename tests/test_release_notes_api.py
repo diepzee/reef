@@ -5,7 +5,9 @@ import json
 import pytest
 from conftest import _login
 
+from rif.access import Principal, arm
 from rif.config import get_settings
+from rif.models import Person
 
 CSRF = {"X-Rif-Csrf": "1"}
 
@@ -96,8 +98,43 @@ async def test_a_missing_feed_is_empty_rather_than_broken(
     assert response.json() == {"entries": [], "unread": False}
 
 
+async def test_another_persons_marker_is_invisible_and_unwritable(tx, household, seed):
+    """Attempt what the handlers never do: name another person's row.
+
+    The endpoint tests below cannot prove the policy. Both handlers scope
+    every query to ``principal.person_id``, so they touch one row by
+    construction and would pass with RLS switched off entirely. This test
+    queries the other person's row directly, which only ``persons_self_select``
+    and ``persons_self_update`` can stop -- so it is the one that fails if
+    either policy regresses to permissive.
+    """
+    wouter, partner = household["wouter"], household["partner"]
+    await seed.execute(
+        "UPDATE persons SET last_seen_release = '0.4.0' WHERE id = $1", partner.id
+    )
+    await arm(Principal(person_id=wouter.id, email=wouter.email))
+
+    # Invisible on read: the row exists, and the policy hides it.
+    assert await Person.objects().where(Person.id == partner.id) == []
+
+    # Unwritable: the UPDATE matches no row rather than raising.
+    await Person.update({Person.last_seen_release: "9.9.9"}).where(
+        Person.id == partner.id
+    )
+    assert (
+        await seed.fetchval(
+            "SELECT last_seen_release FROM persons WHERE id = $1", partner.id
+        )
+        == "0.4.0"
+    )
+
+
 async def test_one_persons_mark_does_not_move_anothers(api, world, feed, seed):
-    """The mark is per person, and persons is self-only under RLS."""
+    """Each person's mark moves independently through the endpoints.
+
+    This is application-level scoping, not the RLS proof -- see
+    :func:`test_another_persons_marker_is_invisible_and_unwritable` for that.
+    """
     alice, bob, _ = world
     _login(api, alice)
     await api.post("/api/release-notes/seen", headers=CSRF)
