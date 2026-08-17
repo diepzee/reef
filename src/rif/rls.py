@@ -33,9 +33,8 @@ Reads and writes use different predicates, and each SQL command gets its own
 policy. Reads accept any membership, so a ``VIEWER`` sees everything a
 ``MEMBER`` sees. ``INSERT``, ``UPDATE``, and ``DELETE`` all require
 ``role = 'member'``, so a ``VIEWER`` membership can never change or destroy a
-row even though nothing in the application yet creates viewers. The dormant
-role is enforced by Postgres from day one, not bolted on later as a policy
-migration. The literal is lowercase because Piccolo's ``Varchar(choices=...)``
+row. Invites create viewers on purpose since Aug 2026; the enforcement was
+never bolted on, because Postgres carried it from day one. The literal is lowercase because Piccolo's ``Varchar(choices=...)``
 stores an enum's *value*, not its name — these predicates and the Python
 comparisons must agree on that casing, or every write would silently deny.
 
@@ -485,9 +484,19 @@ def alias_statements() -> list[str]:
 
     :returns: SQL statements to execute in order
     """
-    statements: list[str] = list(
+    statements: list[str] = [
+        # Dropped immediately before the four-argument version is created,
+        # not only in mutation_statements. The creation lives here now (the
+        # body names memberships.alias, which the older migrations predate)
+        # while that drop sits in another group, so the two can run at
+        # different times -- and a database carrying both signatures makes
+        # every call to either one ambiguous. Adjacent, they cannot. A fresh
+        # chain never created the three-argument form and this is a no-op.
+        "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text)",
+    ]
+    statements += list(
         _function_ddl(
-            "rif_admit_member(p_space uuid, p_person uuid, p_alias text)",
+            "rif_admit_member(p_space uuid, p_person uuid, p_alias text, p_role text)",
             f"""
 DECLARE
   candidate text;
@@ -496,6 +505,11 @@ BEGIN
   -- Only the cove's owner admits anybody, matching memberships_insert.
   IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
                  AND owner_person_id = {PRINCIPAL}) THEN
+    RETURN NULL;
+  END IF;
+  -- The role is decided here, where the row is written, so no caller can
+  -- smuggle in a third value the write policies have never heard of.
+  IF p_role NOT IN ('member', 'viewer') THEN
     RETURN NULL;
   END IF;
   IF EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
@@ -526,7 +540,7 @@ BEGIN
     END IF;
   END LOOP;
   INSERT INTO memberships (person_id, space_id, role, alias)
-  VALUES (p_person, p_space, 'member', candidate);
+  VALUES (p_person, p_space, p_role, candidate);
   RETURN candidate;
 END
 """,
@@ -678,6 +692,12 @@ def mutation_statements() -> list[str]:
         # "permission denied for sequence" -- which reads as a policy
         # refusal and is not one.
         f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {AUTHZ_ROLE}",
+        # The three-argument rif_admit_member predates the role parameter.
+        # CREATE OR REPLACE cannot change a signature, and leaving the old
+        # function standing would make every call ambiguous -- so it is
+        # dropped wherever this group runs. A fresh chain never created it
+        # and the drop is a no-op there.
+        "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text)",
         *_function_ddl(
             "rif_owns_space(p_space uuid)",
             "SELECT EXISTS (SELECT 1 FROM spaces WHERE id = p_space "
@@ -808,6 +828,7 @@ def drop_mutation_statements() -> list[str]:
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text, timestamp)",
         "DROP FUNCTION IF EXISTS rif_allowlist_person(text, text)",
         "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text)",
+        "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text, text)",
         "DROP FUNCTION IF EXISTS rif_remove_member(uuid, uuid)",
         "DROP FUNCTION IF EXISTS rif_transfer_space_ownership(uuid, uuid)",
     ]

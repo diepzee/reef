@@ -70,6 +70,44 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
     assert json.loads(capsys.readouterr().out) == {"spaces": []}
 
 
+async def test_search_pages_maps_query_and_options(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
+    FakeClient.calls = []
+    FakeClient.result = []
+    args = build_parser().parse_args(
+        ["search-pages", "vaillant boiler", "--space", "household", "--limit", "5"]
+    )
+
+    status = await run(args, client_class=FakeClient)
+
+    assert status == 0
+    assert FakeClient.calls[-1] == (
+        "search_pages",
+        {"query": "vaillant boiler", "space": "household", "limit": 5},
+    )
+    assert json.loads(capsys.readouterr().out) == []
+
+
+async def test_read_page_maps_as_of(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
+    FakeClient.calls = []
+    FakeClient.result = {"body": "then"}
+    args = build_parser().parse_args(
+        ["read-page", "personal", "house.md", "--as-of", "2026-03-01T12:00:00"]
+    )
+
+    status = await run(args, client_class=FakeClient)
+
+    assert status == 0
+    assert FakeClient.calls[-1] == (
+        "read_page",
+        {"space": "personal", "path": "house.md", "as_of": "2026-03-01T12:00:00"},
+    )
+    assert json.loads(capsys.readouterr().out) == {"body": "then"}
+
+
 async def test_write_page_reads_body_file_and_maps_options(
     monkeypatch, tmp_path, capsys
 ):

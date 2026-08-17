@@ -193,7 +193,9 @@ less.
 | Tool | Notes |
 |---|---|
 | `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, one-line description, and resolved references, plus described files and a cache `version`. No bodies. |
-| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. |
+| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. `read_page` takes an optional `as_of`: the page reconstructed from its revisions as it stood at that moment, under the same RLS as a present-day read — the "what did we know about the boiler in March" query the data-model section promises, exposed as a tool. |
+| `search_pages(query, space?, limit?)` | Postgres FTS over titles and bodies, run inside the same armed transaction as every read, so RLS scopes it: a search can only rank pages the caller could read, and a forgotten filter returns nothing. Returns snippets to drive `read_pages`, never a substitute for reading. `websearch_to_tsquery` parses the query, so malformed input cannot error. No embeddings — see the Stack note. |
+| `whats_new(since?)` | The awareness surface: page writes (author, message) and file arrivals across accessible spaces, newest first, defaulting to the last 7 days. Runs under the same armed RLS session, so another person's personal activity is invisible by construction. Author names resolve through the roster functions, like every surface that shows who is in the room. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_file` / `read_file` | Any MIME type, original filename and mandatory description in; short-lived signed URL out, behind the same ACL. The old image-named tools remain compatibility aliases. |
 | `delete_file(space, key)` | The destructive file tool. Removes the row and bytes; the ACL check runs before object storage is touched. The old `delete_image` name remains a compatibility alias. |
@@ -202,7 +204,7 @@ less.
 | `write_pages(space, pages, message="")` | Batched `write_page`, up to 20 items, one approval tap. One transaction for the whole batch: any item failing (stale `expected_version`, `meta/` path, malformed item, oversize/empty batch) rolls back every write, including earlier items that looked fine. |
 | `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. Refuses any space but `personal`. |
 | `list_spaces` | Your spaces, each with its member list and whether you own it. |
-| `create_space(slug)` / `invite(space, email, ...)` / `remove_member(space, email)` | Space administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the space, past and future. |
+| `create_space(slug)` / `invite(space, email, ..., role)` / `remove_member(space, email)` | Space administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the space, past and future. `role` is `member` or `viewer` — a viewer reads everything and writes nothing, enforced by the same per-command write policies that have required `role = 'member'` since day one; the invite finally creates the row those policies were waiting for. `rif_admit_member` validates the role where the row is written. |
 | `prepare_to_share(path, dest_space, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
 
 There is no demotion tool, because there is no demotion. Once a fact is in the
@@ -290,7 +292,9 @@ a scheduled cloud agent for `mark`) repoints at the MCP and gains one step:
    household space may mean one person is wrong rather than that the page is
    stale. Flag, never silently resolve.
 
-Until then, inbox compilation happens by asking either assistant for a tidy-up.
+The tidy-up ritual (compile inboxes, staleness sweep, contradiction check)
+now ships in the operating protocol and the agent skill, so any assistant
+runs it on request. The Monday automation that runs it unasked remains open.
 
 ## Surfaces
 
@@ -325,8 +329,19 @@ drill that verifies `memberships` survived — an untested backup is not a backu
 
 ## Out of scope for v1
 
-Web UI, PWA, WhatsApp adapter, push notifications, full-text search, more than
-two people, and any sharing granularity finer than a space.
+As written for v1: web UI, PWA, WhatsApp adapter, push notifications,
+full-text search, more than two people, and any sharing granularity finer
+than a space.
+
+Since shipped anyway: the web UI (reefwith.me/app) and multi-user spaces
+with owner-managed invitations. Still out: PWA, WhatsApp adapter, push
+notifications, and finer-than-space sharing granularity.
+
+Full-text search has since shipped as `search_pages`: Postgres FTS inside
+the same RLS session, per the close/adapt/refuse calls in
+[`competitor-research.md`](competitor-research.md). The no-vector-database
+position above stands — FTS is the index-plus-selective-read escalation that
+section already names, not an embeddings turn.
 
 The PWA and a WhatsApp bot remain viable later and neither is wasted work: both
 are clients of this MCP. Keep agent-facing logic free of transport knowledge.

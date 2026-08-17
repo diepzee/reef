@@ -16,8 +16,9 @@ from rif.access import (
     Principal,
     accessible_spaces,
     alias_map,
-    resolve_space,
+    resolve_writable_space,
 )
+from rif.activity import whats_new as run_whats_new
 from rif.attachments import (
     MIME_RE,
     S3ObjectStore,
@@ -31,7 +32,7 @@ from rif.config import get_settings
 from rif.context import build_index, load_context
 from rif.db import transaction_scope
 from rif.invitations import InviteBudgetExceeded
-from rif.models import Page
+from rif.models import MemberRole, Membership, Page
 from rif.pages import (
     InvalidPath,
     PageNotFound,
@@ -42,6 +43,7 @@ from rif.pages import (
     VersionConflict,
     edit_section,
     get_page,
+    get_page_as_of,
     save_page,
 )
 from rif.pages import (
@@ -49,7 +51,8 @@ from rif.pages import (
 )
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import PERSONA_PATH, build_instructions
-from rif.spaces import SpaceError, member_names
+from rif.search import search_pages as run_search
+from rif.spaces import SpaceError, member_names, member_roster
 from rif.web.routes_api import register_api_routes
 from rif.web.routes_auth import register_auth_routes
 from rif.web.static import register_static_routes
@@ -169,14 +172,30 @@ async def tool_read_pages(
     return [await tool_read_page(principal, space, path) for path in paths]
 
 
-async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
+async def tool_read_page(
+    principal: Principal, space: str, path: str, as_of: str | None = None
+) -> dict:
     """Fetch one page as a dict, or a not_found marker.
+
+    With ``as_of``, the page is reconstructed from its revisions as it
+    stood at that moment; the payload then carries no ``version``, because
+    the past cannot be edited.
 
     :param principal: the authenticated person
     :param space: ``personal`` or a space name from list_spaces
     :param path: page path
+    :param as_of: optional ISO-8601 moment to read the page as of
     :returns: page fields, or ``{"error": "not_found"}``
     """
+    if as_of is not None:
+        try:
+            moment = datetime.fromisoformat(as_of)
+        except ValueError:
+            return {"error": "invalid_as_of", "as_of": as_of}
+        state = await get_page_as_of(principal, space, path, moment)
+        if state is None:
+            return {"error": "not_found", "path": path, "as_of": as_of}
+        return {**state, "as_of": as_of}
     page = await get_page(principal, space, path)
     if page is None:
         return {"error": "not_found", "path": path}
@@ -188,6 +207,24 @@ async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
         "version": page.version,
         "updated": page.updated_at.isoformat(),
     }
+
+
+async def tool_whats_new(principal: Principal, since: str | None = None) -> dict:
+    """List recent activity; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param since: optional ISO-8601 moment; the last 7 days if None
+    :returns: the window and its events, or an ``invalid_since`` marker
+    """
+    moment = None
+    if since is not None:
+        try:
+            moment = datetime.fromisoformat(since)
+        except ValueError:
+            return {"error": "invalid_since", "since": since}
+    events = await run_whats_new(principal, since=moment)
+    window = since if since is not None else "the last 7 days"
+    return {"since": window, "events": events}
 
 
 async def tool_list_spaces(principal: Principal) -> list[dict]:
@@ -206,15 +243,29 @@ async def tool_list_spaces(principal: Principal) -> list[dict]:
     :returns: one dict per accessible space
     """
     aliases = await alias_map(principal)
-    return [
-        {
-            "name": aliases[s.id],
-            "version": s.version,
-            "members": await member_names(s.id),
-            "you_are_owner": s.owner_person_id == principal.person_id,
+    rows = []
+    for s in await accessible_spaces(principal):
+        roster = await member_roster(s.id)
+        roles = {
+            m["person_id"]: m["role"]
+            for m in await Membership.select(
+                Membership.person_id, Membership.role
+            ).where(Membership.space_id == s.id)
         }
-        for s in await accessible_spaces(principal)
-    ]
+        rows.append(
+            {
+                "name": aliases[s.id],
+                "version": s.version,
+                "members": [m["display_name"] for m in roster],
+                "viewers": [
+                    m["display_name"]
+                    for m in roster
+                    if roles.get(m["person_id"]) == MemberRole.VIEWER.value
+                ],
+                "you_are_owner": s.owner_person_id == principal.person_id,
+            }
+        )
+    return rows
 
 
 async def tool_create_space(principal: Principal, slug: str) -> dict:
@@ -240,6 +291,7 @@ async def tool_invite(
     space: str,
     email: str,
     display_name: str | None = None,
+    role: str = "member",
 ) -> dict:
     """Invite an email into a space; split from the tool for testability.
 
@@ -247,11 +299,12 @@ async def tool_invite(
     :param space: the shared space name
     :param email: the invitee's sign-in email
     :param display_name: how members will see them
+    :param role: ``member`` (read and write) or ``viewer`` (read only)
     :returns: the invite outcome with disclosure, or an error dict
     """
     try:
         return await space_admin.invite(
-            principal, space, email, display_name=display_name
+            principal, space, email, display_name=display_name, role=role
         )
     except InviteBudgetExceeded as exc:
         return {"error": "invite_budget", "detail": str(exc)}
@@ -364,7 +417,7 @@ async def tool_remember(
     :param space: ``personal`` or a space name from list_spaces
     :returns: what was written, with a duplicate flag
     """
-    resolved = await resolve_space(principal, space)
+    resolved = await resolve_writable_space(principal, space)
     inbox = (
         await Page.objects()
         .where(Page.space_id == resolved.id, Page.path == _INBOX)
@@ -434,15 +487,57 @@ async def get_operating_protocol() -> str:
 
 
 @mcp.tool
-async def read_page(space: str, path: str) -> dict:
+async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
     """Read one page by path; needed when load_all_context was truncated.
+
+    Pass ``as_of`` to read the page as it stood at a past moment — "what
+    did we know in March" — reconstructed from its revision history.
 
     :param space: ``personal`` or a space name from list_spaces
     :param path: page path, for example ``house.md``
+    :param as_of: optional ISO-8601 moment to read the page as of
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await tool_read_page(principal, space, path)
+        return await tool_read_page(principal, space, path, as_of=as_of)
+
+
+@mcp.tool
+async def search_pages(
+    query: str, space: str | None = None, limit: int = 10
+) -> list[dict]:
+    """Search pages and file descriptions across every space you can see.
+
+    Use this when the index's descriptions do not settle which pages to
+    read — it matches words inside bodies and titles that descriptions
+    omit, and inside stored files' names and descriptions. Results carry a
+    snippet, not the content: fetch promising pages with read_pages and
+    promising files (kind "file", by their key) with read_file before
+    answering. Plain words, quoted phrases, and -exclusions all work.
+
+    :param query: words to search for
+    :param space: restrict to ``personal`` or a space name from list_spaces
+    :param limit: maximum results
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await run_search(principal, query, space=space, limit=limit)
+
+
+@mcp.tool
+async def whats_new(since: str | None = None) -> dict:
+    """List what changed across your spaces: who wrote what, where, when.
+
+    Page events carry the author and the write message; file events the
+    filename and key. Use it when the user returns after time away, or asks
+    what the other members' assistants have been up to. Defaults to the
+    last 7 days.
+
+    :param since: optional ISO-8601 moment to report changes after
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_whats_new(principal, since=since)
 
 
 @mcp.tool
@@ -468,20 +563,30 @@ async def create_space(slug: str) -> dict:
 
 
 @mcp.tool
-async def invite(space: str, email: str, display_name: str | None = None) -> dict:
+async def invite(
+    space: str,
+    email: str,
+    display_name: str | None = None,
+    role: str = "member",
+) -> dict:
     """Invite a person into a shared space you own. Owner only.
 
     Tell the user exactly what this grants before calling: the invitee will
     permanently see everything in the space, past and future. They get in by
-    signing in with this exact email address, verified.
+    signing in with this exact email address, verified. Pass role "viewer"
+    for someone who should read everything but write nothing — an
+    accountant, a helper — and say that difference out loud too.
 
     :param space: the space name, from list_spaces
     :param email: the address the invitee will sign in with
     :param display_name: how members will see them
+    :param role: "member" (read and write) or "viewer" (read only)
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await tool_invite(principal, space, email, display_name=display_name)
+        return await tool_invite(
+            principal, space, email, display_name=display_name, role=role
+        )
 
 
 @mcp.tool

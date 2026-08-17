@@ -36,10 +36,15 @@ determines when it can happen — not by priority.
 **Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
 assumed: it has no command for cron schedules or start commands)
 
-- [ ] **Backup cron service.** Today's dump is a one-off. Phase 4, step 3 has
-      the exact settings. *This is the highest-value item left.*
-- [ ] **Railway managed Postgres backups.** The second, independent
-      mechanism. Phase 4, step 2.
+- [ ] **Backup cron service — deferred, 17 Aug 2026, deliberately.** With
+      one person on reef, the managed Postgres backups (below) cover the
+      likely failures, and one verified off-platform dump exists
+      (`backups/rif-20260807T140148Z.dump`, drill passed). The cron becomes
+      due the moment other people's memory is at stake: **set it up before
+      the first invite goes out.** Phase 4, step 3 has the exact settings;
+      it is three dashboard fields.
+- [ ] **Railway managed Postgres backups.** Agreed 17 Aug 2026 to enable
+      now — one click, first line of defense. Phase 4, step 2.
 - [ ] **R2 bucket locks** — `attachments/` indefinite, `backups/` ~30 days.
       Phase 4, step 1. Do not create a prefix-less rule; the warning there
       explains why it is close to irreversible.

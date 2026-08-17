@@ -255,11 +255,18 @@ def build_parser() -> argparse.ArgumentParser:
     read_pages = _tool_parser(sub, "read_pages", "read several pages from one space")
     read_pages.add_argument("space")
     read_pages.add_argument("paths", nargs="+")
+    search = _tool_parser(sub, "search_pages", "full-text search across your pages")
+    search.add_argument("query")
+    search.add_argument("--space", help="restrict to one space")
+    search.add_argument("--limit", type=int, default=10)
     _tool_parser(sub, "load_all_context", "load all page bodies for maintenance")
     _tool_parser(sub, "get_operating_protocol", "load the protocol and persona")
     read_page = _tool_parser(sub, "read_page", "read one page")
     read_page.add_argument("space")
     read_page.add_argument("path")
+    read_page.add_argument("--as-of", help="ISO-8601 moment to read the page as of")
+    whats_new = _tool_parser(sub, "whats_new", "list recent changes across spaces")
+    whats_new.add_argument("--since", help="ISO-8601 moment to report changes after")
     _tool_parser(sub, "list_spaces", "list spaces, members, ownership, and versions")
     create_space = _tool_parser(sub, "create_space", "create a shared space")
     create_space.add_argument("slug")
@@ -267,6 +274,12 @@ def build_parser() -> argparse.ArgumentParser:
     invite.add_argument("space")
     invite.add_argument("email")
     invite.add_argument("--display-name")
+    invite.add_argument(
+        "--role",
+        choices=["member", "viewer"],
+        default="member",
+        help="viewer reads everything and writes nothing",
+    )
     invite_reef = _tool_parser(
         sub, "invite_to_reef", "invite someone to Reef without sharing a space"
     )
@@ -402,14 +415,22 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         return tool, {}
     if tool == "read_pages":
         return tool, {"space": args.space, "paths": args.paths}
+    if tool == "search_pages":
+        return tool, {"query": args.query, "space": args.space, "limit": args.limit}
     if tool == "read_page":
-        return tool, {"space": args.space, "path": args.path}
+        payload = {"space": args.space, "path": args.path}
+        if args.as_of is not None:
+            payload["as_of"] = args.as_of
+        return tool, payload
+    if tool == "whats_new":
+        return tool, {"since": args.since} if args.since is not None else {}
     if tool == "create_space":
         return tool, {"slug": args.slug}
     if tool in {"invite", "invite_to_reef"}:
         payload = {"email": args.email, "display_name": args.display_name}
         if tool == "invite":
             payload["space"] = args.space
+            payload["role"] = args.role
         return tool, payload
     if tool == "remove_member":
         return tool, {"space": args.space, "email": args.email}

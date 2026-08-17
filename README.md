@@ -71,10 +71,26 @@ adapted for shared, permissioned memory.
    path, title, tags, and a one-line description. No page bodies.
 2. It reads the map, decides what this conversation needs, and fetches only
    that with `read_pages`.
-3. It fetches again as the topic moves.
+3. It fetches again as the topic moves. When the map alone cannot settle
+   what to read, `search_pages` matches words inside page bodies — and
+   because it runs under the same row-level security as every read, a
+   search can never surface a page its caller could not open.
 
 The index is rebuilt from the database on every call, so it cannot fall out of
 date.
+
+## How your assistant writes it
+
+Nothing is recorded silently. Mid-conversation, a fact worth keeping goes
+through `remember`, which stages it as a dated line in that space's inbox —
+and before the conversation ends, the assistant says what it is keeping so
+you can strike anything first.
+
+An inbox entry is not memory yet. A tidy-up — ask for one any time —
+compiles inboxes onto real pages, flags pages that have gone stale, and
+surfaces contradictions between your pages and shared ones instead of
+silently picking a winner. Deliberate capture, reviewed by you, is the
+design: reef will not transcribe your conversations behind your back.
 
 ## How your privacy is protected
 
