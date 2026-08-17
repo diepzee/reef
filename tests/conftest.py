@@ -20,6 +20,7 @@ from rif.db import DB, transaction_scope
 from rif.models import TABLES, Person, Space, SpaceKind
 from rif.rls import (
     AUTHZ_ROLE,
+    alias_statements,
     appearance_statements,
     avatar_statements,
     constraint_statements,
@@ -27,6 +28,9 @@ from rif.rls import (
     drop_disclosure_statements,
     drop_mutation_statements,
     enable_statements,
+    open_door_statements,
+    person_column_grant_statements,
+    session_epoch_statements,
 )
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
@@ -170,21 +174,34 @@ async def schema():
     # Superseded function signatures are dropped before the schema is built:
     # changing an argument list creates a second function rather than
     # replacing the first, and two candidates make every call ambiguous.
+    #
+    # Deliberately this list rather than a blanket sweep of every rif_*
+    # function. A sweep was tried and reverted: dropping them CASCADE takes
+    # the policies of any table drop_db_tables did not own with them, and the
+    # suite went from green to intermittently failing whole sessions. What a
+    # sweep would have caught -- a function left behind by a rewritten branch
+    # -- test_migration_chain now catches better, by comparing the migrated
+    # schema against what rif.rls actually declares rather than against
+    # whatever this database happens to contain.
     for statement in (
         drop_disclosure_statements()
         + drop_mutation_statements()
         + drop_avatar_statements()
     ):
         await DB._run_in_new_connection(statement)
-    # appearance_statements and avatar_statements are listed separately on
-    # purpose: neither is part of enable_statements, because historical
-    # migrations call that and predate the table (appearance) and the avatar
-    # columns. See their docstrings.
+    # appearance_statements, avatar_statements and open_door_statements are
+    # listed separately on purpose: none is part of enable_statements,
+    # because historical migrations call that and predate the table and the
+    # columns each needs. See their docstrings.
     for statement in (
         constraint_statements()
         + enable_statements()
         + appearance_statements()
+        + session_epoch_statements()
+        + alias_statements()
+        + open_door_statements()
         + avatar_statements()
+        + person_column_grant_statements()
     ):
         await DB._run_in_new_connection(statement)
     yield

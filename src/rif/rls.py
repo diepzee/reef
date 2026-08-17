@@ -465,18 +465,145 @@ def identity_grant_statements() -> list[str]:
             f"EXECUTE 'GRANT UPDATE (version) ON spaces TO {role}'; "
             f"END IF; END $do$"
         )
-        # memberships_self_update admits the whole row; only the alias may
-        # actually move. role and space_id stay out of reach of the app role,
-        # so a member cannot promote themselves or graft their membership
-        # onto another cove. Ownership transfer changes role from inside a
-        # definer function, which a grant on the caller does not constrain.
-        statements.append(
-            f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
-            f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON memberships FROM {role}'; "
-            f"EXECUTE 'GRANT UPDATE (alias) ON memberships TO {role}'; "
-            f"END IF; END $do$"
-        )
     return statements
+
+
+def alias_statements() -> list[str]:
+    """Return DDL for everything that names ``memberships.alias``.
+
+    Split out of :func:`mutation_statements` and
+    :func:`identity_grant_statements` for the reason
+    :func:`session_epoch_statements` gives at length: three August migrations
+    call :func:`enable_statements`, all of them running before ``alias``
+    exists, and a plpgsql body naming a missing column is refused at creation
+    time. Every database built from scratch died here with ``column "alias"
+    of relation "memberships" does not exist``.
+
+    Called by the migration that adds the column, and by the test suite's
+    schema fixture.
+
+    :returns: SQL statements to execute in order
+    """
+    statements: list[str] = [
+        # Dropped immediately before the four-argument version is created,
+        # not only in mutation_statements. The creation lives here now (the
+        # body names memberships.alias, which the older migrations predate)
+        # while that drop sits in another group, so the two can run at
+        # different times -- and a database carrying both signatures makes
+        # every call to either one ambiguous. Adjacent, they cannot. A fresh
+        # chain never created the three-argument form and this is a no-op.
+        "DROP FUNCTION IF EXISTS rif_admit_member(uuid, uuid, text)",
+    ]
+    statements += list(
+        _function_ddl(
+            "rif_admit_member(p_space uuid, p_person uuid, p_alias text, p_role text)",
+            f"""
+DECLARE
+  candidate text;
+  suffix int := 1;
+BEGIN
+  -- Only the cove's owner admits anybody, matching memberships_insert.
+  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+                 AND owner_person_id = {PRINCIPAL}) THEN
+    RETURN NULL;
+  END IF;
+  -- The role is decided here, where the row is written, so no caller can
+  -- smuggle in a third value the write policies have never heard of.
+  IF p_role NOT IN ('member', 'viewer') THEN
+    RETURN NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
+             AND person_id = p_person) THEN
+    RETURN NULL;
+  END IF;
+  -- The alias has to be free for the *invitee*, and the owner cannot see
+  -- the invitee's other memberships -- persons are self-only and
+  -- memberships are visible per cove, so evaluated in Python this check
+  -- would come back clear and the insert would hit the unique constraint.
+  -- In here it is both correct and atomic: no window between choosing a
+  -- name and taking it.
+  --
+  -- 'personal' is refused outright rather than suffixed. It is the one
+  -- alias whose meaning is fixed for everybody, and a cove admitted under
+  -- it would shadow the private space in every later call.
+  candidate := p_alias;
+  IF candidate = 'personal' OR candidate IS NULL OR candidate = '' THEN
+    candidate := 'cove';
+  END IF;
+  WHILE EXISTS (SELECT 1 FROM memberships WHERE person_id = p_person
+                AND alias = candidate) LOOP
+    suffix := suffix + 1;
+    candidate := p_alias || '-' || suffix;
+    -- A person with thousands of coves is not a case worth looping over.
+    IF suffix > 999 THEN
+      RETURN NULL;
+    END IF;
+  END LOOP;
+  INSERT INTO memberships (person_id, space_id, role, alias)
+  VALUES (p_person, p_space, p_role, candidate);
+  RETURN candidate;
+END
+""",
+            returns="text",
+            writes=("memberships",),
+            reads=("spaces",),
+            volatility="VOLATILE",
+            language="plpgsql",
+        )
+    )
+    # memberships_self_update admits the whole row; only the alias may
+    # actually move. role and space_id stay out of reach of the app role, so a
+    # member cannot promote themselves or graft their membership onto another
+    # cove. Ownership transfer changes role from inside a definer function,
+    # which a grant on the caller does not constrain.
+    statements += [
+        f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+        f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON memberships FROM {role}'; "
+        f"EXECUTE 'GRANT UPDATE (alias) ON memberships TO {role}'; "
+        f"END IF; END $do$"
+        for role in _EXECUTOR_ROLES
+    ]
+    return statements
+
+
+#: What a person may rewrite on their own ``persons`` row. An allowlist, so a
+#: column added later arrives unwritable and says so, rather than arriving
+#: writable and saying nothing.
+_PERSON_SELF_COLUMNS = "display_name, avatar_mime, avatar_bytes, session_epoch"
+
+
+def person_column_grant_statements() -> list[str]:
+    """Return the column-level narrowing of ``persons`` updates.
+
+    ``persons_self_update`` admits the whole of a person's own row, because
+    row security can say *which row* and never *which column*. That was
+    harmless while every column on the row was theirs to change. It stopped
+    being harmless when ``joined_open_door`` arrived: the launch ceiling is
+    counted over that flag, and a member who can set it on themselves can
+    burn seats on rows that never came through the door.
+
+    Not an escalation -- nobody gains reach over anybody else's memory -- but
+    the ceiling is the one number the open door leans on, and it should not
+    be writable by the population it exists to bound.
+
+    ``email`` and ``subject`` are outside the grant too, which they always
+    should have been: they are the identity binding, rewritten only by the
+    definer functions in :func:`identity_statements`, and a grant on the
+    calling role does not constrain those.
+
+    Kept out of :func:`enable_statements` for the reason
+    :func:`open_door_statements` gives: it names a column that historical
+    migrations predate.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+        f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON persons FROM {role}'; "
+        f"EXECUTE 'GRANT UPDATE ({_PERSON_SELF_COLUMNS}) ON persons TO {role}'; "
+        f"END IF; END $do$"
+        for role in _EXECUTOR_ROLES
+    ]
 
 
 def drop_identity_policy_statements() -> list[str]:
@@ -623,61 +750,6 @@ END
             language="plpgsql",
         ),
         *_function_ddl(
-            "rif_admit_member(p_space uuid, p_person uuid, p_alias text, p_role text)",
-            f"""
-DECLARE
-  candidate text;
-  suffix int := 1;
-BEGIN
-  -- Only the cove's owner admits anybody, matching memberships_insert.
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
-                 AND owner_person_id = {PRINCIPAL}) THEN
-    RETURN NULL;
-  END IF;
-  -- The role is decided here, where the row is written, so no caller can
-  -- smuggle in a third value the write policies have never heard of.
-  IF p_role NOT IN ('member', 'viewer') THEN
-    RETURN NULL;
-  END IF;
-  IF EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
-             AND person_id = p_person) THEN
-    RETURN NULL;
-  END IF;
-  -- The alias has to be free for the *invitee*, and the owner cannot see
-  -- the invitee's other memberships -- persons are self-only and
-  -- memberships are visible per cove, so evaluated in Python this check
-  -- would come back clear and the insert would hit the unique constraint.
-  -- In here it is both correct and atomic: no window between choosing a
-  -- name and taking it.
-  --
-  -- 'personal' is refused outright rather than suffixed. It is the one
-  -- alias whose meaning is fixed for everybody, and a cove admitted under
-  -- it would shadow the private space in every later call.
-  candidate := p_alias;
-  IF candidate = 'personal' OR candidate IS NULL OR candidate = '' THEN
-    candidate := 'cove';
-  END IF;
-  WHILE EXISTS (SELECT 1 FROM memberships WHERE person_id = p_person
-                AND alias = candidate) LOOP
-    suffix := suffix + 1;
-    candidate := p_alias || '-' || suffix;
-    -- A person with thousands of coves is not a case worth looping over.
-    IF suffix > 999 THEN
-      RETURN NULL;
-    END IF;
-  END LOOP;
-  INSERT INTO memberships (person_id, space_id, role, alias)
-  VALUES (p_person, p_space, p_role, candidate);
-  RETURN candidate;
-END
-""",
-            returns="text",
-            writes=("memberships",),
-            reads=("spaces",),
-            volatility="VOLATILE",
-            language="plpgsql",
-        ),
-        *_function_ddl(
             "rif_remove_member(p_space uuid, p_person uuid, "
             "OUT removed boolean, OUT person_erased boolean)",
             f"""
@@ -790,6 +862,10 @@ _PERSON_ROW = "TABLE(person_id uuid, person_email text, person_display_name text
 
 _PERSON_COLUMNS = "SELECT p.id, p.email, p.display_name FROM persons p"
 
+#: Advisory-lock key serialising open-door admissions. Arbitrary, but fixed:
+#: two admissions serialise only if they contend on the same key.
+_SEAT_LOCK_KEY = 0x0DD00DD0
+
 
 def identity_statements() -> list[str]:
     """Return DDL for the functions that resolve an identity before arming.
@@ -843,17 +919,38 @@ def identity_statements() -> list[str]:
             returns="boolean",
             reads=("persons",),
         ),
-        # Answers both questions the request path asks of a sealed cookie --
-        # does this person still exist, and has their session been revoked --
-        # in one round trip, before any principal is armed. NULL means the
-        # row is gone, which denies exactly as a mismatched epoch does.
-        *_function_ddl(
-            "rif_person_session_epoch(p_id uuid)",
-            "SELECT session_epoch FROM persons WHERE id = p_id",
-            returns="integer",
-            reads=("persons",),
-        ),
     ]
+
+
+def session_epoch_statements() -> list[str]:
+    """Return DDL for the function that reads a person's session epoch.
+
+    Answers both questions the request path asks of a sealed cookie -- does
+    this person still exist, and has their session been revoked -- in one
+    round trip, before any principal is armed. NULL means the row is gone,
+    which denies exactly as a mismatched epoch does.
+
+    Split out of :func:`identity_statements` because it names
+    ``persons.session_epoch``, and three historical migrations call
+    :func:`enable_statements` to re-apply the policies of their day, all of
+    them running before that column exists. A ``LANGUAGE sql`` body is parsed
+    and validated when the function is created, so this failed every database
+    built from scratch with ``column "session_epoch" does not exist`` --
+    a fresh deploy, and the restore drill in ``docs/restore.md``. Production
+    never saw it, being long past those migrations.
+
+    This is the same shape :func:`appearance_statements` documents, and the
+    third time this project has hit it. ``tests/test_open_door.py`` now
+    asserts the rule directly.
+
+    :returns: SQL statements to execute in order
+    """
+    return _function_ddl(
+        "rif_person_session_epoch(p_id uuid)",
+        "SELECT session_epoch FROM persons WHERE id = p_id",
+        returns="integer",
+        reads=("persons",),
+    )
 
 
 def drop_identity_statements() -> list[str]:
@@ -970,6 +1067,93 @@ def appearance_statements() -> list[str]:
     ]
 
 
+def open_door_statements() -> list[str]:
+    """Return DDL for the launch exception's admission function.
+
+    Deliberately **not** called from :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives at length: historical migrations call
+    that to re-apply the policies of their day, and they run long before
+    ``persons.joined_open_door`` exists. Putting this there fails every
+    database built from scratch with ``column "joined_open_door" does not
+    exist``, while production -- already past those migrations -- would never
+    have noticed. The migration that adds the column names it explicitly, as
+    does the test suite's schema fixture.
+
+    ``rif_open_door_admit`` is the mirror image of ``rif_allowlist_person``.
+    That one refuses to run unarmed, because a row minted with no principal
+    would have a NULL inviter and nobody accountable for it. This one *only*
+    ever runs unarmed: it is reached from the OIDC callback, before any
+    principal can exist, which is the whole difficulty of admitting a
+    stranger. What replaces accountability is the flag and the ceiling.
+
+    :returns: SQL statements to execute in order
+    """
+    return _function_ddl(
+        "rif_open_door_admit(p_email text, p_subject text, "
+        "p_display_name text, p_seats int)",
+        f"""
+DECLARE
+  bound_id uuid;
+  bound_email text;
+  bound_name text;
+  taken int;
+BEGIN
+  -- Serialises admissions. The ceiling is a global count, so the check and
+  -- the insert have to be uninterleaved or two callers racing for the last
+  -- seat both see it free and both land -- the same check-then-act
+  -- rif_allowlist_person locks the inviter's row to avoid. There is no
+  -- per-caller row to lock here, the counted set being every open-door row
+  -- at once, so the lock is advisory and taken on a fixed key. It releases
+  -- when the transaction ends, however it ends.
+  PERFORM pg_advisory_xact_lock({_SEAT_LOCK_KEY});
+
+  -- An address already on the allowlist is somebody a member invited for
+  -- real, possibly in the seconds between the callback and the click.
+  -- Binding it is right; spending a launch seat on it is not, because the
+  -- ceiling exists to bound strangers.
+  --
+  -- ``subject IS NULL`` is the same rule rif_person_bind enforces, and it
+  -- is load-bearing rather than tidy: without it, anybody able to prove
+  -- control of an address a member already signed in with would be handed
+  -- that member's account.
+  UPDATE persons SET subject = p_subject
+   WHERE email = lower(p_email) AND subject IS NULL
+  RETURNING id, email, display_name INTO bound_id, bound_email, bound_name;
+  IF FOUND THEN
+    -- Cast explicitly: the columns are varchar(255) and the signature says
+    -- text, which RETURN QUERY compares strictly rather than coercing.
+    RETURN QUERY SELECT bound_id, bound_email::text, bound_name::text;
+    RETURN;
+  END IF;
+
+  -- Nothing was bound: either no such row, or one whose subject is already
+  -- set. The second case must not fall through to the insert -- the unique
+  -- index on email would refuse it anyway, but as a raw driver error rather
+  -- than the refusal the caller is written to expect.
+  IF EXISTS (SELECT 1 FROM persons WHERE email = lower(p_email)) THEN
+    RETURN;
+  END IF;
+
+  SELECT count(*) INTO taken FROM persons WHERE joined_open_door;
+  IF taken >= p_seats THEN
+    RETURN;
+  END IF;
+
+  RETURN QUERY
+  INSERT INTO persons (id, email, subject, display_name, joined_open_door,
+                       created_at)
+  VALUES (gen_random_uuid(), lower(p_email), p_subject, p_display_name, true,
+          LOCALTIMESTAMP)
+  RETURNING id, email::text, display_name::text;
+END
+""",
+        returns=_PERSON_ROW,
+        writes=("persons",),
+        volatility="VOLATILE",
+        language="plpgsql",
+    )
+
+
 def avatar_statements() -> list[str]:
     """Return DDL for the functions that show a co-member's face.
 
@@ -1037,6 +1221,16 @@ def drop_avatar_statements() -> list[str]:
     return [
         "DROP FUNCTION IF EXISTS rif_member_faces(uuid)",
         "DROP FUNCTION IF EXISTS rif_member_avatar(uuid, uuid)",
+    ]
+
+
+def drop_open_door_statements() -> list[str]:
+    """Return DDL undoing :func:`open_door_statements`.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "DROP FUNCTION IF EXISTS rif_open_door_admit(text, text, text, int)",
     ]
 
 

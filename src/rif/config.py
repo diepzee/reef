@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     session_secret: str = ""
     static_dir: str = "frontend/dist"
     site_dir: str = "site"
+    # The launch exception. Both default to the closed position, and both
+    # have to be set for the door to admit anybody -- see rif.opendoor for
+    # why it fails closed on either one alone.
+    open_seats: int = 0
+    open_until: str = ""
+
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:
     # it is a personal address, and a fork claiming ours would only publish

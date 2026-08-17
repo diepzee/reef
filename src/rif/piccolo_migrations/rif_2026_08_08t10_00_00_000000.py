@@ -41,11 +41,77 @@ for the duration is also what lets the backfills see the whole table.
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from rif.db import DB
-from rif.rls import disable_statements, enable_statements
 
 ID = "2026-08-08T10:00:00:000000"
 VERSION = "1.36.0"
 DESCRIPTION = "multi-user spaces"
+
+
+# --- frozen snapshot -------------------------------------------------------
+#
+# These lists held `disable_statements()` and `enable_statements()` imported
+# live from `rif.rls`. That import is what made this migration a moving
+# target: it runs against the schema of its own day, while the functions it
+# called kept growing new columns. `session_epoch` and `memberships.alias`
+# both landed inside `enable_statements` and broke every build from scratch,
+# silently, because production was already past this point.
+#
+# Frozen here as the DDL actually stood on the day, following
+# `2026-08-06T12:20:00`. History is inert; the newest migration is the one
+# that re-applies today's policies, so drift has exactly one place to live.
+
+
+_FROZEN_DISABLE = [
+    "DROP POLICY IF EXISTS promotions_owner ON promotions",
+    "ALTER TABLE promotions NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE promotions DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS revisions_select ON revisions",
+    "DROP POLICY IF EXISTS revisions_insert ON revisions",
+    "DROP POLICY IF EXISTS revisions_update ON revisions",
+    "DROP POLICY IF EXISTS revisions_delete ON revisions",
+    "DROP POLICY IF EXISTS revisions_member ON revisions",
+    "ALTER TABLE revisions NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE revisions DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS attachments_select ON attachments",
+    "DROP POLICY IF EXISTS attachments_insert ON attachments",
+    "DROP POLICY IF EXISTS attachments_update ON attachments",
+    "DROP POLICY IF EXISTS attachments_delete ON attachments",
+    "DROP POLICY IF EXISTS attachments_member ON attachments",
+    "ALTER TABLE attachments NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE attachments DISABLE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS pages_select ON pages",
+    "DROP POLICY IF EXISTS pages_insert ON pages",
+    "DROP POLICY IF EXISTS pages_update ON pages",
+    "DROP POLICY IF EXISTS pages_delete ON pages",
+    "DROP POLICY IF EXISTS pages_member ON pages",
+    "ALTER TABLE pages NO FORCE ROW LEVEL SECURITY",
+    "ALTER TABLE pages DISABLE ROW LEVEL SECURITY",
+]
+
+_FROZEN_ENABLE = [
+    "ALTER TABLE pages ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE pages FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY pages_select ON pages FOR SELECT USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))",
+    "CREATE POLICY pages_insert ON pages FOR INSERT WITH CHECK (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "CREATE POLICY pages_update ON pages FOR UPDATE USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member')) WITH CHECK (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "CREATE POLICY pages_delete ON pages FOR DELETE USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "ALTER TABLE attachments ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE attachments FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY attachments_select ON attachments FOR SELECT USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))",
+    "CREATE POLICY attachments_insert ON attachments FOR INSERT WITH CHECK (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "CREATE POLICY attachments_update ON attachments FOR UPDATE USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member')) WITH CHECK (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "CREATE POLICY attachments_delete ON attachments FOR DELETE USING (space_id IN (SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'))",
+    "ALTER TABLE revisions ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE revisions FORCE ROW LEVEL SECURITY",
+    "CREATE POLICY revisions_select ON revisions FOR SELECT USING (page_id IN (SELECT p.id FROM pages p JOIN memberships m ON m.space_id = p.space_id WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid))",
+    "CREATE POLICY revisions_insert ON revisions FOR INSERT WITH CHECK (page_id IN (SELECT p.id FROM pages p JOIN memberships m ON m.space_id = p.space_id WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND m.role = 'member'))",
+    "CREATE POLICY revisions_update ON revisions FOR UPDATE USING (page_id IN (SELECT p.id FROM pages p JOIN memberships m ON m.space_id = p.space_id WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND m.role = 'member')) WITH CHECK (page_id IN (SELECT p.id FROM pages p JOIN memberships m ON m.space_id = p.space_id WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND m.role = 'member'))",
+    "CREATE POLICY revisions_delete ON revisions FOR DELETE USING (page_id IN (SELECT p.id FROM pages p JOIN memberships m ON m.space_id = p.space_id WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND m.role = 'member'))",
+    "ALTER TABLE promotions ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE promotions FORCE ROW LEVEL SECURITY",
+    "DROP POLICY IF EXISTS promotions_owner ON promotions",
+    "CREATE POLICY promotions_owner ON promotions USING (person_id = NULLIF(current_setting('app.person_id', true), '')::uuid) WITH CHECK (person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)",
+]
 
 # Postgres names an inline column constraint itself, and the name is not part
 # of any migration this project wrote -- Piccolo emitted ``unique=True`` on
@@ -117,11 +183,11 @@ async def forwards() -> MigrationManager:
 
     async def run() -> None:
         """Execute the DDL and backfills, in order, with RLS off in between."""
-        for statement in disable_statements():
+        for statement in _FROZEN_DISABLE:
             await DB._run_in_new_connection(statement)
         for statement in STATEMENTS:
             await DB._run_in_new_connection(statement)
-        for statement in enable_statements():
+        for statement in _FROZEN_ENABLE:
             await DB._run_in_new_connection(statement)
 
     manager.add_raw(run)
