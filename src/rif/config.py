@@ -32,6 +32,19 @@ class Settings(BaseSettings):
     # it on their domain to no effect. Unset means the route 404s, which is
     # the honest answer -- nobody has claimed this deployment.
     glama_maintainer_email: str = ""
+    # --- MCP OAuth proxy (see docs/runbook.md, "reef as authorization
+    # server"). All three are read only when WORKOS_MCP_CLIENT_ID/SECRET
+    # select the proxy branch of rif.server._build_auth.
+    # Signs reef-issued JWTs and keys the OAuth store's encryption.
+    # Explicit, never derived from the WorkOS client secret: the default
+    # derivation would make a secret rotation silently invalidate every
+    # issued token AND orphan the store directory.
+    jwt_signing_key: str = ""
+    # Where OAuth state lives; production points at the Railway volume.
+    oauth_store_dir: str = ""
+    # Comma-separated redirect-URI patterns MCP clients may register.
+    # Empty means the default allowlist in rif.server.
+    allowed_client_redirects: str = ""
 
     @property
     def dsn(self) -> str:
