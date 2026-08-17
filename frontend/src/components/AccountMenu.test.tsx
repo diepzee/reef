@@ -12,6 +12,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import type { Me } from "../types";
+import { ReleaseNotesContext } from "../useReleaseNotes";
 
 let sent: Array<{ method: string; path: string }> = [];
 
@@ -39,7 +40,11 @@ const ME: Me = {
 function renderMenu(me: Me | null = ME) {
   render(
     <MemoryRouter>
-      <AccountMenu me={me} />
+      <ReleaseNotesContext.Provider
+        value={{ unread: false, openReleaseNotes: () => {} }}
+      >
+        <AccountMenu me={me} />
+      </ReleaseNotesContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -98,4 +103,21 @@ test("a person who has not loaded yet does not break the menu", () => {
   // AppShell renders this before /api/me resolves.
   renderMenu(null);
   expect(screen.getByRole("button")).toBeDefined();
+});
+
+test("the what's new item opens the panel and is marked when unread", () => {
+  let opened = false;
+  render(
+    <MemoryRouter>
+      <ReleaseNotesContext.Provider
+        value={{ unread: true, openReleaseNotes: () => (opened = true) }}
+      >
+        <AccountMenu me={ME} />
+      </ReleaseNotesContext.Provider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole("button", { name: /Wouter/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /what's new/i }));
+  expect(opened).toBe(true);
+  expect(screen.getByLabelText("unread")).toBeDefined();
 });

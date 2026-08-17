@@ -36,8 +36,8 @@ import {
 } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import { ApiError, apiGet } from "../api";
-import type { Me } from "../types";
+import { ApiError, apiGet, apiSend } from "../api";
+import type { Me, ReleaseNotesFeed } from "../types";
 import {
   AppearanceContext,
   type AppearanceMap,
@@ -46,9 +46,11 @@ import {
 import { MeContext } from "../useMe";
 import { useMediaQuery } from "../useMediaQuery";
 import { MembersSheetContext } from "../useMembersSheet";
+import { ReleaseNotesContext } from "../useReleaseNotes";
 import { AccountMenu } from "./AccountMenu";
 import { MembersSheet } from "./MembersSheet";
 import { FrondGlyph } from "./ReefMark";
+import { ReleaseNotes } from "./ReleaseNotes";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -66,6 +68,29 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, []);
   const closeMembers = useCallback(() => setSheetOpen(false), []);
   const sheetContextValue = useMemo(() => ({ openMembers }), [openMembers]);
+
+  const [feed, setFeed] = useState<ReleaseNotesFeed | null>(null);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
+
+  const openReleaseNotes = useCallback(() => {
+    setReleaseNotesOpen(true);
+    // Opening *is* reading, so the mark moves now rather than on close: a
+    // reader who navigates away mid-panel has still seen it, and coming
+    // back to the same dot would read as the app having lost the fact.
+    apiSend("POST", "/api/release-notes/seen")
+      .then(() => {
+        setFeed((current) => (current ? { ...current, unread: false } : current));
+      })
+      .catch(() => {
+        // The dot staying lit is the whole cost of a failed stamp, and the
+        // next open tries again. Not worth an error surface.
+      });
+  }, []);
+
+  const releaseNotesContextValue = useMemo(
+    () => ({ unread: feed?.unread ?? false, openReleaseNotes }),
+    [feed?.unread, openReleaseNotes],
+  );
 
   const setAvatar = useCallback((avatar: string | null) => {
     setMe((current) => (current ? { ...current, avatar } : current));
@@ -90,6 +115,21 @@ export function AppShell({ children }: { children: ReactNode }) {
       .catch(() => {
         // Every cove already has a derived look, so a failure here costs
         // nothing but the viewer's overrides — not worth a error surface.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<ReleaseNotesFeed>("/api/release-notes")
+      .then((payload) => {
+        if (!cancelled) setFeed(payload);
+      })
+      .catch(() => {
+        // The panel is not load-bearing: a failure here costs the reader a
+        // list of changes, and must not cost them the app.
       });
     return () => {
       cancelled = true;
@@ -127,33 +167,41 @@ export function AppShell({ children }: { children: ReactNode }) {
     <MeContext.Provider value={meContextValue}>
       <AppearanceContext.Provider value={appearanceContextValue}>
         <MembersSheetContext.Provider value={sheetContextValue}>
-          {isDesktop ? (
-            <div className="shell">
-              <Sidebar me={me} />
-              <div className="content">
-                <div className="app-stack">{children}</div>
+          <ReleaseNotesContext.Provider value={releaseNotesContextValue}>
+            {isDesktop ? (
+              <div className="shell">
+                <Sidebar me={me} />
+                <div className="content">
+                  <div className="app-stack">{children}</div>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="app-stack">
-              <header className="app-header">
-                <Link to="/" className="app-header-link">
-                  <FrondGlyph color="var(--accent)" size={17} />
-                  <span className="app-header-wordmark">reef</span>
-                </Link>
-                {/* Without this the phone has no account surface at all —
-                  no profile, and no way to sign out. */}
-                <AccountMenu me={me} placement="down" />
-                {isHome && (
-                  <p className="app-header-tagline">
-                    memories you grow together
-                  </p>
-                )}
-              </header>
-              {children}
-            </div>
-          )}
-          {sheet}
+            ) : (
+              <div className="app-stack">
+                <header className="app-header">
+                  <Link to="/" className="app-header-link">
+                    <FrondGlyph color="var(--accent)" size={17} />
+                    <span className="app-header-wordmark">reef</span>
+                  </Link>
+                  {/* Without this the phone has no account surface at all —
+                    no profile, and no way to sign out. */}
+                  <AccountMenu me={me} placement="down" />
+                  {isHome && (
+                    <p className="app-header-tagline">
+                      memories you grow together
+                    </p>
+                  )}
+                </header>
+                {children}
+              </div>
+            )}
+            {sheet}
+            {releaseNotesOpen && (
+              <ReleaseNotes
+                entries={feed?.entries ?? []}
+                onClose={() => setReleaseNotesOpen(false)}
+              />
+            )}
+          </ReleaseNotesContext.Provider>
         </MembersSheetContext.Provider>
       </AppearanceContext.Provider>
     </MeContext.Provider>

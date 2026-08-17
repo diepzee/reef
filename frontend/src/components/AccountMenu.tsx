@@ -20,6 +20,7 @@ import { Link } from "react-router-dom";
 
 import { apiSend } from "../api";
 import type { Me } from "../types";
+import { useReleaseNotes } from "../useReleaseNotes";
 import { Avatar } from "./Avatar";
 
 export function AccountMenu({
@@ -34,6 +35,7 @@ export function AccountMenu({
   const [signingOut, setSigningOut] = useState(false);
   const wrapper = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const { unread, openReleaseNotes } = useReleaseNotes();
 
   // One listener pair for the whole menu, attached only while it is open, so
   // a closed menu costs nothing. `pointerdown` rather than `click`: closing
@@ -92,6 +94,9 @@ export function AccountMenu({
       >
         {me && <Avatar name={me.display_name} size="sm" src={me.avatar} />}
         <span className="side-me-name">{me?.display_name ?? ""}</span>
+        {/* Visible with the menu closed — a dot only the menu's contents
+            carry tells nobody anything until they've already opened it. */}
+        {unread && <span className="acct-dot" aria-label="unread" />}
         <svg
           className={`acct-caret ${open ? "open" : ""}`}
           width="10"
@@ -121,6 +126,18 @@ export function AccountMenu({
           >
             Export
           </Link>
+          <button
+            type="button"
+            role="menuitem"
+            className="acct-item"
+            onClick={() => {
+              setOpen(false);
+              openReleaseNotes();
+            }}
+          >
+            What's new
+            {unread && <span className="acct-dot" aria-label="unread" />}
+          </button>
           <div className="acct-sep" role="separator" />
           <button
             type="button"

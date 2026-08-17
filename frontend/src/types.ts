@@ -127,3 +127,28 @@ export interface InviteBudget {
   budget: number;
   window_days: number;
 }
+
+/** One line in a release's "what's new", in the words a reader uses. */
+export interface Change {
+  kind: "added" | "changed" | "fixed";
+  text: string;
+}
+
+/** One release, as `GET /api/release-notes` reports it. */
+export interface ReleaseEntry {
+  version: string;
+  date: string;
+  changes: Change[];
+}
+
+/**
+ * `GET /api/release-notes` — what shipped, and whether this reader has seen it.
+ *
+ * `unread` is computed by the backend. The frontend never compares versions:
+ * "0.10.0" < "0.9.0" as strings, and one rule in one place is how the dot
+ * and the list stay in agreement.
+ */
+export interface ReleaseNotesFeed {
+  entries: ReleaseEntry[];
+  unread: boolean;
+}
