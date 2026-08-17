@@ -179,49 +179,60 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Cut a SemVer release from the conventional commits since the last tag.
-  # Gated on backend and frontend so a failing build never tags a release.
+  # Tag the release the moment its PR merges. release-pr.yml prepares
+  # every release as a squash-merged "chore(release): X.Y.Z" commit; this
+  # job recognises that commit on main, pushes the vX.Y.Z tag, and turns
+  # the commit body (the release notes, carried through the squash) into
+  # the GitHub release. Gated on backend and frontend so a broken build
+  # never gets a tag -- the same run that tests the merge does the tagging.
   #
-  # Note for whoever wonders later: [skip ci] stops GitHub Actions, not
-  # Railway, which deploys every push to main. Each release therefore costs
-  # one extra no-op production deploy. That is known and accepted.
-  release:
+  # The tag is pushed with the bot's app token. No bypass is involved:
+  # rulesets on main govern refs/heads/main, and this pushes only a tag.
+  tag:
     name: 🔖 Release
     needs: [backend, frontend]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'chore(release): ')
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
     outputs:
-      published: ${{ steps.semantic.outputs.new_release_published }}
-      version: ${{ steps.semantic.outputs.new_release_version }}
+      published: ${{ steps.cut.outputs.published }}
+      version: ${{ steps.cut.outputs.version }}
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: bot
+        with:
+          app-id: ${{ secrets.RELEASE_BOT_APP_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # semantic-release reads the full tag and commit history
-          # checkout persists whatever token it is given into git's extraheader,
-          # and semantic-release's push uses that credential -- not the one in
-          # the env below. Left at the default, the release commit is pushed by
-          # github-actions[bot], which no branch ruleset lets past a protected
-          # main. RELEASE_TOKEN carries the bypass; it has to be here, not just
-          # on the semantic-release step, or the push is rejected with GH013.
-          token: ${{ secrets.RELEASE_TOKEN }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: 🔖 semantic-release
-        id: semantic
-        uses: cycjimmy/semantic-release-action@v4
-        with:
-          extra_plugins: |
-            @semantic-release/changelog@6
-            @semantic-release/git@10
-            @semantic-release/exec@6
-            conventional-changelog-conventionalcommits@8
+          fetch-depth: 0
+          token: ${{ steps.bot.outputs.token }}
+      - name: 🔖 Tag and create the GitHub release
+        id: cut
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ steps.bot.outputs.token }}
+        run: |
+          set -euo pipefail
+          subject=$(git log -1 --format=%s)
+          version=$(printf '%s' "$subject" | sed -nE 's/^chore\(release\): ([0-9]+\.[0-9]+\.[0-9]+).*$/\1/p')
+          if [ -z "$version" ]; then
+            echo "::error::Could not parse a full semver out of '$subject'."
+            exit 1
+          fi
+          if git ls-remote --tags origin "refs/tags/v$version" | grep -q .; then
+            # A re-run of a run whose tag already landed must not fail the
+            # board or double-publish.
+            echo "v$version already exists; nothing to do."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git tag "v$version"
+          git push origin "v$version"
+          git log -1 --format=%b > /tmp/notes.md
+          gh release create "v$version" --title "v$version" --notes-file /tmp/notes.md
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # Publish only what actually changed. Both clients carry the repo-wide
   # version, so a server-only release would otherwise push two byte-identical
@@ -239,8 +250,8 @@ jobs:
   # what it decided.
   publish:
     name: 📦 Publish changed clients
-    needs: release
-    if: needs.release.outputs.published == 'true'
+    needs: tag
+    if: needs.tag.outputs.published == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -254,7 +265,7 @@ jobs:
       - name: 🔎 Decide what changed
         id: changed
         run: |
-          previous=$(git describe --tags --abbrev=0 "v${{ needs.release.outputs.version }}^" 2>/dev/null || true)
+          previous=$(git describe --tags --abbrev=0 "v${{ needs.tag.outputs.version }}^" 2>/dev/null || true)
           if [ -z "$previous" ]; then
             echo "No previous tag: first release, publishing both clients."
             echo "python=true" >> "$GITHUB_OUTPUT"
