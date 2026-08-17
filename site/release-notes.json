@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "0.4.0",
+      "date": "2026-08-17",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "The reef website’s hero mark now has a richer seafoam-to-deep-teal gradient in both light and dark mode."
+        }
+      ]
+    },
+    {
       "version": "0.3.2",
       "date": "2026-08-17",
       "changes": [

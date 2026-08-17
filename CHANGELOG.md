@@ -1,3 +1,9 @@
+## [0.4.0](https://github.com/diepzee/rif/compare/v0.3.2...v0.4.0) (2026-08-17)
+
+### Features
+
+* **site:** add depth to the hero reef ([#78](https://github.com/diepzee/rif/issues/78)) ([504ce25](https://github.com/diepzee/rif/commit/504ce25fa3ae4645c7ead3b4fb7b393ba6477026))
+
 ## [0.3.2](https://github.com/diepzee/rif/compare/v0.3.1...v0.3.2) (2026-08-17)
 
 ### Bug fixes
