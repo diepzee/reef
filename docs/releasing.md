@@ -84,10 +84,10 @@ for the format and when to skip it.
 ## Set up once, by hand
 
 None of this lives in code, and none of it can be tested by CI — a human has
-to click through it. **The first release fails without items 1 and 2 below**
-(now items 2 and 3), because on the very first release there's no earlier tag
-to diff against, so the `publish` job tries to publish both clients
-unconditionally.
+to click through it. **Do step 0 before anything merges**, and **the first
+release fails without items 1 and 2**, because on the very first release
+there's no earlier tag to diff against, so the `publish` job tries to publish
+both clients unconditionally.
 
 0. **Seed a tag before the first merge lands.** semantic-release bumps from
    the most recent tag reachable from `main`; with no tag at all, it doesn't
