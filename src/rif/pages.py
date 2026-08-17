@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 
 from rif import audit
-from rif.access import AccessDenied, Principal, resolve_space
+from rif.access import AccessDenied, Principal, resolve_space, resolve_writable_space
 from rif.config import get_settings
 from rif.leakguard import overlaps
 from rif.models import Attachment, Page, Revision, Space, SpaceKind
@@ -292,7 +292,7 @@ async def save_page(
     """
     validate_body(path, body)
     _refuse_protected(path, allow_protected)
-    space = await resolve_space(principal, alias)
+    space = await resolve_writable_space(principal, alias)
     # An existing page is addressed by exactly the name it already carries.
     # reef stored arbitrary paths before normalize_path existed, and
     # normalizing unconditionally would not *rename* such a page -- it would
@@ -434,7 +434,7 @@ async def delete_page(principal: Principal, alias: str, path: str) -> dict:
     :returns: the deleted path and how many revisions went with it
     """
     _refuse_protected(path, allow_protected=False)
-    space = await resolve_space(principal, alias)
+    space = await resolve_writable_space(principal, alias)
     page = (
         await Page.objects()
         .where(Page.space_id == space.id, Page.path == path)

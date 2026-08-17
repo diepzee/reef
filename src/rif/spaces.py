@@ -198,10 +198,11 @@ async def create_space(principal: Principal, slug: str) -> Space:
     # is chosen and taken in one statement. The creator owns the cove by the
     # line above, which is what the function checks.
     admitted = await Space.raw(
-        "SELECT rif_admit_member({}, {}, {}) AS alias",
+        "SELECT rif_admit_member({}, {}, {}, {}) AS alias",
         space.id,
         principal.person_id,
         slug,
+        MemberRole.MEMBER.value,
     )
     if not admitted or admitted[0]["alias"] is None:
         raise SpaceError(f"could not create {slug!r}; nothing was changed")
@@ -279,6 +280,7 @@ async def invite(
     slug: str,
     email: str,
     display_name: str | None = None,
+    role: str = MemberRole.MEMBER.value,
 ) -> dict:
     """Invite an email address into a shared space the principal owns.
 
@@ -295,10 +297,14 @@ async def invite(
     :param slug: the shared space to invite into
     :param email: the address the invitee will sign in with
     :param display_name: how members see them; defaults to the email's name part
-    :raises SpaceError: if the principal does not own the space
+    :param role: ``member`` (read and write) or ``viewer`` (read only)
+    :raises SpaceError: if the principal does not own the space, or the role
+        is not one a membership can hold
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
-    :returns: outcome with the disclosure text and an ``already_member`` flag
+    :returns: outcome with the role, disclosure text, and ``already_member``
     """
+    if role not in {MemberRole.MEMBER.value, MemberRole.VIEWER.value}:
+        raise SpaceError(f"a membership is 'member' or 'viewer', not {role!r}")
     space = await _owned_shared_space(principal, slug)
     entry, _ = await allowlist(principal, email, display_name)
     email = entry.email
@@ -310,10 +316,11 @@ async def invite(
         # statement inside the database. The cove's own name is offered first
         # and suffixed only if the invitee already uses it for something else.
         admitted = await Space.raw(
-            "SELECT rif_admit_member({}, {}, {}) AS alias",
+            "SELECT rif_admit_member({}, {}, {}, {}) AS alias",
             space.id,
             entry.person_id,
             space.slug,
+            role,
         )
         if not admitted or admitted[0]["alias"] is None:
             raise SpaceError(f"could not admit {email} to {slug!r}")
@@ -324,12 +331,18 @@ async def invite(
             member_id=entry.person_id,
         )
     page_count = await Page.count().where(Page.space_id == space.id)
+    rights = (
+        "read and write everything"
+        if role == MemberRole.MEMBER.value
+        else "read everything, without being able to write"
+    )
     return {
         "space": slug,
         "email": email,
+        "role": role,
         "already_member": already,
         "disclosure": (
-            f"{email} will permanently see everything in {slug!r}, past and "
+            f"{email} will permanently {rights} in {slug!r}, past and "
             f"future — {page_count} page(s) today. There is no un-sharing "
             "what they read."
         ),

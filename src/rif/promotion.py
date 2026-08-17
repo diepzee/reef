@@ -7,7 +7,13 @@ through :mod:`rif.pages`, which arms RLS.
 from datetime import timedelta
 from uuid import UUID
 
-from rif.access import AccessDenied, Principal, alias_map, resolve_space
+from rif.access import (
+    AccessDenied,
+    Principal,
+    alias_map,
+    resolve_space,
+    resolve_writable_space,
+)
 from rif.models import Page, Promotion, Space, utc_now
 from rif.pages import get_page, save_page
 from rif.spaces import member_names
@@ -55,7 +61,7 @@ async def prepare_promotion(
             "space from list_spaces as the destination"
         )
     try:
-        dest = await resolve_space(principal, dest_space)
+        dest = await resolve_writable_space(principal, dest_space)
     except AccessDenied as exc:
         raise PromotionError(str(exc)) from exc
     page = await get_page(principal, "personal", path)
@@ -144,7 +150,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     if source is None or source.version != staged.source_version:
         raise PromotionError("the page changed since it was prepared; prepare again")
     try:
-        await resolve_space(principal, dest_alias)
+        await resolve_writable_space(principal, dest_alias)
     except AccessDenied as exc:
         raise PromotionError(str(exc)) from exc
     if await get_page(principal, dest_alias, staged.dest_path) is not None:

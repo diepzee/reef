@@ -55,7 +55,7 @@ class SpaceKind(StrEnum):
 
 
 class MemberRole(StrEnum):
-    """What a membership grants. VIEWER is dormant until invites can grant it."""
+    """What a membership grants. Invites choose; writes require MEMBER."""
 
     MEMBER = "member"
     VIEWER = "viewer"
