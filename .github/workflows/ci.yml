@@ -167,6 +167,12 @@ jobs:
           # -- that line is the old, unproven-negative behaviour.
           ci: false
           branches: ${{ github.head_ref }}
+          # semantic-release reads the branch from GITHUB_REF via env-ci, not
+          # from the checkout -- and on a pull_request that is
+          # refs/pull/N/merge, which matches nothing. unset_gha_env clears the
+          # GitHub Actions variables so it falls back to the checked-out git
+          # branch, which `ref` above pins to the PR's head.
+          unset_gha_env: true
           # Must match the release job's list exactly. .releaserc.json names
           # all four, and semantic-release resolves plugins from the repo
           # root -- so omitting them here fails with "Cannot find module
