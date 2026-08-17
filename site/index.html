@@ -18,6 +18,7 @@
   --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0; --hairline-soft: #eef3f5;
   --ink: #1c2b33; --muted: #7b8a92; --faint: #b3bec4;
   --accent: #0d9488; --accent-deep: #0b6b62; --accent-soft: #e7f9f4;
+  --hero-reef-light: #32c7b6; --hero-reef-mid: #0d9488; --hero-reef-deep: #08746d;
   --field: #ffffff; --night: var(--ground);
   --cta-ink: #ffffff; --veil: rgb(251 252 253 / 0.82);
   --wash-a: rgb(13 148 136 / 0.105); --wash-b: rgb(56 189 216 / 0.085);
@@ -34,6 +35,7 @@
     --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d; --hairline-soft: #16292f;
     --ink: #e2f1f5; --muted: #8fb0ba; --faint: #5b7681;
     --accent: #38bdd8; --accent-deep: #7ce3d3; --accent-soft: #123a35;
+    --hero-reef-light: #77e4e9; --hero-reef-mid: #38bdd8; --hero-reef-deep: #1595ab;
     --field: #0f2129;
     --night: radial-gradient(120% 80% at 80% -10%, #0e3140, #0a1b23 45%, #081217);
     --cta-ink: #06282e; --veil: rgb(13 26 32 / 0.82);
@@ -145,6 +147,9 @@ nav.handover .cta { opacity: 0; visibility: hidden; }
 @keyframes sway   { from { transform: skewX(-3deg); } to { transform: skewX(3deg); } }
 @keyframes breath { from { transform: scaleY(1); } to { transform: scaleY(1.035); } }
 .hero .logo { display: block; width: 100%; height: auto; color: var(--accent); }
+.hero .reef-gradient-light { stop-color: var(--hero-reef-light); }
+.hero .reef-gradient-mid { stop-color: var(--hero-reef-mid); }
+.hero .reef-gradient-deep { stop-color: var(--hero-reef-deep); }
 /* The small marks sway too, so the identity behaves the same wherever it appears. They are
    single elements rather than the hero's nested wrappers, so they take the lean only; a
    breath on a 20px mark would be invisible anyway. The box's bottom edge is the ground line,
@@ -504,10 +509,20 @@ footer a { color: var(--muted); }
   <div class="stage">
     <div class="sway"><div class="breath">
       <svg class="logo" viewBox="11 15.5 42 34.5" preserveAspectRatio="xMidYMax meet" aria-hidden="true">
-        <!-- Every reef mark on the page — here, the nav, the closing lockup — is one
-             instance of the shared outline in the defs. The script warps that single
-             definition, so all three ripple together. -->
-        <use href="#o-coral"/>
+        <defs>
+          <linearGradient id="hero-reef-gradient" gradientUnits="userSpaceOnUse" x1="15" y1="17" x2="49" y2="50">
+            <stop class="reef-gradient-light" offset="0"/>
+            <stop class="reef-gradient-mid" offset="0.52"/>
+            <stop class="reef-gradient-deep" offset="1"/>
+          </linearGradient>
+          <mask id="hero-reef-mask" maskUnits="userSpaceOnUse" x="11" y="15.5" width="42" height="34.5">
+            <!-- Every reef mark on the page — here, the nav, the closing lockup — is one
+                 instance of the shared outline in the page-level defs. The script warps that
+                 single definition, so the gradient mask ripples with the other marks. -->
+            <use href="#o-coral" style="color:#fff"/>
+          </mask>
+        </defs>
+        <rect x="11" y="15.5" width="42" height="34.5" fill="url(#hero-reef-gradient)" mask="url(#hero-reef-mask)"/>
       </svg>
     </div></div>
   </div>
