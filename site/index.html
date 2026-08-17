@@ -20,6 +20,12 @@
   --accent: #0d9488; --accent-deep: #0b6b62; --accent-soft: #e7f9f4;
   --field: #ffffff; --night: var(--ground);
   --cta-ink: #ffffff; --veil: rgb(251 252 253 / 0.82);
+  --wash-a: rgb(13 148 136 / 0.105); --wash-b: rgb(56 189 216 / 0.085);
+  --wash-warm: rgb(245 158 11 / 0.065); --current: rgb(13 148 136 / 0.075);
+  --grain: rgb(25 92 89 / 0.12); --bubble: rgb(13 148 136 / 0.2);
+  --card-glint: rgb(255 255 255 / 0.82);
+  --card-shadow: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 14px 40px rgb(24 73 80 / 0.075);
+  --lift-shadow: 0 1px 0 rgb(255 255 255 / 0.9) inset, 0 20px 52px rgb(24 73 80 / 0.12);
   --seafoam: #0d9488; --amber: #f59e0b; --indigo: #6366f1; --pink: #ec4899;
   --sky: #0284c7; --lime: #84cc16; --violet: #8b5cf6; --orange: #f97316;
 }
@@ -31,6 +37,12 @@
     --field: #0f2129;
     --night: radial-gradient(120% 80% at 80% -10%, #0e3140, #0a1b23 45%, #081217);
     --cta-ink: #06282e; --veil: rgb(13 26 32 / 0.82);
+    --wash-a: rgb(45 212 191 / 0.105); --wash-b: rgb(56 189 216 / 0.09);
+    --wash-warm: rgb(251 191 36 / 0.055); --current: rgb(124 227 211 / 0.07);
+    --grain: rgb(189 230 233 / 0.11); --bubble: rgb(124 227 211 / 0.19);
+    --card-glint: rgb(226 241 245 / 0.035);
+    --card-shadow: 0 1px 0 rgb(226 241 245 / 0.045) inset, 0 18px 44px rgb(0 0 0 / 0.2);
+    --lift-shadow: 0 1px 0 rgb(226 241 245 / 0.065) inset, 0 24px 58px rgb(0 0 0 / 0.3);
     --seafoam: #2dd4bf; --amber: #fbbf24; --indigo: #a5b4fc; --pink: #f9a8d4;
     --sky: #7dd3fc; --lime: #bef264; --violet: #c4b5fd; --orange: #fdba74;
   }
@@ -39,16 +51,28 @@
 html {
   scroll-behavior: smooth;
   scroll-snap-type: y mandatory;
+  background: var(--ground);
 }
 body {
   margin: 0; background: var(--night); background-color: var(--ground);
   color: var(--ink);
   font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 17px; line-height: 1.6;
+  overflow-x: clip;
+}
+/* A very fine dot field gives the flat colour the tooth of uncoated paper. It is fixed so the
+   grain does not visibly restart at section boundaries, and subtle enough to disappear behind
+   text instead of reducing contrast. */
+body::before {
+  content: ""; position: fixed; inset: 0; z-index: 30; pointer-events: none;
+  background-image: radial-gradient(circle at 1px 1px, var(--grain) 0.55px, transparent 0.75px);
+  background-size: 4px 4px; opacity: 0.32; mix-blend-mode: multiply;
 }
 a { color: var(--accent); }
 .reef-name { color: var(--accent); }
 .wrap { width: 100%; max-width: 66rem; margin: 0 auto; padding: 0 1.5rem; }
+
+main { position: relative; isolation: isolate; overflow: clip; }
 
 /* ---------- panels ----------
    Each section is one screen and one idea. min-height rather than height so a panel can grow
@@ -57,8 +81,36 @@ a { color: var(--accent); }
 .panel {
   min-height: 100svh; scroll-snap-align: start; scroll-snap-stop: always;
   display: flex; flex-direction: column; justify-content: center;
-  padding-block: 5.5rem 4rem; position: relative;
+  padding-block: 5.5rem 4rem; position: relative; z-index: 0;
 }
+/* Broad washes and faint current rings do for the page what the creature shapes do for the
+   identity: organic movement, without putting an illustration behind every paragraph. */
+.panel::before {
+  content: ""; position: absolute; z-index: -2; left: 50%; top: 7%; translate: -50% 0;
+  width: 100vw; height: 86%; pointer-events: none;
+  background:
+    radial-gradient(ellipse 42% 52% at 8% 46%, var(--wash-a), transparent 72%),
+    radial-gradient(ellipse 38% 48% at 94% 58%, var(--wash-b), transparent 74%);
+}
+.panel:nth-child(3n + 2)::before {
+  background:
+    radial-gradient(ellipse 44% 52% at 92% 38%, var(--wash-a), transparent 72%),
+    radial-gradient(ellipse 34% 44% at 3% 74%, var(--wash-warm), transparent 74%);
+}
+.panel:nth-child(3n)::before {
+  background:
+    radial-gradient(ellipse 40% 48% at 4% 32%, var(--wash-b), transparent 72%),
+    radial-gradient(ellipse 40% 52% at 96% 76%, var(--wash-warm), transparent 74%);
+}
+.panel::after {
+  content: ""; position: absolute; z-index: -1; right: max(-10rem, -9vw); bottom: 8%;
+  width: min(46vw, 34rem); aspect-ratio: 1.7; pointer-events: none; opacity: 0.74;
+  background: repeating-radial-gradient(ellipse at 50% 120%, transparent 0 27px, var(--current) 28px 29px, transparent 30px 51px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28%, #000 70%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 28%, #000 70%, transparent);
+  rotate: -7deg;
+}
+.panel:nth-child(even)::after { right: auto; left: max(-10rem, -9vw); rotate: 7deg; }
 
 /* ---------- nav ---------- */
 nav {
@@ -66,7 +118,8 @@ nav {
   display: flex; align-items: center; gap: 1rem;
   padding: 0.85rem 1.5rem;
   background: var(--veil); backdrop-filter: blur(10px);
-  border-bottom: 1px solid transparent;
+  border-bottom: 1px solid var(--hairline-soft);
+  box-shadow: 0 8px 32px rgb(18 68 73 / 0.035);
 }
 .brand {
   display: inline-flex; align-items: baseline; gap: 7px;
@@ -83,13 +136,29 @@ nav.handover .cta { opacity: 0; visibility: hidden; }
   display: inline-block; background: var(--accent); color: var(--cta-ink);
   font-weight: 700; font-size: 0.95rem; text-decoration: none;
   padding: 0.6rem 1.35rem; border-radius: 999px;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 24%, transparent);
+  transition: background 0.2s ease, translate 0.2s ease, box-shadow 0.2s ease;
 }
-.btn:hover { background: var(--accent-deep); color: var(--cta-ink); }
+.btn:hover { background: var(--accent-deep); color: var(--cta-ink); translate: 0 -1px; box-shadow: 0 11px 28px color-mix(in srgb, var(--accent) 32%, transparent); }
 .btn:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
 /* ---------- hero ---------- */
 .hero { text-align: center; align-items: center; }
-.hero .stage { display: block; width: min(62vmin, 520px); margin: 0 auto; }
+.hero .stage {
+  display: block; width: min(58vmin, 490px); margin: 0 auto; position: relative; isolation: isolate;
+}
+.hero .stage::before {
+  content: ""; position: absolute; z-index: -1; inset: -11% -17% -4%; pointer-events: none;
+  border: 1px solid var(--hairline); border-radius: 47% 53% 49% 51% / 54% 46% 54% 46%;
+  background:
+    radial-gradient(circle at 22% 25%, transparent 0 3px, var(--bubble) 3.5px 4.5px, transparent 5px),
+    radial-gradient(circle at 81% 18%, transparent 0 5px, var(--bubble) 5.5px 6.5px, transparent 7px),
+    radial-gradient(circle at 88% 64%, transparent 0 2px, var(--bubble) 2.5px 3.5px, transparent 4px),
+    radial-gradient(circle at 14% 74%, transparent 0 4px, var(--bubble) 4.5px 5.5px, transparent 6px),
+    radial-gradient(ellipse at 50% 42%, var(--accent-soft), color-mix(in srgb, var(--panel) 72%, transparent) 56%, transparent 72%);
+  box-shadow: var(--card-shadow), 0 32px 100px color-mix(in srgb, var(--accent) 9%, transparent);
+  transform: rotate(-1.5deg);
+}
 /* Bottom-anchored, because the coral is rooted in the seabed: skew and vertical scale pivot on
    the box's bottom edge, which is exactly the ground line. Block wrappers, not inline-block —
    an inline-block sits on a text baseline and would pivot a few px below the ground. The
@@ -132,7 +201,8 @@ nav.handover .cta { opacity: 0; visibility: hidden; }
 @keyframes reveal { to { opacity: 1; transform: none; } }
 
 /* ---------- section furniture ---------- */
-.eyebrow { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; }
+.eyebrow { display: flex; align-items: center; gap: 0.6rem; font-size: 0.76rem; font-weight: 700; letter-spacing: 0.13em; text-transform: uppercase; color: var(--accent); margin: 0 0 0.5rem; }
+.eyebrow::before { content: ""; width: 0.42rem; height: 0.42rem; flex: none; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 0.32rem var(--accent-soft); }
 h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: -0.008em; margin: 0 0 0.75rem; text-wrap: balance; }
 .sub { color: var(--muted); font-size: 1.05rem; max-width: 38rem; margin: 0 0 2.5rem; }
 .setup-head {
@@ -160,8 +230,8 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 
 .wiki-flow { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
 .wiki-node {
-  position: relative; background: var(--panel); border: 1px solid var(--hairline);
-  border-radius: 16px; padding: 1.6rem;
+  position: relative; background: linear-gradient(145deg, var(--card-glint), transparent 52%), var(--panel); border: 1px solid var(--hairline);
+  border-radius: 18px; padding: 1.6rem; box-shadow: var(--card-shadow);
 }
 .wiki-node + .wiki-node::before {
   content: "\2192"; position: absolute; left: -1.08rem; top: 1.75rem; z-index: 1;
@@ -182,7 +252,7 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
    single cove on a line of its own. */
 .circles { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); gap: 1.8rem 1rem; }
 .circle { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.85rem; font-weight: 700; font-size: 1.02rem; }
-.circle .pool { width: 96px; height: 96px; border-radius: 50%; background: var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; }
+.circle .pool { width: 100px; height: 100px; border-radius: 50%; background: radial-gradient(circle at 38% 28%, var(--card-glint), transparent 40%), var(--panel); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; box-shadow: var(--card-shadow), 0 0 0 7px color-mix(in srgb, var(--panel) 45%, transparent); }
 /* The creatures take the mark's rhythm, but the pools stay still — the water moves, not the
    window onto it. They must not move together either: five identical swings in step read as one
    mechanism rather than five animals, so each gets its own period and a negative delay, which
@@ -220,7 +290,8 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 .circles .circle:nth-child(5) .pool svg { animation-duration: 4.1s; animation-delay: -1.8s; }
 
 .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; counter-reset: step; }
-.step { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
+.step { background: linear-gradient(145deg, var(--card-glint), transparent 52%), var(--panel); border: 1px solid var(--hairline); border-radius: 18px; padding: 1.6rem; box-shadow: var(--card-shadow); transition: translate 0.22s ease, box-shadow 0.22s ease; }
+.step:hover { translate: 0 -2px; box-shadow: var(--lift-shadow); }
 .step::before {
   counter-increment: step; content: counter(step);
   display: inline-flex; width: 1.9rem; height: 1.9rem; border-radius: 50%;
@@ -246,10 +317,16 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 
 /* A small, live-feeling product tour rather than a still screenshot. It mirrors the app's actual
    tile, list, page and editor shapes, but stays HTML so it is crisp in both colour schemes. */
-.product-tour { width: min(100%, 58rem); margin: 0 auto; }
+.product-tour { width: min(100%, 58rem); margin: 0 auto; position: relative; isolation: isolate; }
+.product-tour::before {
+  content: ""; position: absolute; z-index: -1; inset: -9% -7% -10%; pointer-events: none;
+  border-radius: 46% 54% 50% 50% / 49% 44% 56% 51%;
+  background: radial-gradient(ellipse at center, var(--wash-a), transparent 68%);
+  filter: blur(8px);
+}
 .tour-window {
   overflow: hidden; border: 1px solid var(--hairline); border-radius: 18px;
-  box-shadow: 0 24px 80px rgb(6 30 40 / 0.18); background: var(--field);
+  box-shadow: 0 1px 0 var(--card-glint) inset, 0 28px 90px rgb(6 30 40 / 0.2); background: var(--field);
 }
 .tour-chrome {
   display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 9px 13px;
@@ -348,13 +425,18 @@ h2 { font-size: clamp(1.6rem, 3.6vw, 2.2rem); font-weight: 800; letter-spacing: 
 @keyframes tour-progress { from { scale: 0 1; } to { scale: 1 1; } }
 
 .trust { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; }
-.trust article { background: var(--panel); border: 1px solid var(--hairline); border-radius: 16px; padding: 1.6rem; }
-.trust .pool { width: 56px; height: 56px; border-radius: 50%; background: var(--ground); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem; }
+.trust article { background: linear-gradient(145deg, var(--card-glint), transparent 52%), var(--panel); border: 1px solid var(--hairline); border-radius: 18px; padding: 1.6rem; box-shadow: var(--card-shadow); transition: translate 0.22s ease, box-shadow 0.22s ease; }
+.trust article:hover { translate: 0 -2px; box-shadow: var(--lift-shadow); }
+.trust .pool { width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle at 38% 28%, var(--card-glint), transparent 42%), var(--ground); border: 1px solid var(--hairline); display: flex; align-items: center; justify-content: center; margin-bottom: 1.1rem; box-shadow: 0 8px 22px rgb(20 65 72 / 0.07); }
 .trust article h3 { font-size: 1.15rem; font-weight: 800; margin: 0 0 0.45rem; }
 .trust article p { margin: 0; color: var(--muted); font-size: 0.97rem; }
 
 /* ---------- closing ---------- */
 .final { text-align: center; align-items: center; justify-content: center; }
+.final::before {
+  top: 0; height: 100%;
+  background: radial-gradient(ellipse 45% 50% at 50% 54%, var(--wash-a), transparent 74%);
+}
 .final .lockup { display: inline-flex; align-items: baseline; gap: 0.3em; position: relative; font-size: clamp(2rem, 5vw, 2.8rem); font-weight: 800; letter-spacing: -0.005em; margin-bottom: 1.3rem; color: var(--accent); }
 .final .lockup svg { color: var(--accent); }
 /* .sub caps its measure at 38rem inside a 66rem wrap; elsewhere it sits flush left under a
@@ -406,6 +488,9 @@ footer a { color: var(--muted); }
   .setup-head { align-items: flex-start; flex-direction: column; }
 }
 @media (max-width: 680px) {
+  body::before { opacity: 0.24; }
+  .panel::after { width: 22rem; opacity: 0.55; }
+  .hero .stage { width: min(72vw, 390px); }
   .wiki-flow { grid-template-columns: 1fr; }
   .wiki-node + .wiki-node::before {
     content: "\2193"; left: 1.65rem; top: -1.1rem;
@@ -420,6 +505,8 @@ footer a { color: var(--muted); }
   html { scroll-behavior: auto; }
   .sway, .breath, .scrollcue span, .brand svg, .final .lockup svg, .circles .pool svg { animation: none; }
   .reveal { opacity: 1; transform: none; animation: none; }
+  .btn, .step, .trust article { transition: none; }
+  .btn:hover, .step:hover, .trust article:hover { translate: none; }
   .tour-screen { transition: none; }
   .tour-tab::after { animation: none !important; }
 }
