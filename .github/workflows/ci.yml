@@ -215,6 +215,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # semantic-release reads the full tag and commit history
+          # checkout persists whatever token it is given into git's extraheader,
+          # and semantic-release's push uses that credential -- not the one in
+          # the env below. Left at the default, the release commit is pushed by
+          # github-actions[bot], which no branch ruleset lets past a protected
+          # main. RELEASE_TOKEN carries the bypass; it has to be here, not just
+          # on the semantic-release step, or the push is rejected with GH013.
+          token: ${{ secrets.RELEASE_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
