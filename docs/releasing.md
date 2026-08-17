@@ -38,6 +38,13 @@ A PR that changes nothing worth a version bump — say, a comment fix folded
 into another PR — still needs a type; there's no "none" option. Pick the
 type that best describes what you touched.
 
+This table only governs the *second* release onward. semantic-release bumps
+from the most recent tag; with none, it doesn't bump at all — it starts the
+repo at `1.0.0` regardless of commit type. See step 0 under
+[Set up once, by hand](#set-up-once-by-hand): a tag has to exist on `main`
+before the first PR merges, or the first release ignores this table entirely
+and both clients publish at `1.0.0`.
+
 ## What happens when you merge
 
 Nothing here is a step you run. It's what the `release` job does, on every
@@ -77,10 +84,28 @@ for the format and when to skip it.
 ## Set up once, by hand
 
 None of this lives in code, and none of it can be tested by CI — a human has
-to click through it. **The first release fails without the first two
-items**, because on the very first release there's no earlier tag to diff
-against, so the `publish` job tries to publish both clients unconditionally.
+to click through it. **The first release fails without items 1 and 2 below**
+(now items 2 and 3), because on the very first release there's no earlier tag
+to diff against, so the `publish` job tries to publish both clients
+unconditionally.
 
+0. **Seed a tag before the first merge lands.** semantic-release bumps from
+   the most recent tag reachable from `main`; with no tag at all, it doesn't
+   bump — it *starts* the repo at `1.0.0`. Combined with the point above,
+   that means the first release would publish `reef-cli` and `@haai/reef-cli`
+   to PyPI and npm at `1.0.0`, not the `0.x` this project intends while it's
+   still finding its shape. Before merging the first PR after this one lands
+   on `main`, tag `main`'s current tip and push the tag:
+
+   ```bash
+   git tag v0.1.0 main
+   git push origin v0.1.0
+   ```
+
+   This is a one-way door. PyPI never frees a version number once used, even
+   if the release is yanked, and npm's unpublish window is 72 hours — after
+   that a bad `1.0.0` is permanent on both registries. Do this before the
+   first merge, not after.
 1. **PyPI trusted publishing for `reef-cli`.** On PyPI, add a trusted
    publisher for this repository, workflow `ci.yml`, environment left
    blank.
