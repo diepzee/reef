@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from rif.releasenotes import FragmentError, fold
+from rif.releasenotes import FragmentError, fold, load_feed, render_page
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -27,18 +27,20 @@ def main(argv: list[str]) -> int:
         print("usage: fold_changes.py <version> <YYYY-MM-DD>", file=sys.stderr)
         return 2
     version, date = argv
+    feed_path = ROOT / "site" / "release-notes.json"
     try:
-        entry = fold(
-            ROOT / "changes", ROOT / "site" / "release-notes.json", version, date
-        )
+        entry = fold(ROOT / "changes", feed_path, version, date)
     except FragmentError as error:
         # Fail the release rather than drop somebody's sentence silently.
         print(f"changelog fragment is unreadable: {error}", file=sys.stderr)
         return 1
     if entry is None:
         print(f"{version}: nothing a user would notice; no entry written")
-    else:
-        print(f"{version}: wrote {len(entry.changes)} change(s) to the feed")
+        return 0
+    (ROOT / "site" / "changelog.html").write_text(
+        render_page(load_feed(feed_path)), encoding="utf-8"
+    )
+    print(f"{version}: wrote {len(entry.changes)} change(s) to the feed and the page")
     return 0
 
 

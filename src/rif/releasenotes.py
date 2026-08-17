@@ -20,6 +20,7 @@ boolean.
 import json
 import re
 from dataclasses import dataclass
+from html import escape
 from pathlib import Path
 
 #: The kinds a fragment may declare. Deliberately three: a longer list makes
@@ -229,3 +230,103 @@ def is_unread(entries: list[Entry], last_seen: str | None) -> bool:
     except ValueError:
         return True
     return parse_version(entries[0].version) > seen
+
+
+#: How each kind is announced on the public page. The reader is told what
+#: happened to them, not which enum member we filed it under.
+_HEADINGS = {"added": "New", "changed": "Changed", "fixed": "Fixed"}
+
+
+#: The page's shell. A literal document rather than a template file: the
+#: site has no build step and no template engine, and adding either for one
+#: page would be the largest thing in the site's chain.
+_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What's new in reef</title>
+<meta name="description" content="What has changed in reef, newest first.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0;
+  --ink: #1c2b33; --muted: #7b8a92;
+  --accent: #0d9488;
+}
+body {
+  margin: 0 auto; padding: 3rem 1.25rem 6rem; max-width: 42rem;
+  font-family: "Nunito", system-ui, sans-serif; font-size: 1.0625rem;
+  line-height: 1.6; color: var(--ink); background: var(--ground);
+}
+h1 { font-size: 1.9rem; font-weight: 800; margin: 0 0 2.5rem; }
+h1 a { color: var(--accent); text-decoration: none; }
+section { border-top: 1px solid var(--hairline); padding-top: 1.5rem;
+  margin-top: 2.5rem; }
+h2 { font-size: 1.25rem; font-weight: 800; margin: 0 0 1rem;
+  display: flex; align-items: baseline; gap: 0.75rem; }
+h2 .date { font-size: 0.875rem; font-weight: 500; color: var(--muted); }
+h3 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--accent); margin: 1.25rem 0 0.5rem; }
+ul { margin: 0; padding-left: 1.25rem; }
+li { margin-bottom: 0.4rem; }
+.empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>What's new in <a href="/">reef</a></h1>
+{{body}}
+</body>
+</html>
+"""
+
+
+def render_page(entries: list[Entry]) -> str:
+    """Render the public changelog page.
+
+    A whole standalone document rather than a fragment: it is served as a
+    static file by ``GET /site/{path}`` beside ``index.html``, with no
+    template engine and no build step anywhere in the site's chain.
+
+    Every value is escaped. Fragments are prose typed by a person, and
+    prose contains ``&`` and angle brackets.
+
+    :param entries: the feed, newest first
+    :returns: the complete HTML document
+    """
+    if entries:
+        body = "\n".join(_render_entry(entry) for entry in entries)
+    else:
+        body = "<p class='empty'>Nothing to report yet — check back after the "
+        body += "next release.</p>"
+    return _PAGE.replace("{{body}}", body)
+
+
+def _render_entry(entry: Entry) -> str:
+    """Render one release as a section.
+
+    :param entry: the release to render
+    :returns: the section's HTML
+    """
+    parts = [
+        (
+            f"<section><h2>{escape(entry.version)}"
+            f"<span class='date'>{escape(entry.date)}</span></h2>"
+        )
+    ]
+    for kind in KINDS:
+        texts = [change.text for change in entry.changes if change.kind == kind]
+        if not texts:
+            continue
+        parts.append(f"<h3>{_HEADINGS[kind]}</h3><ul>")
+        parts.extend(f"<li>{escape(text)}</li>" for text in texts)
+        parts.append("</ul>")
+    parts.append("</section>")
+    return "".join(parts)

@@ -176,3 +176,51 @@ def test_the_api_shape_is_plain_json():
             }
         ]
     }
+
+
+def test_the_page_lists_every_version_newest_first():
+    from rif.releasenotes import render_page
+
+    html = render_page(
+        [
+            Entry(
+                version="0.5.0",
+                date="2026-08-18",
+                changes=[Change(kind="added", text="Second.")],
+            ),
+            Entry(
+                version="0.4.0",
+                date="2026-08-17",
+                changes=[Change(kind="fixed", text="First.")],
+            ),
+        ]
+    )
+    assert html.index("0.5.0") < html.index("0.4.0")
+    assert "Second." in html and "First." in html
+    assert html.startswith("<!doctype html>")
+
+
+def test_the_page_escapes_the_text_it_is_given():
+    """Fragments are prose written by hand, and prose contains angle brackets."""
+    from rif.releasenotes import render_page
+
+    html = render_page(
+        [
+            Entry(
+                version="0.4.0",
+                date="2026-08-17",
+                changes=[Change(kind="added", text="Use <b>bold</b> & live.")],
+            )
+        ]
+    )
+    assert "&lt;b&gt;" in html
+    assert "<b>bold</b>" not in html
+
+
+def test_an_empty_feed_still_renders_a_page():
+    """Before the first release the page must not look broken."""
+    from rif.releasenotes import render_page
+
+    html = render_page([])
+    assert html.startswith("<!doctype html>")
+    assert "Nothing to report yet" in html
