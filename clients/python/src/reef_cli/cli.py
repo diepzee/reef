@@ -264,6 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     read_page = _tool_parser(sub, "read_page", "read one page")
     read_page.add_argument("space")
     read_page.add_argument("path")
+    read_page.add_argument("--as-of", help="ISO-8601 moment to read the page as of")
     _tool_parser(sub, "list_spaces", "list spaces, members, ownership, and versions")
     create_space = _tool_parser(sub, "create_space", "create a shared space")
     create_space.add_argument("slug")
@@ -409,7 +410,10 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if tool == "search_pages":
         return tool, {"query": args.query, "space": args.space, "limit": args.limit}
     if tool == "read_page":
-        return tool, {"space": args.space, "path": args.path}
+        payload = {"space": args.space, "path": args.path}
+        if args.as_of is not None:
+            payload["as_of"] = args.as_of
+        return tool, payload
     if tool == "create_space":
         return tool, {"slug": args.slug}
     if tool in {"invite", "invite_to_reef"}:

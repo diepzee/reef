@@ -48,6 +48,9 @@ the user; never print, commit, or persist that environment value yourself.
 - Inspect membership before using a shared space: `reef list-spaces`.
 - Read one page with `reef read-page <space> <path>` or several with
   `reef read-pages <space> <path>...`.
+- Read a page as it stood at a past moment with
+  `reef read-page <space> <path> --as-of 2026-03-01T12:00:00` — use it when
+  the user asks what was known or planned before something changed.
 - Record a durable fact with `reef remember '<fact>'`. This defaults to the
   private `personal` space. Add `--space <name>` only when the fact clearly
   belongs to that group: jointly owned information, a joint decision, or a

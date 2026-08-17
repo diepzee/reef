@@ -57,7 +57,9 @@ with `write_page`.
 
 **Supersede, don't accumulate.** When a fact changes, replace it and note
 what changed and when. Old facts left lying next to new ones are how a wiki
-becomes useless.
+becomes useless. Superseding never erases: `read_page` with `as_of` shows a
+page as it stood at any past moment, so when someone asks what was believed
+before a change, read the history rather than reconstructing it from memory.
 
 **Tag stable, important pages `core`.** Those are protected first when the
 corpus outgrows a context window.

@@ -42,6 +42,7 @@ from rif.pages import (
     VersionConflict,
     edit_section,
     get_page,
+    get_page_as_of,
     save_page,
 )
 from rif.pages import (
@@ -170,14 +171,30 @@ async def tool_read_pages(
     return [await tool_read_page(principal, space, path) for path in paths]
 
 
-async def tool_read_page(principal: Principal, space: str, path: str) -> dict:
+async def tool_read_page(
+    principal: Principal, space: str, path: str, as_of: str | None = None
+) -> dict:
     """Fetch one page as a dict, or a not_found marker.
+
+    With ``as_of``, the page is reconstructed from its revisions as it
+    stood at that moment; the payload then carries no ``version``, because
+    the past cannot be edited.
 
     :param principal: the authenticated person
     :param space: ``personal`` or a space name from list_spaces
     :param path: page path
+    :param as_of: optional ISO-8601 moment to read the page as of
     :returns: page fields, or ``{"error": "not_found"}``
     """
+    if as_of is not None:
+        try:
+            moment = datetime.fromisoformat(as_of)
+        except ValueError:
+            return {"error": "invalid_as_of", "as_of": as_of}
+        state = await get_page_as_of(principal, space, path, moment)
+        if state is None:
+            return {"error": "not_found", "path": path, "as_of": as_of}
+        return {**state, "as_of": as_of}
     page = await get_page(principal, space, path)
     if page is None:
         return {"error": "not_found", "path": path}
@@ -435,15 +452,19 @@ async def get_operating_protocol() -> str:
 
 
 @mcp.tool
-async def read_page(space: str, path: str) -> dict:
+async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
     """Read one page by path; needed when load_all_context was truncated.
+
+    Pass ``as_of`` to read the page as it stood at a past moment — "what
+    did we know in March" — reconstructed from its revision history.
 
     :param space: ``personal`` or a space name from list_spaces
     :param path: page path, for example ``house.md``
+    :param as_of: optional ISO-8601 moment to read the page as of
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await tool_read_page(principal, space, path)
+        return await tool_read_page(principal, space, path, as_of=as_of)
 
 
 @mcp.tool

@@ -7,6 +7,7 @@ the ambient transaction, and an unarmed one returns nothing.
 """
 
 import re
+from datetime import datetime
 
 from rif import audit
 from rif.access import AccessDenied, Principal, resolve_space
@@ -214,6 +215,45 @@ async def get_page(principal: Principal, alias: str, path: str) -> Page | None:
     return (
         await Page.objects().where(Page.space_id == space.id, Page.path == path).first()
     )
+
+
+async def get_page_as_of(
+    principal: Principal, alias: str, path: str, as_of: datetime
+) -> dict | None:
+    """Fetch the state a page had at a moment in the past.
+
+    Each revision snapshots the state its write produced, so the newest
+    revision at or before ``as_of`` *is* the page as it stood then. The
+    lookup runs under the same armed RLS as a present-day read: history is
+    exactly as private as the page it belongs to.
+
+    :param principal: the authenticated person
+    :param alias: ``personal`` or a shared-space slug
+    :param path: page path, for example ``house.md``
+    :param as_of: the moment to reconstruct; aware datetimes are converted
+        to the naive local time the revision timestamps are stored in
+    :returns: the page fields at that moment, or None if it did not exist
+    """
+    if as_of.tzinfo is not None:
+        as_of = as_of.astimezone().replace(tzinfo=None)
+    page = await get_page(principal, alias, path)
+    if page is None:
+        return None
+    revision = (
+        await Revision.objects()
+        .where(Revision.page_id == page.id, Revision.created_at <= as_of)
+        .order_by(Revision.created_at, ascending=False)
+        .first()
+    )
+    if revision is None:
+        return None
+    return {
+        "path": revision.path,
+        "title": revision.title,
+        "tags": list(revision.tags),
+        "body": revision.body,
+        "created": revision.created_at.isoformat(),
+    }
 
 
 async def save_page(
