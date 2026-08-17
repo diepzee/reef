@@ -18,6 +18,7 @@ from rif.access import (
     alias_map,
     resolve_space,
 )
+from rif.activity import whats_new as run_whats_new
 from rif.attachments import (
     MIME_RE,
     S3ObjectStore,
@@ -206,6 +207,24 @@ async def tool_read_page(
         "version": page.version,
         "updated": page.updated_at.isoformat(),
     }
+
+
+async def tool_whats_new(principal: Principal, since: str | None = None) -> dict:
+    """List recent activity; split from the tool for testability.
+
+    :param principal: the authenticated person
+    :param since: optional ISO-8601 moment; the last 7 days if None
+    :returns: the window and its events, or an ``invalid_since`` marker
+    """
+    moment = None
+    if since is not None:
+        try:
+            moment = datetime.fromisoformat(since)
+        except ValueError:
+            return {"error": "invalid_since", "since": since}
+    events = await run_whats_new(principal, since=moment)
+    window = since if since is not None else "the last 7 days"
+    return {"since": window, "events": events}
 
 
 async def tool_list_spaces(principal: Principal) -> list[dict]:
@@ -487,6 +506,22 @@ async def search_pages(
     async with transaction_scope():
         principal = await current_principal()
         return await run_search(principal, query, space=space, limit=limit)
+
+
+@mcp.tool
+async def whats_new(since: str | None = None) -> dict:
+    """List what changed across your spaces: who wrote what, where, when.
+
+    Page events carry the author and the write message; file events the
+    filename and key. Use it when the user returns after time away, or asks
+    what the other members' assistants have been up to. Defaults to the
+    last 7 days.
+
+    :param since: optional ISO-8601 moment to report changes after
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_whats_new(principal, since=since)
 
 
 @mcp.tool

@@ -14,6 +14,12 @@ conversation, after loading the index.
 Fetch again whenever the topic moves. Never answer from a description alone:
 descriptions exist to help you choose what to read, not to be read instead.
 
+When the user returns after time away, or asks what has changed, call
+`whats_new`: it lists recent writes across their spaces with author,
+message, and moment — including what other members' assistants wrote.
+Mention notable changes rather than waiting to be asked; a shared space
+only works when its members actually hear about each other's changes.
+
 When the index does not settle which pages to read — the topic's words are
 inside bodies, not descriptions — call `search_pages`. It matches words and
 quoted phrases across every page you can see, and across stored files'
