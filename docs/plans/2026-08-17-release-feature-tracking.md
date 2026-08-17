@@ -1728,19 +1728,44 @@ Append to `.github/workflows/ci.yml`:
             echo "Labelled no-changelog; nothing to write."
             exit 0
           fi
-          added=$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- 'changes/*.md')
+          # Merge-base, not $BASE directly. $BASE is main's tip *now*, and a
+          # release deletes the fragments it consumed -- so a branch that
+          # forked before a release still carries files main no longer has,
+          # and a two-dot diff reports them as this PR's additions. That is a
+          # false pass on exactly the check meant to catch an empty PR.
+          fork=$(git merge-base "$BASE" "$HEAD")
+          added=$(git diff --name-only --diff-filter=A "$fork" "$HEAD" -- 'changes/*.md')
           if [ -n "$added" ]; then
             echo "Fragment(s) added:"
             echo "$added"
             exit 0
           fi
-          echo "::error::This PR adds no changes/*.md fragment and is not"
-          echo "::error::labelled no-changelog. If a person using reef would"
-          echo "::error::notice this change, write one sentence for them in"
-          echo "::error::changes/<pr-number>-<slug>.md -- see changes/README.md."
-          echo "::error::If they would notice nothing, add the no-changelog label."
+          # One ::error:: line, not five. GitHub renders each as its own
+          # annotation box, so five echoes become five mid-sentence fragments
+          # in the Checks panel. %0A is a newline inside a single annotation.
+          echo "::error::Say what changed, or say that nothing did.%0A%0AIf a person using reef would notice this change, add one sentence for them in changes/<pr-number>-<slug>.md -- see changes/README.md for how to write it.%0A%0AIf they would notice nothing (tests, CI, refactors), add the no-changelog label to this PR instead."
           exit 1
 ```
+
+- [ ] **Step 1b: Let the escape hatch actually fire**
+
+The workflow's `on: pull_request:` has no `types:`, so it uses GitHub's defaults — `opened`, `synchronize`, `reopened`. **`labeled` is not among them.** Adding `no-changelog` to a PR whose check has already failed would therefore change nothing until somebody manually clicked "Re-run failed jobs". An escape hatch that needs a manual re-run is experienced as broken.
+
+Change the trigger to name the types explicitly, keeping the three defaults:
+
+```yaml
+on:
+  pull_request:
+    # labeled/unlabeled are here for the changelog job's escape hatch: adding
+    # no-changelog has to re-run the check that the label exists to satisfy,
+    # and removing it has to put the check back. Naming any type replaces the
+    # default list, so the three defaults are repeated here deliberately.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+```
+
+This makes every label change re-run the whole workflow, backend and frontend included. That is the cost, it is accepted, and it is why the comment says what the two extra types are for.
 
 - [ ] **Step 2: Verify the YAML parses**
 
