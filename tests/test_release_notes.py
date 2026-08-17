@@ -88,6 +88,13 @@ def test_a_missing_feed_reads_as_no_entries(tmp_path: Path):
     assert load_feed(tmp_path / "absent.json") == []
 
 
+def test_a_corrupt_feed_reads_as_no_entries(tmp_path: Path):
+    """A truncated or hand-edited feed degrades like a missing one, not a 500."""
+    feed = tmp_path / "whats-new.json"
+    feed.write_text("{not valid json")
+    assert load_feed(feed) == []
+
+
 def test_the_fold_prepends_and_consumes(tmp_path: Path):
     fragments = tmp_path / "changes"
     fragments.mkdir()
@@ -157,6 +164,12 @@ def test_an_unparseable_mark_reads_as_never_seen():
     """A hand-edited or truncated value must not crash the panel."""
     entries = [Entry(version="0.4.0", date="2026-08-17", changes=[])]
     assert is_unread(entries, "not-a-version") is True
+
+
+def test_an_unparseable_newest_version_reads_as_unread():
+    """A malformed feed must not 500 the endpoint that serves it."""
+    entries = [Entry(version="not-a-version", date="2026-08-17", changes=[])]
+    assert is_unread(entries, "0.4.0") is True
 
 
 def test_the_api_shape_is_plain_json():

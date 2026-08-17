@@ -117,14 +117,20 @@ def load_feed(path: Path) -> list[Entry]:
     """Read the published feed, newest entry first.
 
     A missing file reads as no entries rather than raising: the first
-    release must not depend on somebody having created it by hand.
+    release must not depend on somebody having created it by hand. A
+    corrupt file degrades the same way, rather than 500ing the endpoint
+    that serves it -- the feed is generated, but nothing stops it being
+    hand-edited or truncated on disk after the fact.
 
     :param path: the ``site/release-notes.json`` path
     :returns: the entries it holds
     """
     if not path.exists():
         return []
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
     return [
         Entry(
             version=entry["version"],
@@ -229,7 +235,15 @@ def is_unread(entries: list[Entry], last_seen: str | None) -> bool:
         seen = parse_version(last_seen)
     except ValueError:
         return True
-    return parse_version(entries[0].version) > seen
+    # Guarded the same way as `seen` above: a hand-edited or malformed feed
+    # whose newest entry has an unparseable version must not 500 the
+    # endpoint. Unread is still the safe direction -- worst case, a dot
+    # lights once for a version nobody can compare.
+    try:
+        newest = parse_version(entries[0].version)
+    except ValueError:
+        return True
+    return newest > seen
 
 
 #: How each kind is announced on the public page. The reader is told what
@@ -260,6 +274,13 @@ _PAGE = """<!doctype html>
   --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0;
   --ink: #1c2b33; --muted: #7b8a92;
   --accent: #0d9488;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d;
+    --ink: #e2f1f5; --muted: #8fb0ba;
+    --accent: #38bdd8;
+  }
 }
 body {
   margin: 0 auto; padding: 3rem 1.25rem 6rem; max-width: 42rem;
