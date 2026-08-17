@@ -7,13 +7,27 @@ here are the point, not an afterthought.
 
 import pytest
 
-from rif.access import AccessDenied, Principal
+from rif.access import AccessDenied, Principal, arm
+from rif.models import Attachment, AttachmentStatus
 from rif.pages import save_page
 from rif.search import search_pages
 
 
 def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
+
+
+async def _add_file(principal, space, key, filename, description, status=None):
+    await arm(principal)
+    await Attachment(
+        space_id=space.id,
+        object_key=key,
+        filename=filename,
+        mime="application/pdf",
+        byte_size=1,
+        description=description,
+        status=(status or AttachmentStatus.READY).value,
+    ).save()
 
 
 async def test_finds_a_page_by_words_in_its_body(tx, household):
@@ -127,6 +141,59 @@ async def test_shared_space_matches_reach_both_members(tx, household):
     me = principal_for(household["wouter"])
     results = await search_pages(me, "xylophone")
     assert [(r["space"], r["path"]) for r in results] == [("household", "house.md")]
+
+
+async def test_finds_a_file_by_its_description(tx, household):
+    me = principal_for(household["wouter"])
+    await _add_file(
+        me,
+        household["w_personal"],
+        "attachments/lease",
+        "lease.pdf",
+        "Signed rental agreement for the flat.",
+    )
+    results = await search_pages(me, "rental agreement")
+    assert len(results) == 1
+    hit = results[0]
+    assert hit["kind"] == "file"
+    assert hit["space"] == "personal"
+    assert hit["key"] == "attachments/lease"
+    assert hit["filename"] == "lease.pdf"
+    assert "**rental**" in hit["snippet"]
+
+
+async def test_page_results_say_they_are_pages(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "notes.md", "The boiler manual.", message="x")
+    results = await search_pages(me, "boiler")
+    assert results[0]["kind"] == "page"
+
+
+async def test_a_file_whose_bytes_never_landed_is_not_searchable(tx, household):
+    me = principal_for(household["wouter"])
+    await _add_file(
+        me,
+        household["w_personal"],
+        "attachments/ghost",
+        "ghost.pdf",
+        "A xylophone maintenance guide.",
+        status=AttachmentStatus.PENDING,
+    )
+    assert await search_pages(me, "xylophone") == []
+
+
+async def test_search_cannot_see_another_persons_files(tx, household):
+    partner = principal_for(household["partner"])
+    await _add_file(
+        partner,
+        household["p_personal"],
+        "attachments/private",
+        "private.pdf",
+        "A xylophone recital programme.",
+    )
+    assert await search_pages(partner, "xylophone") != []
+    me = principal_for(household["wouter"])
+    assert await search_pages(me, "xylophone") == []
 
 
 async def test_query_syntax_garbage_cannot_error(tx, household):

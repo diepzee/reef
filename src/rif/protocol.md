@@ -16,8 +16,9 @@ descriptions exist to help you choose what to read, not to be read instead.
 
 When the index does not settle which pages to read — the topic's words are
 inside bodies, not descriptions — call `search_pages`. It matches words and
-quoted phrases across every page you can see and returns snippets, not
-pages: fetch anything promising with `read_pages` before answering. Search
+quoted phrases across every page you can see, and across stored files'
+names and descriptions, returning snippets: fetch promising pages with
+`read_pages` and promising files with `read_file` before answering. Search
 finds candidates; it does not replace reading them.
 
 ## Referring to other pages

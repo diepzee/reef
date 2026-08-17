@@ -31,7 +31,10 @@ Run `reef <command> --help` for exact flags. Use `reef call <tool_name>
    reef search-pages 'insurance' --space household
    ```
 
-   Results are snippets, not pages — never answer from a snippet alone.
+   Hits cover pages and stored files (matched on filename and description;
+   `kind` says which). Results are snippets, not content — never answer
+   from a snippet alone; fetch pages with `read-pages` and files with
+   `read-file`.
 5. Use `reef load-all-context` only for corpus-wide maintenance such as
    contradiction checks or reorganizing many pages.
 

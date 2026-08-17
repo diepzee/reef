@@ -471,13 +471,14 @@ async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
 async def search_pages(
     query: str, space: str | None = None, limit: int = 10
 ) -> list[dict]:
-    """Search page text across every space you can see, best match first.
+    """Search pages and file descriptions across every space you can see.
 
     Use this when the index's descriptions do not settle which pages to
     read — it matches words inside bodies and titles that descriptions
-    omit. Results carry a snippet, not the page: fetch anything promising
-    with read_pages before answering. Plain words, quoted phrases, and
-    -exclusions all work.
+    omit, and inside stored files' names and descriptions. Results carry a
+    snippet, not the content: fetch promising pages with read_pages and
+    promising files (kind "file", by their key) with read_file before
+    answering. Plain words, quoted phrases, and -exclusions all work.
 
     :param query: words to search for
     :param space: restrict to ``personal`` or a space name from list_spaces
