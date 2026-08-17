@@ -128,9 +128,13 @@ def _build_auth() -> "AuthProvider | None":
     from fastmcp.server.auth.providers.workos import WorkOSProvider
 
     from rif.oauth_store import build_oauth_store
+    from rif.web.consent import install_consent_page
 
     configured = settings.allowed_client_redirects
     redirects = [p.strip() for p in configured.split(",") if p.strip()]
+
+    install_consent_page()
+
     return WorkOSProvider(
         client_id=client_id,
         client_secret=client_secret,
