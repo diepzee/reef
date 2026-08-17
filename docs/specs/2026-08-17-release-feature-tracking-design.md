@@ -156,8 +156,10 @@ a registry corresponds to a real change to that client.
 
 `site/changelog.html`, generated from `release-notes.json` during the fold and
 committed. Served by the existing `GET /site/{path:path}` route out of
-`Settings.site_dir`. No build step and no new route: it is a static file beside
-`how-it-works.html` and follows that page's markup and styling.
+`Settings.site_dir`. No build step and no new route: it is a static file
+alongside `index.html` and `privacy.html`, with its own template
+(`_PAGE` in `rif/releasenotes.py`) rather than reusing another page's markup
+-- there is no `site/how-it-works.html` in this repo.
 
 ### Component 6 — The in-app panel
 
@@ -223,8 +225,10 @@ idempotent; an unauthenticated caller is refused.
 readable nor writable. RLS is tested here, not assumed — consistent with
 `test_security.py` and `test_authz_primitive.py`.
 
-**Schema.** `test_schema.py` covers the new column, and the migration chain is
-exercised against an empty database.
+**Schema.** `test_schema.py` covers the new column's default and that it
+round-trips a value. The migration chain as a whole is *not* exercised
+against an empty database here -- it has a pre-existing break, ruled out of
+scope for this work -- so that proof does not exist for this column either.
 
 ## Operator steps
 

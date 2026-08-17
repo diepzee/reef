@@ -44,6 +44,7 @@ export function ReleaseNotes({
       <div
         className="wn-panel"
         role="dialog"
+        aria-modal="true"
         aria-label="What's new"
         onClick={(event) => event.stopPropagation()}
       >

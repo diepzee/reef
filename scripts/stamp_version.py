@@ -32,20 +32,23 @@ def stamp(version: str) -> None:
         text = path.read_text(encoding="utf-8")
         # Anchored to the line: only the [project] version, never a
         # dependency's own pin further down the file.
-        stamped, count = re.subn(
-            r'(?m)^version = "[^"]*"$', f'version = "{version}"', text, count=1
-        )
-        if count != 1:
-            raise SystemExit(f"{relative}: found no version line to stamp")
+        pattern = r'(?m)^version = "[^"]*"$'
+        # subn's second return value is substitutions *performed*, capped at
+        # count=1 -- so it can never be anything but 0 or 1 and can never
+        # catch a manifest that has grown a second matching line. Count the
+        # matches first, before touching the file, so that case fails loudly
+        # instead of stamping one line and leaving the other stale.
+        if len(re.findall(pattern, text)) != 1:
+            raise SystemExit(f"{relative}: expected exactly one version line to stamp")
+        stamped = re.sub(pattern, f'version = "{version}"', text, count=1)
         path.write_text(stamped, encoding="utf-8")
 
     path = ROOT / _PACKAGE_JSON
     text = path.read_text(encoding="utf-8")
-    stamped, count = re.subn(
-        r'(?m)^(  "version": )"[^"]*"', rf'\g<1>"{version}"', text, count=1
-    )
-    if count != 1:
-        raise SystemExit(f"{_PACKAGE_JSON}: found no version line to stamp")
+    pattern = r'(?m)^(  "version": )"[^"]*"'
+    if len(re.findall(pattern, text)) != 1:
+        raise SystemExit(f"{_PACKAGE_JSON}: expected exactly one version line to stamp")
+    stamped = re.sub(pattern, rf'\g<1>"{version}"', text, count=1)
     path.write_text(stamped, encoding="utf-8")
     # Prove the result still parses; a broken package.json fails npm
     # publish much later and much less clearly.

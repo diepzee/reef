@@ -2,8 +2,9 @@
 
 Invoked by semantic-release's ``prepareCmd`` with the version it computed,
 so the entry carries the same number as the tag. All the logic lives in
-:mod:`rif.releasenotes` -- only ``src`` and ``tests`` are linted and tested, so
-this file stays a shell around it.
+:mod:`rif.releasenotes` -- the ``Justfile`` lints and tests ``src``,
+``tests``, ``scripts`` and ``clients``, but this file stays a thin shell
+around that module rather than duplicating its logic.
 """
 
 import sys

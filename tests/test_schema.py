@@ -122,14 +122,17 @@ def test_enable_statements_names_no_column_the_old_migrations_predate():
         )
 
 
-async def test_last_seen_release_starts_empty_and_is_writable_by_its_owner(
-    household, seed
-):
-    """A person owns their own read-marker: NULL until they open the panel.
+async def test_last_seen_release_defaults_to_null(household, seed):
+    """The column starts NULL and Postgres stores whatever string it's given.
 
-    NULL rather than ``''`` because "never seen anything" and "seen version
-    empty-string" are different states, and only one of them should light
-    the dot for somebody who predates the feature.
+    This reads and writes through the ``seed`` connection, which bypasses
+    the identity policies (see ``tests/conftest.py``), so it proves nothing
+    about ownership or RLS -- only that the column exists, defaults to NULL,
+    and round-trips a value. NULL rather than ``''`` matters because "never
+    seen anything" and "seen version empty-string" are different states, and
+    only one of them should light the dot for somebody who predates the
+    feature. The RLS proof -- that a person can read and write only their
+    own marker -- lives in ``tests/test_release_notes_api.py``.
     """
     person_id = household["wouter"].id
     assert (
