@@ -255,6 +255,10 @@ def build_parser() -> argparse.ArgumentParser:
     read_pages = _tool_parser(sub, "read_pages", "read several pages from one space")
     read_pages.add_argument("space")
     read_pages.add_argument("paths", nargs="+")
+    search = _tool_parser(sub, "search_pages", "full-text search across your pages")
+    search.add_argument("query")
+    search.add_argument("--space", help="restrict to one space")
+    search.add_argument("--limit", type=int, default=10)
     _tool_parser(sub, "load_all_context", "load all page bodies for maintenance")
     _tool_parser(sub, "get_operating_protocol", "load the protocol and persona")
     read_page = _tool_parser(sub, "read_page", "read one page")
@@ -402,6 +406,8 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         return tool, {}
     if tool == "read_pages":
         return tool, {"space": args.space, "paths": args.paths}
+    if tool == "search_pages":
+        return tool, {"query": args.query, "space": args.space, "limit": args.limit}
     if tool == "read_page":
         return tool, {"space": args.space, "path": args.path}
     if tool == "create_space":
