@@ -1,0 +1,18 @@
+{
+  "entries": [
+    {
+      "version": "0.2.0",
+      "date": "2026-08-17",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "reef can now tell you what's changed since you last looked. Open \"What's new\" from the account menu to see it."
+        },
+        {
+          "kind": "added",
+          "text": "reef now has terms of service, linked from every page's footer alongside the privacy policy and a changelog that actually opens."
+        }
+      ]
+    }
+  ]
+}

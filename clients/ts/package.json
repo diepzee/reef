@@ -1,6 +1,6 @@
 {
   "name": "@haai/reef-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Command-line client for reef \u2014 shared, living memory for people and their AI assistants",
   "keywords": [
     "mcp",
