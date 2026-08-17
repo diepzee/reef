@@ -19,7 +19,11 @@ advertise install commands before the packages exist.
        `me.reefwith` namespace via DNS or HTTP, `mcp-publisher publish`
        with the repo's server.json.
 9. [ ] mcp.so — submit via their "Submit" flow with https://reefwith.me/mcp.
-10. [ ] glama.ai/mcp — claim/submit the server listing.
+10. [ ] glama.ai/mcp — claim/submit the server listing
+        (see directory-submissions.md for the enrichment notes).
+10b. [ ] **Anthropic connector directory** — the highest-leverage listing;
+        ready-to-paste copy and the invite-only review caveat are in
+        directory-submissions.md. Needs a privacy policy page first.
 11. [ ] awesome-mcp-servers — PR adding reef under a memory/knowledge section.
 12. [ ] Post Show HN and the X thread (docs/marketing/launch-drafts.md) —
         ideally a weekday morning US time; be around to answer comments.
