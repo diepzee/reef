@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import boto3
 
-from rif.access import Principal, arm, resolve_space
+from rif.access import Principal, arm, resolve_space, resolve_writable_space
 from rif.config import get_settings
 from rif.db import transaction_scope
 from rif.models import Attachment, AttachmentStatus, Page
@@ -238,7 +238,7 @@ async def add_attachment(
     :returns: the stored attachment, status READY
     """
     async with transaction_scope():
-        space = await resolve_space(principal, alias)
+        space = await resolve_writable_space(principal, alias)
         page_id = None
         if page_path is not None:
             page = (
@@ -349,7 +349,7 @@ async def delete_attachment(
     """
     async with transaction_scope():
         await arm(principal)
-        space = await resolve_space(principal, alias)
+        space = await resolve_writable_space(principal, alias)
         existing = (
             await Attachment.objects()
             .where(Attachment.space_id == space.id, Attachment.object_key == key)

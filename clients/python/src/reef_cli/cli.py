@@ -274,6 +274,12 @@ def build_parser() -> argparse.ArgumentParser:
     invite.add_argument("space")
     invite.add_argument("email")
     invite.add_argument("--display-name")
+    invite.add_argument(
+        "--role",
+        choices=["member", "viewer"],
+        default="member",
+        help="viewer reads everything and writes nothing",
+    )
     invite_reef = _tool_parser(
         sub, "invite_to_reef", "invite someone to Reef without sharing a space"
     )
@@ -424,6 +430,7 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         payload = {"email": args.email, "display_name": args.display_name}
         if tool == "invite":
             payload["space"] = args.space
+            payload["role"] = args.role
         return tool, payload
     if tool == "remove_member":
         return tool, {"space": args.space, "email": args.email}

@@ -8,11 +8,21 @@ and Postgres does the rest.
 from dataclasses import dataclass
 from uuid import UUID
 
-from rif.models import Membership, Space, SpaceKind
+from rif.models import MemberRole, Membership, Space, SpaceKind
 
 
 class AccessDenied(Exception):
     """Raised whenever a principal may not reach the requested space."""
+
+
+class ReadOnlyMembership(AccessDenied):
+    """Raised when a viewer membership tries to change a space's content.
+
+    Postgres already refuses the write — the ``role = 'member'`` predicate
+    has guarded every content table since day one — but its refusal is a
+    zero-row update or a constraint error, neither of which tells an
+    assistant what to say. This raises before any work, with the reason.
+    """
 
 
 @dataclass(frozen=True)
@@ -110,6 +120,36 @@ async def resolve_space(principal: Principal, alias: str) -> Space:
     space = await query.first()
     if space is None:
         raise denied
+    return space
+
+
+async def resolve_writable_space(principal: Principal, alias: str) -> Space:
+    """Resolve a space for writing: the same lookup, plus the role gate.
+
+    Every content-write path resolves through here so a viewer gets a
+    refusal that names the reason, before any statement runs. The database
+    enforces the same rule regardless — this is the message, not the lock.
+
+    :param principal: the authenticated person
+    :param alias: ``personal`` or one of this principal's cove names
+    :raises AccessDenied: if no such space is reachable by this principal
+    :raises ReadOnlyMembership: if the membership may read but not write
+    :returns: the resolved space
+    """
+    space = await resolve_space(principal, alias)
+    membership = (
+        await Membership.objects()
+        .where(
+            Membership.person_id == principal.person_id,
+            Membership.space_id == space.id,
+        )
+        .first()
+    )
+    if membership is not None and membership.role != MemberRole.MEMBER.value:
+        raise ReadOnlyMembership(
+            f"you are a read-only member of {alias!r}: reading is welcome, "
+            "but changing its content is reserved for full members"
+        )
     return space
 
 
