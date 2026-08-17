@@ -2051,9 +2051,12 @@ The dry run on this PR is the proof: read its log and confirm it reports a next 
   #
   # The diff ends at HEAD~1 because HEAD is semantic-release's own
   # "chore(release)" commit, which touches every manifest and would make the
-  # gate always true. That is correct only while @semantic-release/git makes
-  # exactly one commit; if that ever changes, this gate goes quietly false
-  # instead of loudly wrong, so the step logs its decision either way.
+  # gate always true. That holds only while @semantic-release/git makes exactly
+  # one commit, and the failure is NOT one-directional: zero commits would skip
+  # wrongly, but *two* would leave a release commit inside the diff range and
+  # publish both clients on every release -- the expensive direction. So the
+  # assumption is asserted below rather than trusted, and every branch logs
+  # what it decided.
   publish:
     name: 📦 Publish changed clients
     needs: release
@@ -2077,6 +2080,15 @@ The dry run on this PR is the proof: read its log and confirm it reports a next 
             echo "python=true" >> "$GITHUB_OUTPUT"
             echo "ts=true" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          # Assert the HEAD~1 assumption instead of trusting it. Exactly one
+          # release commit must sit between the previous tag and HEAD; zero or
+          # two both mean the range below is wrong, and two would publish
+          # everything. Fail loudly rather than take the dangerous branch.
+          releases=$(git log --format=%s "$previous"..HEAD | grep -c '^chore(release):' || true)
+          if [ "$releases" -ne 1 ]; then
+            echo "::error::Expected exactly one chore(release) commit since $previous, found $releases. The publish gate's diff range is only valid with one; refusing to publish."
+            exit 1
           fi
           echo "Comparing $previous..HEAD~1 (HEAD is the release commit)."
           changed=$(git diff --name-only "$previous" HEAD~1)
@@ -2109,6 +2121,18 @@ The dry run on this PR is the proof: read its log and confirm it reports a next 
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # Build before publishing. package.json points `bin` at dist/index.js and
+      # ships `files: ["dist"]`, but dist/ is not in git and there is no
+      # prepare/prepublishOnly hook -- so publishing without this step uploads
+      # a package whose only executable does not exist. To a public registry,
+      # where it cannot be taken back.
+      - name: 🔨 Build @haai/reef-cli
+        if: steps.changed.outputs.ts == 'true'
+        working-directory: clients/ts
+        run: |
+          npm ci
+          npm run build
+          test -f dist/index.js  # refuse to publish what the build did not produce
       - name: 📦 Publish @haai/reef-cli to npm
         if: steps.changed.outputs.ts == 'true'
         working-directory: clients/ts
