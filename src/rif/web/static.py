@@ -200,6 +200,22 @@ def register_static_routes(mcp) -> None:
             return _cached(page)
         return PlainTextResponse("Not Found", status_code=404)
 
+    async def terms(request: Request) -> Response:
+        """Serve the terms page at the origin root.
+
+        Same footing as :func:`privacy`: a legal notice the footer links
+        from every page, so it gets a stable, guessable URL rather than
+        ``/site/terms.html``.
+
+        :param request: the incoming request
+        :returns: the site's ``terms.html``, or a 404 if the site tree is
+            absent (same posture as :func:`_serve_site_asset`)
+        """
+        page = Path(get_settings().site_dir) / "terms.html"
+        if page.is_file():
+            return _cached(page)
+        return PlainTextResponse("Not Found", status_code=404)
+
     async def site_asset(request: Request) -> Response:
         """Serve one of the marketing site's assets.
 
@@ -281,6 +297,7 @@ def register_static_routes(mcp) -> None:
 
     mcp.custom_route("/", methods=["GET"])(root)
     mcp.custom_route("/privacy", methods=["GET"])(privacy)
+    mcp.custom_route("/terms", methods=["GET"])(terms)
     mcp.custom_route("/site/{path:path}", methods=["GET"])(site_asset)
     mcp.custom_route("/favicon.ico", methods=["GET"])(favicon_ico)
     mcp.custom_route("/apple-touch-icon.png", methods=["GET"])(apple_touch_icon)

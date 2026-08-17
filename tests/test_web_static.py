@@ -184,6 +184,22 @@ async def test_privacy_404s_without_a_site_tree(static_client):
     assert response.status_code == 404
 
 
+async def test_terms_page_is_served_at_the_root(static_client, tmp_path):
+    """The footer links /terms from every page, so it must resolve."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "terms.html").write_text("<!doctype html><title>reef terms</title>")
+    response = await static_client.get("/terms")
+    assert response.status_code == 200
+    assert "reef terms" in response.text
+
+
+async def test_terms_404s_without_a_site_tree(static_client):
+    """No site/ packaged: a clean 404 rather than a 500."""
+    response = await static_client.get("/terms")
+    assert response.status_code == 404
+
+
 async def test_glama_claim_served_when_configured(static_client, monkeypatch):
     """The claim document names the configured maintainer, unauthenticated.
 
