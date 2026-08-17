@@ -122,7 +122,9 @@ specific share.
 
 Create a group with `reef create-space <slug>`. Before `reef invite <space>
 <email>`, tell the user that the invitee will permanently be able to see all
-past and future content in that space and confirm the exact email. Use `reef
+past and future content in that space and confirm the exact email. Add
+`--role viewer` for someone who should read everything but write nothing
+(an accountant, a helper) — and say that difference to the user too. Use `reef
 invite-to-reef <email>` when the person should receive their own private Reef
 without access to any existing space, and relay the returned `next_step`
 because Reef sends no email.

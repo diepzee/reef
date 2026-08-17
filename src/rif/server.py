@@ -16,7 +16,7 @@ from rif.access import (
     Principal,
     accessible_spaces,
     alias_map,
-    resolve_space,
+    resolve_writable_space,
 )
 from rif.activity import whats_new as run_whats_new
 from rif.attachments import (
@@ -32,7 +32,7 @@ from rif.config import get_settings
 from rif.context import build_index, load_context
 from rif.db import transaction_scope
 from rif.invitations import InviteBudgetExceeded
-from rif.models import Page
+from rif.models import MemberRole, Membership, Page
 from rif.pages import (
     InvalidPath,
     PageNotFound,
@@ -52,7 +52,7 @@ from rif.pages import (
 from rif.promotion import PromotionError, confirm_promotion, prepare_promotion
 from rif.protocol import PERSONA_PATH, build_instructions
 from rif.search import search_pages as run_search
-from rif.spaces import SpaceError, member_names
+from rif.spaces import SpaceError, member_names, member_roster
 from rif.web.routes_api import register_api_routes
 from rif.web.routes_auth import register_auth_routes
 from rif.web.static import register_static_routes
@@ -243,15 +243,29 @@ async def tool_list_spaces(principal: Principal) -> list[dict]:
     :returns: one dict per accessible space
     """
     aliases = await alias_map(principal)
-    return [
-        {
-            "name": aliases[s.id],
-            "version": s.version,
-            "members": await member_names(s.id),
-            "you_are_owner": s.owner_person_id == principal.person_id,
+    rows = []
+    for s in await accessible_spaces(principal):
+        roster = await member_roster(s.id)
+        roles = {
+            m["person_id"]: m["role"]
+            for m in await Membership.select(
+                Membership.person_id, Membership.role
+            ).where(Membership.space_id == s.id)
         }
-        for s in await accessible_spaces(principal)
-    ]
+        rows.append(
+            {
+                "name": aliases[s.id],
+                "version": s.version,
+                "members": [m["display_name"] for m in roster],
+                "viewers": [
+                    m["display_name"]
+                    for m in roster
+                    if roles.get(m["person_id"]) == MemberRole.VIEWER.value
+                ],
+                "you_are_owner": s.owner_person_id == principal.person_id,
+            }
+        )
+    return rows
 
 
 async def tool_create_space(principal: Principal, slug: str) -> dict:
@@ -277,6 +291,7 @@ async def tool_invite(
     space: str,
     email: str,
     display_name: str | None = None,
+    role: str = "member",
 ) -> dict:
     """Invite an email into a space; split from the tool for testability.
 
@@ -284,11 +299,12 @@ async def tool_invite(
     :param space: the shared space name
     :param email: the invitee's sign-in email
     :param display_name: how members will see them
+    :param role: ``member`` (read and write) or ``viewer`` (read only)
     :returns: the invite outcome with disclosure, or an error dict
     """
     try:
         return await space_admin.invite(
-            principal, space, email, display_name=display_name
+            principal, space, email, display_name=display_name, role=role
         )
     except InviteBudgetExceeded as exc:
         return {"error": "invite_budget", "detail": str(exc)}
@@ -401,7 +417,7 @@ async def tool_remember(
     :param space: ``personal`` or a space name from list_spaces
     :returns: what was written, with a duplicate flag
     """
-    resolved = await resolve_space(principal, space)
+    resolved = await resolve_writable_space(principal, space)
     inbox = (
         await Page.objects()
         .where(Page.space_id == resolved.id, Page.path == _INBOX)
@@ -546,20 +562,30 @@ async def create_space(slug: str) -> dict:
 
 
 @mcp.tool
-async def invite(space: str, email: str, display_name: str | None = None) -> dict:
+async def invite(
+    space: str,
+    email: str,
+    display_name: str | None = None,
+    role: str = "member",
+) -> dict:
     """Invite a person into a shared space you own. Owner only.
 
     Tell the user exactly what this grants before calling: the invitee will
     permanently see everything in the space, past and future. They get in by
-    signing in with this exact email address, verified.
+    signing in with this exact email address, verified. Pass role "viewer"
+    for someone who should read everything but write nothing — an
+    accountant, a helper — and say that difference out loud too.
 
     :param space: the space name, from list_spaces
     :param email: the address the invitee will sign in with
     :param display_name: how members will see them
+    :param role: "member" (read and write) or "viewer" (read only)
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await tool_invite(principal, space, email, display_name=display_name)
+        return await tool_invite(
+            principal, space, email, display_name=display_name, role=role
+        )
 
 
 @mcp.tool

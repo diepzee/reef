@@ -40,7 +40,8 @@ async def test_tool_list_spaces_names_members_and_ownership(tx, household):
     assert by_name["household"]["members"] == ["Partner", "Wouter"]
     assert by_name["household"]["you_are_owner"] is True
     for row in result:
-        assert set(row) == {"name", "members", "you_are_owner", "version"}
+        assert set(row) == {"name", "members", "viewers", "you_are_owner", "version"}
+        assert row["viewers"] == []
         assert household["w_personal"].slug not in row.values()
 
 

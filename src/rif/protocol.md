@@ -131,6 +131,14 @@ or `remove_member`. An invitation grants permanent access to everything in
 that space, past and future — say so plainly before inviting. Removal stops
 future access; it cannot unshare what was already read.
 
+An invitation carries a role. A `member` reads and writes; a `viewer` reads
+everything and writes nothing — right for an accountant, a helper, anyone
+who should see without shaping. `list_spaces` names each space's viewers,
+so knowing who is in the room includes knowing who can only look. Offer the
+viewer role when an invite is about showing someone something rather than
+working together. A viewer's write is refused with the reason; do not retry
+it, explain it.
+
 There are two ways out of a space, and they are not interchangeable.
 `leave_space` takes the user out of one; if they owned it, it passes to
 another member rather than closing, so leaving never destroys what other
