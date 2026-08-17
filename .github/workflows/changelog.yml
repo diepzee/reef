@@ -1,0 +1,74 @@
+# This job lives apart from ci.yml on purpose. It has to re-run when the
+# no-changelog label is added or removed -- that's the whole point of the
+# label as an escape hatch -- but ci.yml's backend/frontend jobs must not
+# re-run (or worse, appear to) on a label event:
+#
+#   - ci.yml's concurrency group is keyed on github.ref with
+#     cancel-in-progress true for pull_request events. If `labeled`/
+#     `unlabeled` triggered ci.yml, adding a label mid-test-run would cancel
+#     the in-flight backend/frontend run for no reason connected to the
+#     label.
+#   - The seemingly obvious fix -- gate backend/frontend with a job-level
+#     `if:` so they skip on label events -- is actively dangerous. A job
+#     skipped by `if:` reports conclusion "skipped", and GitHub branch
+#     protection treats a skipped required check as passing. Labelling a PR
+#     whose backend job is red would silently replace that failure with a
+#     skip and make red code mergeable.
+#
+# So `changelog` gets its own workflow, its own trigger, and its own
+# concurrency group, and ci.yml's trigger goes back to the plain
+# `pull_request:` default.
+
+name: Changelog fragment
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: changelog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Every PR either says what a user would notice, or says explicitly that
+  # they would notice nothing. Pull requests only: on main this must never
+  # be able to fail a release, and there is no PR to carry a label there.
+  #
+  # The label is the escape hatch that keeps this from becoming a hostage
+  # situation -- most PRs (test isolation, CI tuning, refactors) genuinely
+  # change nothing a person using reef would see.
+  changelog:
+    name: Changelog fragment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff below needs the base commit
+
+      - name: Require a fragment or the no-changelog label
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if echo "$LABELS" | grep -q '"no-changelog"'; then
+            echo "Labelled no-changelog; nothing to write."
+            exit 0
+          fi
+          # Merge-base, not $BASE directly. $BASE is main's tip *now*, and a
+          # release deletes the fragments it consumed -- so a branch that
+          # forked before a release still carries files main no longer has,
+          # and a two-dot diff reports them as this PR's additions. That is a
+          # false pass on exactly the check meant to catch an empty PR.
+          fork=$(git merge-base "$BASE" "$HEAD")
+          added=$(git diff --name-only --diff-filter=A "$fork" "$HEAD" -- 'changes/*.md')
+          if [ -n "$added" ]; then
+            echo "Fragment(s) added:"
+            echo "$added"
+            exit 0
+          fi
+          # One ::error:: line, not five. GitHub renders each as its own
+          # annotation box, so five echoes become five mid-sentence fragments
+          # in the Checks panel. %0A is a newline inside a single annotation.
+          echo "::error::Say what changed, or say that nothing did.%0A%0AIf a person using reef would notice this change, add one sentence for them in changes/<pr-number>-<slug>.md -- see changes/README.md for how to write it.%0A%0AIf they would notice nothing (tests, CI, refactors), add the no-changelog label to this PR instead."
+          exit 1

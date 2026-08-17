@@ -16,12 +16,16 @@
 name: CI
 
 on:
+  # Plain pull_request: default types only (opened, synchronize, reopened).
+  # The changelog job used to live here and needed labeled/unlabeled for its
+  # no-changelog escape hatch -- but that made every label change cancel
+  # this workflow's in-flight run (concurrency below is keyed on
+  # github.ref with cancel-in-progress true for PR events), and gating
+  # backend/frontend with an if: to skip on label events would report
+  # "skipped" on a required check, which branch protection counts as
+  # passing -- silently turning a red PR green. See changelog.yml, which
+  # now owns that job and its own label-triggered runs.
   pull_request:
-    # labeled/unlabeled are here for the changelog job's escape hatch: adding
-    # no-changelog has to re-run the check that the label exists to satisfy,
-    # and removing it has to put the check back. Naming any type replaces the
-    # default list, so the three defaults are repeated here deliberately.
-    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -107,59 +111,23 @@ jobs:
       - name: Build
         run: bun run build
 
-  # Every PR either says what a user would notice, or says explicitly that
-  # they would notice nothing. Pull requests only: on main this must never
-  # be able to fail a release, and there is no PR to carry a label there.
-  #
-  # The label is the escape hatch that keeps this from becoming a hostage
-  # situation -- most PRs (test isolation, CI tuning, refactors) genuinely
-  # change nothing a person using reef would see.
-  changelog:
-    name: Changelog fragment
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # the diff below needs the base commit
-
-      - name: Require a fragment or the no-changelog label
-        env:
-          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if echo "$LABELS" | grep -q '"no-changelog"'; then
-            echo "Labelled no-changelog; nothing to write."
-            exit 0
-          fi
-          # Merge-base, not $BASE directly. $BASE is main's tip *now*, and a
-          # release deletes the fragments it consumed -- so a branch that
-          # forked before a release still carries files main no longer has,
-          # and a two-dot diff reports them as this PR's additions. That is a
-          # false pass on exactly the check meant to catch an empty PR.
-          fork=$(git merge-base "$BASE" "$HEAD")
-          added=$(git diff --name-only --diff-filter=A "$fork" "$HEAD" -- 'changes/*.md')
-          if [ -n "$added" ]; then
-            echo "Fragment(s) added:"
-            echo "$added"
-            exit 0
-          fi
-          # One ::error:: line, not five. GitHub renders each as its own
-          # annotation box, so five echoes become five mid-sentence fragments
-          # in the Checks panel. %0A is a newline inside a single annotation.
-          echo "::error::Say what changed, or say that nothing did.%0A%0AIf a person using reef would notice this change, add one sentence for them in changes/<pr-number>-<slug>.md -- see changes/README.md for how to write it.%0A%0AIf they would notice nothing (tests, CI, refactors), add the no-changelog label to this PR instead."
-          exit 1
+  # The Changelog fragment check used to be a job here. It now lives in its
+  # own workflow, changelog.yml -- it has to re-run on label add/remove for
+  # the no-changelog escape hatch, and doing that inside this workflow either
+  # cancelled the in-flight test run (concurrency below) or, if gated with an
+  # if: to dodge that, would report "skipped" on a required check, which
+  # branch protection counts as passing. See changelog.yml's header.
 
   # A no-write semantic-release run, so a broken .releaserc.json or an
   # unparseable commit history fails in review rather than on main -- where it
   # would sit between a merge and a production deploy.
   #
-  # Its own job, mirroring `changelog` above, rather than a step in `backend`.
-  # semantic-release reads the full tag history, and this action runs against
-  # the job's existing checkout rather than cloning its own -- so as a step in
-  # `backend` it would need fetch-depth: 0 there, deepening the clone on every
-  # push to main as well, for a step that only ever runs on pull requests.
+  # Its own job, mirroring `changelog` in changelog.yml, rather than a step
+  # in `backend`. semantic-release reads the full tag history, and this
+  # action runs against the job's existing checkout rather than cloning its
+  # own -- so as a step in `backend` it would need fetch-depth: 0 there,
+  # deepening the clone on every push to main as well, for a step that only
+  # ever runs on pull requests.
   release-dry-run:
     name: Release dry run
     if: github.event_name == 'pull_request'
@@ -177,11 +145,21 @@ jobs:
         uses: cycjimmy/semantic-release-action@v4
         with:
           dry_run: true
-          extra_plugins: |
-            @semantic-release/changelog@6
-            @semantic-release/git@10
-            @semantic-release/exec@6
-            conventional-changelog-conventionalcommits@7
+          # Both overrides are load-bearing, not decoration. semantic-release
+          # refuses to do anything on a pull-request event and returns before
+          # it ever analyses a commit -- ci: false lifts that refusal. Even
+          # with that, it still checks the current ref against `branches` in
+          # .releaserc.json (["main"]) and no-ops on a mismatch, since a PR's
+          # ref is never "main" -- branches: github.head_ref overrides that
+          # check to the PR's own branch. Without both, this job goes green
+          # having proved only that .releaserc.json parses, not that commit
+          # analysis or version computation actually ran. On the first real
+          # PR after this change, check the log for a computed *next
+          # version* (e.g. "The next release version is X.Y.Z"), not a "This
+          # test run was triggered by a pull request... won't publish" line
+          # -- that line is the old, unproven-negative behaviour.
+          ci: false
+          branches: ${{ github.head_ref }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
