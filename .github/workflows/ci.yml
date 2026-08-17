@@ -132,7 +132,14 @@ jobs:
     name: Release dry run
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    # Analysis-only config: the dry run needs no write permission and no token beyond the default.
+    # semantic-release CORE verifies it could push by running `git push
+    # --dry-run` before it analyses anything -- even in dry_run mode, and
+    # even with the analysis-only plugin list. With the default read-only
+    # token that fails EGITNOPERMISSION, so the job needs write here even
+    # though it writes nothing. A fork's PR gets a read-only token
+    # regardless of this line, so it grants nothing to a stranger.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
