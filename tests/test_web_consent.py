@@ -75,6 +75,17 @@ def test_page_tells_the_truth():
     assert "Export everything" in html
 
 
+def test_brand_header_always_reads_reef():
+    """The header names the product, never the FastMCP server's internal name.
+
+    FastMCP's server is named "rif" -- server_name would carry that
+    verbatim into production if it leaked into the brand header.
+    """
+    html = _render(server_name="rif")
+    assert ">reef</span>" in html
+    assert ">rif</span>" not in html
+
+
 def test_client_name_is_escaped():
     """A hostile client_name registered via DCR must not become markup."""
     html = _render(client_name="<script>alert(1)</script>")
