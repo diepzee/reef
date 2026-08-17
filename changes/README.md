@@ -30,3 +30,13 @@ the app.
 
 If your PR genuinely changes nothing a user would notice, add the
 `no-changelog` label instead and CI will let it through.
+
+## How these become a release
+
+A bot keeps one open PR titled `chore(release): X.Y.Z` (branch
+`bot/release`), refreshed on every merge to main. It folds the fragments
+here into `site/release-notes.json`, stamps the version into the three
+manifests, and prepends `CHANGELOG.md`. **Squash-merging that PR is the
+release** — it tags, creates the GitHub release, and publishes any client
+that changed. Nobody pushes to main, the bot included; don't edit
+`bot/release` by hand, the next merge to main rebuilds it from scratch.
