@@ -22,7 +22,7 @@
   --cta-ink: #ffffff; --veil: rgb(251 252 253 / 0.82);
   --wash-a: rgb(13 148 136 / 0.105); --wash-b: rgb(56 189 216 / 0.085);
   --wash-warm: rgb(245 158 11 / 0.065); --current: rgb(13 148 136 / 0.075);
-  --grain: rgb(25 92 89 / 0.12); --bubble: rgb(13 148 136 / 0.2);
+  --grain: rgb(25 92 89 / 0.12);
   --card-glint: rgb(255 255 255 / 0.82);
   --card-shadow: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 14px 40px rgb(24 73 80 / 0.075);
   --lift-shadow: 0 1px 0 rgb(255 255 255 / 0.9) inset, 0 20px 52px rgb(24 73 80 / 0.12);
@@ -39,7 +39,7 @@
     --cta-ink: #06282e; --veil: rgb(13 26 32 / 0.82);
     --wash-a: rgb(45 212 191 / 0.105); --wash-b: rgb(56 189 216 / 0.09);
     --wash-warm: rgb(251 191 36 / 0.055); --current: rgb(124 227 211 / 0.07);
-    --grain: rgb(189 230 233 / 0.11); --bubble: rgb(124 227 211 / 0.19);
+    --grain: rgb(189 230 233 / 0.11);
     --card-glint: rgb(226 241 245 / 0.035);
     --card-shadow: 0 1px 0 rgb(226 241 245 / 0.045) inset, 0 18px 44px rgb(0 0 0 / 0.2);
     --lift-shadow: 0 1px 0 rgb(226 241 245 / 0.065) inset, 0 24px 58px rgb(0 0 0 / 0.3);
@@ -144,21 +144,7 @@ nav.handover .cta { opacity: 0; visibility: hidden; }
 
 /* ---------- hero ---------- */
 .hero { text-align: center; align-items: center; }
-.hero .stage {
-  display: block; width: min(58vmin, 490px); margin: 0 auto; position: relative; isolation: isolate;
-}
-.hero .stage::before {
-  content: ""; position: absolute; z-index: -1; inset: -11% -17% -4%; pointer-events: none;
-  border: 1px solid var(--hairline); border-radius: 47% 53% 49% 51% / 54% 46% 54% 46%;
-  background:
-    radial-gradient(circle at 22% 25%, transparent 0 3px, var(--bubble) 3.5px 4.5px, transparent 5px),
-    radial-gradient(circle at 81% 18%, transparent 0 5px, var(--bubble) 5.5px 6.5px, transparent 7px),
-    radial-gradient(circle at 88% 64%, transparent 0 2px, var(--bubble) 2.5px 3.5px, transparent 4px),
-    radial-gradient(circle at 14% 74%, transparent 0 4px, var(--bubble) 4.5px 5.5px, transparent 6px),
-    radial-gradient(ellipse at 50% 42%, var(--accent-soft), color-mix(in srgb, var(--panel) 72%, transparent) 56%, transparent 72%);
-  box-shadow: var(--card-shadow), 0 32px 100px color-mix(in srgb, var(--accent) 9%, transparent);
-  transform: rotate(-1.5deg);
-}
+.hero .stage { display: block; width: min(58vmin, 490px); margin: 0 auto; }
 /* Bottom-anchored, because the coral is rooted in the seabed: skew and vertical scale pivot on
    the box's bottom edge, which is exactly the ground line. Block wrappers, not inline-block —
    an inline-block sits on a text baseline and would pivot a few px below the ground. The
