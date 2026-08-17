@@ -47,7 +47,7 @@ One merge produces two records in two registers.
 ```
 conventional commit ──▶ semantic-release ──▶ version + tag + CHANGELOG.md
                                           └─▶ GitHub release
-changes/*.md fragment ─▶ fold step ───────▶ docs/whats-new.json
+changes/*.md fragment ─▶ fold step ───────▶ site/whats-new.json
                                              ├─▶ site/changelog.html   (public)
                                              └─▶ GET /api/whats-new    (in-app)
 ```
@@ -82,7 +82,7 @@ users by definition.
 ### Component 2 — The fold
 
 A step in the release run reads every fragment, groups by `kind`, and prepends
-one entry to `docs/whats-new.json`:
+one entry to `site/whats-new.json`:
 
 ```json
 {
@@ -102,6 +102,11 @@ The file is append-only and committed. It is the single source for both
 user-facing surfaces, so the public page and the in-app panel can never disagree.
 The fold then deletes the consumed fragments in the same commit.
 
+It lives under `site/` rather than `docs/` because the Dockerfile copies `src`,
+`scripts`, `site` and `clients/python` — not `docs`. A feed the running server
+cannot open would leave the in-app panel with nothing to show, and `site/` is
+already both shipped in the image and publicly served.
+
 A release with no fragments writes no entry. A patch nobody notices should not
 announce itself.
 
@@ -117,7 +122,7 @@ modelled directly on `hybrix-app`:
 - `@semantic-release/changelog`
 - `@semantic-release/exec` — stamps the computed version into all three
   manifests and runs the fold
-- `@semantic-release/git` — commits `CHANGELOG.md`, `docs/whats-new.json`,
+- `@semantic-release/git` — commits `CHANGELOG.md`, `site/whats-new.json`,
   `site/changelog.html`, the three manifests and the fragment deletions as
   `chore(release): ${nextRelease.version} [skip ci]`
 - `@semantic-release/github`
@@ -164,7 +169,10 @@ committed. Served by the existing `GET /site/{path:path}` route out of
 - The panel follows `MembersSheet` for structure and dismissal.
 
 Versions are compared as parsed semver triples, never as strings — `"0.10.0" >
-"0.9.0"` is false lexically and true in fact.
+"0.9.0"` is false lexically and true in fact. That comparison lives **only** in
+Python, behind the `unread` flag the endpoint returns. The frontend never parses
+a version: two implementations of one rule is how the dot ends up disagreeing
+with the list it decorates.
 
 ### Component 7 — Storage
 
@@ -202,8 +210,11 @@ Following the repo's existing layers.
 front matter, empty body, no fragments at all. The fold: correct grouping,
 prepend order, and idempotence when run twice.
 
-**Unit (frontend).** Semver comparison including the `0.10.0` vs `0.9.0` case.
-Panel render and dismissal, colocated as `WhatsNew.test.tsx`.
+Semver comparison, including the `0.10.0` vs `0.9.0` case, is tested in Python
+alongside the fold — it is the only place that rule exists.
+
+**Unit (frontend).** Panel render and dismissal, colocated as
+`WhatsNew.test.tsx`.
 
 **API.** `GET /api/whats-new` unread → seen → read transition; the stamp is
 idempotent; an unauthenticated caller is refused.
