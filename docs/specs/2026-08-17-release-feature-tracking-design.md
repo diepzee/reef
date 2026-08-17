@@ -47,12 +47,12 @@ One merge produces two records in two registers.
 ```
 conventional commit ──▶ semantic-release ──▶ version + tag + CHANGELOG.md
                                           └─▶ GitHub release
-changes/*.md fragment ─▶ fold step ───────▶ site/whats-new.json
+changes/*.md fragment ─▶ fold step ───────▶ site/release-notes.json
                                              ├─▶ site/changelog.html   (public)
-                                             └─▶ GET /api/whats-new    (in-app)
+                                             └─▶ GET /api/release-notes    (in-app)
 ```
 
-`CHANGELOG.md` is the engineering record and reads like one. `whats-new.json` is
+`CHANGELOG.md` is the engineering record and reads like one. `release-notes.json` is
 what a user reads, in their vocabulary. Deriving the second from the first was
 rejected: commit subjects are written for the repo, and a user has no worktrees,
 no RLS and no schema.
@@ -82,7 +82,7 @@ users by definition.
 ### Component 2 — The fold
 
 A step in the release run reads every fragment, groups by `kind`, and prepends
-one entry to `site/whats-new.json`:
+one entry to `site/release-notes.json`:
 
 ```json
 {
@@ -122,7 +122,7 @@ modelled directly on `hybrix-app`:
 - `@semantic-release/changelog`
 - `@semantic-release/exec` — stamps the computed version into all three
   manifests and runs the fold
-- `@semantic-release/git` — commits `CHANGELOG.md`, `site/whats-new.json`,
+- `@semantic-release/git` — commits `CHANGELOG.md`, `site/release-notes.json`,
   `site/changelog.html`, the three manifests and the fragment deletions as
   `chore(release): ${nextRelease.version} [skip ci]`
 - `@semantic-release/github`
@@ -154,16 +154,16 @@ a registry corresponds to a real change to that client.
 
 ### Component 5 — The public page
 
-`site/changelog.html`, generated from `whats-new.json` during the fold and
+`site/changelog.html`, generated from `release-notes.json` during the fold and
 committed. Served by the existing `GET /site/{path:path}` route out of
 `Settings.site_dir`. No build step and no new route: it is a static file beside
 `how-it-works.html` and follows that page's markup and styling.
 
 ### Component 6 — The in-app panel
 
-- `GET /api/whats-new` returns the entries and `unread: bool`, computed by
+- `GET /api/release-notes` returns the entries and `unread: bool`, computed by
   comparing the newest entry's version against the caller's `last_seen_release`.
-- `POST /api/whats-new/seen` stamps `last_seen_release` to the newest version.
+- `POST /api/release-notes/seen` stamps `last_seen_release` to the newest version.
 - `AccountMenu` gains a "What's new" item carrying a dot while `unread` is true.
   Opening the panel posts the stamp and clears the dot.
 - The panel follows `MembersSheet` for structure and dismissal.
@@ -214,9 +214,9 @@ Semver comparison, including the `0.10.0` vs `0.9.0` case, is tested in Python
 alongside the fold — it is the only place that rule exists.
 
 **Unit (frontend).** Panel render and dismissal, colocated as
-`WhatsNew.test.tsx`.
+`ReleaseNotes.test.tsx`.
 
-**API.** `GET /api/whats-new` unread → seen → read transition; the stamp is
+**API.** `GET /api/release-notes` unread → seen → read transition; the stamp is
 idempotent; an unauthenticated caller is refused.
 
 **Integration, real Postgres.** A second person's `last_seen_release` is neither
@@ -252,7 +252,7 @@ they are in place.
 
 Steps 1–3 are independently useful: they give real versions and a `CHANGELOG.md`
 before any user-facing surface exists. The first release is cut with an empty
-`whats-new.json`, which both surfaces must handle without looking broken.
+`release-notes.json`, which both surfaces must handle without looking broken.
 
 ## Rejected alternatives
 

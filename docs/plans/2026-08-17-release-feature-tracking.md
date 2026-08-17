@@ -4,7 +4,7 @@
 
 **Goal:** Give reef real version numbers computed from conventional commits, and tell users what shipped in a register they understand.
 
-**Architecture:** One merge produces two records. semantic-release derives the version, the tag, and `CHANGELOG.md` from conventional commits. Separately, hand-written fragments under `changes/` fold into `site/whats-new.json`, which feeds a public page and an in-app panel with an unread marker. The marker rides on a new nullable column on `persons`, which is already under `persons_self_select` and `persons_self_update`.
+**Architecture:** One merge produces two records. semantic-release derives the version, the tag, and `CHANGELOG.md` from conventional commits. Separately, hand-written fragments under `changes/` fold into `site/release-notes.json`, which feeds a public page and an in-app panel with an unread marker. The marker rides on a new nullable column on `persons`, which is already under `persons_self_select` and `persons_self_update`.
 
 **Tech Stack:** Python 3.13 / Piccolo / Starlette-on-FastMCP, React + TypeScript (bun), semantic-release on GitHub Actions, Postgres with RLS.
 
@@ -22,6 +22,7 @@
 - **RLS is tested, never assumed.** Anything touching `persons` gets a test proving a second person cannot read or write it.
 - **User-facing copy follows ISO 24495-1:** lead with what matters to the reader, one idea per sentence, everyday words, active voice.
 - **Tests share one Postgres across worktrees.** Run them via `just test-py` (which takes a machine-wide lock), never bare `pytest`. A screenful of unrelated failures usually means a concurrent run — retry before debugging.
+- **Do not use the name `whats_new` / `whatsnew` for anything in this feature.** `main` shipped a different feature under that name (PR #59): `rif.activity.whats_new` is an MCP tool reporting *page activity in your coves*, with its own `tests/test_whats_new.py`. This feature is **release notes** — `rif.releasenotes`, `tests/test_release_notes.py`, `site/release-notes.json`, `/api/release-notes`, `ReleaseNotes.tsx`, `useReleaseNotes`. The two are unrelated, and a module name one underscore apart from an existing one is how the wrong import gets made. **User-facing copy is the exception:** the menu item, panel heading and public page still read "What's new", because that is the right phrase for a reader and the shipped tool never appears in the web UI.
 - **Commit subjects use conventional-commit prefixes from Task 1 onward** (`feat:`, `fix:`, `docs:`, `ci:`, `test:`, `chore:`), keeping this repo's narrative style after the prefix.
 
 ---
@@ -161,8 +162,8 @@ git commit -m "feat(whats-new): remember which release each person has read"
 ### Task 2: Fragment parsing, the fold, and the unread rule
 
 **Files:**
-- Create: `src/rif/whatsnew.py`
-- Test: `tests/test_whatsnew.py`
+- Create: `src/rif/releasenotes.py`
+- Test: `tests/test_release_notes.py`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -182,7 +183,7 @@ git commit -m "feat(whats-new): remember which release each person has read"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_whatsnew.py`:
+Create `tests/test_release_notes.py`:
 
 ```python
 """Fragments, the fold that consumes them, and what counts as unread."""
@@ -192,7 +193,7 @@ from pathlib import Path
 
 import pytest
 
-from rif.whatsnew import (
+from rif.releasenotes import (
     Change,
     Entry,
     FragmentError,
@@ -255,6 +256,21 @@ def test_reading_an_empty_directory_yields_nothing(tmp_path: Path):
     assert read_fragments(tmp_path) == []
 
 
+def test_the_directorys_own_readme_is_not_a_fragment(tmp_path: Path):
+    """changes/ ships instructions for contributors; prose is not an entry."""
+    (tmp_path / "README.md").write_text("# What to write here\n\nProse.\n")
+    (tmp_path / "57-search.md").write_text(FRAGMENT)
+    assert read_fragments(tmp_path) == [
+        Change(kind="added", text="Search your pages from your assistant.")
+    ]
+
+
+def test_a_readme_alone_folds_to_nothing(tmp_path: Path):
+    """The common case: a release where nobody wrote a fragment."""
+    (tmp_path / "README.md").write_text("# What to write here\n\nProse.\n")
+    assert read_fragments(tmp_path) == []
+
+
 def test_a_missing_feed_reads_as_no_entries(tmp_path: Path):
     """The first release must not need a file somebody remembered to create."""
     assert load_feed(tmp_path / "absent.json") == []
@@ -264,7 +280,7 @@ def test_the_fold_prepends_and_consumes(tmp_path: Path):
     fragments = tmp_path / "changes"
     fragments.mkdir()
     (fragments / "57-search.md").write_text(FRAGMENT)
-    feed = tmp_path / "whats-new.json"
+    feed = tmp_path / "release-notes.json"
 
     entry = fold(fragments, feed, version="0.4.0", date="2026-08-17")
 
@@ -280,7 +296,7 @@ def test_the_fold_prepends_and_consumes(tmp_path: Path):
 def test_the_newest_entry_comes_first(tmp_path: Path):
     fragments = tmp_path / "changes"
     fragments.mkdir()
-    feed = tmp_path / "whats-new.json"
+    feed = tmp_path / "release-notes.json"
 
     (fragments / "1-a.md").write_text("---\nkind: added\n---\nFirst.\n")
     fold(fragments, feed, version="0.4.0", date="2026-08-17")
@@ -295,7 +311,7 @@ def test_a_release_with_no_fragments_writes_nothing(tmp_path: Path):
     """A patch nobody notices should not announce itself."""
     fragments = tmp_path / "changes"
     fragments.mkdir()
-    feed = tmp_path / "whats-new.json"
+    feed = tmp_path / "release-notes.json"
 
     assert fold(fragments, feed, version="0.4.1", date="2026-08-17") is None
     assert not feed.exists()
@@ -352,12 +368,12 @@ def test_the_api_shape_is_plain_json():
 
 - [ ] **Step 2: Run them and watch them fail**
 
-Run: `just test-py tests/test_whatsnew.py`
-Expected: FAIL — `ModuleNotFoundError: No module named 'rif.whatsnew'`.
+Run: `just test-py tests/test_release_notes.py`
+Expected: FAIL — `ModuleNotFoundError: No module named 'rif.releasenotes'`.
 
 - [ ] **Step 3: Write the module**
 
-Create `src/rif/whatsnew.py`:
+Create `src/rif/releasenotes.py`:
 
 ```python
 """What shipped, in the words a person reading it would use.
@@ -372,7 +388,7 @@ worktrees.
 
 A fragment is one file per user-facing change, so two open branches never
 touch the same line. The fold consumes them at release time into
-``site/whats-new.json``, which is the single source for both the public page
+``site/release-notes.json``, which is the single source for both the public page
 and the in-app panel -- one file, so the two can never disagree.
 
 The version comparison lives here and nowhere else. The frontend receives a
@@ -450,6 +466,13 @@ def read_fragments(directory: Path) -> list[Change]:
     a kind, so a reader meets what is new before what is repaired, and two
     runs over the same directory produce byte-identical output.
 
+    ``README.md`` is skipped by name: the directory ships with the
+    instructions a contributor reads, and prose has no front matter, so
+    every run would otherwise die on it. Nothing else is skipped -- a file
+    that looks like a fragment and is not one must fail loudly rather than
+    be dropped, because a silently ignored fragment is somebody's sentence
+    going missing from the release.
+
     :param directory: the ``changes/`` directory, which need not exist
     :raises FragmentError: if any fragment in it is malformed
     :returns: the changes, in reading order
@@ -458,6 +481,8 @@ def read_fragments(directory: Path) -> list[Change]:
         return []
     changes = []
     for path in sorted(directory.glob("*.md")):
+        if path.name == "README.md":
+            continue
         try:
             changes.append(parse_fragment(path.read_text(encoding="utf-8")))
         except FragmentError as error:
@@ -471,7 +496,7 @@ def load_feed(path: Path) -> list[Entry]:
     A missing file reads as no entries rather than raising: the first
     release must not depend on somebody having created it by hand.
 
-    :param path: the ``site/whats-new.json`` path
+    :param path: the ``site/release-notes.json`` path
     :returns: the entries it holds
     """
     if not path.exists():
@@ -493,7 +518,7 @@ def load_feed(path: Path) -> list[Entry]:
 def write_feed(path: Path, entries: list[Entry]) -> None:
     """Write the feed, with a trailing newline so diffs stay one-line.
 
-    :param path: the ``site/whats-new.json`` path
+    :param path: the ``site/release-notes.json`` path
     :param entries: the entries to write, newest first
     """
     path.write_text(
@@ -534,7 +559,7 @@ def fold(fragments_dir: Path, feed_path: Path, version: str, date: str) -> Entry
     itself, and an empty entry in the panel reads as a broken feature.
 
     :param fragments_dir: the ``changes/`` directory
-    :param feed_path: the ``site/whats-new.json`` path
+    :param feed_path: the ``site/release-notes.json`` path
     :param version: the version semantic-release computed
     :param date: the release date, ``YYYY-MM-DD``
     :raises FragmentError: if any fragment is malformed -- the release fails
@@ -547,7 +572,10 @@ def fold(fragments_dir: Path, feed_path: Path, version: str, date: str) -> Entry
     entry = Entry(version=version, date=date, changes=changes)
     write_feed(feed_path, [entry, *load_feed(feed_path)])
     for path in fragments_dir.glob("*.md"):
-        path.unlink()
+        # Same exclusion as read_fragments: the directory's instructions are
+        # not a fragment, and a release must not delete them.
+        if path.name != "README.md":
+            path.unlink()
     return entry
 
 
@@ -585,7 +613,7 @@ def is_unread(entries: list[Entry], last_seen: str | None) -> bool:
 
 - [ ] **Step 4: Run the tests and watch them pass**
 
-Run: `just test-py tests/test_whatsnew.py`
+Run: `just test-py tests/test_release_notes.py`
 Expected: PASS, all 17.
 
 - [ ] **Step 5: Format, lint, commit**
@@ -593,7 +621,7 @@ Expected: PASS, all 17.
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/whatsnew.py tests/test_whatsnew.py
+git add src/rif/releasenotes.py tests/test_release_notes.py
 git commit -m "feat(whats-new): fragments, the fold that consumes them, and the unread rule"
 ```
 
@@ -607,7 +635,7 @@ git commit -m "feat(whats-new): fragments, the fold that consumes them, and the 
 - Create: `scripts/fold_changes.py`
 
 **Interfaces:**
-- Consumes: `rif.whatsnew.fold` from Task 2.
+- Consumes: `rif.releasenotes.fold` from Task 2.
 - Produces: `python scripts/fold_changes.py <version> <date>` — run by semantic-release in Task 8. Exits 0 on success (including "nothing to fold"), 1 with the error on a malformed fragment.
 
 - [ ] **Step 1: Create the directory and its instructions**
@@ -641,7 +669,7 @@ Write the body for the person reading it, not for us:
 - No `search_pages`, no RLS, no worktrees. "Search your pages", not
   "search_pages: RLS-scoped full-text search".
 
-At release time these files are folded into `site/whats-new.json` and
+At release time these files are folded into `site/release-notes.json` and
 deleted. That file feeds the public changelog and the "What's new" panel in
 the app.
 
@@ -660,7 +688,7 @@ Create `scripts/fold_changes.py`:
 
 Invoked by semantic-release's ``prepareCmd`` with the version it computed,
 so the entry carries the same number as the tag. All the logic lives in
-:mod:`rif.whatsnew` -- only ``src`` and ``tests`` are linted and tested, so
+:mod:`rif.releasenotes` -- only ``src`` and ``tests`` are linted and tested, so
 this file stays a shell around it.
 """
 
@@ -669,13 +697,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from rif.whatsnew import FragmentError, fold  # noqa: E402
+from rif.releasenotes import FragmentError, fold  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def main(argv: list[str]) -> int:
-    """Fold ``changes/`` into ``site/whats-new.json`` for one release.
+    """Fold ``changes/`` into ``site/release-notes.json`` for one release.
 
     :param argv: ``[version, date]`` -- the version semantic-release
         computed and the release date as ``YYYY-MM-DD``
@@ -686,7 +714,7 @@ def main(argv: list[str]) -> int:
         return 2
     version, date = argv
     try:
-        entry = fold(ROOT / "changes", ROOT / "site" / "whats-new.json", version, date)
+        entry = fold(ROOT / "changes", ROOT / "site" / "release-notes.json", version, date)
     except FragmentError as error:
         # Fail the release rather than drop somebody's sentence silently.
         print(f"changelog fragment is unreadable: {error}", file=sys.stderr)
@@ -707,16 +735,16 @@ if __name__ == "__main__":
 ```bash
 printf -- '---\nkind: added\n---\nSearch your pages from your assistant.\n' > changes/0-smoke.md
 python3 scripts/fold_changes.py 0.0.1 2026-08-17
-cat site/whats-new.json
+cat site/release-notes.json
 ```
 
-Expected: prints `0.0.1: wrote 1 change(s) to the feed`, `site/whats-new.json` holds the entry, and `changes/0-smoke.md` is gone.
+Expected: prints `0.0.1: wrote 1 change(s) to the feed`, `site/release-notes.json` holds the entry, and `changes/0-smoke.md` is gone.
 
 - [ ] **Step 4: Check the empty case, then undo the smoke test**
 
 ```bash
 python3 scripts/fold_changes.py 0.0.2 2026-08-17
-rm site/whats-new.json
+rm site/release-notes.json
 git status --short
 ```
 
@@ -735,17 +763,17 @@ git commit -m "feat(whats-new): a place to write the sentence, and the fold that
 
 **Files:**
 - Modify: `src/rif/web/routes_api.py` (handlers near `_appearances`; registration in `register_api_routes`)
-- Create: `tests/test_whats_new_api.py`
+- Create: `tests/test_release_notes_api.py`
 
 **Interfaces:**
-- Consumes: `Person.last_seen_release` (Task 1), `rif.whatsnew.{load_feed, feed_as_json, is_unread}` (Task 2).
+- Consumes: `Person.last_seen_release` (Task 1), `rif.releasenotes.{load_feed, feed_as_json, is_unread}` (Task 2).
 - Produces:
-  - `GET /api/whats-new` → `{"entries": [...], "unread": bool}`
-  - `POST /api/whats-new/seen` → `{"unread": false}`, requires the `X-Rif-Csrf: 1` header.
+  - `GET /api/release-notes` → `{"entries": [...], "unread": bool}`
+  - `POST /api/release-notes/seen` → `{"unread": false}`, requires the `X-Rif-Csrf: 1` header.
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `tests/test_whats_new_api.py`:
+Create `tests/test_release_notes_api.py`:
 
 ```python
 """The what's-new feed: what it shows, and whose mark it moves."""
@@ -785,7 +813,7 @@ def feed(tmp_path, monkeypatch):
     :param monkeypatch: pytest's monkeypatch fixture
     :returns: the directory the feed was written into
     """
-    (tmp_path / "whats-new.json").write_text(json.dumps(FEED))
+    (tmp_path / "release-notes.json").write_text(json.dumps(FEED))
     # site_dir is a str on Settings, not a Path -- see src/rif/config.py.
     monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
     return tmp_path
@@ -794,7 +822,7 @@ def feed(tmp_path, monkeypatch):
 async def test_the_feed_is_returned_newest_first(api, world, feed):
     alice, _bob, _ = world
     _login(api, alice)
-    response = await api.get("/api/whats-new")
+    response = await api.get("/api/release-notes")
     assert response.status_code == 200
     body = response.json()
     assert [entry["version"] for entry in body["entries"]] == ["0.10.0", "0.9.0"]
@@ -803,25 +831,25 @@ async def test_the_feed_is_returned_newest_first(api, world, feed):
 async def test_a_person_who_has_read_nothing_has_unread(api, world, feed):
     alice, _bob, _ = world
     _login(api, alice)
-    assert (await api.get("/api/whats-new")).json()["unread"] is True
+    assert (await api.get("/api/release-notes")).json()["unread"] is True
 
 
 async def test_marking_seen_clears_it(api, world, feed):
     alice, _bob, _ = world
     _login(api, alice)
-    stamped = await api.post("/api/whats-new/seen", headers=CSRF)
+    stamped = await api.post("/api/release-notes/seen", headers=CSRF)
     assert stamped.status_code == 200
     assert stamped.json() == {"unread": False}
-    assert (await api.get("/api/whats-new")).json()["unread"] is False
+    assert (await api.get("/api/release-notes")).json()["unread"] is False
 
 
 async def test_marking_seen_twice_is_harmless(api, world, feed):
     alice, _bob, _ = world
     _login(api, alice)
-    await api.post("/api/whats-new/seen", headers=CSRF)
-    again = await api.post("/api/whats-new/seen", headers=CSRF)
+    await api.post("/api/release-notes/seen", headers=CSRF)
+    again = await api.post("/api/release-notes/seen", headers=CSRF)
     assert again.status_code == 200
-    assert (await api.get("/api/whats-new")).json()["unread"] is False
+    assert (await api.get("/api/release-notes")).json()["unread"] is False
 
 
 async def test_an_older_mark_is_still_unread(api, world, feed, seed):
@@ -831,7 +859,7 @@ async def test_an_older_mark_is_still_unread(api, world, feed, seed):
         "UPDATE persons SET last_seen_release = '0.9.0' WHERE id = $1", alice.id
     )
     _login(api, alice)
-    assert (await api.get("/api/whats-new")).json()["unread"] is True
+    assert (await api.get("/api/release-notes")).json()["unread"] is True
 
 
 async def test_a_missing_feed_is_empty_rather_than_broken(
@@ -841,7 +869,7 @@ async def test_a_missing_feed_is_empty_rather_than_broken(
     monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
     alice, _bob, _ = world
     _login(api, alice)
-    response = await api.get("/api/whats-new")
+    response = await api.get("/api/release-notes")
     assert response.status_code == 200
     assert response.json() == {"entries": [], "unread": False}
 
@@ -850,10 +878,10 @@ async def test_one_persons_mark_does_not_move_anothers(api, world, feed, seed):
     """The mark is per person, and persons is self-only under RLS."""
     alice, bob, _ = world
     _login(api, alice)
-    await api.post("/api/whats-new/seen", headers=CSRF)
+    await api.post("/api/release-notes/seen", headers=CSRF)
 
     _login(api, bob)
-    assert (await api.get("/api/whats-new")).json()["unread"] is True
+    assert (await api.get("/api/release-notes")).json()["unread"] is True
 
     # Read past the policies to prove the write landed on exactly one row.
     assert (
@@ -873,16 +901,16 @@ async def test_one_persons_mark_does_not_move_anothers(api, world, feed, seed):
 async def test_marking_seen_needs_the_csrf_header(api, world, feed):
     alice, _bob, _ = world
     _login(api, alice)
-    assert (await api.post("/api/whats-new/seen")).status_code == 403
+    assert (await api.post("/api/release-notes/seen")).status_code == 403
 
 
 async def test_a_stranger_gets_nothing(api, feed):
-    assert (await api.get("/api/whats-new")).status_code == 401
+    assert (await api.get("/api/release-notes")).status_code == 401
 ```
 
 - [ ] **Step 2: Run them and watch them fail**
 
-Run: `just test-py tests/test_whats_new_api.py`
+Run: `just test-py tests/test_release_notes_api.py`
 Expected: FAIL — 404s, because the routes do not exist yet.
 
 - [ ] **Step 3: Add the handlers**
@@ -890,7 +918,7 @@ Expected: FAIL — 404s, because the routes do not exist yet.
 In `src/rif/web/routes_api.py`, add to the imports:
 
 ```python
-from rif.whatsnew import feed_as_json, is_unread, load_feed
+from rif.releasenotes import feed_as_json, is_unread, load_feed
 ```
 
 Then add these handlers immediately after `_set_appearance`:
@@ -907,12 +935,12 @@ def _feed_path() -> Path:
     ``site_dir`` is a ``str`` on ``Settings``, so it is wrapped here the
     same way :mod:`rif.web.static` wraps it.
 
-    :returns: the path to ``whats-new.json``
+    :returns: the path to ``release-notes.json``
     """
-    return Path(get_settings().site_dir) / "whats-new.json"
+    return Path(get_settings().site_dir) / "release-notes.json"
 
 
-async def _whats_new(request: Request, principal: Principal) -> dict:
+async def _release_notes(request: Request, principal: Principal) -> dict:
     """Return what shipped, and whether this person has read it.
 
     ``unread`` is computed here rather than in the browser so the rule
@@ -929,7 +957,7 @@ async def _whats_new(request: Request, principal: Principal) -> dict:
     return {**feed_as_json(entries), "unread": is_unread(entries, last_seen)}
 
 
-async def _mark_whats_new_seen(request: Request, principal: Principal) -> dict:
+async def _mark_release_notes_seen(request: Request, principal: Principal) -> dict:
     """Stamp this person as having read up to the newest entry.
 
     Stamps the newest *version* rather than a timestamp: the question asked
@@ -955,13 +983,15 @@ If `Path` is not already imported in this module, add `from pathlib import Path`
 In `register_api_routes`, immediately after the appearance routes:
 
 ```python
-    mcp.custom_route("/api/whats-new", methods=["GET"])(api(_whats_new))
-    mcp.custom_route("/api/whats-new/seen", methods=["POST"])(api(_mark_whats_new_seen))
+mcp.custom_route("/api/release-notes", methods=["GET"])(api(_release_notes))
+mcp.custom_route("/api/release-notes/seen", methods=["POST"])(
+    api(_mark_release_notes_seen)
+)
 ```
 
 - [ ] **Step 5: Run the tests and watch them pass**
 
-Run: `just test-py tests/test_whats_new_api.py`
+Run: `just test-py tests/test_release_notes_api.py`
 Expected: PASS, all 9.
 
 - [ ] **Step 6: Run the whole backend suite**
@@ -974,8 +1004,8 @@ Expected: PASS. The route registration is idempotent but shared across tests —
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/web/routes_api.py tests/test_whats_new_api.py
-git commit -m "feat(whats-new): serve the feed, and remember who has read it"
+git add src/rif/web/routes_api.py tests/test_release_notes_api.py
+git commit -m "feat(release-notes): serve the feed, and remember who has read it"
 ```
 
 ---
@@ -983,9 +1013,9 @@ git commit -m "feat(whats-new): serve the feed, and remember who has read it"
 ### Task 5: The public changelog page
 
 **Files:**
-- Modify: `src/rif/whatsnew.py` (add `render_page`)
+- Modify: `src/rif/releasenotes.py` (add `render_page`)
 - Modify: `scripts/fold_changes.py` (write the page after the fold)
-- Test: `tests/test_whatsnew.py` (append)
+- Test: `tests/test_release_notes.py` (append)
 
 **Interfaces:**
 - Consumes: `Entry`, `Change`, `load_feed` (Task 2).
@@ -997,11 +1027,11 @@ Open `site/index.html` and check the `@font-face` block and the `:root` custom p
 
 - [ ] **Step 2: Write the failing tests**
 
-Append to `tests/test_whatsnew.py`:
+Append to `tests/test_release_notes.py`:
 
 ```python
 def test_the_page_lists_every_version_newest_first():
-    from rif.whatsnew import render_page
+    from rif.releasenotes import render_page
 
     html = render_page(
         [
@@ -1024,7 +1054,7 @@ def test_the_page_lists_every_version_newest_first():
 
 def test_the_page_escapes_the_text_it_is_given():
     """Fragments are prose written by hand, and prose contains angle brackets."""
-    from rif.whatsnew import render_page
+    from rif.releasenotes import render_page
 
     html = render_page(
         [
@@ -1041,7 +1071,7 @@ def test_the_page_escapes_the_text_it_is_given():
 
 def test_an_empty_feed_still_renders_a_page():
     """Before the first release the page must not look broken."""
-    from rif.whatsnew import render_page
+    from rif.releasenotes import render_page
 
     html = render_page([])
     assert html.startswith("<!doctype html>")
@@ -1050,12 +1080,12 @@ def test_an_empty_feed_still_renders_a_page():
 
 - [ ] **Step 3: Run them and watch them fail**
 
-Run: `just test-py tests/test_whatsnew.py -k page`
+Run: `just test-py tests/test_release_notes.py -k page`
 Expected: FAIL — `ImportError: cannot import name 'render_page'`.
 
 - [ ] **Step 4: Add the renderer**
 
-Add to `src/rif/whatsnew.py` (and add `from html import escape` to its imports):
+Add to `src/rif/releasenotes.py` (and add `from html import escape` to its imports):
 
 ```python
 #: How each kind is announced on the public page. The reader is told what
@@ -1161,18 +1191,18 @@ li { margin-bottom: 0.4rem; }
 
 - [ ] **Step 5: Run the tests and watch them pass**
 
-Run: `just test-py tests/test_whatsnew.py`
+Run: `just test-py tests/test_release_notes.py`
 Expected: PASS.
 
 - [ ] **Step 6: Write the page from the fold CLI**
 
-In `scripts/fold_changes.py`, extend the import to `from rif.whatsnew import FragmentError, fold, load_feed, render_page` and, after a successful fold, replace the `if entry is None:` block with:
+In `scripts/fold_changes.py`, extend the import to `from rif.releasenotes import FragmentError, fold, load_feed, render_page` and, after a successful fold, replace the `if entry is None:` block with:
 
 ```python
     if entry is None:
         print(f"{version}: nothing a user would notice; no entry written")
         return 0
-    feed_path = ROOT / "site" / "whats-new.json"
+    feed_path = ROOT / "site" / "release-notes.json"
     (ROOT / "site" / "changelog.html").write_text(
         render_page(load_feed(feed_path)), encoding="utf-8"
     )
@@ -1180,7 +1210,7 @@ In `scripts/fold_changes.py`, extend the import to `from rif.whatsnew import Fra
     return 0
 ```
 
-Hoist `feed_path = ROOT / "site" / "whats-new.json"` above the `fold(...)` call and pass it in, so the path is named once.
+Hoist `feed_path = ROOT / "site" / "release-notes.json"` above the `fold(...)` call and pass it in, so the path is named once.
 
 - [ ] **Step 7: Look at the page in a browser**
 
@@ -1193,7 +1223,7 @@ open site/changelog.html
 Expected: a page that looks like it belongs beside `site/index.html` — same font, same palette, readable at phone width. Then undo:
 
 ```bash
-rm site/whats-new.json site/changelog.html
+rm site/release-notes.json site/changelog.html
 git status --short
 ```
 
@@ -1202,8 +1232,8 @@ git status --short
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/whatsnew.py scripts/fold_changes.py tests/test_whatsnew.py
-git commit -m "feat(whats-new): a public page for what shipped"
+git add src/rif/releasenotes.py scripts/fold_changes.py tests/test_release_notes.py
+git commit -m "feat(release-notes): a public page for what shipped"
 ```
 
 ---
@@ -1212,20 +1242,20 @@ git commit -m "feat(whats-new): a public page for what shipped"
 
 **Files:**
 - Modify: `frontend/src/types.ts`
-- Create: `frontend/src/useWhatsNew.ts`
-- Create: `frontend/src/components/WhatsNew.tsx`
-- Create: `frontend/src/components/WhatsNew.test.tsx`
+- Create: `frontend/src/useReleaseNotes.ts`
+- Create: `frontend/src/components/ReleaseNotes.tsx`
+- Create: `frontend/src/components/ReleaseNotes.test.tsx`
 - Modify: `frontend/src/components/AppShell.tsx`
 - Modify: `frontend/src/components/AccountMenu.tsx`
 - Modify: `frontend/src/components/AccountMenu.test.tsx`
 - Modify: `frontend/src/app.css`
 
 **Interfaces:**
-- Consumes: `GET /api/whats-new`, `POST /api/whats-new/seen` (Task 4).
+- Consumes: `GET /api/release-notes`, `POST /api/release-notes/seen` (Task 4).
 - Produces:
-  - `types.ts`: `Change { kind: "added" | "changed" | "fixed"; text: string }`, `ReleaseEntry { version: string; date: string; changes: Change[] }`, `WhatsNewFeed { entries: ReleaseEntry[]; unread: boolean }`
-  - `useWhatsNew.ts`: `WhatsNewContextValue { unread: boolean; openWhatsNew(): void }`, `WhatsNewContext`, `useWhatsNew()`
-  - `WhatsNew.tsx`: `WhatsNew({ entries, onClose }: { entries: ReleaseEntry[]; onClose(): void })`
+  - `types.ts`: `Change { kind: "added" | "changed" | "fixed"; text: string }`, `ReleaseEntry { version: string; date: string; changes: Change[] }`, `ReleaseNotesFeed { entries: ReleaseEntry[]; unread: boolean }`
+  - `useReleaseNotes.ts`: `ReleaseNotesContextValue { unread: boolean; openReleaseNotes(): void }`, `ReleaseNotesContext`, `useReleaseNotes()`
+  - `ReleaseNotes.tsx`: `ReleaseNotes({ entries, onClose }: { entries: ReleaseEntry[]; onClose(): void })`
 
 - [ ] **Step 1: Add the types**
 
@@ -1238,7 +1268,7 @@ export interface Change {
   text: string;
 }
 
-/** One release, as `GET /api/whats-new` reports it. */
+/** One release, as `GET /api/release-notes` reports it. */
 export interface ReleaseEntry {
   version: string;
   date: string;
@@ -1246,13 +1276,13 @@ export interface ReleaseEntry {
 }
 
 /**
- * `GET /api/whats-new` — what shipped, and whether this reader has seen it.
+ * `GET /api/release-notes` — what shipped, and whether this reader has seen it.
  *
  * `unread` is computed by the backend. The frontend never compares versions:
  * "0.10.0" < "0.9.0" as strings, and one rule in one place is how the dot
  * and the list stay in agreement.
  */
-export interface WhatsNewFeed {
+export interface ReleaseNotesFeed {
   entries: ReleaseEntry[];
   unread: boolean;
 }
@@ -1260,7 +1290,7 @@ export interface WhatsNewFeed {
 
 - [ ] **Step 2: Write the failing panel test**
 
-Create `frontend/src/components/WhatsNew.test.tsx`:
+Create `frontend/src/components/ReleaseNotes.test.tsx`:
 
 ```tsx
 /**
@@ -1275,7 +1305,7 @@ import { afterEach, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import type { ReleaseEntry } from "../types";
-import { WhatsNew } from "./WhatsNew";
+import { ReleaseNotes } from "./ReleaseNotes";
 
 afterEach(cleanup);
 
@@ -1293,7 +1323,7 @@ const ENTRIES: ReleaseEntry[] = [
 ];
 
 test("it lists every release, newest first", () => {
-  render(<WhatsNew entries={ENTRIES} onClose={() => {}} />);
+  render(<ReleaseNotes entries={ENTRIES} onClose={() => {}} />);
   const versions = screen.getAllByRole("heading", { level: 3 });
   expect(versions.map((h) => h.textContent)).toEqual([
     expect.stringContaining("0.5.0"),
@@ -1303,31 +1333,31 @@ test("it lists every release, newest first", () => {
 });
 
 test("it announces itself as a dialog", () => {
-  render(<WhatsNew entries={ENTRIES} onClose={() => {}} />);
+  render(<ReleaseNotes entries={ENTRIES} onClose={() => {}} />);
   expect(screen.getByRole("dialog")).toBeDefined();
 });
 
 test("Escape closes it", () => {
   let closed = false;
-  render(<WhatsNew entries={ENTRIES} onClose={() => (closed = true)} />);
+  render(<ReleaseNotes entries={ENTRIES} onClose={() => (closed = true)} />);
   fireEvent.keyDown(document, { key: "Escape" });
   expect(closed).toBe(true);
 });
 
 test("an empty feed reads as a sentence, not as a blank panel", () => {
-  render(<WhatsNew entries={[]} onClose={() => {}} />);
+  render(<ReleaseNotes entries={[]} onClose={() => {}} />);
   expect(screen.getByText(/nothing to report yet/i)).toBeDefined();
 });
 ```
 
 - [ ] **Step 3: Run it and watch it fail**
 
-Run: `just test-js src/components/WhatsNew.test.tsx`
-Expected: FAIL — cannot resolve `./WhatsNew`.
+Run: `just test-js src/components/ReleaseNotes.test.tsx`
+Expected: FAIL — cannot resolve `./ReleaseNotes`.
 
 - [ ] **Step 4: Write the panel**
 
-Read `MembersSheet.tsx` first and match its overlay and dismissal idiom rather than inventing a second one. Then create `frontend/src/components/WhatsNew.tsx`:
+Read `MembersSheet.tsx` first and match its overlay and dismissal idiom rather than inventing a second one. Then create `frontend/src/components/ReleaseNotes.tsx`:
 
 ```tsx
 /**
@@ -1355,7 +1385,7 @@ const HEADINGS: Record<Change["kind"], string> = {
 
 const ORDER: Change["kind"][] = ["added", "changed", "fixed"];
 
-export function WhatsNew({
+export function ReleaseNotes({
   entries,
   onClose,
 }: {
@@ -1422,12 +1452,12 @@ export function WhatsNew({
 
 - [ ] **Step 5: Run the test and watch it pass**
 
-Run: `just test-js src/components/WhatsNew.test.tsx`
+Run: `just test-js src/components/ReleaseNotes.test.tsx`
 Expected: PASS, all 4.
 
 - [ ] **Step 6: Add the context**
 
-Create `frontend/src/useWhatsNew.ts`, mirroring `useMembersSheet.ts` exactly — same shape, same reason for living in its own module (`AccountMenu` is rendered by `AppShell`, so importing `AppShell` from it would be circular):
+Create `frontend/src/useReleaseNotes.ts`, mirroring `useMembersSheet.ts` exactly — same shape, same reason for living in its own module (`AccountMenu` is rendered by `AppShell`, so importing `AppShell` from it would be circular):
 
 ```ts
 /**
@@ -1442,19 +1472,19 @@ Create `frontend/src/useWhatsNew.ts`, mirroring `useMembersSheet.ts` exactly —
 
 import { createContext, useContext } from "react";
 
-/** What {@link useWhatsNew} exposes: the marker, and a way to open the panel. */
-export interface WhatsNewContextValue {
+/** What {@link useReleaseNotes} exposes: the marker, and a way to open the panel. */
+export interface ReleaseNotesContextValue {
   unread: boolean;
-  openWhatsNew(): void;
+  openReleaseNotes(): void;
 }
 
-export const WhatsNewContext = createContext<WhatsNewContextValue | null>(null);
+export const ReleaseNotesContext = createContext<ReleaseNotesContextValue | null>(null);
 
 /** The what's-new marker and opener — must be called under `AppShell`. */
-export function useWhatsNew(): WhatsNewContextValue {
-  const value = useContext(WhatsNewContext);
+export function useReleaseNotes(): ReleaseNotesContextValue {
+  const value = useContext(ReleaseNotesContext);
   if (value === null) {
-    throw new Error("useWhatsNew must be used within an AppShell");
+    throw new Error("useReleaseNotes must be used within an AppShell");
   }
   return value;
 }
@@ -1467,23 +1497,23 @@ In `frontend/src/components/AppShell.tsx`, alongside the existing `sheetSpace` /
 Add the imports:
 
 ```tsx
-import { WhatsNewContext } from "../useWhatsNew";
-import { WhatsNew } from "./WhatsNew";
-import type { WhatsNewFeed } from "../types";
+import { ReleaseNotesContext } from "../useReleaseNotes";
+import { ReleaseNotes } from "./ReleaseNotes";
+import type { ReleaseNotesFeed } from "../types";
 ```
 
 Add the state and the opener, beside `openMembers`:
 
 ```tsx
-  const [feed, setFeed] = useState<WhatsNewFeed | null>(null);
-  const [whatsNewOpen, setWhatsNewOpen] = useState(false);
+  const [feed, setFeed] = useState<ReleaseNotesFeed | null>(null);
+  const [releaseNotesOpen, setReleaseNotesOpen] = useState(false);
 
-  const openWhatsNew = useCallback(() => {
-    setWhatsNewOpen(true);
+  const openReleaseNotes = useCallback(() => {
+    setReleaseNotesOpen(true);
     // Opening *is* reading, so the mark moves now rather than on close: a
     // reader who navigates away mid-panel has still seen it, and coming
     // back to the same dot would read as the app having lost the fact.
-    apiSend("POST", "/api/whats-new/seen")
+    apiSend("POST", "/api/release-notes/seen")
       .then(() => {
         setFeed((current) => (current ? { ...current, unread: false } : current));
       })
@@ -1493,9 +1523,9 @@ Add the state and the opener, beside `openMembers`:
       });
   }, []);
 
-  const whatsNewContextValue = useMemo(
-    () => ({ unread: feed?.unread ?? false, openWhatsNew }),
-    [feed?.unread, openWhatsNew],
+  const releaseNotesContextValue = useMemo(
+    () => ({ unread: feed?.unread ?? false, openReleaseNotes }),
+    [feed?.unread, openReleaseNotes],
   );
 ```
 
@@ -1504,7 +1534,7 @@ Fetch it on mount, beside the existing `/api/appearance` effect:
 ```tsx
   useEffect(() => {
     let cancelled = false;
-    apiGet<WhatsNewFeed>("/api/whats-new")
+    apiGet<ReleaseNotesFeed>("/api/release-notes")
       .then((payload) => {
         if (!cancelled) setFeed(payload);
       })
@@ -1522,16 +1552,16 @@ Wrap the existing providers with one more, and render the panel beside `sheet`:
 
 ```tsx
         <MembersSheetContext.Provider value={sheetContextValue}>
-          <WhatsNewContext.Provider value={whatsNewContextValue}>
+          <ReleaseNotesContext.Provider value={releaseNotesContextValue}>
 ```
 
 closing it before `</MembersSheetContext.Provider>`, and next to where `{sheet}` is rendered:
 
 ```tsx
-          {whatsNewOpen && (
-            <WhatsNew
+          {releaseNotesOpen && (
+            <ReleaseNotes
               entries={feed?.entries ?? []}
-              onClose={() => setWhatsNewOpen(false)}
+              onClose={() => setReleaseNotesOpen(false)}
             />
           )}
 ```
@@ -1540,10 +1570,10 @@ closing it before `</MembersSheetContext.Provider>`, and next to where `{sheet}`
 
 - [ ] **Step 8: Add the menu item and the dot**
 
-In `frontend/src/components/AccountMenu.tsx`, add `import { useWhatsNew } from "../useWhatsNew";` and, inside the component beside the existing `useState` calls:
+In `frontend/src/components/AccountMenu.tsx`, add `import { useReleaseNotes } from "../useReleaseNotes";` and, inside the component beside the existing `useState` calls:
 
 ```tsx
-  const { unread, openWhatsNew } = useWhatsNew();
+  const { unread, openReleaseNotes } = useReleaseNotes();
 ```
 
 Then add a menu item between "Export" and the separator:
@@ -1555,7 +1585,7 @@ Then add a menu item between "Export" and the separator:
             className="acct-item"
             onClick={() => {
               setOpen(false);
-              openWhatsNew();
+              openReleaseNotes();
             }}
           >
             What's new
@@ -1567,18 +1597,18 @@ Put the same dot on the trigger button so it is visible with the menu closed —
 
 - [ ] **Step 9: Extend the AccountMenu test**
 
-`AccountMenu` now calls `useWhatsNew()`, which throws outside a provider — so every existing render in `AccountMenu.test.tsx` must be wrapped, not just the new one. Add `import { WhatsNewContext } from "../useWhatsNew";`, wrap the existing renders with a provider passing `{ unread: false, openWhatsNew: () => {} }`, and add:
+`AccountMenu` now calls `useReleaseNotes()`, which throws outside a provider — so every existing render in `AccountMenu.test.tsx` must be wrapped, not just the new one. Add `import { ReleaseNotesContext } from "../useReleaseNotes";`, wrap the existing renders with a provider passing `{ unread: false, openReleaseNotes: () => {} }`, and add:
 
 ```tsx
 test("the what's new item opens the panel and is marked when unread", () => {
   let opened = false;
   render(
     <MemoryRouter>
-      <WhatsNewContext.Provider
-        value={{ unread: true, openWhatsNew: () => (opened = true) }}
+      <ReleaseNotesContext.Provider
+        value={{ unread: true, openReleaseNotes: () => (opened = true) }}
       >
         <AccountMenu me={ME} />
-      </WhatsNewContext.Provider>
+      </ReleaseNotesContext.Provider>
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole("button", { name: /Wouter/ }));
@@ -1605,7 +1635,7 @@ Expected: both pass. A failure in `AppShell.test.tsx` or `Sidebar.test.tsx` mean
 
 ```bash
 git add frontend/src
-git commit -m "feat(whats-new): a panel in the app, and a dot that says to open it"
+git commit -m "feat(release-notes): a panel in the app, and a dot that says to open it"
 ```
 
 ---
@@ -1806,7 +1836,7 @@ Expected: exactly three files changed, one line each.
       {
         "assets": [
           "CHANGELOG.md",
-          "site/whats-new.json",
+          "site/release-notes.json",
           "site/changelog.html",
           "pyproject.toml",
           "clients/python/pyproject.toml",
