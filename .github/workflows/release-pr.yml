@@ -37,7 +37,7 @@ jobs:
     # The release merge itself must not spawn the next release PR: with
     # every commit type bumping at least a patch, chore(release) would
     # otherwise re-trigger this forever.
-    if: github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release):')
+    if: "github.event_name == 'workflow_dispatch' || !startsWith(github.event.head_commit.message, 'chore(release): ')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v2
@@ -59,10 +59,11 @@ jobs:
         # compute a wrong version. Detect that window and fail loudly;
         # re-run via workflow_dispatch once the tag exists.
         run: |
-          last_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          set -o pipefail
+          last_tag=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || true)
           range=${last_tag:+$last_tag..}HEAD
-          if git log --format=%s "$range" | grep -q '^chore(release):'; then
-            echo "::error::An untagged chore(release) commit is in the analysis range -- the tag job for it has not finished. Re-run this workflow (workflow_dispatch) once the tag exists."
+          if git log --format=%s "$range" | grep -q '^chore(release): '; then
+            echo "::error::An untagged chore(release) commit is on main. Either its tag job has not finished (wait, then re-run this workflow via workflow_dispatch), or the tag job never ran or failed (check the CI run for that merge; once the cause is fixed, push the missing tag manually with: git tag vX.Y.Z <sha> && git push origin vX.Y.Z, then re-run this workflow)."
             exit 1
           fi
 
@@ -87,6 +88,13 @@ jobs:
           NOTES: ${{ steps.semantic.outputs.new_release_notes }}
         run: |
           set -euo pipefail
+          # Captured before the switch, while HEAD is still the checkout's
+          # tip -- ref: main, fetch-depth 0, so this is origin/main's exact
+          # SHA, the base the dry run above actually analysed. Recorded as a
+          # trailer on the release commit so the tag job can assert, at
+          # merge time, that main did not move between this build and the
+          # squash-merge -- see the Release-base check in ci.yml's tag job.
+          base=$(git rev-parse HEAD)
           git switch -c bot/release
           python3 scripts/stamp_version.py "$VERSION"
           python3 scripts/fold_changes.py "$VERSION" "$(date -u +%Y-%m-%d)"
@@ -94,7 +102,7 @@ jobs:
           git config user.name "rif-release-bot[bot]"
           git config user.email "rif-release-bot[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "chore(release): $VERSION" -m "$NOTES"
+          git commit -m "chore(release): $VERSION" -m "$NOTES" -m "Release-base: $base"
           # Force: the branch is rebuilt from main's tip on every push, and
           # only the newest build is meaningful.
           git push --force origin bot/release
@@ -107,6 +115,17 @@ jobs:
           NOTES: ${{ steps.semantic.outputs.new_release_notes }}
         run: |
           set -euo pipefail
+          # The tag job reads the release version from the squash commit's
+          # subject, not from anything this step writes. With the repo's
+          # default squash-merge title setting, a single-commit PR's own
+          # commit message wins over the PR title -- and bot/release is
+          # always force-pushed as exactly one commit -- so the subject
+          # tracks the branch's actual content even if a refresh got
+          # cancelled between the push above and the `gh pr edit`/`create`
+          # below leaving a stale title. Changing the repo's squash-title
+          # setting to "always use the pull request title" would break
+          # that: a stale title could then land on main while the branch
+          # underneath had already moved on to a different version.
           existing=$(gh pr list --head bot/release --state open --json number -q '.[0].number')
           if [ -n "$existing" ]; then
             gh pr edit "$existing" --title "chore(release): $VERSION" --body "$NOTES"
