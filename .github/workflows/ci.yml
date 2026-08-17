@@ -136,6 +136,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # semantic-release reads full tag and commit history
+          # The PR branch itself, not the merge ref. A pull_request checkout
+          # lands on refs/pull/N/merge, which matches neither .releaserc.json's
+          # branches nor the `branches` override below -- semantic-release then
+          # says "a new version won't be published" and exits green, having
+          # analysed nothing. Checking out the head branch is what makes the
+          # override bite.
+          ref: ${{ github.head_ref }}
 
       - uses: actions/setup-node@v4
         with:
