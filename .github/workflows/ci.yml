@@ -132,6 +132,13 @@ jobs:
     name: Release dry run
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # semantic-release's verifyConditions runs `git push --dry-run` to check it
+    # *could* push before it computes anything. With the default read-only
+    # token that fails EGITNOPERMISSION, so the job needs write here even
+    # though dry_run means it writes nothing. A fork's PR gets a read-only
+    # token regardless of this line, so it grants nothing to a stranger.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
