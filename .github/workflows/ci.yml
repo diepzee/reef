@@ -160,6 +160,16 @@ jobs:
           # -- that line is the old, unproven-negative behaviour.
           ci: false
           branches: ${{ github.head_ref }}
+          # Must match the release job's list exactly. .releaserc.json names
+          # all four, and semantic-release resolves plugins from the repo
+          # root -- so omitting them here fails with "Cannot find module
+          # '@semantic-release/exec'" before any commit is analysed, which is
+          # precisely how this line came to be restored.
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
