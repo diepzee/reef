@@ -189,7 +189,7 @@ jobs:
             @semantic-release/changelog@6
             @semantic-release/git@10
             @semantic-release/exec@6
-            conventional-changelog-conventionalcommits@7
+            conventional-changelog-conventionalcommits@8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -226,7 +226,7 @@ jobs:
             @semantic-release/changelog@6
             @semantic-release/git@10
             @semantic-release/exec@6
-            conventional-changelog-conventionalcommits@7
+            conventional-changelog-conventionalcommits@8
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
 
