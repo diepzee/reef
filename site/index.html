@@ -21,7 +21,7 @@
   --field: #ffffff; --night: var(--ground);
   --cta-ink: #ffffff; --veil: rgb(251 252 253 / 0.82);
   --wash-a: rgb(13 148 136 / 0.105); --wash-b: rgb(56 189 216 / 0.085);
-  --wash-warm: rgb(245 158 11 / 0.065); --current: rgb(13 148 136 / 0.075);
+  --wash-warm: rgb(245 158 11 / 0.065);
   --grain: rgb(25 92 89 / 0.12);
   --card-glint: rgb(255 255 255 / 0.82);
   --card-shadow: 0 1px 0 rgb(255 255 255 / 0.8) inset, 0 14px 40px rgb(24 73 80 / 0.075);
@@ -38,7 +38,7 @@
     --night: radial-gradient(120% 80% at 80% -10%, #0e3140, #0a1b23 45%, #081217);
     --cta-ink: #06282e; --veil: rgb(13 26 32 / 0.82);
     --wash-a: rgb(45 212 191 / 0.105); --wash-b: rgb(56 189 216 / 0.09);
-    --wash-warm: rgb(251 191 36 / 0.055); --current: rgb(124 227 211 / 0.07);
+    --wash-warm: rgb(251 191 36 / 0.055);
     --grain: rgb(189 230 233 / 0.11);
     --card-glint: rgb(226 241 245 / 0.035);
     --card-shadow: 0 1px 0 rgb(226 241 245 / 0.045) inset, 0 18px 44px rgb(0 0 0 / 0.2);
@@ -83,8 +83,7 @@ main { position: relative; isolation: isolate; overflow: clip; }
   display: flex; flex-direction: column; justify-content: center;
   padding-block: 5.5rem 4rem; position: relative; z-index: 0;
 }
-/* Broad washes and faint current rings do for the page what the creature shapes do for the
-   identity: organic movement, without putting an illustration behind every paragraph. */
+/* Broad washes add organic movement without putting an illustration behind every paragraph. */
 .panel::before {
   content: ""; position: absolute; z-index: -2; left: 50%; top: 7%; translate: -50% 0;
   width: 100vw; height: 86%; pointer-events: none;
@@ -102,16 +101,6 @@ main { position: relative; isolation: isolate; overflow: clip; }
     radial-gradient(ellipse 40% 48% at 4% 32%, var(--wash-b), transparent 72%),
     radial-gradient(ellipse 40% 52% at 96% 76%, var(--wash-warm), transparent 74%);
 }
-.panel::after {
-  content: ""; position: absolute; z-index: -1; right: max(-10rem, -9vw); bottom: 8%;
-  width: min(46vw, 34rem); aspect-ratio: 1.7; pointer-events: none; opacity: 0.74;
-  background: repeating-radial-gradient(ellipse at 50% 120%, transparent 0 27px, var(--current) 28px 29px, transparent 30px 51px);
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 28%, #000 70%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 28%, #000 70%, transparent);
-  rotate: -7deg;
-}
-.panel:nth-child(even)::after { right: auto; left: max(-10rem, -9vw); rotate: 7deg; }
-
 /* ---------- nav ---------- */
 nav {
   position: fixed; inset: 0 0 auto 0; z-index: 20;
@@ -475,7 +464,6 @@ footer a { color: var(--muted); }
 }
 @media (max-width: 680px) {
   body::before { opacity: 0.24; }
-  .panel::after { width: 22rem; opacity: 0.55; }
   .hero .stage { width: min(72vw, 390px); }
   .wiki-flow { grid-template-columns: 1fr; }
   .wiki-node + .wiki-node::before {
