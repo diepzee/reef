@@ -154,9 +154,10 @@ def create_consent_html(
     ``oauth_proxy.ui.create_consent_html`` -- the consent handler calls it
     by keyword, so parameter names are the interface; a test pins the
     match. Parameters this design does not surface (``scopes``, ``title``,
-    ``csp_policy``, ``client_website_url``) are accepted and ignored:
-    reef's grant is all-or-nothing, so listing OAuth scopes would imply a
-    choice that does not exist.
+    ``server_website_url``, ``client_website_url``) are accepted and
+    ignored: reef's grant is all-or-nothing, so listing OAuth scopes would
+    imply a choice that does not exist. ``csp_policy`` is honored, not
+    ignored -- see below.
 
     :param client_id: the registered client's id, shown when it has no name
     :param redirect_uri: where the authorization code will be sent
@@ -167,10 +168,14 @@ def create_consent_html(
     :param title: page title override (unused; reef sets its own)
     :param server_name: this server's name, for the header
     :param server_icon_url: this server's icon, if advertised
-    :param server_website_url: this server's site, for the footer
+    :param server_website_url: accepted and unused (this design has no
+        server-site link)
     :param client_website_url: the client's site (unused)
-    :param csp_policy: CSP override passed through by FastMCP (unused
-        here; the response CSP is set by FastMCP's secure-response helper)
+    :param csp_policy: the page's Content-Security-Policy. ``None`` emits
+        this page's own default policy (which, unlike upstream's, adds
+        ``font-src 'self'`` for the ``/site/nunito-latin.woff2`` webfont
+        loaded by the inline ``<style>``); ``""`` omits the CSP meta tag
+        entirely; any other string is used verbatim as the policy
     :param is_cimd_client: whether the client's identity is domain-verified
     :param cimd_domain: the verified domain when it is
     :returns: the full HTML document
@@ -179,6 +184,17 @@ def create_consent_html(
     name = esc(client_name or client_id)
     host = esc(urlparse(redirect_uri).netloc or redirect_uri)
     icon = f'<img src="{esc(server_icon_url)}" alt="" />' if server_icon_url else ""
+    policy = (
+        "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:; "
+        "font-src 'self'; base-uri 'none'"
+        if csp_policy is None
+        else csp_policy
+    )
+    csp_meta = (
+        f'<meta http-equiv="Content-Security-Policy" content="{esc(policy)}" />'
+        if policy
+        else ""
+    )
     if is_cimd_client and cimd_domain:
         identity = (
             f'<div class="verified">This app’s identity is verified '
@@ -200,6 +216,7 @@ def create_consent_html(
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+{csp_meta}
 <title>Authorize {name} · reef</title>
 <style>{_STYLE}</style>
 </head>

@@ -93,3 +93,27 @@ def test_both_palettes_are_defined():
     """Light and dark are both present; the page follows the OS theme."""
     html = _render()
     assert "prefers-color-scheme: dark" in html
+
+
+def test_default_csp_covers_the_webfont():
+    """The default policy is emitted, and includes font-src for Nunito."""
+    html = _render()
+    assert 'http-equiv="Content-Security-Policy"' in html
+    assert "font-src &#x27;self&#x27;" in html
+
+
+def test_empty_csp_policy_omits_the_meta_tag():
+    """An explicit empty string disables CSP entirely, as FastMCP allows."""
+    html = _render(csp_policy="")
+    assert "Content-Security-Policy" not in html
+
+
+def test_custom_csp_policy_is_used_verbatim():
+    """A caller-supplied policy replaces the default outright.
+
+    The policy is still run through ``html.escape`` for the attribute, so
+    single quotes come out as ``&#x27;`` -- the same text a browser decodes
+    back to ``'`` when it parses the ``content`` attribute.
+    """
+    html = _render(csp_policy="default-src 'self'")
+    assert 'content="default-src &#x27;self&#x27;"' in html
