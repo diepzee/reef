@@ -1657,7 +1657,20 @@ test("the what's new item opens the panel and is marked when unread", () => {
 
 In `frontend/src/app.css`, add `.acct-dot` — a small filled circle in `var(--accent)`, positioned against the item's trailing edge — and the panel's rules beside the members sheet's. Reuse the existing custom properties; add no new colours.
 
+- [ ] **Step 10b: Test the mark-as-seen wiring itself**
+
+`AccountMenu`'s test passes a hand-built `openReleaseNotes` through the context, so it never reaches the real implementation. "Opening is reading" lives in `AppShell` and is the one genuinely new behaviour in this task — it needs a test that exercises it, or a regression (dropping the local `setFeed`, or making the dot depend on a refetch) passes the whole suite.
+
+In `AppShell.test.tsx`, add `/api/release-notes` to the `responses` map returning `{ entries: [], unread: true }`, then add a test that opens the panel through the account menu and asserts both halves:
+
+- `apiSend` was called with `("POST", "/api/release-notes/seen")`;
+- the dot is gone afterwards, **without** a second `GET /api/release-notes` — count the `apiGet` calls for that path and assert it stayed at one.
+
+Adding the entry to `responses` also settles the new fetch, which is what removes the `act(...)` warning this effect otherwise introduces.
+
 - [ ] **Step 11: Run the whole frontend suite and typecheck**
+
+Test output must be pristine. Two `act(...)` warnings pre-date this branch (from the `/api/me` and `/api/appearance` effects) and are not yours to fix; a **third**, from the release-notes effect, is, and Step 10b removes it.
 
 ```bash
 just test-js
