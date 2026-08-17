@@ -1,0 +1,49 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          { "breaking": true, "release": "major" },
+          { "type": "feat", "release": "minor" },
+          { "type": "fix", "release": "patch" },
+          { "type": "perf", "release": "patch" },
+          { "type": "refactor", "release": "patch" },
+          { "type": "chore", "release": "patch" },
+          { "type": "docs", "release": "patch" },
+          { "type": "build", "release": "patch" },
+          { "type": "ci", "release": "patch" },
+          { "type": "style", "release": "patch" },
+          { "type": "test", "release": "patch" },
+          { "type": "revert", "release": "patch" }
+        ]
+      }
+    ],
+    ["@semantic-release/release-notes-generator", { "preset": "conventionalcommits" }],
+    "@semantic-release/changelog",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "python3 scripts/stamp_version.py ${nextRelease.version} && python3 scripts/fold_changes.py ${nextRelease.version} $(date -u +%Y-%m-%d)"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "site/release-notes.json",
+          "site/changelog.html",
+          "pyproject.toml",
+          "clients/python/pyproject.toml",
+          "clients/ts/package.json",
+          "changes"
+        ],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    ["@semantic-release/github", { "successComment": false, "failComment": false }]
+  ]
+}

@@ -41,6 +41,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The dry-run step below needs the full tag and commit history to
+          # find the last release and compute a real next version; the
+          # default shallow checkout has neither, so a fetch-depth-1 clone
+          # would make every PR look like the first release ever cut.
+          fetch-depth: 0
 
       - name: Start Postgres
         run: docker compose up -d db
@@ -74,6 +80,22 @@ jobs:
 
       - name: Test
         run: uv run pytest -q
+
+      # A no-write semantic-release run, so a broken .releaserc.json or an
+      # unparseable commit history fails in review rather than on main --
+      # where it would sit between a merge and a production deploy.
+      - name: 🔎 semantic-release dry run
+        if: github.event_name == 'pull_request'
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   frontend:
     name: Frontend (bun test + tsc + build)
@@ -150,3 +172,40 @@ jobs:
           # in the Checks panel. %0A is a newline inside a single annotation.
           echo "::error::Say what changed, or say that nothing did.%0A%0AIf a person using reef would notice this change, add one sentence for them in changes/<pr-number>-<slug>.md -- see changes/README.md for how to write it.%0A%0AIf they would notice nothing (tests, CI, refactors), add the no-changelog label to this PR instead."
           exit 1
+
+  # Cut a SemVer release from the conventional commits since the last tag.
+  # Gated on backend and frontend so a failing build never tags a release.
+  #
+  # Note for whoever wonders later: [skip ci] stops GitHub Actions, not
+  # Railway, which deploys every push to main. Each release therefore costs
+  # one extra no-op production deploy. That is known and accepted.
+  release:
+    name: 🔖 Release
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      published: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release reads the full tag and commit history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 🔖 semantic-release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@7
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
