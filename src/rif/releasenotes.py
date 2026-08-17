@@ -10,7 +10,7 @@ worktrees.
 
 A fragment is one file per user-facing change, so two open branches never
 touch the same line. The fold consumes them at release time into
-``site/whats-new.json``, which is the single source for both the public page
+``site/release-notes.json``, which is the single source for both the public page
 and the in-app panel -- one file, so the two can never disagree.
 
 The version comparison lives here and nowhere else. The frontend receives a
@@ -88,6 +88,13 @@ def read_fragments(directory: Path) -> list[Change]:
     a kind, so a reader meets what is new before what is repaired, and two
     runs over the same directory produce byte-identical output.
 
+    ``README.md`` is skipped by name: the directory ships with the
+    instructions a contributor reads, and prose has no front matter, so
+    every run would otherwise die on it. Nothing else is skipped -- a file
+    that looks like a fragment and is not one must fail loudly rather than
+    be dropped, because a silently ignored fragment is somebody's sentence
+    going missing from the release.
+
     :param directory: the ``changes/`` directory, which need not exist
     :raises FragmentError: if any fragment in it is malformed
     :returns: the changes, in reading order
@@ -96,6 +103,8 @@ def read_fragments(directory: Path) -> list[Change]:
         return []
     changes = []
     for path in sorted(directory.glob("*.md")):
+        if path.name == "README.md":
+            continue
         try:
             changes.append(parse_fragment(path.read_text(encoding="utf-8")))
         except FragmentError as error:
@@ -109,7 +118,7 @@ def load_feed(path: Path) -> list[Entry]:
     A missing file reads as no entries rather than raising: the first
     release must not depend on somebody having created it by hand.
 
-    :param path: the ``site/whats-new.json`` path
+    :param path: the ``site/release-notes.json`` path
     :returns: the entries it holds
     """
     if not path.exists():
@@ -131,7 +140,7 @@ def load_feed(path: Path) -> list[Entry]:
 def write_feed(path: Path, entries: list[Entry]) -> None:
     """Write the feed, with a trailing newline so diffs stay one-line.
 
-    :param path: the ``site/whats-new.json`` path
+    :param path: the ``site/release-notes.json`` path
     :param entries: the entries to write, newest first
     """
     path.write_text(
@@ -172,7 +181,7 @@ def fold(fragments_dir: Path, feed_path: Path, version: str, date: str) -> Entry
     itself, and an empty entry in the panel reads as a broken feature.
 
     :param fragments_dir: the ``changes/`` directory
-    :param feed_path: the ``site/whats-new.json`` path
+    :param feed_path: the ``site/release-notes.json`` path
     :param version: the version semantic-release computed
     :param date: the release date, ``YYYY-MM-DD``
     :raises FragmentError: if any fragment is malformed -- the release fails
@@ -185,7 +194,8 @@ def fold(fragments_dir: Path, feed_path: Path, version: str, date: str) -> Entry
     entry = Entry(version=version, date=date, changes=changes)
     write_feed(feed_path, [entry, *load_feed(feed_path)])
     for path in fragments_dir.glob("*.md"):
-        path.unlink()
+        if path.name != "README.md":
+            path.unlink()
     return entry
 
 

@@ -24,7 +24,7 @@ Write the body for the person reading it, not for us:
 - No `search_pages`, no RLS, no worktrees. "Search your pages", not
   "search_pages: RLS-scoped full-text search".
 
-At release time these files are folded into `site/whats-new.json` and
+At release time these files are folded into `site/release-notes.json` and
 deleted. That file feeds the public changelog and the "What's new" panel in
 the app.
 

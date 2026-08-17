@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rif.whatsnew import (
+from rif.releasenotes import (
     Change,
     Entry,
     FragmentError,
@@ -65,6 +65,21 @@ def test_fragments_are_read_in_kind_order_then_filename(tmp_path: Path):
 
 
 def test_reading_an_empty_directory_yields_nothing(tmp_path: Path):
+    assert read_fragments(tmp_path) == []
+
+
+def test_the_directorys_own_readme_is_not_a_fragment(tmp_path: Path):
+    """changes/ ships instructions for contributors; prose is not an entry."""
+    (tmp_path / "README.md").write_text("# What to write here\n\nProse.\n")
+    (tmp_path / "57-search.md").write_text(FRAGMENT)
+    assert read_fragments(tmp_path) == [
+        Change(kind="added", text="Search your pages from your assistant.")
+    ]
+
+
+def test_a_readme_alone_folds_to_nothing(tmp_path: Path):
+    """The common case: a release where nobody wrote a fragment."""
+    (tmp_path / "README.md").write_text("# What to write here\n\nProse.\n")
     assert read_fragments(tmp_path) == []
 
 
