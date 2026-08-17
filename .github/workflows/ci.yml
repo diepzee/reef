@@ -16,6 +16,15 @@
 name: CI
 
 on:
+  # Plain pull_request: default types only (opened, synchronize, reopened).
+  # The changelog job used to live here and needed labeled/unlabeled for its
+  # no-changelog escape hatch -- but that made every label change cancel
+  # this workflow's in-flight run (concurrency below is keyed on
+  # github.ref with cancel-in-progress true for PR events), and gating
+  # backend/frontend with an if: to skip on label events would report
+  # "skipped" on a required check, which branch protection counts as
+  # passing -- silently turning a red PR green. See changelog.yml, which
+  # now owns that job and its own label-triggered runs.
   pull_request:
   push:
     branches: [main]
@@ -101,3 +110,214 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  # The Changelog fragment check used to be a job here. It now lives in its
+  # own workflow, changelog.yml -- it has to re-run on label add/remove for
+  # the no-changelog escape hatch, and doing that inside this workflow either
+  # cancelled the in-flight test run (concurrency below) or, if gated with an
+  # if: to dodge that, would report "skipped" on a required check, which
+  # branch protection counts as passing. See changelog.yml's header.
+
+  # A no-write semantic-release run, so a broken .releaserc.json or an
+  # unparseable commit history fails in review rather than on main -- where it
+  # would sit between a merge and a production deploy.
+  #
+  # Its own job, mirroring `changelog` in changelog.yml, rather than a step
+  # in `backend`. semantic-release reads the full tag history, and this
+  # action runs against the job's existing checkout rather than cloning its
+  # own -- so as a step in `backend` it would need fetch-depth: 0 there,
+  # deepening the clone on every push to main as well, for a step that only
+  # ever runs on pull requests.
+  release-dry-run:
+    name: Release dry run
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # semantic-release's verifyConditions runs `git push --dry-run` to check it
+    # *could* push before it computes anything. With the default read-only
+    # token that fails EGITNOPERMISSION, so the job needs write here even
+    # though dry_run means it writes nothing. A fork's PR gets a read-only
+    # token regardless of this line, so it grants nothing to a stranger.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release reads full tag and commit history
+          # The PR branch itself, not the merge ref. A pull_request checkout
+          # lands on refs/pull/N/merge, which matches neither .releaserc.json's
+          # branches nor the `branches` override below -- semantic-release then
+          # says "a new version won't be published" and exits green, having
+          # analysed nothing. Checking out the head branch is what makes the
+          # override bite.
+          ref: ${{ github.head_ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # same as the release job, so both resolve alike
+
+      - name: Semantic-release dry run
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          dry_run: true
+          # Both overrides are load-bearing, not decoration. semantic-release
+          # refuses to do anything on a pull-request event and returns before
+          # it ever analyses a commit -- ci: false lifts that refusal. Even
+          # with that, it still checks the current ref against `branches` in
+          # .releaserc.json (["main"]) and no-ops on a mismatch, since a PR's
+          # ref is never "main" -- branches: github.head_ref overrides that
+          # check to the PR's own branch. Without both, this job goes green
+          # having proved only that .releaserc.json parses, not that commit
+          # analysis or version computation actually ran. On the first real
+          # PR after this change, check the log for a computed *next
+          # version* (e.g. "The next release version is X.Y.Z"), not a "This
+          # test run was triggered by a pull request... won't publish" line
+          # -- that line is the old, unproven-negative behaviour.
+          ci: false
+          branches: ${{ github.head_ref }}
+          # semantic-release reads the branch from GITHUB_REF via env-ci, not
+          # from the checkout -- and on a pull_request that is
+          # refs/pull/N/merge, which matches nothing. unset_gha_env clears the
+          # GitHub Actions variables so it falls back to the checked-out git
+          # branch, which `ref` above pins to the PR's head.
+          unset_gha_env: true
+          # Must match the release job's list exactly. .releaserc.json names
+          # all four, and semantic-release resolves plugins from the repo
+          # root -- so omitting them here fails with "Cannot find module
+          # '@semantic-release/exec'" before any commit is analysed, which is
+          # precisely how this line came to be restored.
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Cut a SemVer release from the conventional commits since the last tag.
+  # Gated on backend and frontend so a failing build never tags a release.
+  #
+  # Note for whoever wonders later: [skip ci] stops GitHub Actions, not
+  # Railway, which deploys every push to main. Each release therefore costs
+  # one extra no-op production deploy. That is known and accepted.
+  release:
+    name: 🔖 Release
+    needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      published: ${{ steps.semantic.outputs.new_release_published }}
+      version: ${{ steps.semantic.outputs.new_release_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # semantic-release reads the full tag and commit history
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 🔖 semantic-release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          extra_plugins: |
+            @semantic-release/changelog@6
+            @semantic-release/git@10
+            @semantic-release/exec@6
+            conventional-changelog-conventionalcommits@8
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+
+  # Publish only what actually changed. Both clients carry the repo-wide
+  # version, so a server-only release would otherwise push two byte-identical
+  # packages to two public registries and burn a version number saying
+  # nothing. Client versions therefore skip -- 0.3.0 to 0.7.0 -- and every
+  # number on a registry corresponds to a real change to that client.
+  #
+  # The diff ends at HEAD~1 because HEAD is semantic-release's own
+  # "chore(release)" commit, which touches every manifest and would make the
+  # gate always true. That holds only while @semantic-release/git makes exactly
+  # one commit, and the failure is NOT one-directional: zero commits would skip
+  # wrongly, but *two* would leave a release commit inside the diff range and
+  # publish both clients on every release -- the expensive direction. So the
+  # assumption is asserted below rather than trusted, and every branch logs
+  # what it decided.
+  publish:
+    name: 📦 Publish changed clients
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # PyPI trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 🔎 Decide what changed
+        id: changed
+        run: |
+          previous=$(git describe --tags --abbrev=0 "v${{ needs.release.outputs.version }}^" 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "No previous tag: first release, publishing both clients."
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "ts=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Assert the HEAD~1 assumption instead of trusting it. Exactly one
+          # release commit must sit between the previous tag and HEAD; zero or
+          # two both mean the range below is wrong, and two would publish
+          # everything. Fail loudly rather than take the dangerous branch.
+          releases=$(git log --format=%s "$previous"..HEAD | grep -c '^chore(release):' || true)
+          if [ "$releases" -ne 1 ]; then
+            echo "::error::Expected exactly one chore(release) commit since $previous, found $releases. The publish gate's diff range is only valid with one; refusing to publish."
+            exit 1
+          fi
+          echo "Comparing $previous..HEAD~1 (HEAD is the release commit)."
+          changed=$(git diff --name-only "$previous" HEAD~1)
+          echo "$changed"
+          if echo "$changed" | grep -q '^clients/python/'; then
+            echo "python=true" >> "$GITHUB_OUTPUT"
+            echo "reef-cli changed: will publish."
+          else
+            echo "python=false" >> "$GITHUB_OUTPUT"
+            echo "reef-cli unchanged: SKIPPING publish."
+          fi
+          if echo "$changed" | grep -q '^clients/ts/'; then
+            echo "ts=true" >> "$GITHUB_OUTPUT"
+            echo "@haai/reef-cli changed: will publish."
+          else
+            echo "ts=false" >> "$GITHUB_OUTPUT"
+            echo "@haai/reef-cli unchanged: SKIPPING publish."
+          fi
+
+      - uses: astral-sh/setup-uv@v5
+        if: steps.changed.outputs.python == 'true'
+      - name: 🐍 Publish reef-cli to PyPI
+        if: steps.changed.outputs.python == 'true'
+        run: |
+          uv build --package reef-cli
+          uv publish   # trusted publishing; no token in the repo
+
+      - uses: actions/setup-node@v4
+        if: steps.changed.outputs.ts == 'true'
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: 🔨 Build @haai/reef-cli
+        if: steps.changed.outputs.ts == 'true'
+        working-directory: clients/ts
+        run: |
+          npm ci
+          npm run build
+          test -f dist/index.js  # refuse to publish what the build did not produce
+      - name: 📦 Publish @haai/reef-cli to npm
+        if: steps.changed.outputs.ts == 'true'
+        working-directory: clients/ts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

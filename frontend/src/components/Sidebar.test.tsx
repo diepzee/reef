@@ -15,6 +15,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { AppearanceContext } from "../useAppearance";
 import type { Me } from "../types";
+import { ReleaseNotesContext } from "../useReleaseNotes";
 
 let index: unknown = null;
 
@@ -46,9 +47,17 @@ function renderSidebar(path = "/") {
     <AppearanceContext.Provider
       value={{ appearance: {} as never, setAppearance: () => {} }}
     >
-      <MemoryRouter initialEntries={[path]}>
-        <Sidebar me={ME} />
-      </MemoryRouter>
+      {/* Sidebar renders AccountMenu, which calls useReleaseNotes(). Not
+          mocked (unlike useMembersSheet above): a mocked module here raced
+          against AccountMenu.test.tsx's own dynamic import of the real one
+          when the whole suite ran, so a real provider is used instead. */}
+      <ReleaseNotesContext.Provider
+        value={{ unread: false, openReleaseNotes: () => {} }}
+      >
+        <MemoryRouter initialEntries={[path]}>
+          <Sidebar me={ME} />
+        </MemoryRouter>
+      </ReleaseNotesContext.Provider>
     </AppearanceContext.Provider>,
   );
 }

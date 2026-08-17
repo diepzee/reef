@@ -110,8 +110,43 @@ def test_enable_statements_names_no_column_the_old_migrations_predate():
     from rif.rls import enable_statements
 
     combined = " ".join(enable_statements())
-    for column in ("session_epoch", "joined_open_door", "space_appearances"):
+    for column in (
+        "session_epoch",
+        "joined_open_door",
+        "space_appearances",
+        "last_seen_release",
+    ):
         assert column not in combined, (
             f"{column} postdates the migrations that call enable_statements; "
             f"give it its own statements group, as appearance_statements has"
         )
+
+
+async def test_last_seen_release_defaults_to_null(household, seed):
+    """The column starts NULL and Postgres stores whatever string it's given.
+
+    This reads and writes through the ``seed`` connection, which bypasses
+    the identity policies (see ``tests/conftest.py``), so it proves nothing
+    about ownership or RLS -- only that the column exists, defaults to NULL,
+    and round-trips a value. NULL rather than ``''`` matters because "never
+    seen anything" and "seen version empty-string" are different states, and
+    only one of them should light the dot for somebody who predates the
+    feature. The RLS proof -- that a person can read and write only their
+    own marker -- lives in ``tests/test_release_notes_api.py``.
+    """
+    person_id = household["wouter"].id
+    assert (
+        await seed.fetchval(
+            "SELECT last_seen_release FROM persons WHERE id = $1", person_id
+        )
+        is None
+    )
+    await seed.execute(
+        "UPDATE persons SET last_seen_release = '0.4.0' WHERE id = $1", person_id
+    )
+    assert (
+        await seed.fetchval(
+            "SELECT last_seen_release FROM persons WHERE id = $1", person_id
+        )
+        == "0.4.0"
+    )

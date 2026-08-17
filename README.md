@@ -213,6 +213,11 @@ Migrations seed one person and their spaces. Nobody else is seeded, on purpose.
 An email address is the key a first sign-in binds against, and a migration does
 not re-run to correct a wrong guess. Everyone else arrives by invitation.
 
+Write your PR title as a Conventional Commit (PRs are squash-merged, so the
+title is what decides the release version), and add a one-sentence fragment
+under `changes/` if a person using reef would notice the change — see
+[`docs/releasing.md`](docs/releasing.md).
+
 ## Documentation
 
 | Document | What it covers |

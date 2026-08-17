@@ -14,6 +14,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import asdict
+from pathlib import Path
 from urllib.parse import quote, urlencode
 from uuid import UUID
 
@@ -49,6 +50,7 @@ from rif.pages import (
     get_page,
     save_page,
 )
+from rif.releasenotes import feed_as_json, is_unread, load_feed
 from rif.spaces import (
     SpaceError,
     create_space,
@@ -359,6 +361,58 @@ async def _set_appearance(request: Request, principal: Principal) -> dict:
         )
     except AppearanceError as exc:
         raise BadRequest(str(exc)) from exc
+
+
+def _feed_path() -> Path:
+    """Where the published feed lives.
+
+    Under ``site/`` rather than ``docs/`` because the Dockerfile copies
+    ``site`` and not ``docs`` -- a feed the running server cannot open
+    would leave the panel permanently empty in production while passing
+    every test locally.
+
+    ``site_dir`` is a ``str`` on ``Settings``, so it is wrapped here the
+    same way :mod:`rif.web.static` wraps it.
+
+    :returns: the path to ``release-notes.json``
+    """
+    return Path(get_settings().site_dir) / "release-notes.json"
+
+
+async def _release_notes(request: Request, principal: Principal) -> dict:
+    """Return what shipped, and whether this person has read it.
+
+    ``unread`` is computed here rather than in the browser so the rule
+    exists once: the dot and the list it decorates are then answering the
+    same question.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the entries, newest first, and the unread flag
+    """
+    entries = load_feed(_feed_path())
+    person = await Person.objects().where(Person.id == principal.person_id).first()
+    last_seen = person.last_seen_release if person else None
+    return {**feed_as_json(entries), "unread": is_unread(entries, last_seen)}
+
+
+async def _mark_release_notes_seen(request: Request, principal: Principal) -> dict:
+    """Stamp this person as having read up to the newest entry.
+
+    Stamps the newest *version* rather than a timestamp: the question asked
+    on read is "is there something newer than what you saw", and a version
+    answers it without depending on clocks agreeing.
+
+    :param request: the incoming request, unused
+    :param principal: the authenticated person
+    :returns: the cleared flag
+    """
+    entries = load_feed(_feed_path())
+    if entries:
+        await Person.update({Person.last_seen_release: entries[0].version}).where(
+            Person.id == principal.person_id
+        )
+    return {"unread": False}
 
 
 async def _get_avatar(request: Request, principal: Principal) -> Response:
@@ -909,6 +963,10 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/appearance", methods=["GET"])(api(_appearances))
     mcp.custom_route("/api/spaces/{space}/appearance", methods=["PUT"])(
         api(_set_appearance)
+    )
+    mcp.custom_route("/api/release-notes", methods=["GET"])(api(_release_notes))
+    mcp.custom_route("/api/release-notes/seen", methods=["POST"])(
+        api(_mark_release_notes_seen)
     )
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
     mcp.custom_route("/api/pages/{space}/{path:path}", methods=["GET"])(api(_get_page))
