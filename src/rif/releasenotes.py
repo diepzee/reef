@@ -351,3 +351,26 @@ def _render_entry(entry: Entry) -> str:
         parts.append("</ul>")
     parts.append("</section>")
     return "".join(parts)
+
+
+def prepend_changelog(notes: str, changelog: Path) -> None:
+    """Put one release's notes at the top of the changelog file.
+
+    semantic-release's generator emits a complete section -- ``## [X.Y.Z]``
+    header, compare link, grouped commits -- so this only stacks sections
+    newest-first, exactly as ``@semantic-release/changelog`` used to before
+    the release moved into a pull request.
+
+    :param notes: the section for the new release, as generated
+    :param changelog: path to ``CHANGELOG.md``; created if missing
+    :raises FragmentError: if ``notes`` is blank -- an empty section means
+        the dry run upstream produced nothing, and writing it would put an
+        empty heading at the top of the public changelog
+    """
+    if not notes.strip():
+        raise FragmentError("refusing to prepend empty release notes")
+    existing = changelog.read_text(encoding="utf-8") if changelog.exists() else ""
+    body = notes.strip() + "\n"
+    if existing:
+        body += "\n" + existing
+    changelog.write_text(body, encoding="utf-8")
