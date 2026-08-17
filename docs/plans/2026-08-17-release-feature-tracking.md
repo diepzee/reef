@@ -1928,32 +1928,14 @@ Expected: exactly three files changed, one line each.
 
 - [ ] **Step 4: Add the PR dry run**
 
-In `.github/workflows/ci.yml`, add this as **its own job**, not as a step inside `backend`:
+In `.github/workflows/ci.yml`, add to the `backend` job (or its own job — match how `hybrix-app/.github/workflows/ci.yml` does it, which is a step guarded on `github.event_name == 'pull_request'`):
 
 ```yaml
-  # A no-write semantic-release run, so a broken .releaserc.json or an
-  # unparseable commit history fails in review rather than on main -- where it
-  # would sit between a merge and a production deploy.
-  #
-  # Its own job, mirroring `changelog` above, rather than a step in `backend`.
-  # semantic-release reads the full tag history, and this action runs against
-  # the job's existing checkout rather than cloning its own -- so as a step in
-  # `backend` it would need fetch-depth: 0 there, deepening the clone on every
-  # push to main as well, for a step that only ever runs on pull requests.
-  release-dry-run:
-    name: Release dry run
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # semantic-release reads full tag and commit history
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22 # same as the release job, so both resolve alike
-
-      - name: Semantic-release dry run
+      # A no-write semantic-release run, so a broken .releaserc.json or an
+      # unparseable commit history fails in review rather than on main --
+      # where it would sit between a merge and a production deploy.
+      - name: 🔎 semantic-release dry run
+        if: github.event_name == 'pull_request'
         uses: cycjimmy/semantic-release-action@v4
         with:
           dry_run: true
@@ -1965,8 +1947,6 @@ In `.github/workflows/ci.yml`, add this as **its own job**, not as a step inside
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
-
-`backend`'s checkout stays at its default depth.
 
 - [ ] **Step 5: Add the release job**
 
