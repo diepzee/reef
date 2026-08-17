@@ -101,3 +101,42 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  # Every PR either says what a user would notice, or says explicitly that
+  # they would notice nothing. Pull requests only: on main this must never
+  # be able to fail a release, and there is no PR to carry a label there.
+  #
+  # The label is the escape hatch that keeps this from becoming a hostage
+  # situation -- most PRs (test isolation, CI tuning, refactors) genuinely
+  # change nothing a person using reef would see.
+  changelog:
+    name: Changelog fragment
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff below needs the base commit
+
+      - name: Require a fragment or the no-changelog label
+        env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if echo "$LABELS" | grep -q '"no-changelog"'; then
+            echo "Labelled no-changelog; nothing to write."
+            exit 0
+          fi
+          added=$(git diff --name-only --diff-filter=A "$BASE" "$HEAD" -- 'changes/*.md')
+          if [ -n "$added" ]; then
+            echo "Fragment(s) added:"
+            echo "$added"
+            exit 0
+          fi
+          echo "::error::This PR adds no changes/*.md fragment and is not"
+          echo "::error::labelled no-changelog. If a person using reef would"
+          echo "::error::notice this change, write one sentence for them in"
+          echo "::error::changes/<pr-number>-<slug>.md -- see changes/README.md."
+          echo "::error::If they would notice nothing, add the no-changelog label."
+          exit 1
