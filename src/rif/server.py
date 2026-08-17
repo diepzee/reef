@@ -5,9 +5,13 @@ import os
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
 from mcp.types import Icon
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth.auth import AuthProvider
 
 from rif import invitations, telemetry
 from rif import spaces as space_admin
@@ -62,7 +66,7 @@ from rif.web.static import register_static_routes
 #: and loopback for CLI clients (reef login, Codex). FastMCP's own default
 #: allows *every* URI; the consent page names the destination, but there
 #: is no reason to let a registration point anywhere else at all.
-_DEFAULT_CLIENT_REDIRECTS = [
+_DEFAULT_CLIENT_REDIRECTS: list[str] = [
     "https://claude.ai/*",
     "https://claude.com/*",
     "https://chatgpt.com/*",
@@ -71,7 +75,7 @@ _DEFAULT_CLIENT_REDIRECTS = [
 ]
 
 
-def _build_auth():
+def _build_auth() -> "AuthProvider | None":
     """Construct the MCP auth provider from the environment.
 
     Three worlds, selected by what is set:

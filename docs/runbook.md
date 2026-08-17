@@ -931,6 +931,15 @@ rotating that secret can never orphan the store — but rotating the
 signing key does: every stored entry becomes an undecryptable miss, which
 surfaces as every connector having to re-register.
 
+**The volume grows and nothing shrinks it.** Public dynamic client
+registration writes one permanent file per registering client to
+`RIF_OAUTH_STORE_DIR`, and the file store never deletes expired entries —
+they are only filtered out on read, not removed on disk. reef has no rate
+limiting in front of registration, so a scripted flood of DCR requests
+grows the volume without bound. Watch usage with `railway volume list`; a
+safe reset is `rm -rf /data/oauth`, at the cost of every connector having
+to re-register.
+
 ### Cutover checklist
 
 1. WorkOS dashboard: create a Connect app named "Rif MCP"; register its

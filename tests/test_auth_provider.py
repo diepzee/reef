@@ -5,9 +5,10 @@ import httpx
 import pytest
 from fastmcp import FastMCP
 from fastmcp.server.auth.providers.workos import AuthKitProvider, WorkOSProvider
+from fastmcp.server.auth.redirect_validation import validate_redirect_uri
 
 from rif.config import get_settings
-from rif.server import _build_auth
+from rif.server import _DEFAULT_CLIENT_REDIRECTS, _build_auth
 
 DOMAIN = "https://example-authkit.test"
 BASE = "https://reef.example.test"
@@ -66,6 +67,36 @@ def test_full_config_builds_the_proxy(proxy_env):
     # Private attrs, pinned by uv.lock: cheap insurance that the two
     # security-relevant constructor args actually arrived.
     assert provider._require_authorization_consent == "remember"
+
+
+def test_disallowed_redirect_uri_is_refused(proxy_env):
+    """The default allowlist rejects an arbitrary origin and accepts Claude's.
+
+    This is the enforcement point the review flagged: exercising
+    ``_build_auth``'s wiring end-to-end through a real ``/authorize`` request
+    is heavy (DCR, PKCE, a real upstream redirect), so instead this drives
+    the actual allowlist the provider carries -- the same list FastMCP's
+    proxy consults on every redirect -- through the validator it uses.
+    """
+    provider = _build_auth()
+    allowed = provider._allowed_client_redirect_uris
+    assert allowed == _DEFAULT_CLIENT_REDIRECTS
+    assert not validate_redirect_uri(
+        redirect_uri="https://evil.example/cb", allowed_patterns=allowed
+    )
+    assert validate_redirect_uri(
+        redirect_uri="https://claude.ai/api/mcp/auth_callback",
+        allowed_patterns=allowed,
+    )
+
+
+def test_custom_allowed_redirects_replace_the_default(monkeypatch, proxy_env):
+    """RIF_ALLOWED_CLIENT_REDIRECTS, when set, fully replaces the default list."""
+    monkeypatch.setattr(
+        get_settings(), "allowed_client_redirects", "https://only.example/*"
+    )
+    provider = _build_auth()
+    assert provider._allowed_client_redirect_uris == ["https://only.example/*"]
 
 
 async def test_metadata_names_reef_as_authorization_server(proxy_env):
