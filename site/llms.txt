@@ -1,0 +1,38 @@
+# reef
+
+> A shared, living memory for a group of people and the AI assistants they
+> talk to. Each circle of your life gets a cove: a small wiki your assistant
+> reads before it answers, and writes back to as things change.
+
+reef is built by Haai BV and runs at https://reefwith.me. It speaks the Model
+Context Protocol, so Claude, ChatGPT and Codex can all connect to the same
+memory, and there is a command-line client and a matching agent skill for
+terminal-first setups.
+
+What makes it different from an assistant's built-in memory:
+
+- **Shared, not personal.** A cove belongs to a household, a project or a
+  team, so everyone's assistant starts from the same picture.
+- **A wiki, not a blob.** Memory is pages a person can read, correct and
+  reorganise, not an opaque store you have to trust.
+- **Map before memory.** An assistant loads an index of what exists first,
+  then fetches only the pages the conversation actually needs.
+- **Yours to leave with.** Everything exports, and deleting means deleted.
+
+reef is invitation-only: there is no public sign-up, and people arrive because
+someone already inside adds them to a cove.
+
+## Pages
+
+- [Home](https://reefwith.me/): what reef is, how coves work, and how to
+  connect Claude, ChatGPT, Codex or the CLI to it.
+- [What's new](https://reefwith.me/changelog): release notes, newest first.
+- [Privacy](https://reefwith.me/privacy): what is stored, where it lives, who
+  can see it, and how to get it back or delete it.
+- [Terms](https://reefwith.me/terms): the agreement between a user and Haai BV.
+
+## Connect
+
+- MCP endpoint: https://reefwith.me/mcp
+- Source: https://github.com/diepzee/rif
+- CLI: `uv tool install reef-cli` (Python) or `npm install -g @haai/reef-cli`

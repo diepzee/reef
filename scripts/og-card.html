@@ -1,0 +1,72 @@
+<!-- Source for site/og-card.png, the 1200x630 card every share of reefwith.me
+     renders. Kept outside site/ so it is not itself served and indexed.
+
+     To re-render after editing (needs Playwright's cached Chromium):
+
+       python3 -m http.server 8931 --directory . &
+       ~/Library/Caches/ms-playwright/chromium_headless_shell-*/\
+         chrome-headless-shell-mac-arm64/chrome-headless-shell \
+         --headless --disable-gpu --hide-scrollbars \
+         --force-device-scale-factor=1 --window-size=1200,630 \
+         --screenshot=site/og-card.png http://127.0.0.1:8931/scripts/og-card.html
+
+     The og:image:width and og:image:height meta tags in site/*.html and in
+     rif.releasenotes._PAGE state 1200x630; changing the size means changing
+     those too. -->
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<style>
+@font-face {
+  font-family: "Nunito"; src: url("../site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000; font-style: normal;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  width: 1200px; height: 630px; overflow: hidden;
+  font-family: "Nunito", sans-serif; color: #e2f1f5;
+  background:
+    radial-gradient(ellipse 46% 60% at 88% 18%, rgb(56 189 216 / 0.20), transparent 70%),
+    radial-gradient(ellipse 44% 56% at 6% 88%, rgb(45 212 191 / 0.16), transparent 72%),
+    radial-gradient(120% 90% at 78% -12%, #0e3140, #0a1b23 46%, #081217);
+}
+.card { width: 100%; height: 100%; padding: 72px 80px;
+  display: flex; flex-direction: column; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 14px;
+  font-size: 34px; font-weight: 800; color: #38bdd8; letter-spacing: -0.01em; }
+h1 { font-size: 78px; font-weight: 800; line-height: 1.06;
+  letter-spacing: -0.028em; max-width: 13ch; }
+h1 .soft { color: #7ce3d3; }
+p { margin-top: 26px; font-size: 30px; line-height: 1.45;
+  color: #a8c8d2; max-width: 34ch; font-weight: 500; }
+.foot { display: flex; align-items: center; gap: 18px;
+  font-size: 24px; font-weight: 600; color: #8fb0ba; }
+.foot .dot { color: #38bdd8; }
+.foot .url { color: #e2f1f5; font-weight: 800; }
+.mark { position: absolute; right: 4px; bottom: -18px;
+  width: 470px; opacity: 0.42; }
+</style></head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs><path id="o-coral" fill="currentColor" transform="translate(3.400,13.333) scale(0.17544) translate(0,314) scale(0.1,-0.1)" d="M1441 2805 c-40 -8 -78 -18 -84 -24 -7 -7 2 -69 29 -203 37 -181 39 -204 39 -368 0 -197 -16 -264 -76 -315 -39 -32 -54 -32 -89 3 -48 49 -55 94 -52 329 2 133 -1 234 -8 270 -18 92 -50 181 -67 187 -23 9 -173 -76 -173 -99 0 -2 14 -44 30 -93 67 -200 21 -303 -75 -169 -75 103 -95 127 -107 127 -17 0 -76 -70 -126 -149 l-46 -74 40 -33 c21 -19 84 -64 139 -101 129 -88 205 -165 249 -255 85 -170 11 -184 -169 -32 -124 104 -279 194 -334 194 -23 0 -41 -51 -62 -175 -16 -96 -12 -103 81 -126 83 -21 185 -67 300 -134 41 -24 118 -60 170 -80 52 -20 113 -47 135 -60 93 -54 180 -182 209 -304 8 -33 17 -64 21 -70 4 -7 72 -11 200 -11 219 0 198 -9 210 90 10 77 60 231 105 320 122 241 339 440 633 581 60 28 111 58 114 66 10 25 -78 187 -104 191 -14 2 -55 -24 -130 -84 -155 -125 -204 -149 -219 -109 -16 39 61 187 158 306 68 84 68 84 -24 160 -91 75 -105 80 -134 44 -73 -90 -138 -252 -198 -490 -24 -95 -60 -211 -79 -257 -77 -191 -251 -441 -325 -469 -90 -35 -154 173 -104 338 28 91 81 171 202 304 121 133 179 229 224 369 54 167 84 341 62 359 -35 29 -199 61 -211 41 -4 -7 -11 -67 -16 -134 -12 -185 -46 -296 -102 -330 -41 -25 -60 53 -78 304 -6 85 -16 161 -21 168 -13 15 -41 14 -137 -3z M2640 1847 c-341 -121 -578 -377 -645 -698 -26 -122 -64 -109 315 -109 l330 0 19 31 c33 53 92 247 89 287 l-3 37 -75 -1 c-70 -2 -81 -5 -206 -69 -148 -75 -187 -81 -192 -32 -14 119 253 306 439 307 68 0 74 13 61 132 -17 156 -16 156 -132 115z M495 1478 c-14 -37 56 -301 106 -400 l19 -38 300 0 c331 0 315 -4 279 65 -38 72 -107 133 -204 179 -49 24 -119 65 -155 91 -100 74 -182 109 -267 113 -57 3 -74 1 -78 -10z"/></defs></svg>
+<svg class="mark" viewBox="11 15.5 42 34.5" preserveAspectRatio="xMidYMax meet">
+  <defs><linearGradient id="g" gradientUnits="userSpaceOnUse" x1="15" y1="17" x2="49" y2="50">
+    <stop offset="0" stop-color="#77e4e9"/><stop offset="0.52" stop-color="#38bdd8"/>
+    <stop offset="1" stop-color="#1595ab"/></linearGradient>
+    <mask id="m" maskUnits="userSpaceOnUse" x="11" y="15.5" width="42" height="34.5">
+      <use href="#o-coral" style="color:#fff"/></mask></defs>
+  <rect x="11" y="15.5" width="42" height="34.5" fill="url(#g)" mask="url(#m)"/>
+</svg>
+<div class="card">
+  <div class="brand">
+    <svg viewBox="11 15.5 42 34.5" width="40" height="33" preserveAspectRatio="xMidYMax meet"
+      style="color:#38bdd8"><use href="#o-coral"/></svg><span>reef</span>
+  </div>
+  <div>
+    <h1>Memories you <span class="soft">grow together</span>.</h1>
+    <p>A shared, living memory for you, your people, and the AI you all talk to.</p>
+  </div>
+  <div class="foot">
+    <span class="url">reefwith.me</span><span class="dot">&middot;</span>
+    <span>Claude, ChatGPT &amp; Codex, over MCP</span>
+  </div>
+</div>
+</body></html>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- No lastmod element: the site has no build step to stamp an accurate one,
+     and a date that is wrong is worse than a date that is absent, because
+     Google discounts lastmod wholesale once it catches a site lying about it. -->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://reefwith.me/</loc>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://reefwith.me/changelog</loc>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://reefwith.me/privacy</loc>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://reefwith.me/terms</loc>
+    <priority>0.3</priority>
+  </url>
+</urlset>
