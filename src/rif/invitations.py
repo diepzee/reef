@@ -102,6 +102,24 @@ async def next_invite_at(
     return oldest + timedelta(days=INVITE_WINDOW_DAYS)
 
 
+def relay_instructions() -> str:
+    """Return the words the inviter must pass on themselves.
+
+    reef sends no mail. Both invite flows therefore owe the inviter the same
+    sentence, and it lives here so neither can drift from the other or quietly
+    omit it -- a cove invite that reports only success reads as "done" while
+    the invitee has in fact been told nothing.
+
+    :returns: the relay instruction, naming the deployment's own URL if set
+    """
+    base_url = os.environ.get("RIF_BASE_URL", "").rstrip("/")
+    where = base_url or "reef"
+    return (
+        f"Tell them to go to {where} and sign in with this exact address. "
+        "reef sends no invitation email, so nothing reaches them until you do."
+    )
+
+
 @dataclass(frozen=True)
 class AllowlistEntry:
     """An address that may sign in, and the id reef knows it by."""
@@ -191,14 +209,9 @@ async def invite_to_reef(
     :returns: outcome with the relay text and remaining budget
     """
     entry, created = await allowlist(inviter, email, display_name)
-    base_url = os.environ.get("RIF_BASE_URL", "").rstrip("/")
-    where = base_url or "reef"
     return {
         "email": entry.email,
         "already_known": not created,
         "invites_left": await invites_left(inviter),
-        "next_step": (
-            f"Tell them to go to {where} and sign in with this exact address. "
-            "reef sends no invitation email, so nothing reaches them until you do."
-        ),
+        "next_step": relay_instructions(),
     }

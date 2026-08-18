@@ -652,6 +652,10 @@ async def invite(
     for someone who should read everything but write nothing — an
     accountant, a helper — and say that difference out loud too.
 
+    reef sends no invitation email. Nothing whatsoever reaches the invitee
+    until the user tells them, so pass on the returned ``next_step`` rather
+    than reporting only that the invite succeeded.
+
     :param space: the space name, from list_spaces
     :param email: the address the invitee will sign in with
     :param display_name: how members will see them

@@ -23,7 +23,7 @@ from uuid import UUID
 
 from rif import audit
 from rif.access import PERSONAL_ALIAS, Principal, arm, resolve_space
-from rif.invitations import allowlist
+from rif.invitations import allowlist, relay_instructions
 from rif.models import (
     Attachment,
     MemberRole,
@@ -301,7 +301,8 @@ async def invite(
     :raises SpaceError: if the principal does not own the space, or the role
         is not one a membership can hold
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
-    :returns: outcome with the role, disclosure text, and ``already_member``
+    :returns: outcome with the role, disclosure text, ``already_member``, and
+        the relay instruction the inviter must pass on themselves
     """
     if role not in {MemberRole.MEMBER.value, MemberRole.VIEWER.value}:
         raise SpaceError(f"a membership is 'member' or 'viewer', not {role!r}")
@@ -341,6 +342,7 @@ async def invite(
         "email": email,
         "role": role,
         "already_member": already,
+        "next_step": relay_instructions(),
         "disclosure": (
             f"{email} will permanently {rights} in {slug!r}, past and "
             f"future — {page_count} page(s) today. There is no un-sharing "
