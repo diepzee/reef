@@ -48,10 +48,77 @@ def test_marketing_site_offers_cli_and_agent_skill_setup():
     assert "github.com/diepzee/rif/tree/main/skills/reef" in page
 
 
-def test_marketing_site_tells_the_invite_only_story():
-    """The landing page states the door: no sign-up, invitation only."""
+def test_marketing_site_leaves_the_door_sentence_to_the_server():
+    """The landing page carries the slot, never a hardcoded promise.
+
+    Pinning the slot is what catches the drift that matters: a copy edit
+    that writes a door state back into the file would sail past a test
+    asserting on rendered output, and start lying the day the door shuts.
+    """
     page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
-    assert "no sign-up" in page.lower()
+    assert "__DOOR__" in page
+    assert "no sign-up" not in page.lower()
+
+
+def _site_with_slot(tmp_path) -> None:
+    """Write a marketing page carrying the door slot into ``site_dir``.
+
+    :param tmp_path: the fixture's scratch directory
+    """
+    site = tmp_path / "site"
+    site.mkdir(exist_ok=True)
+    (site / "index.html").write_text("<!doctype html><title>reef</title>__DOOR__")
+
+
+def _door(monkeypatch, *, is_open: bool) -> None:
+    """Force the door open or shut for the static routes.
+
+    Patches the policy rather than the environment: ``static_client``
+    patches the cached settings object, and the env path would need that
+    cache cleared out from under it.
+
+    :param monkeypatch: pytest's patcher
+    :param is_open: the state to force
+    """
+    from rif.opendoor import DoorPolicy
+    from rif.web import static
+
+    monkeypatch.setattr(static, "door_policy", lambda: DoorPolicy(is_open, 500, ""))
+
+
+async def test_root_names_the_open_door_while_it_is_open(
+    static_client, tmp_path, monkeypatch
+):
+    """An open door invites the visitor in, and says it is the exception."""
+    _site_with_slot(tmp_path)
+    _door(monkeypatch, is_open=True)
+    response = await static_client.get("/")
+    assert response.status_code == 200
+    assert "take one while they last" in response.text
+    assert "__DOOR__" not in response.text
+
+
+async def test_root_keeps_the_invite_only_line_once_the_door_shuts(
+    static_client, tmp_path, monkeypatch
+):
+    """The steady state promises no sign-up, which is then true."""
+    _site_with_slot(tmp_path)
+    _door(monkeypatch, is_open=False)
+    response = await static_client.get("/")
+    assert "There is no sign-up." in response.text
+    assert "__DOOR__" not in response.text
+
+
+async def test_root_is_never_reused_across_a_door_that_changed(
+    static_client, tmp_path, monkeypatch
+):
+    """No validator derived from the file, so a 304 cannot strand old copy."""
+    _site_with_slot(tmp_path)
+    _door(monkeypatch, is_open=True)
+    response = await static_client.get("/")
+    assert response.headers["cache-control"] == "no-cache"
+    assert "etag" not in response.headers
+    assert "last-modified" not in response.headers
 
 
 async def test_root_redirects_to_app_without_site(static_client):

@@ -973,6 +973,47 @@ curl -sSI https://reefwith.me/mcp | grep -i www-authenticate
 
 ---
 
+## Opening the door for the launch
+
+reef is invite-only. `RIF_OPEN_SEATS` + `RIF_OPEN_UNTIL` are the deliberate,
+time-boxed exception: anyone who proves an address to AuthKit sees a page
+naming that address and a button that admits them. There is no code, token,
+or link on top of that — it is open signup with a button in front of it, so
+treat the seat count as the thing actually protecting you.
+
+**Open it:**
+
+```bash
+railway variables --set RIF_OPEN_SEATS=50 --set RIF_OPEN_UNTIL=2026-12-31
+```
+
+Both, or it stays shut — a missing one fails closed on purpose, because a
+door left open by a forgotten boolean is the silent failure and a door that
+never opened is the loud one.
+
+**Check what's left**, against the same ceiling the admission function reads:
+
+```sql
+SELECT count(*) FROM persons WHERE joined_open_door;
+```
+
+**Close it early** — takes effect on the next request, no deploy needed:
+
+```bash
+railway variables --unset RIF_OPEN_UNTIL
+```
+
+Closing does not evict anybody already admitted; those rows stay, flagged,
+and the flag is what keeps them countable and distinguishable from the
+founding person, who also has no inviter.
+
+**What the visitor sees.** The landing page renders its own copy from this
+state (`_door_rendered` in `rif/web/static.py`), so the promise on the page
+and the door itself cannot drift: open, it offers a place; shut, it says
+there is no sign-up. Sign-in itself is unchanged either way — the AuthKit
+screen still carries its own "Sign up" link, which lands on the same door
+and is bound by the same ceiling.
+
 ## Reference
 
 **Env vars (Railway):**
@@ -991,6 +1032,7 @@ curl -sSI https://reefwith.me/mcp | grep -i www-authenticate
 | `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
 | `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |
 | `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
+| `RIF_OPEN_SEATS` / `RIF_OPEN_UNTIL` | The launch door (see "Opening the door for the launch"). **Both** must be set or it stays shut; seats is an integer, until is `YYYY-MM-DD` and inclusive. Unset either one to close it immediately. Default (unset) = invite-only, which is the steady state |
 | `LOGFIRE_TOKEN` | Write token for the `wouterdurnez/reef` Logfire project (EU instance). **Optional** — unset means telemetry is inert, and a missing token can never fail a request or stop the server booting |
 | `LOGFIRE_BASE_URL` | Only if the Logfire instance moves. Defaults to `https://logfire-eu.pydantic.dev`; the SDK's own default is the US instance, which is the wrong one for this project |
 | `RIF_GLAMA_MAINTAINER_EMAIL` | Email on the Glama account that owns the directory listing, served at `/.well-known/glama.json`. **Optional** — unset means that route 404s and the listing stays unclaimed. See "Why Glama says unhealthy" below |

@@ -22,6 +22,7 @@ from pathlib import Path
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
+    HTMLResponse,
     JSONResponse,
     PlainTextResponse,
     RedirectResponse,
@@ -29,6 +30,7 @@ from starlette.responses import (
 )
 
 from rif.config import get_settings
+from rif.opendoor import door_policy
 
 # Servers this module has registered routes on, so repeated calls (as in
 # tests that re-import the server module) don't append duplicate Starlette
@@ -63,6 +65,28 @@ _PLAIN_CACHE = "public, max-age=3600"
 #: A build asset whose name carries a content hash, e.g. ``index-psy8engk.js``.
 _HASHED_NAME = re.compile(r"-[A-Za-z0-9_]{8,}\.[A-Za-z0-9]+$")
 
+#: Placeholder in ``site/index.html`` where the door's own copy goes. The
+#: landing page is a file on disk, but what it may truthfully promise is not:
+#: :mod:`rif.opendoor` is built to close itself on a date nobody has to be
+#: awake for, and a page still saying "take a place" the morning after would
+#: be a lie written by a calendar. Rendering it per request is what keeps the
+#: promise and the door the same fact.
+_DOOR_SLOT = "__DOOR__"
+
+#: Shown while the door is shut, which is reef's steady state.
+_DOOR_SHUT = (
+    '<p class="sub">There is no sign-up. Someone already on reef invites you '
+    "&mdash;\n      that is the only door, and it is deliberate.</p>"
+)
+
+#: Shown while the door is open. It names the exception as an exception:
+#: somebody who arrives after it closes should find the refusal unsurprising,
+#: rather than feeling a promise was withdrawn.
+_DOOR_OPEN = (
+    '<p class="sub">reef is invite-only &mdash; but for the launch we set aside '
+    "a number of\n      places. Sign in and take one while they last.</p>"
+)
+
 
 def _cached(path: Path, media_type: str | None = None) -> FileResponse:
     """Serve a file with the cache policy its name and type earn.
@@ -79,6 +103,32 @@ def _cached(path: Path, media_type: str | None = None) -> FileResponse:
     else:
         policy = _PLAIN_CACHE
     return FileResponse(path, media_type=media_type, headers={"cache-control": policy})
+
+
+def _door_rendered(index: Path) -> Response:
+    """Serve the landing page with the door's own sentence written into it.
+
+    Served as bytes rather than a :class:`FileResponse` on purpose: the file
+    on disk no longer decides what the page says, so the validators derived
+    from it would be wrong. ``Last-Modified`` does not move when a date
+    passes, and a browser holding yesterday's copy would revalidate, get a
+    304, and keep showing an invitation to a door that has since shut.
+
+    A page that cannot be read at all falls back to the shut copy: the
+    steady state is the safe thing to promise, and a packaging mistake must
+    not read as an open door.
+
+    :param index: the marketing ``index.html``, already known to be a file
+    :returns: the rendered page, revalidated on every use
+    """
+    copy = _DOOR_OPEN if door_policy().is_open else _DOOR_SHUT
+    try:
+        page = index.read_text(encoding="utf-8")
+    except OSError:
+        return HTMLResponse(_DOOR_SHUT, headers={"cache-control": _HTML_CACHE})
+    return HTMLResponse(
+        page.replace(_DOOR_SLOT, copy), headers={"cache-control": _HTML_CACHE}
+    )
 
 
 def _serve_or_fallback(path: str) -> Response:
@@ -181,7 +231,7 @@ def register_static_routes(mcp) -> None:
         """
         index = Path(get_settings().site_dir) / "index.html"
         if index.is_file():
-            return _cached(index)
+            return _door_rendered(index)
         return RedirectResponse("/app", status_code=307)
 
     async def privacy(request: Request) -> Response:

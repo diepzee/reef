@@ -20,9 +20,10 @@ Design choices HN might find interesting:
   The app connects as a non-superuser; a person's private cove is invisible
   to queries made on someone else's behalf.
 - Sharing personal content into a shared cove is a two-step consent ceremony.
-- There is no sign-up. You get in when someone already on reef invites you
-  (each member can invite 5 people per 30 days). That's the only door, and
-  it's deliberate — memory this personal should arrive through trust.
+- reef is invite-only: you get in when someone already on reef invites you
+  (each member can invite 5 people per 30 days). That's deliberate — memory
+  this personal should arrive through trust. For the launch we've set aside a
+  limited number of places you can take yourself, while they last.
 
 Works from Claude (including the phone app), ChatGPT desktop, and Codex as a
 remote MCP connector, plus a CLI (`uv tool install reef-cli` or
@@ -45,5 +46,6 @@ and tends mid-conversation — and you can open, edit, and export every one.
 4/ Privacy isn't a promise in app code. It's Postgres row-level security:
 the database itself cannot show your private cove to anyone else's session.
 
-5/ There is no sign-up. Someone already on reef invites you — that's the
-only door, and it's deliberate. reefwith.me
+5/ reef is invite-only — memory this personal should arrive through trust.
+For the launch we set aside a number of places. Take one while they last:
+reefwith.me
