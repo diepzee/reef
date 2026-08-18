@@ -9,6 +9,12 @@
     <base href="/app/" />
     <link rel="icon" type="image/svg+xml" href="./public/reef.svg" />
     <title>reef</title>
+    <!-- Every route under /app renders from this one shell, so a crawler
+         sees an empty <div id="root"> and nothing else. Indexed, that is a
+         blank page competing with the landing page for the same brand
+         query. The signed-in app is behind auth and has nothing to offer
+         search in any case. -->
+    <meta name="robots" content="noindex, follow" />
   </head>
   <body>
     <div id="root"></div>

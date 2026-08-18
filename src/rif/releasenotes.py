@@ -262,6 +262,17 @@ _PAGE = """<!doctype html>
 <title>What's new in reef</title>
 <meta name="description" content="What has changed in reef, newest first.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="canonical" href="https://reefwith.me/changelog">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="reef">
+<meta property="og:url" content="https://reefwith.me/changelog">
+<meta property="og:title" content="What's new in reef">
+<meta property="og:description" content="What has changed in reef, newest first.">
+<meta property="og:image" content="https://reefwith.me/site/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The reef share card: the coral mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
+<meta name="twitter:card" content="summary_large_image">
 <style>
 @font-face {
   font-family: "Nunito";
@@ -313,7 +324,7 @@ def render_page(entries: list[Entry]) -> str:
     """Render the public changelog page.
 
     A whole standalone document rather than a fragment: it is served as a
-    static file by ``GET /site/{path}`` beside ``index.html``, with no
+    static file by ``GET /changelog`` beside ``index.html``, with no
     template engine and no build step anywhere in the site's chain.
 
     Every value is escaped. Fragments are prose typed by a person, and

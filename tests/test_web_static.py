@@ -1,5 +1,7 @@
 """Static serving: SPA fallback, traversal guard, root redirect."""
 
+import json
+import re
 from pathlib import Path
 
 import httpx
@@ -256,3 +258,158 @@ async def test_an_unhashed_asset_is_not_frozen(static_client):
     response = await static_client.get("/app/app.js")
     assert response.status_code == 200
     assert "immutable" not in response.headers["cache-control"]
+
+
+async def test_changelog_page_is_served_at_the_root(static_client, tmp_path):
+    """The footer links /changelog, and it is the page that keeps changing."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "changelog.html").write_text("<!doctype html><title>reef changelog</title>")
+    response = await static_client.get("/changelog")
+    assert response.status_code == 200
+    assert "reef changelog" in response.text
+
+
+async def test_changelog_404s_without_a_site_tree(static_client):
+    """No site/ packaged: a clean 404 rather than a 500."""
+    response = await static_client.get("/changelog")
+    assert response.status_code == 404
+
+
+async def test_crawler_files_are_served_at_the_root(static_client, tmp_path):
+    """robots.txt, sitemap.xml and llms.txt are fetched at fixed paths.
+
+    A crawler asks the origin root for these by name and never looks under
+    ``/site/``, so serving them anywhere else is the same as not having
+    them.
+    """
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "robots.txt").write_text("User-agent: *\nAllow: /\n")
+    (site / "sitemap.xml").write_text("<urlset></urlset>")
+    (site / "llms.txt").write_text("# reef\n")
+    for path, fragment in (
+        ("/robots.txt", "User-agent"),
+        ("/sitemap.xml", "urlset"),
+        ("/llms.txt", "# reef"),
+    ):
+        response = await static_client.get(path)
+        assert response.status_code == 200, path
+        assert fragment in response.text, path
+
+
+async def test_crawler_files_404_without_a_site_tree(static_client):
+    """No site/ packaged: a clean 404 rather than a 500."""
+    for path in ("/robots.txt", "/sitemap.xml", "/llms.txt"):
+        assert (await static_client.get(path)).status_code == 404, path
+
+
+async def test_the_site_copy_of_a_page_redirects_to_its_clean_url(
+    static_client, tmp_path
+):
+    """One document, one address.
+
+    Every page under ``site/`` is reachable through ``/site/{path}`` as
+    well as its own root path. Left alone that is duplicate content: two
+    URLs serving identical bytes, with the search signal split between
+    them and no way for a crawler to know which one is meant.
+    """
+    site = tmp_path / "site"
+    site.mkdir()
+    for name in ("index.html", "privacy.html", "terms.html", "changelog.html"):
+        (site / name).write_text("<!doctype html>")
+    for name, clean in (
+        ("index.html", "/"),
+        ("privacy.html", "/privacy"),
+        ("terms.html", "/terms"),
+        ("changelog.html", "/changelog"),
+    ):
+        response = await static_client.get(f"/site/{name}", follow_redirects=False)
+        assert response.status_code == 301, name
+        assert response.headers["location"] == clean, name
+
+
+async def test_a_plain_site_asset_still_serves(static_client, tmp_path):
+    """Only the pages with clean URLs redirect; assets are untouched."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "nunito-latin.woff2").write_bytes(b"wOF2")
+    response = await static_client.get("/site/nunito-latin.woff2")
+    assert response.status_code == 200
+
+
+def test_every_marketing_page_declares_one_canonical_url():
+    """Duplicate URLs are only harmless while a canonical says which wins."""
+    site = Path(__file__).parents[1] / "site"
+    for name, url in (
+        ("index.html", "https://reefwith.me/"),
+        ("privacy.html", "https://reefwith.me/privacy"),
+        ("terms.html", "https://reefwith.me/terms"),
+        ("changelog.html", "https://reefwith.me/changelog"),
+    ):
+        page = (site / name).read_text()
+        assert page.count('<link rel="canonical"') == 1, name
+        assert f'<link rel="canonical" href="{url}">' in page, name
+        assert f'<meta property="og:url" content="{url}">' in page, name
+
+
+def test_every_marketing_page_renders_a_share_card():
+    """A bare link is the default; a launch post cannot afford one.
+
+    The card is what a share on X, Hacker News, Slack or iMessage renders,
+    and those shares are where a new domain's first links come from.
+    """
+    site = Path(__file__).parents[1] / "site"
+    assert (site / "og-card.png").is_file()
+    for name in ("index.html", "privacy.html", "terms.html", "changelog.html"):
+        page = (site / name).read_text()
+        assert 'content="https://reefwith.me/site/og-card.png"' in page, name
+        assert '<meta name="twitter:card" content="summary_large_image">' in page, name
+
+
+def test_the_landing_page_describes_itself_to_search_engines():
+    """Structured data, and a title carrying a term somebody would type.
+
+    "reef" alone is unwinnable -- the query belongs to sandals, aquariums
+    and actual coral -- so the title has to say what the thing is.
+    """
+    page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
+    block = re.search(
+        r'<script type="application/ld\+json">(.*?)</script>', page, re.DOTALL
+    )
+    graph = json.loads(block.group(1))["@graph"]
+    assert {entry["@type"] for entry in graph} == {
+        "WebSite",
+        "SoftwareApplication",
+        "Organization",
+    }
+    title = re.search(r"<title>(.*?)</title>", page).group(1)
+    assert "memory" in title.lower()
+
+
+def test_the_crawl_policy_lets_search_and_grounding_in():
+    """Findable from inside an assistant is the point; training is not granted."""
+    robots = (Path(__file__).parents[1] / "site" / "robots.txt").read_text()
+    assert "search=yes" in robots
+    assert "ai-input=yes" in robots
+    assert "ai-train=no" in robots
+    assert "Sitemap: https://reefwith.me/sitemap.xml" in robots
+
+
+def test_the_sitemap_lists_exactly_the_canonical_pages():
+    """A sitemap that names a redirecting or missing URL trains Google to
+    distrust the whole file, so it tracks the clean paths and nothing else.
+    """
+    sitemap = (Path(__file__).parents[1] / "site" / "sitemap.xml").read_text()
+    assert set(re.findall(r"<loc>(.*?)</loc>", sitemap)) == {
+        "https://reefwith.me/",
+        "https://reefwith.me/changelog",
+        "https://reefwith.me/privacy",
+        "https://reefwith.me/terms",
+    }
+
+
+def test_the_spa_shell_asks_not_to_be_indexed():
+    """Every /app route renders one empty shell: a blank page in the index."""
+    shell = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
+    assert '<meta name="robots" content="noindex, follow" />' in shell

@@ -14,6 +14,13 @@ claude.ai's connector list -- request those paths outside ``/app`` and
 nothing else answers them there. ``GET /.well-known/glama.json`` serves the
 Glama directory's ownership claim on the same footing: a public, tokenless
 document at a fixed path that a third party fetches on its own schedule.
+
+The marketing pages that outside parties address by name get root paths of
+their own for the same reason: ``GET /privacy``, ``GET /terms`` and ``GET
+/changelog`` for the pages the footer links, and ``GET /robots.txt``, ``GET
+/sitemap.xml`` and ``GET /llms.txt`` for the files crawlers fetch at fixed
+locations. Their ``/site/*.html`` copies 301 to those paths, so each page
+answers at exactly one address.
 """
 
 import re
@@ -118,13 +125,17 @@ def _serve_site_asset(path: str) -> Response:
 
     Same traversal guard as :func:`_serve_or_fallback`, but with no SPA
     fallback: the site is a flat page plus a handful of assets, so a miss
-    is a plain 404 rather than ``index.html``.
+    is a plain 404 rather than ``index.html``. A page that also answers on
+    a clean root path redirects there first -- see :data:`_CANONICAL_PAGES`.
 
     :param path: the request path under ``/site``, already URL-decoded by
         Starlette's path-converter
     :returns: a :class:`FileResponse` for a real file, or a 404 plain-text
         response
     """
+    canonical = _CANONICAL_PAGES.get(path)
+    if canonical is not None:
+        return RedirectResponse(canonical, status_code=301)
     base = Path(get_settings().site_dir).resolve()
     try:
         candidate = (base / path).resolve()
@@ -134,6 +145,39 @@ def _serve_site_asset(path: str) -> Response:
     if valid:
         return _cached(candidate)
     return PlainTextResponse("not found", status_code=404)
+
+
+#: Marketing pages that also answer on a clean root path. The same document
+#: at two addresses splits the search signal between them, so the ``/site/``
+#: copy redirects to the canonical one rather than serving a duplicate.
+_CANONICAL_PAGES = {
+    "index.html": "/",
+    "privacy.html": "/privacy",
+    "terms.html": "/terms",
+    "changelog.html": "/changelog",
+}
+
+
+def _serve_site_page(filename: str, media_type: str | None = None) -> Response:
+    """Serve one named file out of ``site_dir`` at the origin root, or 404.
+
+    These are the paths that have to be stable and guessable from outside
+    the site -- the legal notices the footer links from every page, and the
+    crawler files (``robots.txt``, ``sitemap.xml``, ``llms.txt``) that
+    search engines and AI agents fetch at fixed locations. None of them can
+    live under ``/site/`` and still be found.
+
+    :param filename: the file's name inside ``site_dir``
+    :param media_type: an explicit content type, or None to let Starlette
+        infer it from the suffix
+    :returns: a :class:`FileResponse` for the file, or a 404 plain-text
+        response when the site tree is absent (same posture as
+        :func:`_serve_site_asset`)
+    """
+    page = Path(get_settings().site_dir) / filename
+    if page.is_file():
+        return _cached(page, media_type=media_type)
+    return PlainTextResponse("Not Found", status_code=404)
 
 
 def _serve_icon(filename: str, media_type: str) -> Response:
@@ -192,13 +236,9 @@ def register_static_routes(mcp) -> None:
         stable, guessable URL.
 
         :param request: the incoming request
-        :returns: the site's ``privacy.html``, or a 404 if the site tree is
-            absent (same posture as :func:`_serve_site_asset`)
+        :returns: see :func:`_serve_site_page`
         """
-        page = Path(get_settings().site_dir) / "privacy.html"
-        if page.is_file():
-            return _cached(page)
-        return PlainTextResponse("Not Found", status_code=404)
+        return _serve_site_page("privacy.html")
 
     async def terms(request: Request) -> Response:
         """Serve the terms page at the origin root.
@@ -208,13 +248,45 @@ def register_static_routes(mcp) -> None:
         ``/site/terms.html``.
 
         :param request: the incoming request
-        :returns: the site's ``terms.html``, or a 404 if the site tree is
-            absent (same posture as :func:`_serve_site_asset`)
+        :returns: see :func:`_serve_site_page`
         """
-        page = Path(get_settings().site_dir) / "terms.html"
-        if page.is_file():
-            return _cached(page)
-        return PlainTextResponse("Not Found", status_code=404)
+        return _serve_site_page("terms.html")
+
+    async def changelog(request: Request) -> Response:
+        """Serve the release-notes page at the origin root.
+
+        The footer links it from every page, and it is the one page that
+        gains content on every release, so it is worth a clean URL that can
+        be shared and indexed rather than ``/site/changelog.html``.
+
+        :param request: the incoming request
+        :returns: see :func:`_serve_site_page`
+        """
+        return _serve_site_page("changelog.html")
+
+    async def robots(request: Request) -> Response:
+        """Serve the crawl policy.
+
+        :param request: the incoming request
+        :returns: see :func:`_serve_site_page`
+        """
+        return _serve_site_page("robots.txt", "text/plain; charset=utf-8")
+
+    async def sitemap(request: Request) -> Response:
+        """Serve the sitemap the crawl policy points at.
+
+        :param request: the incoming request
+        :returns: see :func:`_serve_site_page`
+        """
+        return _serve_site_page("sitemap.xml", "application/xml")
+
+    async def llms(request: Request) -> Response:
+        """Serve the plain-text site summary written for AI agents.
+
+        :param request: the incoming request
+        :returns: see :func:`_serve_site_page`
+        """
+        return _serve_site_page("llms.txt", "text/plain; charset=utf-8")
 
     async def site_asset(request: Request) -> Response:
         """Serve one of the marketing site's assets.
@@ -298,6 +370,10 @@ def register_static_routes(mcp) -> None:
     mcp.custom_route("/", methods=["GET"])(root)
     mcp.custom_route("/privacy", methods=["GET"])(privacy)
     mcp.custom_route("/terms", methods=["GET"])(terms)
+    mcp.custom_route("/changelog", methods=["GET"])(changelog)
+    mcp.custom_route("/robots.txt", methods=["GET"])(robots)
+    mcp.custom_route("/sitemap.xml", methods=["GET"])(sitemap)
+    mcp.custom_route("/llms.txt", methods=["GET"])(llms)
     mcp.custom_route("/site/{path:path}", methods=["GET"])(site_asset)
     mcp.custom_route("/favicon.ico", methods=["GET"])(favicon_ico)
     mcp.custom_route("/apple-touch-icon.png", methods=["GET"])(apple_touch_icon)

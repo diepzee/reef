@@ -17,6 +17,7 @@ from rif.releasenotes import (
     parse_version,
     prepend_changelog,
     read_fragments,
+    render_page,
 )
 
 FRAGMENT = """---
@@ -264,3 +265,16 @@ def test_prepend_changelog_refuses_empty_notes(tmp_path: Path):
     with pytest.raises(FragmentError):
         prepend_changelog("   \n", changelog)
     assert changelog.read_text(encoding="utf-8") == "## old\n"
+
+
+def test_the_generated_page_matches_the_committed_one():
+    """``site/changelog.html`` is generated, so it can silently go stale.
+
+    The page carries canonical and Open Graph tags that also live in
+    ``_PAGE``. Editing the committed file without the template means the
+    next release quietly reverts them, and nobody finds out until a share
+    of /changelog renders as a bare link again.
+    """
+    root = Path(__file__).parents[1]
+    committed = (root / "site" / "changelog.html").read_text()
+    assert render_page(load_feed(root / "site" / "release-notes.json")) == committed

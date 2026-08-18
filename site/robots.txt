@@ -1,0 +1,35 @@
+# reef's crawl policy.
+#
+# Search engines and the AI answer engines are welcome to read the site and
+# cite it. Being findable from inside an assistant is the point of a product
+# that lives inside one, so the grounding crawlers are let in deliberately.
+# Training on the content is a different ask, and is not granted: the
+# Content-Signal below says so, and the training-only crawlers are refused
+# by name underneath it.
+#
+# Cloudflare can serve its own managed robots.txt at the edge, which shadows
+# this file entirely. If AI crawlers are still refused after a deploy, the
+# block is in the Cloudflare dashboard, not here.
+
+User-agent: *
+Content-Signal: search=yes, ai-input=yes, ai-train=no
+Allow: /
+Disallow: /api/
+
+# Training-only crawlers, refused to match ai-train=no above.
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+User-agent: meta-externalagent
+Disallow: /
+
+Sitemap: https://reefwith.me/sitemap.xml
