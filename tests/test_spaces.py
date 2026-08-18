@@ -394,3 +394,17 @@ async def test_an_invitee_who_already_uses_the_name_gets_a_suffixed_one(tx, grap
     names = await alias_map(principal_for(guest))
     assert names[theirs.id] == "family-2"
     assert (await resolve_space(principal_for(guest), "family-2")).id == theirs.id
+
+
+async def test_invite_tells_the_inviter_to_relay_it_themselves(tx, household):
+    """A cove invite must say that nothing reaches the invitee on its own.
+
+    reef sends no mail, so an invite that reports only success reads as
+    "done" when in fact the invitee has been told nothing. ``invite_to_reef``
+    has always said so; the cove path -- the one people actually use -- did
+    not, which is how a correctly-invited member sat unreachable.
+    """
+    me = principal_for(household["wouter"])
+    result = await invite(me, "household", "anna@example.test")
+    assert "sends no invitation email" in result["next_step"]
+    assert "anna@example.test" in result["email"]
