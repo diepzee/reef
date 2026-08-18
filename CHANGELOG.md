@@ -1,3 +1,11 @@
+## [0.5.0](https://github.com/diepzee/rif/compare/v0.4.0...v0.5.0) (2026-08-18)
+
+### Features
+
+* **site:** let the door write its own sentence ([#83](https://github.com/diepzee/rif/issues/83)) ([82d1504](https://github.com/diepzee/rif/commit/82d15047a8985a926f56b42fc783959312195e65))
+* **site:** make the marketing site findable ([#82](https://github.com/diepzee/rif/issues/82)) ([f95a47d](https://github.com/diepzee/rif/commit/f95a47d93e15c63b02ac37201677e7117cfe9fb9))
+* **site:** refine landing page rhythm ([#80](https://github.com/diepzee/rif/issues/80)) ([c9684d2](https://github.com/diepzee/rif/commit/c9684d2ecc5c98e4a6c4b61c60adef4c110589f1))
+
 ## [0.4.0](https://github.com/diepzee/rif/compare/v0.3.2...v0.4.0) (2026-08-17)
 
 ### Features

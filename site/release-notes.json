@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "version": "0.5.0",
+      "date": "2026-08-18",
+      "changes": [
+        {
+          "kind": "changed",
+          "text": "The reef landing page now tells its story through a shared-memory conversation, clearer sections, and a shorter path to setup."
+        },
+        {
+          "kind": "changed",
+          "text": "Links to reef now unfurl properly — share one in a chat, a post or a message and it arrives as a card instead of a bare address. The changelog has moved to reefwith.me/changelog."
+        },
+        {
+          "kind": "changed",
+          "text": "While places are open for the launch, the reef home page now says so and invites you to take one. Once they're gone it goes back to explaining that you get in when someone already on reef invites you."
+        }
+      ]
+    },
+    {
       "version": "0.4.0",
       "date": "2026-08-17",
       "changes": [
