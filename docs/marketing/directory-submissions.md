@@ -123,7 +123,7 @@ source is not accepted — which reef has been since 13 August 2026.
   `/reef:recall`, `/reef:remember`, and `/reef:whats-new`.
 - `.claude-plugin/marketplace.json` — the `haai` marketplace, so anyone can
   install today without waiting for a review: `claude plugin marketplace add
-  diepzee/rif && claude plugin install reef@haai`.
+  diepzee/reef && claude plugin install reef@haai`.
 - Both pass `claude plugin validate --strict`.
 
 The plugin's version is stamped by `scripts/stamp_version.py` along with the
@@ -142,7 +142,7 @@ section.
 
 ## 3. glama.ai — claim and enrich the existing listing
 
-reef is already listed as `diepzee/rif` (auto-indexed). Claiming it
+reef is already listed as `diepzee/reef` (auto-indexed). Claiming it
 requires the repo owner's GitHub account.
 
 - [ ] Claim the listing (glama.ai → the server page → "Claim").

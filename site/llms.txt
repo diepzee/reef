@@ -34,5 +34,5 @@ someone already inside adds them to a cove.
 ## Connect
 
 - MCP endpoint: https://reefwith.me/mcp
-- Source: https://github.com/diepzee/rif
+- Source: https://github.com/diepzee/reef
 - CLI: `uv tool install reef-cli` (Python) or `npm install -g @haai/reef-cli`

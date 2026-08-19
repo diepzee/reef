@@ -1047,7 +1047,7 @@ and is bound by the same ceiling.
 - rif dies someday → `python -m rif.export` renders every space back to
   portable markdown; plus the R2 dumps; plus Railway managed backups.
 
-**Where things live:** code+plan on `diepzee/rif`, `main` (the `build-v1` and
+**Where things live:** code+plan on `diepzee/reef`, `main` (the `build-v1` and
 `piccolo-port` branches are merged); knowledge design in
 `mark/meta/architecture.md` (branch `forest-leech`); build audit trail in
 `.worktrees/build/.superpowers/sdd/2026-08-05-rif-v1/progress.md`.
