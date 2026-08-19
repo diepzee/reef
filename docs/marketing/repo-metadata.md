@@ -1,6 +1,6 @@
 # Repo metadata for going public
 
-Set on `github.com/diepzee/rif` via `gh repo edit` while the repo is still
+Set on `github.com/diepzee/reef` via `gh repo edit` while the repo is still
 private, so it's already in place when it flips to public.
 
 ## Description

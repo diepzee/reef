@@ -16,7 +16,7 @@ keywords = ["mcp", "memory", "cli", "reef"]
 
 [project.urls]
 Homepage = "https://reefwith.me"
-Repository = "https://github.com/diepzee/rif"
+Repository = "https://github.com/diepzee/reef"
 
 [project.scripts]
 reef = "reef_cli.cli:main"

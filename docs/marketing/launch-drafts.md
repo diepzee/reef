@@ -29,7 +29,7 @@ Works from Claude (including the phone app), ChatGPT desktop, and Codex as a
 remote MCP connector, plus a CLI (`uv tool install reef-cli` or
 `npm install -g @haai/reef-cli`) and an agent skill.
 
-Site: https://reefwith.me — Source: https://github.com/diepzee/rif
+Site: https://reefwith.me — Source: https://github.com/diepzee/reef
 
 ## X thread
 

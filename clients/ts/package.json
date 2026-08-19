@@ -11,7 +11,7 @@
   "homepage": "https://reefwith.me",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/diepzee/rif.git",
+    "url": "git+https://github.com/diepzee/reef.git",
     "directory": "clients/ts"
   },
   "license": "MIT",

@@ -14,7 +14,7 @@
       "sizes": ["any"]
     }
   ],
-  "repository": { "url": "https://github.com/diepzee/rif", "source": "github" },
+  "repository": { "url": "https://github.com/diepzee/reef", "source": "github" },
   "version": "0.1.0",
   "remotes": [
     { "type": "streamable-http", "url": "https://reefwith.me/mcp" }

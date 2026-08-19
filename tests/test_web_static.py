@@ -47,7 +47,7 @@ def test_marketing_site_offers_cli_and_agent_skill_setup():
     assert "uv tool install reef-cli" in page
     assert "npm install -g @haai/reef-cli" in page
     assert "reef login" in page
-    assert "github.com/diepzee/rif/tree/main/skills/reef" in page
+    assert "github.com/diepzee/reef/tree/main/skills/reef" in page
 
 
 def test_marketing_site_leaves_the_door_sentence_to_the_server():

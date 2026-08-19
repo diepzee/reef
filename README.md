@@ -37,7 +37,7 @@ MCP connector and sign in with the address you were invited on.
 In Claude Code, the plugin carries that connector and three commands with it:
 
 ```bash
-claude plugin marketplace add diepzee/rif
+claude plugin marketplace add diepzee/reef
 claude plugin install reef@haai
 ```
 
@@ -274,7 +274,7 @@ down:
 | `rif_roster`, `rif_admit_member`, … | SQL helper functions | They are the row-level-security boundary; renaming them is live DDL on the part of the system that must not be got wrong |
 | `rif`, `rif_authz`, `rif_probe` | database roles | RLS is only enforced against the right roles, and the suite asserts privileges as `rif_probe` |
 | `RIF_*` | environment variables | Twelve are set on Railway, including the signing key and the open door; a renamed variable that nobody set reads as absent |
-| `diepzee/rif` | the repository | A plugin submission under review points at this URL |
+| `diepzee/reef` | the repository | A plugin submission under review points at this URL |
 
 The rule, if you are adding something: if the database or the deployment
 will remember the name, it is `rif`. If a person will read it, it is `reef`.
