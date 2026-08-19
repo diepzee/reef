@@ -1,54 +1,53 @@
 /**
- * The reef mark as inline SVG, mirroring `public/reef.svg`'s fan coral —
- * a dome of thick forking branches vectorized from the approved reference
- * (spec: docs/superpowers/specs/2026-08-09-reef-visual-redesign-design.md).
- * The tile fill points at `--mark-tile` so the same asset reads correctly
- * on light and bioluminescent-dark grounds. `reef.svg` itself stays the
- * favicon, which always wants the light tile regardless of theme.
+ * The reef mark as inline SVG, mirroring `public/reef.svg`'s brain fan —
+ * a bilateral coral canopy vectorized from the approved generated reference.
+ * The mark has no baked background: the PNG, favicon SVG, and inline glyph all
+ * remain transparent and take their surrounding surface from the caller.
  *
- * The gradient is userSpaceOnUse on the 64-box (base y=50 -> top y=16):
+ * The gradient is userSpaceOnUse in the trace's source coordinates:
  * objectBoundingBox units degenerate on axis-aligned subpaths, and
  * user-space coords are safe for any geometry drawn in this box.
  */
 
 import { useId } from "react";
 
-/** Potrace path of the fan coral, in the traced source's pixel space. */
-const CORAL_D =
-  "M1441 2805 c-40 -8 -78 -18 -84 -24 -7 -7 2 -69 29 -203 37 -181 39 -204 39 -368 0 -197 -16 -264 -76 -315 -39 -32 -54 -32 -89 3 -48 49 -55 94 -52 329 2 133 -1 234 -8 270 -18 92 -50 181 -67 187 -23 9 -173 -76 -173 -99 0 -2 14 -44 30 -93 67 -200 21 -303 -75 -169 -75 103 -95 127 -107 127 -17 0 -76 -70 -126 -149 l-46 -74 40 -33 c21 -19 84 -64 139 -101 129 -88 205 -165 249 -255 85 -170 11 -184 -169 -32 -124 104 -279 194 -334 194 -23 0 -41 -51 -62 -175 -16 -96 -12 -103 81 -126 83 -21 185 -67 300 -134 41 -24 118 -60 170 -80 52 -20 113 -47 135 -60 93 -54 180 -182 209 -304 8 -33 17 -64 21 -70 4 -7 72 -11 200 -11 219 0 198 -9 210 90 10 77 60 231 105 320 122 241 339 440 633 581 60 28 111 58 114 66 10 25 -78 187 -104 191 -14 2 -55 -24 -130 -84 -155 -125 -204 -149 -219 -109 -16 39 61 187 158 306 68 84 68 84 -24 160 -91 75 -105 80 -134 44 -73 -90 -138 -252 -198 -490 -24 -95 -60 -211 -79 -257 -77 -191 -251 -441 -325 -469 -90 -35 -154 173 -104 338 28 91 81 171 202 304 121 133 179 229 224 369 54 167 84 341 62 359 -35 29 -199 61 -211 41 -4 -7 -11 -67 -16 -134 -12 -185 -46 -296 -102 -330 -41 -25 -60 53 -78 304 -6 85 -16 161 -21 168 -13 15 -41 14 -137 -3z M2640 1847 c-341 -121 -578 -377 -645 -698 -26 -122 -64 -109 315 -109 l330 0 19 31 c33 53 92 247 89 287 l-3 37 -75 -1 c-70 -2 -81 -5 -206 -69 -148 -75 -187 -81 -192 -32 -14 119 253 306 439 307 68 0 74 13 61 132 -17 156 -16 156 -132 115z M495 1478 c-14 -37 56 -301 106 -400 l19 -38 300 0 c331 0 315 -4 279 65 -38 72 -107 133 -204 179 -49 24 -119 65 -155 91 -100 74 -182 109 -267 113 -57 3 -74 1 -78 -10z";
+/** Potrace path of the brain fan, in the traced source's pixel space. */
+const FAN_D =
+  "M2545 6594 c-247 -36 -410 -96 -515 -191 -95 -85 -97 -108 -35 -346 24 -95 60 -257 80 -362 53 -283 75 -348 135 -399 96 -80 192 6 257 233 46 162 99 223 196 229 57 4 66 1 95 -23 62 -52 77 -96 76 -225 0 -154 -30 -244 -180 -540 -186 -371 -221 -483 -230 -750 -10 -270 29 -423 204 -801 161 -346 213 -524 215 -729 2 -442 -272 -410 -508 60 -135 268 -179 505 -195 1040 -16 562 -60 790 -240 1240 -151 379 -218 645 -221 873 -1 111 -17 158 -59 179 -48 24 -98 22 -173 -6 -323 -121 -569 -389 -570 -621 0 -139 54 -227 288 -465 279 -284 391 -451 469 -698 57 -181 80 -434 49 -537 -36 -120 -114 -115 -235 13 -169 179 -290 410 -469 897 -82 223 -160 339 -262 390 -59 29 -86 31 -151 9 -163 -56 -338 -426 -340 -719 -2 -246 63 -338 366 -520 329 -197 467 -304 713 -550 318 -317 457 -526 420 -631 -30 -83 -168 -96 -301 -29 -150 76 -313 219 -545 480 -261 292 -466 473 -597 525 -52 20 -127 8 -164 -26 -145 -137 -157 -665 -20 -931 92 -179 186 -231 502 -278 417 -62 764 -172 1090 -348 406 -217 630 -438 805 -792 197 -400 201 -628 9 -601 -109 15 -248 144 -466 436 -163 219 -266 333 -401 447 -267 224 -665 421 -1042 517 -151 38 -214 38 -252 0 -104 -104 172 -632 499 -955 327 -324 748 -520 1598 -744 278 -73 459 -144 601 -235 130 -83 227 -110 403 -110 160 0 254 27 389 112 157 99 330 166 622 243 576 152 915 281 1205 461 320 198 586 493 768 851 219 433 118 497 -450 287 -528 -196 -838 -434 -1198 -919 -244 -328 -437 -459 -537 -365 -111 103 46 561 302 879 335 417 986 731 1744 842 285 41 372 92 465 269 69 131 89 235 90 465 1 219 -11 297 -62 403 -101 209 -326 95 -765 -391 -364 -402 -558 -553 -728 -565 -197 -14 -214 131 -42 360 251 332 595 639 968 863 309 185 386 270 415 456 41 256 -141 719 -315 805 -172 84 -330 -78 -469 -481 -197 -570 -507 -1003 -634 -885 -79 74 -57 418 43 672 89 226 201 383 439 622 252 252 302 334 293 488 -4 75 -10 97 -45 171 -143 295 -625 565 -722 404 -21 -34 -23 -48 -40 -247 -19 -229 -49 -340 -204 -744 -197 -513 -236 -708 -256 -1288 -13 -367 -28 -510 -74 -689 -142 -553 -514 -901 -612 -573 -23 76 -23 267 0 374 28 127 93 306 172 474 210 447 250 592 241 876 -8 247 -49 383 -217 725 -127 256 -149 311 -175 444 -42 207 24 361 155 361 93 0 150 -70 200 -245 52 -180 101 -245 186 -245 30 0 44 7 74 39 49 52 73 120 120 351 21 108 55 250 75 315 71 239 70 236 56 298 -38 169 -315 306 -655 324 -342 18 -544 -123 -639 -447 -46 -156 -52 -211 -52 -470 1 -336 20 -435 166 -875 113 -339 123 -387 124 -605 0 -230 -13 -297 -124 -612 -146 -416 -166 -526 -158 -886 3 -130 13 -313 22 -407 48 -488 6 -936 -103 -1112 -86 -138 -185 -19 -244 295 -30 156 -32 595 -4 852 9 91 20 260 23 376 10 349 -13 481 -146 864 -188 538 -186 699 13 1267 127 361 162 527 173 824 7 187 -5 309 -43 464 -63 253 -185 398 -380 450 -58 16 -287 28 -349 19z";
 
 /**
- * Transforms mapping the traced path into the 64-box: outer = fit the
- * source's 228px-wide coral to x 12..52 with its base on y=50; inner =
- * potrace's own pt-space flip. Copied from reef.svg — keep in sync.
+ * Transforms mapping the traced path into the 64-box: outer fits the fan with
+ * its base on y=50; inner is Potrace's source-space flip. Copied from reef.svg
+ * — keep in sync.
  */
-const OUTER_TRANSFORM = "translate(3.400,13.333) scale(0.17544)";
-const INNER_TRANSFORM = "translate(0,314) scale(0.1,-0.1)";
+const OUTER_TRANSFORM = "translate(13.335,14) scale(0.0545603)";
+const INNER_TRANSFORM =
+  "translate(-0.194915,659.820149) scale(0.1,-0.1)";
 
-/** Crop that ends exactly at the coral's base (y=50) so the glyph's bottom edge sits on a text baseline. */
-const GLYPH_VIEWBOX = "11 15.5 42 34.5";
+/** Crop that ends at the fan's base (y=50), so the glyph sits on a text baseline. */
+const GLYPH_VIEWBOX = "13.32 14 37.34 36";
 /** Width/height ratio of {@link GLYPH_VIEWBOX}. */
-export const GLYPH_ASPECT = 42 / 34.5;
+export const GLYPH_ASPECT = 37.34 / 36;
 
-/** The coral geometry, paint inherited from the parent (`fill` cascades into the path). */
-export function CoralPaths() {
+/** The brain-fan geometry; paint is inherited from the parent. */
+export function FanPaths() {
   return (
     <g transform={OUTER_TRANSFORM}>
       <g transform={INNER_TRANSFORM}>
-        <path d={CORAL_D} />
+        <path d={FAN_D} />
       </g>
     </g>
   );
 }
 
 interface ReefMarkProps {
-  /** Rendered width/height in px — the tile viewBox is square. Default 30. */
+  /** Rendered width/height in px — the transparent viewBox is square. Default 30. */
   size?: number;
   /** Extra class applied to the root `<svg>`, for layout hooks. */
   className?: string;
 }
 
-/** The full reef mark: rounded `--mark-tile` tile behind the gradient fan coral. */
+/** The full transparent reef mark with its seafoam-to-teal gradient. */
 export function ReefMark({ size = 30, className }: ReefMarkProps) {
   const gradientId = useId();
   return (
@@ -65,17 +64,16 @@ export function ReefMark({ size = 30, className }: ReefMarkProps) {
           id={gradientId}
           gradientUnits="userSpaceOnUse"
           x1="0"
-          y1="50"
+          y1="0"
           x2="0"
-          y2="16"
+          y2="6600"
         >
           <stop offset="0" stopColor="#0d9488" />
           <stop offset="1" stopColor="#5eead4" />
         </linearGradient>
       </defs>
-      <rect width="64" height="64" rx="14" fill="var(--mark-tile)" />
       <g fill={`url(#${gradientId})`}>
-        <CoralPaths />
+        <FanPaths />
       </g>
     </svg>
   );
@@ -89,8 +87,8 @@ interface FrondGlyphProps {
 }
 
 /**
- * The coral alone, no tile — single-color glyph for space chips and brand
- * lockups. The viewBox bottom is the coral's base, so in a
+ * The fan alone — single-color glyph for space chips and brand
+ * lockups. The viewBox bottom is the fan's base, so in a
  * `align-items: baseline` flex row the coral stands on the text baseline.
  */
 export function FrondGlyph({ color, size = 20 }: FrondGlyphProps) {
@@ -103,7 +101,7 @@ export function FrondGlyph({ color, size = 20 }: FrondGlyphProps) {
       aria-hidden="true"
     >
       <g fill={color}>
-        <CoralPaths />
+        <FanPaths />
       </g>
     </svg>
   );

@@ -2,6 +2,18 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "me.reefwith/reef",
   "description": "Shared, living memory for you and your people — coves your AI assistant can read and write.",
+  "icons": [
+    {
+      "src": "https://reefwith.me/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": ["180x180"]
+    },
+    {
+      "src": "https://reefwith.me/favicon.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"]
+    }
+  ],
   "repository": { "url": "https://github.com/diepzee/rif", "source": "github" },
   "version": "0.1.0",
   "remotes": [

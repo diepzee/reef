@@ -262,6 +262,8 @@ _PAGE = """<!doctype html>
 <title>What's new in reef</title>
 <meta name="description" content="What has changed in reef, newest first.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="180x180" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
 <link rel="canonical" href="https://reefwith.me/changelog">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="reef">
@@ -271,7 +273,7 @@ _PAGE = """<!doctype html>
 <meta property="og:image" content="https://reefwith.me/site/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The reef share card: the coral mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
+<meta property="og:image:alt" content="The reef share card: the brain-fan mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
 <meta name="twitter:card" content="summary_large_image">
 <style>
 @font-face {

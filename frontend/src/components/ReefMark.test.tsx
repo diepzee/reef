@@ -31,6 +31,11 @@ test("the mark carries a class through, so layouts can place it", () => {
   expect(container.querySelector(".side-brand-mark")).not.toBeNull();
 });
 
+test("the mark has no baked background", () => {
+  const { container } = render(<ReefMark />);
+  expect(container.querySelector("rect")).toBeNull();
+});
+
 test("the frond glyph is decoration and stays out of the reading order", () => {
   const { container } = render(<FrondGlyph color="#0aa" size={26} />);
   const svg = container.querySelector("svg")!;
