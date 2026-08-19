@@ -24,10 +24,10 @@ const OUTER_TRANSFORM = "translate(13.335,14) scale(0.0545603)";
 const INNER_TRANSFORM =
   "translate(-0.194915,659.820149) scale(0.1,-0.1)";
 
-/** Crop that ends at the fan's base (y=50), so the glyph sits on a text baseline. */
-const GLYPH_VIEWBOX = "13.32 14 37.34 36";
+/** Padded crop that prevents edge clipping but still ends at the fan's baseline (y=50). */
+const GLYPH_VIEWBOX = "12.2 12.6 39.6 37.4";
 /** Width/height ratio of {@link GLYPH_VIEWBOX}. */
-export const GLYPH_ASPECT = 37.34 / 36;
+export const GLYPH_ASPECT = 39.6 / 37.4;
 
 /** The brain-fan geometry; paint is inherited from the parent. */
 export function FanPaths() {
