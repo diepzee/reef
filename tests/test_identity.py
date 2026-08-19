@@ -16,7 +16,7 @@ from reef.identity import (
     person_exists,
 )
 from reef.models import Person
-from reef.rls import AUTHZ_ROLE
+from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE
 
 _FUNCTIONS = (
     "reef_person_by_subject",
@@ -35,7 +35,10 @@ async def test_the_identity_functions_are_owned_by_the_bypassing_role():
     )
     assert {row["proname"] for row in rows} == set(_FUNCTIONS)
     for row in rows:
-        assert row["owner"] == AUTHZ_ROLE
+        # Either name: renaming that role is an operator step, so a
+        # cluster is legitimately on either side of it. What matters
+        # is that a BYPASSRLS role owns these, not what it is called.
+        assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE)
         assert row["rolbypassrls"] is True
         assert row["prosecdef"] is True
         assert "search_path=public, pg_catalog" in (row["proconfig"] or [])

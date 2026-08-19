@@ -20,6 +20,7 @@ from reef.db import DB, transaction_scope
 from reef.models import TABLES, Person, Space, SpaceKind
 from reef.rls import (
     AUTHZ_ROLE,
+    FORMER_AUTHZ_ROLE,
     alias_statements,
     appearance_statements,
     avatar_statements,
@@ -135,8 +136,13 @@ async def schema():
     fails here, loudly, rather than silently testing something else.
     """
     await DB.start_connection_pool()
+    # Either name counts. Renaming this role is an operator step run out of
+    # band, so a cluster is legitimately on either side of it -- the DDL
+    # resolves whichever exists, and so does this guard. What must not pass
+    # is a cluster with neither, which would test a shape production has not.
     if not await DB._run_in_new_connection(
-        f"SELECT 1 FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
+        f"SELECT 1 FROM pg_roles WHERE rolname IN "
+        f"('{AUTHZ_ROLE}', '{FORMER_AUTHZ_ROLE}')"
     ):
         raise RuntimeError(_MISSING_AUTHZ_ROLE)
     if not await DB._run_in_new_connection(
