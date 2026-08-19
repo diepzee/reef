@@ -17,7 +17,7 @@ import pytest
 from reef.access import Principal, arm
 from reef.db import DB
 from reef.models import Membership, Space
-from reef.rls import AUTHZ_ROLE
+from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE
 
 
 async def _arm(person) -> None:
@@ -37,7 +37,10 @@ async def test_the_helper_functions_are_owned_by_the_bypassing_role():
     )
     assert len(rows) == 2, "both helper functions should exist"
     for row in rows:
-        assert row["owner"] == AUTHZ_ROLE
+        # Either name: renaming that role is an operator step, so a
+        # cluster is legitimately on either side of it. What matters
+        # is that a BYPASSRLS role owns these, not what it is called.
+        assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE)
         assert row["rolbypassrls"] is True
 
 

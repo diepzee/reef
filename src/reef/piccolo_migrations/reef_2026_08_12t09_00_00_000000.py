@@ -4,7 +4,7 @@ import asyncpg
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from reef.db import DB
-from reef.rls import AUTHZ_ROLE, create_authz_role_statements
+from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE, create_authz_role_statements
 
 ID = "2026-08-12T09:00:00:000000"
 VERSION = "1.36.0"
@@ -129,7 +129,8 @@ async def forwards() -> MigrationManager:
 
     async def run() -> None:
         role = await DB._run_in_new_connection(
-            f"SELECT rolbypassrls FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
+            f"SELECT rolbypassrls FROM pg_roles WHERE rolname IN "
+            f"('{AUTHZ_ROLE}', '{FORMER_AUTHZ_ROLE}')"
         )
         if not role:
             # Try to create it. Whether this is allowed depends on the
@@ -144,7 +145,8 @@ async def forwards() -> MigrationManager:
             except asyncpg.exceptions.InsufficientPrivilegeError:
                 raise RuntimeError(_ROLE_MISSING) from None
             role = await DB._run_in_new_connection(
-                f"SELECT rolbypassrls FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'"
+                f"SELECT rolbypassrls FROM pg_roles WHERE rolname IN "
+                f"('{AUTHZ_ROLE}', '{FORMER_AUTHZ_ROLE}')"
             )
         if not role:
             raise RuntimeError(_ROLE_MISSING)

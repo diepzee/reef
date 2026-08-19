@@ -13,7 +13,7 @@ with everything else. Hence functions with the check inside.
 from reef.access import Principal, arm
 from reef.db import DB
 from reef.models import Person
-from reef.rls import AUTHZ_ROLE
+from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE
 from reef.spaces import display_names, member_names, member_roster, space_owner
 
 
@@ -36,7 +36,10 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
     )
     assert len(rows) == 8
     for row in rows:
-        assert row["owner"] == AUTHZ_ROLE, row["proname"]
+        # Either name: renaming that role is an operator step, so a
+        # cluster is legitimately on either side of it. What matters
+        # is that a BYPASSRLS role owns these, not what it is called.
+        assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE), row["proname"]
         assert row["prosecdef"] is True, row["proname"]
         assert "search_path=public, pg_catalog" in (row["proconfig"] or [])
 
