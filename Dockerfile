@@ -26,7 +26,11 @@ https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
-COPY pyproject.toml uv.lock README.md ./
+# LICENSE travels with pyproject.toml because the metadata names it:
+# `license-files` is a build-time input, so `uv sync` below fails outright
+# without it. A laptop always has the file; the build context only has what
+# is copied here.
+COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 # The CLI workspace member must exist in the image: any plain `uv run`
