@@ -1,3 +1,9 @@
+## [0.6.0](https://github.com/diepzee/rif/compare/v0.5.0...v0.6.0) (2026-08-19)
+
+### Features
+
+* ship reef as a Claude Code plugin, licensed and annotated ([#85](https://github.com/diepzee/rif/issues/85)) ([d1892f6](https://github.com/diepzee/rif/commit/d1892f690c1fe80320b2404167319dd9c120bdd5))
+
 ## [0.5.0](https://github.com/diepzee/rif/compare/v0.4.0...v0.5.0) (2026-08-18)
 
 ### Features

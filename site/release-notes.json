@@ -1,6 +1,32 @@
 {
   "entries": [
     {
+      "version": "0.6.0",
+      "date": "2026-08-19",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "Install reef in Claude Code with two commands, and get `/reef:recall`, `/reef:remember` and `/reef:whats-new` alongside it. Your assistant also asks before anything that would overwrite or delete something, and stops asking to read."
+        },
+        {
+          "kind": "changed",
+          "text": "Reef now uses its new brain-fan mark everywhere, from the app and website to favicons, social previews, and assistant connections."
+        },
+        {
+          "kind": "changed",
+          "text": "The new brain-fan mark is now better balanced with the landing-page headline and navigation."
+        },
+        {
+          "kind": "fixed",
+          "text": "Inviting someone into a cove now reminds you that reef sends no email, so nothing reaches them until you pass the message on yourself. Previously the invite just reported success and the person you invited was never told."
+        },
+        {
+          "kind": "fixed",
+          "text": "The brain-fan mark now has clear edge space and a better-balanced size across reef's site, app, and shared previews."
+        }
+      ]
+    },
+    {
       "version": "0.5.0",
       "date": "2026-08-18",
       "changes": [
