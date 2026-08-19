@@ -118,6 +118,41 @@ jobs:
   # if: to dodge that, would report "skipped" on a required check, which
   # branch protection counts as passing. See changelog.yml's header.
 
+  # Railway used to be the first thing that ever ran this Dockerfile, and it
+  # runs after the merge. So a Dockerfile error, or a file the metadata needs
+  # that no COPY line provides, could not fail a check -- only a deploy, and
+  # then every deploy after it, while the previous container kept answering
+  # and nothing looked wrong. That happened: four consecutive deploys failed
+  # on 19 Aug 2026 because `license-files` named a file the build context
+  # lacked, and production served a stale image for four hours.
+  #
+  # The image is built, not pushed. Railway builds and deploys its own; this
+  # job exists to prove the Dockerfile still works while a human can still
+  # read the failure on a pull request.
+  #
+  # It runs on main too. A merge queue is not in play here, so two PRs that
+  # are individually green can still combine into an image that does not
+  # build, and main is one push away from production.
+  image:
+    name: Image (docker build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          # Layer cache in the Actions cache, so the apt and uv layers are
+          # not rebuilt on every pull request. `max` caches intermediate
+          # layers as well as the final one, which is what makes the long
+          # postgresql-client-18 layer reusable.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   # A no-write semantic-release run, so a broken .releaserc.json or an
   # unparseable commit history fails in review rather than on main -- where it
   # would sit between a merge and a production deploy.
@@ -190,14 +225,17 @@ jobs:
   # every release as a squash-merged "chore(release): X.Y.Z" commit; this
   # job recognises that commit on main, pushes the vX.Y.Z tag, and turns
   # the commit body (the release notes, carried through the squash) into
-  # the GitHub release. Gated on backend and frontend so a broken build
-  # never gets a tag -- the same run that tests the merge does the tagging.
+  # the GitHub release. Gated on backend, frontend and image so a broken
+  # build never gets a tag -- the same run that tests the merge does the
+  # tagging. `image` is in that list because a version tagged and published
+  # from a commit whose container will not build is a release nobody can
+  # run, and the tag is the part that cannot be taken back.
   #
   # The tag is pushed with the bot's app token. No bypass is involved:
   # rulesets on main govern refs/heads/main, and this pushes only a tag.
   tag:
     name: 🔖 Release
-    needs: [backend, frontend]
+    needs: [backend, frontend, image]
     if: >-
       github.event_name == 'push' && github.ref == 'refs/heads/main' &&
       startsWith(github.event.head_commit.message, 'chore(release): ')
