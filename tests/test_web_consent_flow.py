@@ -8,8 +8,8 @@ import pytest_asyncio
 from fastmcp import FastMCP
 from fastmcp.server.auth.oauth_proxy.models import OAuthTransaction
 
-from rif.config import get_settings
-from rif.server import _build_auth
+from reef.config import get_settings
+from reef.server import _build_auth
 
 DOMAIN = "https://example-authkit.test"
 BASE = "https://reef.example.test"

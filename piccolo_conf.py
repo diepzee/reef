@@ -6,6 +6,6 @@ uses, so migrations and runtime can never point at different databases.
 
 from piccolo.conf.apps import AppRegistry
 
-from rif.db import DB  # noqa: F401  -- the CLI looks up `DB` by name
+from reef.db import DB  # noqa: F401  -- the CLI looks up `DB` by name
 
-APP_REGISTRY = AppRegistry(apps=["rif.piccolo_app"])
+APP_REGISTRY = AppRegistry(apps=["reef.piccolo_app"])

@@ -9,11 +9,11 @@ zero-row update, and rosters that say who can only read.
 
 import pytest
 
-from rif.access import Principal, ReadOnlyMembership
-from rif.pages import delete_page, edit_section, save_page
-from rif.search import search_pages
-from rif.server import tool_list_spaces, tool_read_page, tool_remember
-from rif.spaces import SpaceError, invite
+from reef.access import Principal, ReadOnlyMembership
+from reef.pages import delete_page, edit_section, save_page
+from reef.search import search_pages
+from reef.server import tool_list_spaces, tool_read_page, tool_remember
+from reef.spaces import SpaceError, invite
 
 
 def principal_for(person) -> Principal:

@@ -1,9 +1,9 @@
 import pytest
 
-from rif.access import Principal, resolve_space
-from rif.db import transaction_scope
-from rif.pages import get_page, save_page
-from rif.server import tool_remember, write_pages
+from reef.access import Principal, resolve_space
+from reef.db import transaction_scope
+from reef.pages import get_page, save_page
+from reef.server import tool_remember, write_pages
 
 
 def principal_for(person) -> Principal:
@@ -259,7 +259,7 @@ async def test_remember_still_swallows_an_exact_retry_of_an_entry(tx, household)
 async def test_add_file_refuses_a_malformed_content_type(mime):
     """The value is stored, sent to the object store, and signed into a URL,
     so it is matched against a shape rather than merely length-checked."""
-    from rif.server import _store_file
+    from reef.server import _store_file
 
     result = await _store_file("personal", "x.bin", "eA==", mime, "a file")
     assert result["error"] == "invalid_mime"
@@ -268,7 +268,7 @@ async def test_add_file_refuses_a_malformed_content_type(mime):
 async def test_add_file_accepts_an_ordinary_content_type_shape():
     """Rejection must be about shape, not about reaching the store: this gets
     past the mime gate and fails later, on the principal, in this context."""
-    from rif.server import _store_file
+    from reef.server import _store_file
 
     with pytest.raises(Exception) as caught:
         await _store_file("personal", "x.pdf", "eA==", "application/pdf", "a file")

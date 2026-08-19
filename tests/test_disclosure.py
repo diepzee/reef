@@ -10,11 +10,11 @@ co-members read each other's ``persons`` rows hands over the email column
 with everything else. Hence functions with the check inside.
 """
 
-from rif.access import Principal, arm
-from rif.db import DB
-from rif.models import Person
-from rif.rls import AUTHZ_ROLE
-from rif.spaces import display_names, member_names, member_roster, space_owner
+from reef.access import Principal, arm
+from reef.db import DB
+from reef.models import Person
+from reef.rls import AUTHZ_ROLE
+from reef.spaces import display_names, member_names, member_roster, space_owner
 
 
 async def _arm(person) -> None:

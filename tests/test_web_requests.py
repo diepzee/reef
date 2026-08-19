@@ -6,9 +6,9 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import Response
 
-from rif.access import Principal
-from rif.config import get_settings
-from rif.web.requests import (
+from reef.access import Principal
+from reef.config import get_settings
+from reef.web.requests import (
     CsrfRejected,
     Unauthenticated,
     cookie_secure,
@@ -16,7 +16,7 @@ from rif.web.requests import (
     require_csrf,
     set_session_cookie,
 )
-from rif.web.session import seal
+from reef.web.session import seal
 
 
 def _request(headers: dict[str, str] | None = None, method: str = "GET") -> Request:

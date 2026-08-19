@@ -10,8 +10,8 @@ resolution-markers = [
 
 [manifest]
 members = [
+    "reef",
     "reef-cli",
-    "rif",
 ]
 
 [[package]]
@@ -1475,8 +1475,51 @@ wheels = [
 ]
 
 [[package]]
+name = "reef"
+version = "0.6.0"
+source = { editable = "." }
+dependencies = [
+    { name = "asyncpg" },
+    { name = "boto3" },
+    { name = "fastmcp" },
+    { name = "httpx" },
+    { name = "logfire", extra = ["asyncpg", "httpx", "starlette"] },
+    { name = "piccolo" },
+    { name = "pydantic-settings" },
+    { name = "pyyaml" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "reef-cli" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "boto3", specifier = ">=1.43.64" },
+    { name = "fastmcp", specifier = ">=2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "logfire", extras = ["asyncpg", "httpx", "starlette"], specifier = ">=4.40.0" },
+    { name = "piccolo", specifier = ">=1.36.0" },
+    { name = "pydantic-settings", specifier = ">=2.14.2" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=1.4.0" },
+    { name = "reef-cli", editable = "clients/python" },
+    { name = "ruff", specifier = ">=0.16.1" },
+]
+
+[[package]]
 name = "reef-cli"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "clients/python" }
 dependencies = [
     { name = "fastmcp" },
@@ -1537,49 +1580,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/e2/d6/d0b9fafc73b65767200da027acab1db1bdb1048f4fea5ebf659df01c700e/rich_rst-2.1.0.tar.gz", hash = "sha256:f4d117b49697f338769759fa5cacf5197da4888b347b9fda2e50aef5cd8d93bd", size = 302732, upload-time = "2026-07-05T02:59:44.308Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/68/1fc93dd759605b5d00fc98b50200739e41ed32bd22d6ba35ca6c3932371b/rich_rst-2.1.0-py3-none-any.whl", hash = "sha256:7ecd1343ee12c879d0e7ae74c3eb6d263b023d2929c6d114212eb1fd91057255", size = 272987, upload-time = "2026-07-05T02:59:42.792Z" },
-]
-
-[[package]]
-name = "rif"
-version = "0.5.0"
-source = { editable = "." }
-dependencies = [
-    { name = "asyncpg" },
-    { name = "boto3" },
-    { name = "fastmcp" },
-    { name = "httpx" },
-    { name = "logfire", extra = ["asyncpg", "httpx", "starlette"] },
-    { name = "piccolo" },
-    { name = "pydantic-settings" },
-    { name = "pyyaml" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "reef-cli" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "asyncpg", specifier = ">=0.31.0" },
-    { name = "boto3", specifier = ">=1.43.64" },
-    { name = "fastmcp", specifier = ">=2" },
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "logfire", extras = ["asyncpg", "httpx", "starlette"], specifier = ">=4.40.0" },
-    { name = "piccolo", specifier = ">=1.36.0" },
-    { name = "pydantic-settings", specifier = ">=2.14.2" },
-    { name = "pyyaml", specifier = ">=6.0.3" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", specifier = ">=1.4.0" },
-    { name = "reef-cli", editable = "clients/python" },
-    { name = "ruff", specifier = ">=0.16.1" },
 ]
 
 [[package]]

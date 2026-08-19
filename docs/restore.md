@@ -168,7 +168,7 @@ repo's `docker-compose.yml` will refuse it outright.
 ## Bucket locks cover attachment bytes — R2 has no versioning
 
 Image bytes live in R2 as opaque-keyed objects (`attachments.object_key`,
-never derived from `space_id` — see `src/rif/attachments.py`), outside
+never derived from `space_id` — see `src/reef/attachments.py`), outside
 Postgres entirely. `pg_dump`/`pg_restore` only ever covers the metadata row
 (`attachments` table: key, mime, size, description, status) — never the
 bytes themselves.
@@ -194,7 +194,7 @@ no lock configured still has working object keys. Locks protect against
 ## Exports are portability, not a backup
 
 The scoped Markdown export and the original `python -m rif.export` command
-write the current page version with YAML frontmatter (`src/rif/export.py`,
+write the current page version with YAML frontmatter (`src/reef/export.py`,
 import-compatible with `scripts/import_mark.py`'s `parse_markdown`). The JSON
 option similarly carries current bodies and metadata.
 

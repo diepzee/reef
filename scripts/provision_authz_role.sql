@@ -20,7 +20,7 @@
 -- SECURITY closes the usual escape, because it subjects the table *owner* to
 -- policies too -- so a SECURITY DEFINER function owned by the table owner
 -- recurses identically. Only a BYPASSRLS owner breaks the cycle. Verified
--- both ways against a live server. See src/rif/rls.py's module docstring.
+-- both ways against a live server. See src/reef/rls.py's module docstring.
 --
 -- NOLOGIN and no password: nothing ever connects as this role, so the bypass
 -- is reachable only by calling a function it owns -- and it owns exactly the

@@ -3,10 +3,10 @@ from uuid import UUID
 
 import pytest
 
-from rif.access import Principal
-from rif.models import Promotion, utc_now
-from rif.pages import get_page, save_page
-from rif.promotion import (
+from reef.access import Principal
+from reef.models import Promotion, utc_now
+from reef.pages import get_page, save_page
+from reef.promotion import (
     NONCE_TTL,
     PromotionError,
     confirm_promotion,

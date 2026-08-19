@@ -14,10 +14,10 @@ below is the tripwire for exactly that.
 import asyncpg
 import pytest
 
-from rif.access import Principal, arm
-from rif.db import DB
-from rif.models import Membership, Space
-from rif.rls import AUTHZ_ROLE
+from reef.access import Principal, arm
+from reef.db import DB
+from reef.models import Membership, Space
+from reef.rls import AUTHZ_ROLE
 
 
 async def _arm(person) -> None:

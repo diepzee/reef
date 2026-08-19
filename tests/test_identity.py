@@ -8,15 +8,15 @@ provider subject is atomic so two racing first sign-ins cannot both win.
 
 import asyncio
 
-from rif.db import DB
-from rif.identity import (
+from reef.db import DB
+from reef.identity import (
     bind_subject,
     person_by_email,
     person_by_subject,
     person_exists,
 )
-from rif.models import Person
-from rif.rls import AUTHZ_ROLE
+from reef.models import Person
+from reef.rls import AUTHZ_ROLE
 
 _FUNCTIONS = (
     "rif_person_by_subject",

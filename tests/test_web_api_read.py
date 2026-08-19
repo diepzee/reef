@@ -7,9 +7,9 @@ from zipfile import ZipFile
 
 from conftest import _login
 
-from rif.db import transaction_scope
-from rif.pages import save_page
-from rif.web.session import seal
+from reef.db import transaction_scope
+from reef.pages import save_page
+from reef.web.session import seal
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
 # test_web_api_write.py.
@@ -71,7 +71,7 @@ async def test_me(api, world):
 
 async def test_sliding_renewal_preserves_sid(api, world):
     """The per-request cookie renewal carries the AuthKit sid forward."""
-    from rif.web.session import unseal
+    from reef.web.session import unseal
 
     alice, _, _ = world
     token = seal(alice.id, alice.email, secret="test-secret", sid="ses_abc")
@@ -85,7 +85,7 @@ async def test_sliding_renewal_preserves_sid(api, world):
 
 async def test_get_page_and_404(api, world):
     """A page fetch returns the body; missing paths and foreign spaces 404."""
-    from rif.access import Principal
+    from reef.access import Principal
 
     alice, bob, _ = world
     async with transaction_scope():
@@ -172,7 +172,7 @@ async def test_file_route_is_the_general_alias(api, world):
 
 async def test_scoped_exports_and_full_dump_download(api, world):
     """Both portable formats and the comprehensive dump are downloadable."""
-    from rif.access import Principal
+    from reef.access import Principal
 
     alice, _bob, _team = world
     async with transaction_scope():
@@ -267,7 +267,7 @@ async def test_a_session_sealed_with_a_stale_epoch_is_refused(api, world, seed):
 async def test_a_surviving_session_is_renewed_without_resetting_its_chain(api, world):
     """The renewal has to carry ``iat`` forward, or the absolute ceiling
     restarts on every request and never arrives."""
-    from rif.web.session import unseal
+    from reef.web.session import unseal
 
     alice, _bob, _team = world
     _login(api, alice)

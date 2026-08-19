@@ -3,7 +3,7 @@
 Invoked by the release-pr workflow with the notes semantic-release's dry
 run generated, on stdin -- notes are multi-line markdown, and stdin dodges
 every shell-quoting hazard an argument would invite. All the logic lives
-in :mod:`rif.releasenotes`, like ``fold_changes.py`` before it.
+in :mod:`reef.releasenotes`, like ``fold_changes.py`` before it.
 """
 
 import sys
@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from rif.releasenotes import FragmentError, prepend_changelog
+from reef.releasenotes import FragmentError, prepend_changelog
 
 ROOT = Path(__file__).resolve().parent.parent
 

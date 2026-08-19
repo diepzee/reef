@@ -11,9 +11,9 @@ import pytest_asyncio
 from conftest import seed_dsn
 from test_web_auth_routes import FakeOIDC
 
-from rif.opendoor import admit, door_policy
-from rif.server import mcp
-from rif.web.routes_auth import register_auth_routes
+from reef.opendoor import admit, door_policy
+from reef.server import mcp
+from reef.web.routes_auth import register_auth_routes
 
 
 def _env(monkeypatch, seats: str | None, until: str | None) -> None:
@@ -23,7 +23,7 @@ def _env(monkeypatch, seats: str | None, until: str | None) -> None:
     :param seats: value for ``RIF_OPEN_SEATS``, or None to leave it unset
     :param until: value for ``RIF_OPEN_UNTIL``, or None to leave it unset
     """
-    from rif.config import get_settings
+    from reef.config import get_settings
 
     for name, value in (("RIF_OPEN_SEATS", seats), ("RIF_OPEN_UNTIL", until)):
         if value is None:
@@ -39,7 +39,7 @@ def _clear_settings_cache():
 
     :yields: nothing; the cache is cleared before and after
     """
-    from rif.config import get_settings
+    from reef.config import get_settings
 
     get_settings.cache_clear()
     yield
@@ -258,8 +258,8 @@ async def door(monkeypatch, graph):
     """
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
     monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("RIF_BASE_URL", "https://rif.example")
-    from rif.config import get_settings
+    monkeypatch.setenv("RIF_BASE_URL", "https://reef.example")
+    from reef.config import get_settings
 
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
     fake = FakeOIDC(
@@ -273,7 +273,7 @@ async def door(monkeypatch, graph):
     register_auth_routes(mcp, client_factory=lambda: fake)
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(
-        transport=transport, base_url="https://rif.example"
+        transport=transport, base_url="https://reef.example"
     ) as client:
         yield client, fake
 

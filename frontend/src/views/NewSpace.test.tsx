@@ -4,7 +4,7 @@
  * A 400 here is routine rather than exceptional — a slug can be malformed
  * or already taken — so the reason has to reach the form. The detail is the
  * only actionable part of that answer, which is the same lesson the avatar
- * endpoint taught: see `BadRequest` in `src/rif/web/routes_api.py`.
+ * endpoint taught: see `BadRequest` in `src/reef/web/routes_api.py`.
  */
 
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";

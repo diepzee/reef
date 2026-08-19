@@ -1,6 +1,6 @@
 import pytest
 
-from rif.access import AccessDenied, Principal, accessible_spaces, resolve_space
+from reef.access import AccessDenied, Principal, accessible_spaces, resolve_space
 
 
 def principal_for(person) -> Principal:
@@ -71,7 +71,7 @@ async def test_one_person_in_two_shared_spaces(tx, household, graph):
 
 async def test_alias_map_names_a_persons_own_coves(tx, household):
     """Names live on the membership, so this is per reader, not per cove."""
-    from rif.access import alias_map
+    from reef.access import alias_map
 
     names = await alias_map(principal_for(household["wouter"]))
     assert names[household["w_personal"].id] == "personal"
@@ -84,8 +84,8 @@ async def test_two_people_can_each_have_a_cove_called_family(tx, graph):
     global namespace, so the first person to take 'family' took it from
     everybody -- and the collision surfaced as a raw driver error that
     doubled as a cross-tenant existence oracle."""
-    from rif.access import alias_map
-    from rif.spaces import create_space
+    from reef.access import alias_map
+    from reef.spaces import create_space
 
     ann = await graph.person("ann@x.test", "Ann")
     bo = await graph.person("bo@x.test", "Bo")
@@ -105,7 +105,7 @@ async def test_two_people_can_each_have_a_cove_called_family(tx, graph):
 
 async def test_one_person_cannot_reuse_their_own_cove_name(tx, graph):
     """The constraint that does hold: unique per person, not per cluster."""
-    from rif.spaces import SpaceError, create_space
+    from reef.spaces import SpaceError, create_space
 
     ann = await graph.person("ann2@x.test", "Ann")
     await graph.personal_space(ann)

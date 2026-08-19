@@ -11,7 +11,7 @@ one of these three sets fails the suite, which is the point: the failure
 arrives before the directory does.
 """
 
-from rif.server import mcp
+from reef.server import mcp
 
 
 async def registered_tools() -> dict:

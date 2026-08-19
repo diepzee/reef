@@ -3,7 +3,7 @@
  *
  * Requests always send same-origin cookies (session auth); mutations carry
  * the CSRF header the backend requires (`X-Rif-Csrf: 1`, see
- * `src/rif/web/requests.py:require_csrf`). A 401 anywhere means the session
+ * `src/reef/web/requests.py:require_csrf`). A 401 anywhere means the session
  * is gone, so it redirects to the login route rather than surfacing an
  * error the caller would have to special-case.
  */
@@ -109,7 +109,7 @@ function dispositionFilename(header: string | null): string | null {
  * Download a file from a POST endpoint, preserving the server's filename.
  *
  * The export routes are POSTs rather than plain links so that they carry the
- * CSRF header (see `src/rif/web/routes_api.py:_export`), which means a bare
+ * CSRF header (see `src/reef/web/routes_api.py:_export`), which means a bare
  * `<a href>` can no longer fetch them: the response has to be read here and
  * handed to the browser as a blob.
  *

@@ -10,8 +10,8 @@ from datetime import timedelta
 
 import pytest
 
-from rif.access import Principal
-from rif.invitations import (
+from reef.access import Principal
+from reef.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
     InviteBudgetExceeded,
@@ -21,8 +21,8 @@ from rif.invitations import (
     invites_left,
     next_invite_at,
 )
-from rif.models import Membership, Person
-from rif.spaces import invite
+from reef.models import Membership, Person
+from reef.spaces import invite
 
 
 def principal_for(person) -> Principal:
@@ -53,7 +53,7 @@ async def test_a_fresh_invite_counts_against_the_window_it_was_written_in(househ
     ever diverge again this fails, because a just-minted entry would fall
     outside its own window.
     """
-    from rif.db import DB
+    from reef.db import DB
 
     me = principal_for(household["wouter"])
     async with DB.transaction():
@@ -100,7 +100,7 @@ async def test_budget_boundary_last_one_lands_next_one_refused(tx, household):
 
 
 async def test_entries_older_than_the_window_do_not_count(household, seed):
-    from rif.db import DB
+    from reef.db import DB
 
     me = principal_for(household["wouter"])
     async with DB.transaction():
@@ -198,7 +198,7 @@ async def test_concurrent_invites_cannot_exceed_the_budget(household):
     """
     import asyncio
 
-    from rif.db import DB
+    from reef.db import DB
 
     me = principal_for(household["wouter"])
     async with DB.transaction():

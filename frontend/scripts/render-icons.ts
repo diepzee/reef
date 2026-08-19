@@ -1,6 +1,6 @@
 /**
  * Renders public/reef.svg to the raster icon sizes the backend serves
- * (src/rif/web/static.py: reef-icon.png doubles as /favicon.ico and
+ * (src/reef/web/static.py: reef-icon.png doubles as /favicon.ico and
  * /apple-touch-icon.png — 180px is the apple-touch convention).
  * Run: bun run scripts/render-icons.ts
  */

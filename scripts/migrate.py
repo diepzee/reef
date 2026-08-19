@@ -19,7 +19,7 @@ import sys
 
 import asyncpg
 
-from rif.config import get_settings
+from reef.config import get_settings
 
 # Arbitrary but fixed: any constant works as long as every deployment of
 # this application uses the same one.
@@ -34,7 +34,7 @@ async def _main() -> int:
     role that can ``ALTER TABLE`` can also ``DROP POLICY`` -- which would put
     the privacy boundary inside the blast radius of an application bug.
 
-    ``piccolo_conf`` builds its engine from ``rif.db.DB``, which reads
+    ``piccolo_conf`` builds its engine from ``reef.db.DB``, which reads
     ``DATABASE_URL``, so the subprocess is handed an overridden environment.
     Without that the CLI would connect as the app role and the DDL would
     fail, which is the whole reason this indirection exists.

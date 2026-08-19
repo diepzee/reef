@@ -10,9 +10,9 @@ import asyncio
 
 import pytest
 
-from rif.access import Principal, arm, resolve_space
-from rif.db import transaction_scope
-from rif.models import (
+from reef.access import Principal, arm, resolve_space
+from reef.db import transaction_scope
+from reef.models import (
     Attachment,
     AttachmentStatus,
     MemberRole,

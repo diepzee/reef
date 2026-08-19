@@ -2,9 +2,9 @@
 
 import pytest
 
-from rif.access import Principal
-from rif.models import Page, Revision
-from rif.pages import (
+from reef.access import Principal
+from reef.models import Page, Revision
+from reef.pages import (
     InvalidPath,
     PageNotFound,
     ProtectedPath,
@@ -139,7 +139,7 @@ async def test_a_deleted_page_leaves_the_cove_version_bumped(tx, household):
     """Deleting changes the corpus, so a cached index must be invalidated."""
     me = principal_for(household["wouter"])
     page = await save_page(me, "personal", "gone.md", "x", message="x")
-    from rif.models import Space
+    from reef.models import Space
 
     before = (await Space.objects().where(Space.id == page.space_id).first()).version
     await delete_page(me, "personal", "gone.md")

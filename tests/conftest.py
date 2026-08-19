@@ -1,13 +1,13 @@
 """Test fixtures: a real Postgres, real RLS policies, a real household.
 
-``DATABASE_URL`` is set before any ``rif`` import because ``rif.db`` builds
+``DATABASE_URL`` is set before any ``rif`` import because ``reef.db`` builds
 its engine at module scope; pointing it at ``rif_test`` afterwards would be
 too late.
 """
 
 import os
 
-from rif.config import get_settings
+from reef.config import get_settings
 
 os.environ["DATABASE_URL"] = get_settings().test_database_url
 
@@ -16,9 +16,9 @@ import httpx
 import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
-from rif.db import DB, transaction_scope
-from rif.models import TABLES, Person, Space, SpaceKind
-from rif.rls import (
+from reef.db import DB, transaction_scope
+from reef.models import TABLES, Person, Space, SpaceKind
+from reef.rls import (
     AUTHZ_ROLE,
     alias_statements,
     appearance_statements,
@@ -124,7 +124,7 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
 async def schema():
     """Build the schema once per session, including RLS policies.
 
-    The policy DDL comes from ``rif.rls``, the same module the real
+    The policy DDL comes from ``reef.rls``, the same module the real
     migration uses, so production and tests can never apply different
     policies -- a difference there would mean tests validate policies
     production does not enforce.
@@ -181,7 +181,7 @@ async def schema():
     # suite went from green to intermittently failing whole sessions. What a
     # sweep would have caught -- a function left behind by a rewritten branch
     # -- test_migration_chain now catches better, by comparing the migrated
-    # schema against what rif.rls actually declares rather than against
+    # schema against what reef.rls actually declares rather than against
     # whatever this database happens to contain.
     for statement in (
         drop_disclosure_statements()
@@ -512,14 +512,14 @@ async def api(monkeypatch, graph):
     :param graph: the topology-builder fixture, pulled in for fixture ordering
     :returns: an async client bound to the FastMCP ASGI app
     """
-    from rif.server import mcp
-    from rif.web.routes_api import register_api_routes
+    from reef.server import mcp
+    from reef.web.routes_api import register_api_routes
 
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
     register_api_routes(mcp)
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(
-        transport=transport, base_url="https://rif.example"
+        transport=transport, base_url="https://reef.example"
     ) as client:
         yield client
 
@@ -530,7 +530,7 @@ def _login(client: httpx.AsyncClient, person) -> None:
     Every existing session cookie is dropped first, and that is load-bearing
     rather than tidiness. ``api()`` renews the session on each successful
     response, so the jar ends up holding a *second* ``rif_session`` -- the
-    server's, scoped to the ``rif.example`` domain -- alongside the
+    server's, scoped to the ``reef.example`` domain -- alongside the
     domain-less one this helper sets. ``Cookies.set`` only replaces the
     latter, so a second ``_login`` in the same test would leave the first
     person's server-issued cookie in place and keep sending it.
@@ -542,7 +542,7 @@ def _login(client: httpx.AsyncClient, person) -> None:
     :param client: the HTTP client to log in
     :param person: the person to seal a session for
     """
-    from rif.web.session import seal
+    from reef.web.session import seal
 
     for cookie in list(client.cookies.jar):
         if cookie.name == "rif_session":

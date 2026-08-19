@@ -8,11 +8,11 @@ and the leak test proves it.
 
 from datetime import UTC, datetime
 
-from rif.access import Principal, arm
-from rif.activity import whats_new
-from rif.models import Attachment, AttachmentStatus
-from rif.pages import save_page
-from rif.server import tool_whats_new
+from reef.access import Principal, arm
+from reef.activity import whats_new
+from reef.models import Attachment, AttachmentStatus
+from reef.pages import save_page
+from reef.server import tool_whats_new
 
 
 def principal_for(person) -> Principal:

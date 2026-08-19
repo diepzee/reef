@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 
 from reef_cli.cli import JsonTokenStore, build_parser, run
 
-from rif.server import mcp
+from reef.server import mcp
 
 
 class FakeClient:

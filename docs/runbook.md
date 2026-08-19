@@ -13,7 +13,7 @@ to stand the service up again.
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
 | 4 — Storage and safety nets | **Mostly done**, 7 Aug 2026 — R2 live, images working, one verified backup and a passed restore drill. The *schedule* is missing |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
-| 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/rif/protocol.md`), no longer a page; `meta/persona.md` is still the smoke-test placeholder |
+| 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/reef/protocol.md`), no longer a page; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
 
 ## Open items
@@ -250,7 +250,7 @@ Still to fill in, after Step 4 above: any limit hit on her plan.
 
 ### If Step 6 fails
 
-Her surface reopens; nothing else does. Everything in `src/rif/` survives
+Her surface reopens; nothing else does. Everything in `src/reef/` survives
 untouched, and his own connector keeps working over the same deploy — the
 fallback is a web app for her, not a redesign.
 
@@ -282,7 +282,7 @@ Then the person signs in to AuthKit with that exact address. On that first
 sign-in `rif` binds their provider subject, creates their own personal space,
 and seeds `meta/persona.md` there for them. Nothing else is needed — no
 migration, no restart. (The operating protocol is not seeded: since 9 Aug
-2026 it ships with the product in `src/rif/protocol.md`, versioned with the
+2026 it ships with the product in `src/reef/protocol.md`, versioned with the
 code so improvements reach every member on deploy. `update_meta_page`
 accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
@@ -390,7 +390,7 @@ spike service and for recovering when a bad commit is already on `main`.
 >    to R2, so the independent copy does not exist even in principle until
 >    the bucket does. Do the R2 half first; the backup half depends on it.
 > 3. **`add_image` and `read_image` are broken in production.** Both build an
->    `S3ObjectStore` per call (`src/rif/server.py:441`, `:462`), and with the
+>    `S3ObjectStore` per call (`src/reef/server.py:441`, `:462`), and with the
 >    S3 settings empty that constructor raises `ValueError: Invalid
 >    endpoint:` from boto3. The server boots regardless — unlike auth, which
 >    deliberately refuses to boot when misconfigured, storage fails only when
@@ -452,7 +452,7 @@ Four operations reach past the row policies, inside `SECURITY DEFINER`
 functions owned by `rif_authz`: minting an invitation, admitting a member,
 removing one, transferring a cove, and erasing an account. No row policy can
 express those without permitting a great deal more, so what they carry is
-**accountability, not prevention** — and `src/rif/audit.py` is the
+**accountability, not prevention** — and `src/reef/audit.py` is the
 accountability half.
 
 Each one emits a Logfire record naming the actor, the cove, and the effect.
@@ -922,7 +922,7 @@ someone went and audited the metadata by hand.
 **The storage trap.** FastMCP's default client-storage is encrypted, but
 it lives in a platformdirs cache directory — ephemeral on Railway, where
 every push to `main` redeploys the container, so every merge would wipe
-every connector's registration. `src/rif/oauth_store.py` points the store
+every connector's registration. `src/reef/oauth_store.py` points the store
 at `RIF_OAUTH_STORE_DIR` instead (the Railway volume), and mirrors
 FastMCP's own construction to keep the encryption, which otherwise only
 wraps the store FastMCP builds itself. The encryption key derives from

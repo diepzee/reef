@@ -1,8 +1,8 @@
-from rif.access import Principal, arm
-from rif.context import build_index, load_context
-from rif.db import transaction_scope
-from rif.models import Revision
-from rif.pages import save_page
+from reef.access import Principal, arm
+from reef.context import build_index, load_context
+from reef.db import transaction_scope
+from reef.models import Revision
+from reef.pages import save_page
 
 
 def principal_for(person) -> Principal:
@@ -68,7 +68,7 @@ async def test_version_reflects_every_space_write(tx, household):
 
 
 async def test_index_lists_pages_without_bodies(tx, household):
-    from rif.context import build_index as load_index
+    from reef.context import build_index as load_index
 
     me = principal_for(household["wouter"])
     await save_page(
@@ -93,7 +93,7 @@ async def test_index_lists_pages_without_bodies(tx, household):
 
 
 async def test_index_description_skips_headings(tx, household):
-    from rif.context import build_index as load_index
+    from reef.context import build_index as load_index
 
     me = principal_for(household["wouter"])
     await save_page(
@@ -139,7 +139,7 @@ An inline example: `[[household:house.md]]`.
 
 
 async def test_index_excludes_the_other_persons_space(tx, household):
-    from rif.context import build_index as load_index
+    from reef.context import build_index as load_index
 
     mine = principal_for(household["wouter"])
     theirs = principal_for(household["partner"])
@@ -149,9 +149,9 @@ async def test_index_excludes_the_other_persons_space(tx, household):
 
 
 async def test_index_carries_attachment_descriptions(tx, household):
-    from rif.access import resolve_space
-    from rif.context import build_index as load_index
-    from rif.models import Attachment, AttachmentStatus
+    from reef.access import resolve_space
+    from reef.context import build_index as load_index
+    from reef.models import Attachment, AttachmentStatus
 
     me = principal_for(household["wouter"])
     shared = await resolve_space(me, "household")
@@ -204,7 +204,7 @@ async def test_last_editor_none_when_author_erased(graph):
     """A vanished author row degrades to None, never an error.
 
     The update runs inside its own transaction and must ``arm`` RLS itself:
-    ``set_config``'s binding is transaction-local (see ``rif.db``), so the
+    ``set_config``'s binding is transaction-local (see ``reef.db``), so the
     prior ``save_page`` transaction's arming does not carry over here -- an
     unarmed ``Revision.update`` would silently touch zero rows and leave the
     author un-erased, masking the very case this test exists to cover.

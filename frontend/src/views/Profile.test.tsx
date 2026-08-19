@@ -116,7 +116,7 @@ test("the picker only offers the types the endpoint stores", () => {
   renderProfile();
   const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
   // No SVG: it is a script carrier and the endpoint serves bytes back to a
-  // browser. See AVATAR_MIMES in src/rif/web/routes_api.py.
+  // browser. See AVATAR_MIMES in src/reef/web/routes_api.py.
   expect(input.getAttribute("accept")).toBe(
     "image/png,image/jpeg,image/webp,image/gif",
   );

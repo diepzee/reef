@@ -1,7 +1,7 @@
 import pytest
 
-from rif.access import AccessDenied, Principal, resolve_space
-from rif.models import (
+from reef.access import AccessDenied, Principal, resolve_space
+from reef.models import (
     Attachment,
     AttachmentStatus,
     MemberRole,
@@ -11,8 +11,8 @@ from rif.models import (
     Space,
     SpaceKind,
 )
-from rif.pages import get_page, save_page
-from rif.spaces import (
+from reef.pages import get_page, save_page
+from reef.spaces import (
     SpaceError,
     _membership,
     create_space,
@@ -102,7 +102,7 @@ async def test_onboarding_survives_an_attempted_slug_squat(tx, household, graph)
 
 
 async def test_invite_new_email_creates_person_and_membership(tx, household):
-    from rif.invitations import invites_left
+    from reef.invitations import invites_left
 
     me = principal_for(household["wouter"])
     before = await invites_left(me)
@@ -334,7 +334,7 @@ async def test_a_stranger_using_the_same_name_is_not_a_collision(tx, graph):
 async def test_renaming_a_cove_moves_only_my_own_name_for_it(tx, graph):
     """The alias is a column on my membership, so a rename is invisible to
     everybody else -- and it is how an invitee repairs a suffixed name."""
-    from rif.spaces import rename_cove
+    from reef.spaces import rename_cove
 
     ann = await graph.person("ann3@x.test", "Ann")
     bo = await graph.person("bo3@x.test", "Bo")
@@ -353,7 +353,7 @@ async def test_renaming_a_cove_moves_only_my_own_name_for_it(tx, graph):
 
 
 async def test_a_rename_cannot_take_a_name_i_already_use(tx, graph):
-    from rif.spaces import rename_cove
+    from reef.spaces import rename_cove
 
     ann = await graph.person("ann4@x.test", "Ann")
     await graph.personal_space(ann)
@@ -366,7 +366,7 @@ async def test_a_rename_cannot_take_a_name_i_already_use(tx, graph):
 
 async def test_a_cove_cannot_be_renamed_to_personal(tx, graph):
     """It would shadow the private space in every later call."""
-    from rif.spaces import rename_cove
+    from reef.spaces import rename_cove
 
     ann = await graph.person("ann5@x.test", "Ann")
     await graph.personal_space(ann)
@@ -379,7 +379,7 @@ async def test_a_cove_cannot_be_renamed_to_personal(tx, graph):
 async def test_an_invitee_who_already_uses_the_name_gets_a_suffixed_one(tx, graph):
     """The inviter cannot see the invitee's other coves, so the alias is
     chosen and taken inside the database rather than guessed here."""
-    from rif.access import alias_map
+    from reef.access import alias_map
 
     owner = await graph.person("owner@x.test", "Owner")
     guest = await graph.person("guest@x.test", "Guest")

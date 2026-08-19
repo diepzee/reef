@@ -1,6 +1,6 @@
-from rif.access import Principal
-from rif.pages import get_page, save_page
-from rif.server import (
+from reef.access import Principal
+from reef.pages import get_page, save_page
+from reef.server import (
     tool_list_spaces,
     tool_load_context,
     tool_read_page,
@@ -46,7 +46,7 @@ async def test_tool_list_spaces_names_members_and_ownership(tx, household):
 
 
 async def test_tool_load_index_serialises(tx, household):
-    from rif.server import tool_load_index
+    from reef.server import tool_load_index
 
     me = principal_for(household["wouter"])
     await save_page(
@@ -59,7 +59,7 @@ async def test_tool_load_index_serialises(tx, household):
 
 
 async def test_tool_read_pages_fetches_batch_with_not_found_markers(tx, household):
-    from rif.server import tool_read_pages
+    from reef.server import tool_read_pages
 
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "a.md", "alpha", message="x")
@@ -75,7 +75,7 @@ async def test_tool_read_pages_fetches_batch_with_not_found_markers(tx, househol
 
 
 async def test_tool_create_space_and_error_mapping(tx, household):
-    from rif.server import tool_create_space
+    from reef.server import tool_create_space
 
     me = principal_for(household["wouter"])
     created = await tool_create_space(me, "trip")
@@ -85,7 +85,7 @@ async def test_tool_create_space_and_error_mapping(tx, household):
 
 
 async def test_tool_invite_and_remove_round_trip(tx, household):
-    from rif.server import tool_invite, tool_remove_member
+    from reef.server import tool_invite, tool_remove_member
 
     me = principal_for(household["wouter"])
     invited = await tool_invite(me, "household", "anna@example.test", "Anna")

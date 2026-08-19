@@ -16,11 +16,11 @@ from opentelemetry.sdk.trace.export import (
     SpanExportResult,
 )
 
-from rif import audit, telemetry
-from rif.access import Principal
-from rif.db import DB
-from rif.invitations import allowlist
-from rif.spaces import create_space, delete_space, invite, remove_member
+from reef import audit, telemetry
+from reef.access import Principal
+from reef.db import DB
+from reef.invitations import allowlist
+from reef.spaces import create_space, delete_space, invite, remove_member
 
 
 def principal_for(person) -> Principal:
@@ -55,7 +55,7 @@ class _Capture(SpanExporter):
 def recorded(monkeypatch):
     """Capture what the trail emits, offline.
 
-    ``is_configured`` is forced true so :func:`rif.audit.record` runs, while
+    ``is_configured`` is forced true so :func:`reef.audit.record` runs, while
     ``send_to_logfire=False`` keeps the suite off the network.
 
     :param monkeypatch: pytest's monkeypatch fixture
@@ -137,7 +137,7 @@ async def test_the_trail_carries_no_addresses_or_content(tx, household, recorded
 
 async def test_erasing_an_account_is_recorded(graph, recorded):
     """The most consequential act of the four, and the least reversible."""
-    from rif.account import delete_account_rows
+    from reef.account import delete_account_rows
 
     alice = await graph.person("erased@example.test", "Alice")
     await graph.personal_space(alice)

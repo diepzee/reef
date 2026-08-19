@@ -5,7 +5,7 @@ import inspect
 from fastmcp.server.auth.oauth_proxy import consent as consent_module
 from fastmcp.server.auth.oauth_proxy import ui
 
-from rif.web.consent import create_consent_html, install_consent_page
+from reef.web.consent import create_consent_html, install_consent_page
 
 
 def _render(**overrides) -> str:

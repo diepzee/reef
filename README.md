@@ -261,8 +261,20 @@ Copyright is held by Haai BV.
 
 ## A note on the name
 
-The product is **reef**. The repository, the Python module, and the database
-role are all called **rif**. That was the working name.
+The product is **reef**, and so is the Python module. `rif` was the working
+name, and it survived far longer than intended.
 
-It stayed because renaming a live schema and a deployed service is real risk
-for no reader-facing gain. If you are reading the code, `rif` is reef.
+What is still called `rif` is everything a running system remembers, because
+those are not names anybody reads — they are keys something already wrote
+down:
+
+| Still `rif` | What it is | Why it stays |
+|---|---|---|
+| `app_name="rif"` | Piccolo's key in the `migration` table | Renaming it makes Piccolo find zero applied migrations and replay the whole chain against a populated database |
+| `rif_roster`, `rif_admit_member`, … | SQL helper functions | They are the row-level-security boundary; renaming them is live DDL on the part of the system that must not be got wrong |
+| `rif`, `rif_authz`, `rif_probe` | database roles | RLS is only enforced against the right roles, and the suite asserts privileges as `rif_probe` |
+| `RIF_*` | environment variables | Twelve are set on Railway, including the signing key and the open door; a renamed variable that nobody set reads as absent |
+| `diepzee/rif` | the repository | A plugin submission under review points at this URL |
+
+The rule, if you are adding something: if the database or the deployment
+will remember the name, it is `rif`. If a person will read it, it is `reef`.

@@ -1,5 +1,5 @@
 /**
- * Client-side mirror of `_summary` in `src/rif/context.py:63`.
+ * Client-side mirror of `_summary` in `src/reef/context.py:63`.
  *
  * Kept in sync deliberately, not shared: the server computes the same
  * description for `PageMeta.description`, but the editor (Task 10) needs

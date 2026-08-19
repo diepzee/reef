@@ -4,7 +4,7 @@ Railway's Postgres hands every service the same bootstrap superuser. A
 superuser carries ``BYPASSRLS``, and ``FORCE ROW LEVEL SECURITY`` does not
 change that -- it extends policies to the table *owner*, which is a weaker
 guarantee and does not reach a superuser at all. An app running on that
-credential ignores every policy in ``rif.rls``, so the privacy boundary the
+credential ignores every policy in ``reef.rls``, so the privacy boundary the
 design depends on is not enforced, and the adversarial tests prove something
 production does not do.
 
@@ -29,7 +29,7 @@ import asyncpg
 
 ROLE = "rif_app"
 
-# Owner of rif.rls's helper functions, and of nothing else. See that module's
+# Owner of reef.rls's helper functions, and of nothing else. See that module's
 # docstring for why the bypass is unavoidable; the short version is that
 # FORCE ROW LEVEL SECURITY subjects the table owner to policies too, so a
 # policy on memberships that reads memberships recurses fatally, and only a
@@ -51,7 +51,7 @@ TABLES = (
     "space_appearances",
 )
 
-# Tables carrying RLS policies (see rif.rls). Used only to verify enforcement.
+# Tables carrying RLS policies (see reef.rls). Used only to verify enforcement.
 PROTECTED = ("pages", "revisions", "attachments")
 
 

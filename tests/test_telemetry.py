@@ -19,7 +19,7 @@ from opentelemetry.sdk.trace.export import (
     SpanExportResult,
 )
 
-from rif import telemetry
+from reef import telemetry
 
 
 class _Capture(SpanExporter):
