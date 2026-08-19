@@ -6,6 +6,8 @@ readme = "README.md"
 authors = [
     { name = "WOUTER DURNEZ", email = "wouter.durnez@gmail.com" }
 ]
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "asyncpg>=0.31.0",

@@ -7,6 +7,7 @@ authors = [
     { name = "WOUTER DURNEZ", email = "wouter.durnez@gmail.com" }
 ]
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "fastmcp>=2",
