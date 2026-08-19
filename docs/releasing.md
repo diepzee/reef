@@ -121,18 +121,31 @@ new repository).
    merge methods on `main` are squash only. Both are what make the release
    PR's exactly-one-commit invariant hold without anyone having to remember
    to squash by hand.
-3. **PyPI trusted publishing for `reef-cli`.** On PyPI, add a trusted
-   publisher for this repository, workflow `ci.yml`, environment left
-   blank.
-4. **`NPM_TOKEN` repo secret.** Create an npm automation token with publish
-   rights on `@haai/reef-cli`, and store it as the `NPM_TOKEN` repository
-   secret.
+3. **PyPI trusted publishing for `reef-cli`.** On PyPI, under the project's
+   Publishing settings, add a GitHub publisher: owner `diepzee`, repository
+   `rif`, workflow `ci.yml`, environment left blank. These must match the
+   OIDC token's claims exactly; a mismatch fails with `invalid-publisher`,
+   "valid token, but no corresponding publisher".
+4. **npm trusted publishing for `@haai/reef-cli`.** On npmjs.com, under the
+   package's settings, add a trusted publisher naming this repository and
+   the workflow file `ci.yml`. No token, and deliberately so: npm falls back
+   to OIDC only when `NODE_AUTH_TOKEN` is *unset*, so a secret that does not
+   exist resolves to an empty string and breaks publishing rather than
+   disabling it. npm is also restricting 2FA-bypassing tokens (account
+   changes Aug 2026, direct publishing Jan 2027).
+
+   Both publishers went unconfigured until 19 August 2026 without anything
+   noticing, because the publish job only runs when a client actually
+   changed and no release had changed one since the pipeline was written.
+   Four releases reported success having published nothing. If you are
+   standing this up somewhere new, force a client change and watch a real
+   publish before believing it.
 5. **The `release` and `no-changelog` labels** exist on the repository.
    The bot applies both to the release PR: `no-changelog` because the PR
    *consumes* fragments rather than adding one, and `release` to make it
    easy to spot in the PR list.
-6. **Require `Backend (pytest + ruff)` and `Frontend (bun test + tsc +
-   build)` in branch protection.** Both gate the `tag` job too — a broken
+6. **Require `Backend (pytest + ruff)`, `Frontend (bun test + tsc +
+   build)` and `Image (docker build)` in branch protection.** Both gate the `tag` job too — a broken
    build never gets tagged, because the same run that tests the merge does
    the tagging.
 
