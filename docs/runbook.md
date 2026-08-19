@@ -1059,3 +1059,45 @@ answers, but connectors must use `reefwith.me` — see "Custom domain".
 **How it deploys:** merging to `main` auto-deploys production (Railway,
 dashboard setting, no CI). `railway up` is the manual override. See
 "Phase 3 → How deploys actually happen".
+
+## Publishing the MCP registry record
+
+`server.json` is reef's entry in the official MCP registry — the listing a
+stranger's client resolves `me.reefwith/reef` through. Editing the file
+changes nothing on its own; the registry only learns about it when the
+record is republished, signed with the key that proves the `me.reefwith`
+namespace belongs to this deployment.
+
+The namespace is verified by DNS: a TXT record on the `reefwith.me` apex
+carries the public half, and `~/.config/reef/mcp-registry-ed25519.pem` holds
+the private half. That file is the whole authority — anyone with it can
+repoint reef's registry entry at any server they like.
+
+```bash
+mcp-publisher login dns --domain reefwith.me \
+  --private-key "$(openssl pkey -in ~/.config/reef/mcp-registry-ed25519.pem \
+    -outform DER | tail -c 32 | xxd -p -c 64)"
+mcp-publisher publish
+```
+
+The command substitution matters. `mcp-publisher` takes the key as a
+flag, so pasting the hex literal would leave the signing key in shell
+history; substituting it means the literal is never typed. It is still
+visible in the process list for the moment the command runs, which is the
+best this tool allows — run it somewhere you would be willing to run
+`ssh-add`.
+
+Two things worth checking afterwards, because a stale record looks
+identical to a fresh one:
+
+```bash
+curl -sS "https://registry.modelcontextprotocol.io/v0/servers?search=me.reefwith"
+```
+
+The `repository.url` should name the current repository, and `version`
+should match the release. That version is stamped by
+`scripts/stamp_version.py` along with every other manifest — it sat at
+0.1.0 while the server reached 0.6.0, because nothing stamped it, and the
+registry is precisely the listing that tells a stranger which version they
+are connecting to.
+
