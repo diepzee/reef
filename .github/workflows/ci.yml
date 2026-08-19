@@ -411,9 +411,23 @@ jobs:
           npm ci
           npm run build
           test -f dist/index.js  # refuse to publish what the build did not produce
+      # No NODE_AUTH_TOKEN, deliberately, and do not add one back. npm falls
+      # back to OIDC only when that variable is *unset*: an empty string is
+      # still a value, so `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` with no
+      # such secret in the repo does not mean "no token", it means "an empty
+      # token", and npm tries to authenticate with it and fails. That is what
+      # this job did before -- and npm is restricting 2FA-bypassing tokens
+      # anyway (account changes Aug 2026, direct publishing Jan 2027), so
+      # trusted publishing is where this has to end up regardless.
+      #
+      # Requires a trusted publisher configured on npmjs.com for this package
+      # naming this workflow file, and id-token: write above.
       - name: 📦 Publish @haai/reef-cli to npm
         if: steps.changed.outputs.ts == 'true'
         working-directory: clients/ts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --access public
+        # Node 22 ships npm 10.x, and OIDC publishing needs >= 11.5.1. The
+        # bundled npm authenticates with nothing and fails on a 404 that
+        # looks like a missing package rather than an old client.
+        run: |
+          npm install -g npm@latest
+          npm publish --access public
