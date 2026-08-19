@@ -1,13 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="reef">
-  <defs>
-    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="6600">
-      <stop offset="0" stop-color="#0d9488"/>
-      <stop offset="1" stop-color="#5eead4"/>
-    </linearGradient>
-  </defs>
-  <g transform="translate(13.335,14) scale(0.0545603)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 684.222204 659.820149" aria-hidden="true">
 <g transform="translate(-0.194915,659.820149) scale(0.100000,-0.100000)"
-fill="url(#g)" stroke="none">
+fill="currentColor" stroke="none">
 <path d="M2545 6594 c-247 -36 -410 -96 -515 -191 -95 -85 -97 -108 -35 -346
 24 -95 60 -257 80 -362 53 -283 75 -348 135 -399 96 -80 192 6 257 233 46 162
 99 223 196 229 57 4 66 1 95 -23 62 -52 77 -96 76 -225 0 -154 -30 -244 -180
@@ -46,5 +39,4 @@ fill="url(#g)" stroke="none">
 1267 127 361 162 527 173 824 7 187 -5 309 -43 464 -63 253 -185 398 -380 450
 -58 16 -287 28 -349 19z"/>
 </g>
-  </g>
 </svg>

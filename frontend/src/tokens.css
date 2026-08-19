@@ -40,10 +40,6 @@
   --ok-bg: #e7f9f4;
   --ok-border: #0d9488;
   --ok-ink: #0b5f56;
-  /* ReefMark's tile fill — light seafoam here, but dark teal in both dark
-     blocks below, since the light tile clashes on a bioluminescent-dark
-     ground. Keeps one SVG asset correct in both themes. */
-  --mark-tile: #e7f9f4;
   /* The app's body background (see app.css's `body` rule). Light mode is
      just the solid --ground it always was; only the dark blocks below
      swap it for the "night-dive" radial gradient, so this token is the
@@ -74,7 +70,6 @@
     --ok-bg: #0e3630;
     --ok-border: #38bdd8;
     --ok-ink: #9fe8dc;
-    --mark-tile: #10312e;
     --night-ground: radial-gradient(
       120% 80% at 80% -10%,
       #0e3140,
@@ -106,7 +101,6 @@
   --ok-bg: #0e3630;
   --ok-border: #38bdd8;
   --ok-ink: #9fe8dc;
-  --mark-tile: #10312e;
   --night-ground: radial-gradient(
     120% 80% at 80% -10%,
     #0e3140,

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { FAMILIES, organismFor } from "./components/organisms";
 
 describe("organismFor", () => {
-  test("personal hashes like any alias — the brand coral is a logo, not a glyph", () => {
+  test("personal hashes like any alias — the brand fan is a logo, not a glyph", () => {
     expect(organismFor("personal").family).toEqual("staghorn");
     expect(FAMILIES).toContain(organismFor("personal").family as never);
   });

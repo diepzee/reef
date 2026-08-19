@@ -35,7 +35,7 @@ const STRIP_SEEDS: Record<string, number> = {
   spiral: 3, bubbles: 1, seagrass: 2, shell: 5, nudibranch: 3,
 };
 
-// o-coral is NOT emitted: the brand mark is the traced fan coral, which
+// o-coral is NOT emitted: the brand mark is the traced brain fan, which
 // lives verbatim in site/index.html's defs (copied from ReefMark.tsx) and
 // only ever appears in brand positions (nav, lockup) — never as a cove
 // glyph or a strip organism.

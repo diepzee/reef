@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Brain-inspired reef mark options</title>
+  <desc id="desc">Four vector logo concepts that retain reef's seafoam tile and teal gradient while making the coral resemble a brain.</desc>
+
+  <defs>
+    <linearGradient id="reef-gradient" gradientUnits="userSpaceOnUse" x1="0" y1="51" x2="0" y2="15">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="1" stop-color="#5eead4"/>
+    </linearGradient>
+
+    <!-- B: a compact two-hemisphere canopy with coral-like negative-space veins. -->
+    <mask id="twin-mask" maskUnits="userSpaceOnUse" x="8" y="10" width="48" height="45">
+      <rect x="8" y="10" width="48" height="45" fill="black"/>
+      <path fill="white" d="M31.1 49.5C26.2 49.5 23.4 47.1 23.7 43.1C18.2 43.1 15.4 40.1 16.4 36.1C12.8 33.7 13.2 28.8 16.4 26.6C14.8 22.1 18.5 18.5 22.7 19.1C24.2 14.5 29.2 13.6 31.4 17.8L31.1 49.5Z"/>
+      <path fill="white" d="M32.9 49.5C37.8 49.5 40.6 47.1 40.3 43.1C45.8 43.1 48.6 40.1 47.6 36.1C51.2 33.7 50.8 28.8 47.6 26.6C49.2 22.1 45.5 18.5 41.3 19.1C39.8 14.5 34.8 13.6 32.6 17.8L32.9 49.5Z"/>
+      <g fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round">
+        <path d="M30.7 41.8C26.8 40.3 25.2 37.7 25 34.4M25 34.4C21.2 33.3 19.6 30.9 19.9 28.2M25 34.4C27.4 30.9 27.3 26.6 25.7 23.5"/>
+        <path d="M33.3 41.8C37.2 40.3 38.8 37.7 39 34.4M39 34.4C42.8 33.3 44.4 30.9 44.1 28.2M39 34.4C36.6 30.9 36.7 26.6 38.3 23.5"/>
+      </g>
+    </mask>
+
+    <!-- C: an unmistakable brain silhouette, softened by a short coral base. -->
+    <mask id="cortex-mask" maskUnits="userSpaceOnUse" x="8" y="10" width="48" height="45">
+      <rect x="8" y="10" width="48" height="45" fill="black"/>
+      <path fill="white" d="M29.2 50.5C29.2 47.4 28.1 45.8 25.9 44.1C20.8 44.7 17 42.3 17.1 38.1C13.4 36.2 12.8 31.5 15.8 28.7C14.2 24.5 16.8 20.2 21.2 20C22.6 15.9 27.6 14.5 31.1 17.4C31.5 17.7 31.8 18.2 32 18.7C32.2 18.2 32.5 17.7 32.9 17.4C36.4 14.5 41.4 15.9 42.8 20C47.2 20.2 49.8 24.5 48.2 28.7C51.2 31.5 50.6 36.2 46.9 38.1C47 42.3 43.2 44.7 38.1 44.1C35.9 45.8 34.8 47.4 34.8 50.5H29.2Z"/>
+      <g fill="none" stroke="black" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M32 19V41.4"/>
+        <path d="M27.2 20.1C27.4 23.9 25.5 25.3 22 26.3M22 26.3C24.4 28.2 24.6 30.8 22.7 33.4M22.7 33.4C26.8 33.7 28.2 36.2 27.3 40.1"/>
+        <path d="M36.8 20.1C36.6 23.9 38.5 25.3 42 26.3M42 26.3C39.6 28.2 39.4 30.8 41.3 33.4M41.3 33.4C37.2 33.7 35.8 36.2 36.7 40.1"/>
+      </g>
+    </mask>
+
+    <!-- D: a rounded memory canopy carried by the old mark's branching rhythm. -->
+    <mask id="bloom-mask" maskUnits="userSpaceOnUse" x="8" y="10" width="48" height="45">
+      <rect x="8" y="10" width="48" height="45" fill="black"/>
+      <path fill="white" d="M28.8 50C28.8 47.1 27.4 44.8 24.8 42.9C19.6 43 16.5 39.8 17.5 35.9C13.7 33.8 13.8 29 17.1 26.7C16 22.8 19.1 19.1 23.1 19.7C25 15.2 30.1 14.7 32 18.8C33.9 14.7 39 15.2 40.9 19.7C44.9 19.1 48 22.8 46.9 26.7C50.2 29 50.3 33.8 46.5 35.9C47.5 39.8 44.4 43 39.2 42.9C36.6 44.8 35.2 47.1 35.2 50H28.8Z"/>
+      <g fill="none" stroke="black" stroke-width="2.5" stroke-linecap="round">
+        <path d="M32 44.2V21.1M31.8 39.4C27.2 38.3 24.2 35.6 23 31.4M23 31.4C20.5 30.3 19.3 28.5 19.5 26.5M27.7 36.2C28.1 31.5 27.1 27.8 24.9 24.9"/>
+        <path d="M32.2 39.4C36.8 38.3 39.8 35.6 41 31.4M41 31.4C43.5 30.3 44.7 28.5 44.5 26.5M36.3 36.2C35.9 31.5 36.9 27.8 39.1 24.9"/>
+      </g>
+    </mask>
+
+    <symbol id="option-a" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+      <g fill="none" stroke="url(#reef-gradient)" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M32 49C32 43 32 37.1 31.7 31.9M31.8 40.7C27.7 39.5 24.5 36.2 22.9 31.4M22.9 31.4C19.7 30.1 17.8 27.6 17.6 24.5M27.4 37.7C27.3 32.6 26 28.3 23.5 24.9M31.7 31.9C29.7 28.4 29.8 23.9 30.9 19.1M32.2 40.7C36.3 39.5 39.5 36.2 41.1 31.4M41.1 31.4C44.3 30.1 46.2 27.6 46.4 24.5M36.6 37.7C36.7 32.6 38 28.3 40.5 24.9M32.3 31.9C34.3 28.4 34.2 23.9 33.1 19.1"/>
+      </g>
+      <path d="M26.8 50.5C27.4 47.8 29 45.7 32 43.7C35 45.7 36.6 47.8 37.2 50.5H26.8Z" fill="url(#reef-gradient)"/>
+    </symbol>
+
+    <symbol id="option-b" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+      <rect x="8" y="10" width="48" height="45" fill="url(#reef-gradient)" mask="url(#twin-mask)"/>
+    </symbol>
+
+    <symbol id="option-c" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+      <rect x="8" y="10" width="48" height="45" fill="url(#reef-gradient)" mask="url(#cortex-mask)"/>
+    </symbol>
+
+    <symbol id="option-d" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="14" fill="#e7f9f4"/>
+      <rect x="8" y="10" width="48" height="45" fill="url(#reef-gradient)" mask="url(#bloom-mask)"/>
+    </symbol>
+
+    <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#0f4c45" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="760" fill="#f5fbf9"/>
+  <circle cx="1110" cy="-25" r="210" fill="#ddf7f0"/>
+  <circle cx="55" cy="760" r="170" fill="#e7f9f4"/>
+
+  <text x="72" y="72" fill="#123b36" font-family="Arial, sans-serif" font-size="36" font-weight="750">A brainier reef</text>
+  <text x="72" y="108" fill="#52726e" font-family="Arial, sans-serif" font-size="18">Four close relatives of the current fan-coral mark · same tile, gradient, and compact footprint</text>
+
+  <!-- A -->
+  <g transform="translate(72 150)">
+    <rect width="510" height="244" rx="26" fill="white" filter="url(#card-shadow)"/>
+    <use xlink:href="#option-a" x="28" y="32" width="144" height="144"/>
+    <text x="200" y="58" fill="#0d9488" font-family="Arial, sans-serif" font-size="13" font-weight="800" letter-spacing="1.5">A · CLOSEST</text>
+    <text x="200" y="91" fill="#173e39" font-family="Arial, sans-serif" font-size="25" font-weight="750">Forked Fan</text>
+    <text x="200" y="122" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">The existing coral, gently mirrored</text>
+    <text x="200" y="146" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">into two brain-like hemispheres.</text>
+    <use xlink:href="#option-a" x="200" y="176" width="32" height="32"/>
+    <text x="244" y="198" fill="#78908d" font-family="Arial, sans-serif" font-size="13">favicon check</text>
+  </g>
+
+  <!-- B -->
+  <g transform="translate(618 150)">
+    <rect width="510" height="244" rx="26" fill="white" filter="url(#card-shadow)"/>
+    <use xlink:href="#option-b" x="28" y="32" width="144" height="144"/>
+    <text x="200" y="58" fill="#0d9488" font-family="Arial, sans-serif" font-size="13" font-weight="800" letter-spacing="1.5">B · BALANCED</text>
+    <text x="200" y="91" fill="#173e39" font-family="Arial, sans-serif" font-size="25" font-weight="750">Twin Fronds</text>
+    <text x="200" y="122" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">A brain canopy split down the middle,</text>
+    <text x="200" y="146" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">with coral veins cut through it.</text>
+    <use xlink:href="#option-b" x="200" y="176" width="32" height="32"/>
+    <text x="244" y="198" fill="#78908d" font-family="Arial, sans-serif" font-size="13">favicon check</text>
+  </g>
+
+  <!-- C -->
+  <g transform="translate(72 430)">
+    <rect width="510" height="244" rx="26" fill="white" filter="url(#card-shadow)"/>
+    <use xlink:href="#option-c" x="28" y="32" width="144" height="144"/>
+    <text x="200" y="58" fill="#0d9488" font-family="Arial, sans-serif" font-size="13" font-weight="800" letter-spacing="1.5">C · CLEAREST</text>
+    <text x="200" y="91" fill="#173e39" font-family="Arial, sans-serif" font-size="25" font-weight="750">Cortex Coral</text>
+    <text x="200" y="122" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">The most immediate brain read, kept</text>
+    <text x="200" y="146" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">alive by a small rooted coral base.</text>
+    <use xlink:href="#option-c" x="200" y="176" width="32" height="32"/>
+    <text x="244" y="198" fill="#78908d" font-family="Arial, sans-serif" font-size="13">favicon check</text>
+  </g>
+
+  <!-- D -->
+  <g transform="translate(618 430)">
+    <rect width="510" height="244" rx="26" fill="white" filter="url(#card-shadow)"/>
+    <use xlink:href="#option-d" x="28" y="32" width="144" height="144"/>
+    <text x="200" y="58" fill="#0d9488" font-family="Arial, sans-serif" font-size="13" font-weight="800" letter-spacing="1.5">D · SOFTEST</text>
+    <text x="200" y="91" fill="#173e39" font-family="Arial, sans-serif" font-size="25" font-weight="750">Memory Bloom</text>
+    <text x="200" y="122" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">A friendly lobed crown whose interior</text>
+    <text x="200" y="146" fill="#5b7471" font-family="Arial, sans-serif" font-size="16">keeps the original branching rhythm.</text>
+    <use xlink:href="#option-d" x="200" y="176" width="32" height="32"/>
+    <text x="244" y="198" fill="#78908d" font-family="Arial, sans-serif" font-size="13">favicon check</text>
+  </g>
+
+  <text x="600" y="724" text-anchor="middle" fill="#6b8581" font-family="Arial, sans-serif" font-size="14">Concept sheet · vector-native · no production asset replaced</text>
+</svg>
