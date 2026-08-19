@@ -123,7 +123,9 @@ async def forwards() -> MigrationManager:
     :raises RuntimeError: if the function-owner role has not been provisioned
     :returns: configured migration manager
     """
-    manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
+    manager = MigrationManager(
+        migration_id=ID, app_name="reef", description=DESCRIPTION
+    )
 
     async def run() -> None:
         role = await DB._run_in_new_connection(

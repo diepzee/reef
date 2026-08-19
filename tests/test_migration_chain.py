@@ -118,7 +118,7 @@ async def drilled() -> str:
         "piccolo.main",
         "migrations",
         "forwards",
-        "rif",
+        "reef",
         env={**os.environ, "DATABASE_URL": app},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -199,7 +199,7 @@ async def _shape(dsn: str) -> dict[str, set]:
         functions = await connection.fetch(
             "SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args "
             "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
-            "WHERE n.nspname = 'public' AND p.proname LIKE 'rif\\_%'"
+            "WHERE n.nspname = 'public' AND p.proname LIKE 'reef\\_%'"
         )
         # qual and with_check, not just the name. A predicate rewritten under
         # an unchanged policy name is the failure a name comparison cannot
@@ -291,7 +291,7 @@ def _declared(pattern: str) -> set[str]:
     return set(re.findall(pattern, everything))
 
 
-async def test_the_chain_creates_every_function_rif_rls_declares(drilled):
+async def test_the_chain_creates_every_function_reef_rls_declares(drilled):
     """A helper the DDL declares but no migration applies does not exist.
 
     This is the failure that hides best. The suite builds its schema from
@@ -319,7 +319,7 @@ async def test_the_chain_creates_every_function_rif_rls_declares(drilled):
     )
 
 
-async def test_the_chain_creates_every_policy_rif_rls_declares(drilled):
+async def test_the_chain_creates_every_policy_reef_rls_declares(drilled):
     """Same failure mode as the functions, on the boundary that matters more.
 
     A policy that exists in the fixture and not in production is not a

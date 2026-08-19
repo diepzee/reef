@@ -15,7 +15,7 @@ import pytest
 from reef.config import get_settings
 
 RENAME = __import__(
-    "reef.piccolo_migrations.rif_2026_08_19t13_00_00_000000",
+    "reef.piccolo_migrations.reef_2026_08_19t13_00_00_000000",
     fromlist=["RENAME"],
 ).RENAME
 

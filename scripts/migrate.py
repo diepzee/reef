@@ -26,6 +26,42 @@ from reef.config import get_settings
 LOCK_KEY = 0x5249_4620
 
 
+#: The app name Piccolo files migrations under. It was "rif" until the module
+#: was renamed; see :func:`adopt_app_name` for why both names appear here.
+APP_NAME = "reef"
+FORMER_APP_NAME = "rif"
+
+
+async def adopt_app_name(connection: asyncpg.Connection) -> int:
+    """Move migration records from the old app name to the new one.
+
+    Piccolo files every applied migration under an app name, and on the next
+    boot asks which migrations have run *for that app*. Rename the app in
+    code without moving the records and it asks about an app that has never
+    run anything -- so it replays the whole chain against a populated
+    database.
+
+    A migration cannot fix this. By the time one runs, Piccolo has already
+    decided the chain is unapplied and is part-way through replaying it. It
+    has to happen before Piccolo reads anything, which is why it lives here.
+
+    Idempotent, and a no-op on a database whose ``migration`` table Piccolo
+    has not created yet -- the first boot of a fresh deployment.
+
+    :param connection: a connection under the migration credential; the app
+        role cannot read this table, by design
+    :returns: how many records were moved
+    """
+    if not await connection.fetchval("SELECT to_regclass('migration')"):
+        return 0
+    moved = await connection.fetch(
+        "UPDATE migration SET app_name = $1 WHERE app_name = $2 RETURNING name",
+        APP_NAME,
+        FORMER_APP_NAME,
+    )
+    return len(moved)
+
+
 async def _main() -> int:
     """Take the lock, run migrations forwards, release by disconnecting.
 
@@ -45,13 +81,18 @@ async def _main() -> int:
     connection = await asyncpg.connect(dsn)
     try:
         await connection.execute("SELECT pg_advisory_lock($1)", LOCK_KEY)
+        # Under the lock, so two booting containers cannot both decide the
+        # records need moving and race each other.
+        moved = await adopt_app_name(connection)
+        if moved:
+            print(f"moved {moved} migration records to app {APP_NAME!r}")
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             "-m",
             "piccolo.main",
             "migrations",
             "forwards",
-            "rif",
+            APP_NAME,
             env={**os.environ, "DATABASE_URL": dsn},
         )
         return await process.wait()
