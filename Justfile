@@ -139,14 +139,14 @@ fmt:
 
 # --- running --------------------------------------------------------------
 
-# RIF_DEV_INSECURE lifts the startup guard that otherwise refuses to serve
-# HTTP without an auth provider, and RIF_DEV_PRINCIPAL_EMAIL stands in for a
+# REEF_DEV_INSECURE lifts the startup guard that otherwise refuses to serve
+# HTTP without an auth provider, and REEF_DEV_PRINCIPAL_EMAIL stands in for a
 # signed-in person. Both are dead in production, where neither is set.
 
 # Serve the app over HTTP with auth disabled. Local development only.
 dev email="wouter@example.test":
-    PORT=8000 RIF_DEV_INSECURE=1 RIF_DEV_PRINCIPAL_EMAIL={{email}} \
-      {{python}} -m rif.server
+    PORT=8000 REEF_DEV_INSECURE=1 REEF_DEV_PRINCIPAL_EMAIL={{email}} \
+      {{python}} -m reef.server
 
 # Run the frontend dev server against a local backend.
 dev-frontend:
@@ -158,4 +158,4 @@ build-frontend:
 
 # Run the MCP server over stdio, as a local assistant would.
 stdio email="wouter@example.test":
-    RIF_DEV_PRINCIPAL_EMAIL={{email}} {{python}} -m rif.server
+    REEF_DEV_PRINCIPAL_EMAIL={{email}} {{python}} -m reef.server

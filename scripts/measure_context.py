@@ -1,7 +1,7 @@
 """Seed a scratch page for manual context-limit measurement.
 
 One-shot, run by hand against the personal space (via
-``RIF_DEV_PRINCIPAL_EMAIL`` over stdio config). Grows or shrinks a single
+``REEF_DEV_PRINCIPAL_EMAIL`` over stdio config). Grows or shrinks a single
 scratch page so the personal space's total body size lands at the requested
 target, then reports the resulting total and page count.
 

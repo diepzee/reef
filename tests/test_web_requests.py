@@ -30,7 +30,7 @@ def _request(headers: dict[str, str] | None = None, method: str = "GET") -> Requ
 def secret(monkeypatch):
     """Inject test session secret and disable dev mode."""
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
-    monkeypatch.delenv("RIF_DEV_INSECURE", raising=False)
+    monkeypatch.delenv("REEF_DEV_INSECURE", raising=False)
 
 
 def test_valid_cookie_yields_principal():
@@ -72,8 +72,8 @@ def test_cookie_secure_default_true():
 
 
 def test_cookie_secure_false_with_dev_insecure(monkeypatch):
-    """RIF_DEV_INSECURE=1 is the only thing that turns Secure off."""
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    """REEF_DEV_INSECURE=1 is the only thing that turns Secure off."""
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
     assert cookie_secure() is False
 
 

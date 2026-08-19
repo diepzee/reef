@@ -52,11 +52,14 @@ ENV PYTHONPATH=/app/src
 #
 # The admin credential is needed for those first seconds only, so the server
 # is exec'd through `env -u`: exec replaces PID 1, meaning no live process in
-# the container retains RIF_MIGRATION_DATABASE_URL once boot completes -- not
+# the container retains the migration credential once boot completes -- not
 # in os.environ, and not in any /proc/*/environ. Unsetting inside migrate.py
 # would be weaker (the parent shell would keep it); this leaves nothing to
 # read. The backup cron is a separate Railway service with its own variables,
 # and the restore runbook pulls the credential from the Railway control
-# plane, so neither is affected. RIF_BACKUP_DATABASE_URL is scrubbed too in
-# case it is ever set here; `env -u` on an unset name is a no-op.
-CMD ["sh", "-c", "uv run --frozen --no-dev python scripts/migrate.py && exec env -u RIF_MIGRATION_DATABASE_URL -u RIF_BACKUP_DATABASE_URL uv run --frozen --no-dev python -m reef.server"]
+# plane, so neither is affected. The backup URL is scrubbed too in
+# case it is ever set here; `env -u` on an unset name is a no-op. Both
+# spellings are unset: the REEF_ names and the RIF_ ones the deployment
+# may still be using, because scrubbing only the new name would leave the
+# credential readable under the old one.
+CMD ["sh", "-c", "uv run --frozen --no-dev python scripts/migrate.py && exec env -u REEF_MIGRATION_DATABASE_URL -u REEF_BACKUP_DATABASE_URL -u RIF_MIGRATION_DATABASE_URL -u RIF_BACKUP_DATABASE_URL uv run --frozen --no-dev python -m reef.server"]

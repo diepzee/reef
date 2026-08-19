@@ -127,8 +127,8 @@ async def test_me_sets_secure_session_cookie_by_default(api, world):
 
 
 async def test_me_omits_secure_cookie_with_dev_insecure(monkeypatch, api, world):
-    """RIF_DEV_INSECURE=1 drops Secure from the renewed session cookie."""
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    """REEF_DEV_INSECURE=1 drops Secure from the renewed session cookie."""
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
     alice, _, _ = world
     _login(api, alice)
     response = await api.get("/api/me")

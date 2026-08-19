@@ -88,7 +88,7 @@ async def web(monkeypatch, graph):
     """
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
     monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("RIF_BASE_URL", "https://reef.example")
+    monkeypatch.setenv("REEF_BASE_URL", "https://reef.example")
     from reef.config import get_settings
 
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
@@ -195,8 +195,8 @@ async def test_login_sets_secure_oauth_cookie_by_default(web):
 
 
 async def test_login_omits_secure_oauth_cookie_with_dev_insecure(monkeypatch, web):
-    """RIF_DEV_INSECURE=1 drops Secure so local plain-HTTP dev keeps working."""
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    """REEF_DEV_INSECURE=1 drops Secure so local plain-HTTP dev keeps working."""
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
     client, _fake, _ = web
     response = await client.get("/api/auth/login")
     set_cookie = next(
@@ -222,11 +222,11 @@ async def test_callback_sets_secure_session_cookie_by_default(web):
 
 
 async def test_callback_omits_secure_session_cookie_with_dev_insecure(monkeypatch, web):
-    """RIF_DEV_INSECURE=1 also drops Secure from the renewed session cookie."""
+    """REEF_DEV_INSECURE=1 also drops Secure from the renewed session cookie."""
     client, _fake, _person = web
     login = await client.get("/api/auth/login")
     state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
     response = await client.get(
         "/api/auth/callback", params={"code": "code_abc", "state": state}
     )
@@ -247,7 +247,7 @@ async def test_login_unconfigured_is_503(monkeypatch):
     """
     monkeypatch.delenv("WORKOS_AUTHKIT_DOMAIN", raising=False)
     monkeypatch.delenv("WORKOS_CLIENT_ID", raising=False)
-    monkeypatch.delenv("RIF_BASE_URL", raising=False)
+    monkeypatch.delenv("REEF_BASE_URL", raising=False)
     register_auth_routes(mcp, client_factory=lambda: FakeOIDC({}))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(

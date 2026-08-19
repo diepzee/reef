@@ -10,13 +10,13 @@ The budget protects the resource, not an endpoint: it counts *new* rows, so
 inviting an address reef already knows costs nothing.
 """
 
-import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
 from reef import audit
 from reef.access import Principal, arm
+from reef.config import env
 from reef.models import Person
 
 #: New allowlist entries one member may mint per window.
@@ -112,7 +112,7 @@ def relay_instructions() -> str:
 
     :returns: the relay instruction, naming the deployment's own URL if set
     """
-    base_url = os.environ.get("RIF_BASE_URL", "").rstrip("/")
+    base_url = (env("BASE_URL") or "").rstrip("/")
     where = base_url or "reef"
     return (
         f"Tell them to go to {where} and sign in with this exact address. "

@@ -1,12 +1,10 @@
 """Request-level auth for the web surface: cookie to principal, CSRF."""
 
-import os
-
 from starlette.requests import Request
 from starlette.responses import Response
 
 from reef.access import Principal
-from reef.config import get_settings
+from reef.config import env, get_settings
 from reef.web.session import SESSION_TTL_SECONDS, SessionData, seal, unseal
 
 SESSION_COOKIE = "rif_session"
@@ -37,7 +35,7 @@ def session_from_request(request: Request) -> SessionData | None:
 def principal_from_request(request: Request) -> Principal:
     """Resolve the principal from the session cookie.
 
-    Dev fallback: with ``RIF_DEV_INSECURE=1`` and ``RIF_DEV_PRINCIPAL_EMAIL``
+    Dev fallback: with ``REEF_DEV_INSECURE=1`` and ``REEF_DEV_PRINCIPAL_EMAIL``
     set, an anonymous request resolves to the dev person — mirroring the
     stdio fallback in ``reef.auth`` and equally dead in production, where
     neither variable is set.
@@ -49,8 +47,8 @@ def principal_from_request(request: Request) -> Principal:
     data = session_from_request(request)
     if data is not None:
         return Principal(person_id=data.person_id, email=data.email)
-    if os.environ.get("RIF_DEV_INSECURE") == "1":
-        email = os.environ.get("RIF_DEV_PRINCIPAL_EMAIL")
+    if env("DEV_INSECURE") == "1":
+        email = env("DEV_PRINCIPAL_EMAIL")
         if email:
             # Local dev only: person lookup happens in the handler's
             # transaction, in the api() wrapper in routes_api.py.
@@ -86,12 +84,12 @@ def cookie_secure() -> bool:
     ``Secure`` from it means the flag silently never fires in production.
     Instead, ``Secure`` is tied to the same escape hatch that already gates
     the plaintext-HTTP boot guard in ``reef.server.main``: on by default, and
-    off only when ``RIF_DEV_INSECURE=1`` deliberately opts into local
+    off only when ``REEF_DEV_INSECURE=1`` deliberately opts into local
     development over plain HTTP.
 
-    :returns: True unless ``RIF_DEV_INSECURE=1`` is set
+    :returns: True unless ``REEF_DEV_INSECURE=1`` is set
     """
-    return os.environ.get("RIF_DEV_INSECURE") != "1"
+    return env("DEV_INSECURE") != "1"
 
 
 def session_sid(request: Request) -> str | None:

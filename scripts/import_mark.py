@@ -1,6 +1,6 @@
 """One-shot import of the mark corpus, per the disposition table.
 
-Run locally over stdio config with RIF_DEV_PRINCIPAL_EMAIL set to Wouter.
+Run locally over stdio config with REEF_DEV_PRINCIPAL_EMAIL set to Wouter.
 Review HOUSEHOLD and PERSONAL lists against mark/meta/architecture.md before
 running; nothing is imported by inference.
 """

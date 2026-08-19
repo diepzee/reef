@@ -80,7 +80,7 @@ async def test_http_without_token_is_denied_by_default(tx, monkeypatch):
     """A tokenless HTTP connection is refused, not treated as stdio dev mode.
 
     ``get_access_token()`` returns ``None`` whenever the server runs HTTP
-    without an auth provider wired up (the ``RIF_DEV_INSECURE=1`` local-dev
+    without an auth provider wired up (the ``REEF_DEV_INSECURE=1`` local-dev
     path). Without the flag set, that must raise ``AccessDenied`` -- never
     fall through to the dev-email lookup, and never surface the unguarded
     ``AttributeError`` from ``None.claims``.
@@ -88,24 +88,24 @@ async def test_http_without_token_is_denied_by_default(tx, monkeypatch):
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.delenv("RIF_DEV_INSECURE", raising=False)
+    monkeypatch.delenv("REEF_DEV_INSECURE", raising=False)
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     with pytest.raises(AccessDenied):
         await current_principal()
 
 
 async def test_http_without_token_falls_back_when_insecure(tx, household, monkeypatch):
-    """``RIF_DEV_INSECURE=1`` makes a tokenless HTTP connection behave like stdio.
+    """``REEF_DEV_INSECURE=1`` makes a tokenless HTTP connection behave like stdio.
 
     This is the local-dev path: MCP-over-HTTP with no auth provider wired
     up still needs to resolve a principal, so it falls through to the same
-    ``RIF_DEV_PRINCIPAL_EMAIL`` lookup stdio mode uses.
+    ``REEF_DEV_PRINCIPAL_EMAIL`` lookup stdio mode uses.
     """
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     principal = await current_principal()
     assert principal.person_id == household["wouter"].id
@@ -121,8 +121,8 @@ async def test_http_insecure_fallback_denies_unknown_email(tx, household, monkey
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.setenv("RIF_DEV_INSECURE", "1")
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", "stranger@example.test")
+    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", "stranger@example.test")
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     with pytest.raises(AccessDenied):
         await current_principal()
@@ -132,7 +132,7 @@ def test_http_transport_refuses_to_start_without_auth(monkeypatch):
     """PORT set with no auth provider must abort at startup, not boot open.
 
     The deployed endpoint is never allowed to be reachable without
-    authentication; a missing WORKOS_AUTHKIT_DOMAIN/RIF_BASE_URL has to be
+    authentication; a missing WORKOS_AUTHKIT_DOMAIN/REEF_BASE_URL has to be
     a loud startup failure rather than a silently unauthenticated server.
     """
     from reef import server

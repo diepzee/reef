@@ -11,7 +11,6 @@ table, and renews the session cookie on success.
 import base64
 import binascii
 import json
-import os
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
@@ -26,7 +25,7 @@ from reef.access import AccessDenied, Principal, arm, resolve_space
 from reef.account import delete_account_rows
 from reef.appearance import AppearanceError, get_appearances, set_appearance
 from reef.attachments import S3ObjectStore, erase_objects, get_attachment
-from reef.config import get_settings
+from reef.config import env, get_settings
 from reef.context import build_index, latest_editors
 from reef.db import transaction_scope
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
@@ -930,9 +929,7 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
         query = urlencode(
             {
                 "session_id": sid,
-                "return_to": (
-                    f"{os.environ.get('RIF_BASE_URL', '')}/app/signed-out?deleted=1"
-                ),
+                "return_to": (f"{(env('BASE_URL') or '')}/app/signed-out?deleted=1"),
             }
         )
         body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"

@@ -19,7 +19,7 @@ KEY = "ab" * 32
 def proxy_env(monkeypatch, tmp_path):
     """Environment + settings for the full proxy branch."""
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("RIF_BASE_URL", BASE)
+    monkeypatch.setenv("REEF_BASE_URL", BASE)
     monkeypatch.setenv("WORKOS_MCP_CLIENT_ID", "client_mcp_123")
     monkeypatch.setenv("WORKOS_MCP_CLIENT_SECRET", "sk_test_456")
     monkeypatch.setattr(get_settings(), "jwt_signing_key", KEY)
@@ -30,14 +30,14 @@ def proxy_env(monkeypatch, tmp_path):
 def test_unconfigured_returns_none(monkeypatch):
     """No domain/base: stdio dev and the test suite stay auth-free."""
     monkeypatch.delenv("WORKOS_AUTHKIT_DOMAIN", raising=False)
-    monkeypatch.delenv("RIF_BASE_URL", raising=False)
+    monkeypatch.delenv("REEF_BASE_URL", raising=False)
     assert _build_auth() is None
 
 
 def test_domain_alone_still_builds_authkit(monkeypatch):
     """Without the MCP client vars, today's remote-AS world is unchanged."""
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("RIF_BASE_URL", BASE)
+    monkeypatch.setenv("REEF_BASE_URL", BASE)
     monkeypatch.delenv("WORKOS_MCP_CLIENT_ID", raising=False)
     monkeypatch.delenv("WORKOS_MCP_CLIENT_SECRET", raising=False)
     assert isinstance(_build_auth(), AuthKitProvider)
@@ -51,7 +51,7 @@ def test_partial_proxy_config_refuses_to_boot(monkeypatch):
     is live -- the worst failure mode this branch can have.
     """
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("RIF_BASE_URL", BASE)
+    monkeypatch.setenv("REEF_BASE_URL", BASE)
     monkeypatch.setenv("WORKOS_MCP_CLIENT_ID", "client_mcp_123")
     monkeypatch.delenv("WORKOS_MCP_CLIENT_SECRET", raising=False)
     monkeypatch.setattr(get_settings(), "jwt_signing_key", "")
@@ -91,7 +91,7 @@ def test_disallowed_redirect_uri_is_refused(proxy_env):
 
 
 def test_custom_allowed_redirects_replace_the_default(monkeypatch, proxy_env):
-    """RIF_ALLOWED_CLIENT_REDIRECTS, when set, fully replaces the default list."""
+    """REEF_ALLOWED_CLIENT_REDIRECTS, when set, fully replaces the default list."""
     monkeypatch.setattr(
         get_settings(), "allowed_client_redirects", "https://only.example/*"
     )
@@ -103,7 +103,7 @@ async def test_metadata_names_reef_as_authorization_server(proxy_env):
     """The protected-resource metadata now points clients at reef itself.
 
     This is the observable cutover: before, authorization_servers named
-    the AuthKit domain; after, it names RIF_BASE_URL, so clients register
+    the AuthKit domain; after, it names REEF_BASE_URL, so clients register
     and authorize against reef.
     """
     server = FastMCP("probe", auth=_build_auth())

@@ -20,6 +20,7 @@ import yaml
 
 from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
 from reef.attachments import S3ObjectStore
+from reef.config import env
 from reef.context import build_index
 from reef.models import (
     Attachment,
@@ -450,7 +451,6 @@ async def _main(alias: str, target: str) -> None:
     :param alias: ``personal`` or a shared-space slug
     :param target: output directory
     """
-    import os
 
     from reef.db import DB, transaction_scope
     from reef.identity import person_by_email
@@ -459,9 +459,9 @@ async def _main(alias: str, target: str) -> None:
     async with transaction_scope():
         # Pre-auth: no principal exists yet, so this goes through the narrow
         # definer lookup like every other identity-binding path.
-        identity = await person_by_email(os.environ["RIF_DEV_PRINCIPAL_EMAIL"])
+        identity = await person_by_email(env("DEV_PRINCIPAL_EMAIL"))
         if identity is None:
-            raise SystemExit("RIF_DEV_PRINCIPAL_EMAIL names no known person")
+            raise SystemExit("REEF_DEV_PRINCIPAL_EMAIL names no known person")
         principal = Principal(person_id=identity.person_id, email=identity.email)
         count = await export_space(principal, alias, Path(target))
     print(f"exported {count} page(s) to {target}")

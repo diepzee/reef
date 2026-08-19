@@ -60,15 +60,17 @@ def door_policy(today: date | None = None) -> DoorPolicy:
     seats = settings.open_seats
     until = settings.open_until.strip()
     if seats <= 0:
-        return DoorPolicy(False, 0, "RIF_OPEN_SEATS is unset or zero")
+        return DoorPolicy(False, 0, "REEF_OPEN_SEATS is unset or zero")
     if not until:
-        return DoorPolicy(False, 0, "RIF_OPEN_UNTIL is unset")
+        return DoorPolicy(False, 0, "REEF_OPEN_UNTIL is unset")
     try:
         closes = date.fromisoformat(until)
     except ValueError:
         # A misspelled date must not read as "no limit". Failing closed here
         # costs a launch morning; failing open costs an unbounded one.
-        return DoorPolicy(False, 0, f"RIF_OPEN_UNTIL is not a YYYY-MM-DD date: {until}")
+        return DoorPolicy(
+            False, 0, f"REEF_OPEN_UNTIL is not a YYYY-MM-DD date: {until}"
+        )
     # Inclusive: the door closes when that day ends, so an operator setting
     # today's date gets today, which is what naming a day means.
     if (today or date.today()) > closes:  # noqa: DTZ011

@@ -5,7 +5,7 @@
 -- assuming a role of the right name is the right shape.
 --
 --     railway run --service rif-app -- sh -c \
---       'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
+--       'psql "$REEF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
 --          -f scripts/provision_authz_role.sql'
 --
 -- Requires superuser, which is why this is a manual step: the boot migration

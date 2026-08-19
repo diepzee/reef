@@ -32,12 +32,12 @@ def _database_url() -> str:
     :raises SystemExit: when no admin credential is configured
     :returns: a DSN for a role that is not subject to row-level security
     """
-    for name in ("RIF_BACKUP_DATABASE_URL", "RIF_MIGRATION_DATABASE_URL"):
+    for name in ("REEF_BACKUP_DATABASE_URL", "REEF_MIGRATION_DATABASE_URL"):
         if os.environ.get(name):
             return os.environ[name]
     sys.exit(
-        "No backup credential. Set RIF_BACKUP_DATABASE_URL (or reuse "
-        "RIF_MIGRATION_DATABASE_URL). DATABASE_URL is deliberately not used: "
+        "No backup credential. Set REEF_BACKUP_DATABASE_URL (or reuse "
+        "REEF_MIGRATION_DATABASE_URL). DATABASE_URL is deliberately not used: "
         "it is the RLS-constrained app role and pg_dump fails against it."
     )
 
@@ -57,14 +57,14 @@ def main() -> None:
 
     client = boto3.client(
         "s3",
-        endpoint_url=os.environ["RIF_S3_ENDPOINT"],
-        aws_access_key_id=os.environ["RIF_S3_ACCESS_KEY"],
-        aws_secret_access_key=os.environ["RIF_S3_SECRET_KEY"],
+        endpoint_url=os.environ["REEF_S3_ENDPOINT"],
+        aws_access_key_id=os.environ["REEF_S3_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["REEF_S3_SECRET_KEY"],
         # R2 signs against the pseudo-region "auto"; left unset, boto3 resolves
         # a different one on a developer machine than in the container.
         region_name="auto",
     )
-    bucket = os.environ["RIF_S3_BUCKET"]
+    bucket = os.environ["REEF_S3_BUCKET"]
     client.put_object(Bucket=bucket, Key=key, Body=dump)
 
     # Read the object back rather than trusting the write: a backup that was

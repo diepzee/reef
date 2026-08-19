@@ -123,7 +123,7 @@ def validate_body(path: str, body: str) -> None:
 
     :param path: the page path, for the message
     :param body: the full markdown body
-    :raises PageTooLarge: if the body exceeds ``RIF_PAGE_MAX_CHARS``
+    :raises PageTooLarge: if the body exceeds ``REEF_PAGE_MAX_CHARS``
     """
     ceiling = get_settings().page_max_chars
     if len(body) > ceiling:
