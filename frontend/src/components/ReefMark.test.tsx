@@ -1,5 +1,5 @@
 /**
- * The reef mark and the frond glyph.
+ * The reef mark and its single-colour glyph.
  *
  * Almost entirely drawing, so what is worth pinning is what a screen reader
  * gets: the mark is meaningful and must announce itself, and the decorative

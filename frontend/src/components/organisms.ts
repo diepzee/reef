@@ -155,7 +155,7 @@ export const FAMILIES = [
   "nudibranch",
 ] as const;
 
-/** One kind of reef life. The brand's brain fan is a logo, not a family. */
+/** One kind of reef life. The brand's brain coral is a logo, not a family. */
 export type Family = (typeof FAMILIES)[number];
 
 /**
@@ -471,7 +471,7 @@ export function generateFamily(family: Family, seed: number): Organism {
  * Deterministic organism for a space's alias — the reef's genome function.
  *
  * Every alias hashes, `personal` included (it lands on its own staghorn):
- * the brand's traced brain fan is a logo (`ReefMark.tsx`), never a cove
+ * the brand's traced brain coral is a logo (`ReefMark.tsx`), never a cove
  * glyph. Personal's distinction is its pinned seafoam hue (`spaceColor`).
  *
  * A hashed family may be one of the `RETIRED` plans, in which case its

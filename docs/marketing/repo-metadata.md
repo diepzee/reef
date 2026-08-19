@@ -33,5 +33,5 @@ GitHub's social preview (used for link unfurls on Slack, X, etc.) is not
 settable via `gh` or the API — it must be uploaded manually.
 
 - Go to **Settings → General → Social preview** on the repo.
-- Upload `social-preview.png`, with the brain fan on deep teal, at 1280×640.
+- Upload `social-preview.png`, with the curled brain-coral mark on deep teal, at 1280×640.
 - This step is still outstanding as of this writing.
