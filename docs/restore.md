@@ -17,7 +17,7 @@ Railway cron service running `uv run python scripts/backup.py`. This is a
 second, out-of-band copy that does not depend on Railway's backup
 infrastructure being correct, and that we can restore from without Railway
 support. Dumps land in the `backups/` prefix of the R2 bucket named by
-`RIF_S3_BUCKET`, as `backups/rif-<UTC timestamp>.dump`, in `pg_dump
+`REEF_S3_BUCKET`, as `backups/rif-<UTC timestamp>.dump`, in `pg_dump
 --format=custom` form. R2 has no bucket-wide retention/lifecycle policy
 configured for this prefix yet — treat that as a follow-up (a lifecycle rule
 expiring objects after N days) once the backup has run unattended for a
@@ -54,7 +54,7 @@ connection is deliberately RLS-constrained — that is the entire point of
 Task 2's design.
 
 **Settled 7 Aug 2026.** The split now exists in production and the credential
-you need is already on the service: `RIF_MIGRATION_DATABASE_URL` holds the
+you need is already on the service: `REEF_MIGRATION_DATABASE_URL` holds the
 admin role, while `DATABASE_URL` holds the constrained `rif_app` role created
 by `scripts/provision_app_role.py`. Give the backup cron the former. Until
 that date the app itself ran as the superuser, so this whole section described

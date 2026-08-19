@@ -20,12 +20,12 @@ def _env(monkeypatch, seats: str | None, until: str | None) -> None:
     """Set or clear the two settings the door reads.
 
     :param monkeypatch: pytest's environment patcher
-    :param seats: value for ``RIF_OPEN_SEATS``, or None to leave it unset
-    :param until: value for ``RIF_OPEN_UNTIL``, or None to leave it unset
+    :param seats: value for ``REEF_OPEN_SEATS``, or None to leave it unset
+    :param until: value for ``REEF_OPEN_UNTIL``, or None to leave it unset
     """
     from reef.config import get_settings
 
-    for name, value in (("RIF_OPEN_SEATS", seats), ("RIF_OPEN_UNTIL", until)):
+    for name, value in (("REEF_OPEN_SEATS", seats), ("REEF_OPEN_UNTIL", until)):
         if value is None:
             monkeypatch.delenv(name, raising=False)
         else:
@@ -57,7 +57,7 @@ def test_door_is_closed_when_only_seats_are_set(monkeypatch):
     _env(monkeypatch, "500", None)
     policy = door_policy()
     assert policy.is_open is False
-    assert "RIF_OPEN_UNTIL" in policy.reason
+    assert "REEF_OPEN_UNTIL" in policy.reason
 
 
 def test_door_is_closed_when_only_a_date_is_set(monkeypatch):
@@ -65,7 +65,7 @@ def test_door_is_closed_when_only_a_date_is_set(monkeypatch):
     _env(monkeypatch, None, "2026-08-27")
     policy = door_policy()
     assert policy.is_open is False
-    assert "RIF_OPEN_SEATS" in policy.reason
+    assert "REEF_OPEN_SEATS" in policy.reason
 
 
 def test_door_is_open_when_both_are_set_and_the_date_is_ahead(monkeypatch):
@@ -258,7 +258,7 @@ async def door(monkeypatch, graph):
     """
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
     monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("RIF_BASE_URL", "https://reef.example")
+    monkeypatch.setenv("REEF_BASE_URL", "https://reef.example")
     from reef.config import get_settings
 
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")

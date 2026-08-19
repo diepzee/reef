@@ -330,7 +330,7 @@
 <pre><code>cd ~/Repositories/haai/rif/.worktrees/build
 railway init --name rif &amp;&amp; railway up &amp;&amp; railway domain
 railway variables --set WORKOS_AUTHKIT_DOMAIN=&lt;authkit-domain&gt; \
-                  --set RIF_BASE_URL=https://&lt;railway-domain&gt;
+                  --set REEF_BASE_URL=https://&lt;railway-domain&gt;
 railway up   # again, so the vars take</code></pre></li>
     <li>claude.ai web, your account: add
       <code>https://&lt;domain&gt;/mcp</code> as a custom connector → AuthKit
@@ -421,9 +421,9 @@ railway up</code></pre>
       <strong>enable object versioning</strong>. Create an S3 API token,
       then:
 <pre><code>railway variables \
-  --set RIF_S3_ENDPOINT=https://&lt;account-id&gt;.r2.cloudflarestorage.com \
-  --set RIF_S3_BUCKET=rif \
-  --set RIF_S3_ACCESS_KEY=&lt;key&gt; --set RIF_S3_SECRET_KEY=&lt;secret&gt;
+  --set REEF_S3_ENDPOINT=https://&lt;account-id&gt;.r2.cloudflarestorage.com \
+  --set REEF_S3_BUCKET=rif \
+  --set REEF_S3_ACCESS_KEY=&lt;key&gt; --set REEF_S3_SECRET_KEY=&lt;secret&gt;
 railway up</code></pre></li>
     <li>Create/confirm a <strong>BYPASSRLS</strong> role on Railway's Postgres
       and give <code>scripts/backup.py</code> <em>that</em> connection string —
@@ -524,7 +524,7 @@ railway up</code></pre></li>
       intact — a mismatch means truncation in transit, by design
       detectable.</li>
     <li>Record in <code>docs/superpowers/plans/context-limits.md</code>; set
-      <code>RIF_CONTEXT_CHAR_BUDGET</code> comfortably below the first size
+      <code>REEF_CONTEXT_CHAR_BUDGET</code> comfortably below the first size
       that misbehaved; <code>railway up</code>.</li>
     <li>Clean up: <code>scripts/measure_context.py wouter@rugvin.be 0</code>.</li>
   </ol>
@@ -540,10 +540,10 @@ railway up</code></pre></li>
   <table>
     <tr><th>Var</th><th>Purpose</th></tr>
     <tr><td><code>WORKOS_AUTHKIT_DOMAIN</code></td><td>AuthKit app domain; auth refuses to boot without it</td></tr>
-    <tr><td><code>RIF_BASE_URL</code></td><td>Public root URL, no path — drives advertised resource URL + token audience</td></tr>
+    <tr><td><code>REEF_BASE_URL</code></td><td>Public root URL, no path — drives advertised resource URL + token audience</td></tr>
     <tr><td><code>DATABASE_URL</code></td><td>Injected by Railway Postgres (app role)</td></tr>
-    <tr><td><code>RIF_S3_*</code></td><td>R2: endpoint, bucket, access key, secret — images + backups</td></tr>
-    <tr><td><code>RIF_CONTEXT_CHAR_BUDGET</code></td><td>Set from phase 7 measurement</td></tr>
+    <tr><td><code>REEF_S3_*</code></td><td>R2: endpoint, bucket, access key, secret — images + backups</td></tr>
+    <tr><td><code>REEF_CONTEXT_CHAR_BUDGET</code></td><td>Set from phase 7 measurement</td></tr>
     <tr><td><code>PORT</code></td><td>Set by Railway; presence = HTTP mode = auth required</td></tr>
   </table>
   </div>

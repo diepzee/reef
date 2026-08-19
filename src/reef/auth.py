@@ -3,6 +3,7 @@
 import os
 
 from reef.access import AccessDenied, Principal, arm
+from reef.config import env
 from reef.identity import bind_subject, person_by_email, person_by_subject
 from reef.spaces import ensure_personal_space
 
@@ -62,10 +63,10 @@ async def current_principal() -> Principal:
     """Resolve the principal for the current request.
 
     HTTP mode reads verified claims from the FastMCP access token. A missing
-    token in HTTP mode is denied unless ``RIF_DEV_INSECURE=1``, mirroring
+    token in HTTP mode is denied unless ``REEF_DEV_INSECURE=1``, mirroring
     ``main()``'s startup guard; with that flag set, a tokenless HTTP
     connection falls through to the same dev-email lookup stdio mode uses.
-    Stdio mode (no PORT set) always uses ``RIF_DEV_PRINCIPAL_EMAIL`` for
+    Stdio mode (no PORT set) always uses ``REEF_DEV_PRINCIPAL_EMAIL`` for
     local development; that fallback is dead code in production by
     construction.
 
@@ -78,11 +79,11 @@ async def current_principal() -> Principal:
         token = get_access_token()
         if token is not None:
             return await principal_from_claims(dict(token.claims))
-        if os.environ.get("RIF_DEV_INSECURE") != "1":
+        if env("DEV_INSECURE") != "1":
             raise AccessDenied("no access token on this connection")
         # No token and the insecure flag is set: fall through to the same
         # dev-email fallback stdio mode uses.
-    email = os.environ.get("RIF_DEV_PRINCIPAL_EMAIL")
+    email = env("DEV_PRINCIPAL_EMAIL")
     if not email:
         raise AccessDenied("no principal on this connection")
     identity = await person_by_email(email)

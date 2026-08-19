@@ -2,7 +2,7 @@
 
 from reef.oauth_store import build_oauth_store
 
-KEY = "ab" * 32  # 64-char hex, same shape as RIF_SESSION_SECRET
+KEY = "ab" * 32  # 64-char hex, same shape as REEF_SESSION_SECRET
 
 
 async def test_values_are_encrypted_at_rest(tmp_path):

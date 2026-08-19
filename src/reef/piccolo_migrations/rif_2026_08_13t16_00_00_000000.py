@@ -15,7 +15,7 @@ async def forwards() -> MigrationManager:
 
     reef is invitation-only and stays that way; this migration only makes it
     *possible* to open the door, and leaves it shut. Both settings the door
-    reads (``RIF_OPEN_SEATS``, ``RIF_OPEN_UNTIL``) default to the closed
+    reads (``REEF_OPEN_SEATS``, ``REEF_OPEN_UNTIL``) default to the closed
     position, so a deployment that applies this and changes nothing else
     behaves exactly as it did before. See :mod:`reef.opendoor`.
 

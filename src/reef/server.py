@@ -32,7 +32,7 @@ from reef.attachments import (
     get_attachment,
 )
 from reef.auth import current_principal
-from reef.config import get_settings
+from reef.config import env, get_settings
 from reef.context import build_index, load_context
 from reef.db import transaction_scope
 from reef.invitations import InviteBudgetExceeded
@@ -62,7 +62,7 @@ from reef.web.routes_auth import register_auth_routes
 from reef.web.static import register_static_routes
 
 #: Redirect-URI patterns MCP clients may register when
-#: RIF_ALLOWED_CLIENT_REDIRECTS is unset: the two Claude origins, ChatGPT,
+#: REEF_ALLOWED_CLIENT_REDIRECTS is unset: the two Claude origins, ChatGPT,
 #: and loopback for CLI clients (reef login, Codex). FastMCP's own default
 #: allows *every* URI; the consent page names the destination, but there
 #: is no reason to let a registration point anywhere else at all.
@@ -82,7 +82,7 @@ def _build_auth() -> "AuthProvider | None":
 
     - Nothing (local stdio, tests): no provider, mirroring
       ``current_principal``'s dev fallback.
-    - ``WORKOS_AUTHKIT_DOMAIN`` + ``RIF_BASE_URL`` only: AuthKit is the
+    - ``WORKOS_AUTHKIT_DOMAIN`` + ``REEF_BASE_URL`` only: AuthKit is the
       authorization server and reef merely validates its tokens -- the
       pre-proxy world, kept as the rollback path.
     - Those plus ``WORKOS_MCP_CLIENT_ID``/``SECRET`` and the settings
@@ -98,7 +98,7 @@ def _build_auth() -> "AuthProvider | None":
     :returns: the configured provider, or None if unconfigured
     """
     domain = os.environ.get("WORKOS_AUTHKIT_DOMAIN")
-    base_url = os.environ.get("RIF_BASE_URL")
+    base_url = env("BASE_URL")
     if not domain or not base_url:
         return None
 
@@ -113,8 +113,8 @@ def _build_auth() -> "AuthProvider | None":
     required = {
         "WORKOS_MCP_CLIENT_ID": client_id,
         "WORKOS_MCP_CLIENT_SECRET": client_secret,
-        "RIF_JWT_SIGNING_KEY": settings.jwt_signing_key,
-        "RIF_OAUTH_STORE_DIR": settings.oauth_store_dir,
+        "REEF_JWT_SIGNING_KEY": settings.jwt_signing_key,
+        "REEF_OAUTH_STORE_DIR": settings.oauth_store_dir,
     }
     missing = [name for name, value in required.items() if not value]
     if missing:
@@ -164,7 +164,7 @@ def _brand_icons() -> list[Icon] | None:
     metadata, so they have to be advertised here.
 
     Absolute URLs are required, and the only thing that knows the public
-    origin is ``RIF_BASE_URL``. Unset (local stdio, tests) means no icons
+    origin is ``REEF_BASE_URL``. Unset (local stdio, tests) means no icons
     rather than broken relative ones.
 
     Both formats are offered because clients differ: SVG scales to any
@@ -172,7 +172,7 @@ def _brand_icons() -> list[Icon] | None:
 
     :returns: the icon list, or None when the public origin is unknown
     """
-    base_url = os.environ.get("RIF_BASE_URL")
+    base_url = env("BASE_URL")
     if not base_url:
         return None
     origin = base_url.rstrip("/")
@@ -190,7 +190,7 @@ mcp = FastMCP(
     "rif",
     auth=_build_auth(),
     icons=_brand_icons(),
-    website_url=os.environ.get("RIF_BASE_URL") or None,
+    website_url=env("BASE_URL") or None,
     instructions=(
         "Long-term memory shared between you and the people in your spaces. "
         "Start every conversation by calling load_index, then "
@@ -1400,25 +1400,25 @@ def main() -> None:
 
     HTTP means a deployed, network-reachable endpoint, so it must never
     start without an auth provider: if ``_build_auth()`` came up empty
-    (``WORKOS_AUTHKIT_DOMAIN`` or ``RIF_BASE_URL`` unset), refuse loudly at
+    (``WORKOS_AUTHKIT_DOMAIN`` or ``REEF_BASE_URL`` unset), refuse loudly at
     startup instead of booting into a misconfigured state where every tool
     call fails with a confusing AttributeError. The one exception is local
-    frontend development: setting ``RIF_DEV_INSECURE=1`` lifts the refusal
+    frontend development: setting ``REEF_DEV_INSECURE=1`` lifts the refusal
     so the SPA can be served and exercised over HTTP without standing up
     WorkOS AuthKit, and prints a loud warning so it's never mistaken for a
     safe default.
 
     HTTP also means session cookies get signed, so it must never start with
-    a missing or weak ``RIF_SESSION_SECRET`` either: an empty or short HMAC
+    a missing or weak ``REEF_SESSION_SECRET`` either: an empty or short HMAC
     key lets anyone forge a session cookie for any person. This guard is a
     sibling of the auth-provider one above, refuses on the same condition
     (a config mistake an operator could otherwise miss silently), and is
-    lifted by the same ``RIF_DEV_INSECURE=1`` escape hatch.
+    lifted by the same ``REEF_DEV_INSECURE=1`` escape hatch.
 
     :raises RuntimeError: if the HTTP transport would start with no auth
-        and ``RIF_DEV_INSECURE`` is not set to ``1``
+        and ``REEF_DEV_INSECURE`` is not set to ``1``
     :raises RuntimeError: if the HTTP transport would start with a missing
-        or too-short ``RIF_SESSION_SECRET`` and ``RIF_DEV_INSECURE`` is not
+        or too-short ``REEF_SESSION_SECRET`` and ``REEF_DEV_INSECURE`` is not
         set to ``1``
     """
     # No connection pool is started deliberately. A pool has to be created
@@ -1430,24 +1430,24 @@ def main() -> None:
     port = os.environ.get("PORT")
     if port:
         if mcp.auth is None:
-            if os.environ.get("RIF_DEV_INSECURE") != "1":
+            if env("DEV_INSECURE") != "1":
                 raise RuntimeError(
                     "refusing to serve HTTP without an auth provider: set "
-                    "WORKOS_AUTHKIT_DOMAIN and RIF_BASE_URL"
+                    "WORKOS_AUTHKIT_DOMAIN and REEF_BASE_URL"
                 )
             print(
-                "RIF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
+                "REEF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
             )
         if len(get_settings().session_secret) < 32:
-            if os.environ.get("RIF_DEV_INSECURE") != "1":
+            if env("DEV_INSECURE") != "1":
                 raise RuntimeError(
                     "refusing to serve HTTP with a missing or weak "
-                    "RIF_SESSION_SECRET: set it to a random value at least "
+                    "REEF_SESSION_SECRET: set it to a random value at least "
                     "32 characters long"
                 )
             print(
-                "RIF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
-                "RIF_SESSION_SECRET; local development only"
+                "REEF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
+                "REEF_SESSION_SECRET; local development only"
             )
         # Silently disabled when LOGFIRE_TOKEN is unset -- telemetry must
         # never be able to stop the server starting. The middleware goes

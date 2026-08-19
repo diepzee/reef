@@ -70,7 +70,7 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", wouter.email)
 
     async with transaction_scope():
         await save_page(me, "household", "existing.md", "old body", message="setup")
@@ -110,7 +110,7 @@ async def test_write_pages_stale_version_rolls_back_the_whole_batch(
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", wouter.email)
 
     async with transaction_scope():
         await save_page(me, "household", "y.md", "old", message="setup")
@@ -144,7 +144,7 @@ async def test_write_pages_meta_path_is_protected_and_writes_nothing(
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", wouter.email)
 
     result = await write_pages(
         "household",
@@ -184,7 +184,7 @@ async def test_write_pages_malformed_item_names_it_and_writes_nothing(
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", wouter.email)
 
     result = await write_pages(
         "household",
@@ -213,7 +213,7 @@ async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, house
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
-    monkeypatch.setenv("RIF_DEV_PRINCIPAL_EMAIL", wouter.email)
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", wouter.email)
 
     result = await write_pages(
         "household",

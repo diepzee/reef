@@ -99,7 +99,7 @@ migration credential is privileged enough; yours is not, so an operator has
 to do it once, out of band:
 
     railway run --service rif-app -- sh -c \\
-      'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \\
+      'psql "$REEF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \\
          -f scripts/provision_authz_role.sql'
 
 Then redeploy. Nothing was changed by this migration.

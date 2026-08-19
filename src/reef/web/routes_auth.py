@@ -21,7 +21,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from reef import audit
 from reef.access import AccessDenied, Principal, arm
 from reef.auth import principal_from_claims
-from reef.config import get_settings
+from reef.config import env, get_settings
 from reef.db import transaction_scope
 from reef.identity import person_session_epoch, revoke_sessions
 from reef.opendoor import admit, door_policy
@@ -184,7 +184,7 @@ def register_auth_routes(
         """
         domain = authkit_domain()
         client_id = os.environ.get("WORKOS_CLIENT_ID", "")
-        base_url = os.environ.get("RIF_BASE_URL", "")
+        base_url = env("BASE_URL") or ""
         if not domain or not client_id or not base_url:
             return JSONResponse({"error": "auth_unconfigured"}, status_code=503)
         state = secrets.token_hex(16)
@@ -239,7 +239,7 @@ def register_auth_routes(
             return JSONResponse({"error": "oauth_state"}, status_code=400)
 
         client = _factories[id(mcp)]()
-        redirect_uri = f"{os.environ.get('RIF_BASE_URL', '')}/api/auth/callback"
+        redirect_uri = f"{(env('BASE_URL') or '')}/api/auth/callback"
         try:
             access_token = await client.exchange(code, verifier, redirect_uri)
             claims = await client.userinfo(access_token)
@@ -319,9 +319,7 @@ def register_auth_routes(
             query = urlencode(
                 {
                     "session_id": sid,
-                    "return_to": (
-                        f"{os.environ.get('RIF_BASE_URL', '')}/app/signed-out"
-                    ),
+                    "return_to": (f"{(env('BASE_URL') or '')}/app/signed-out"),
                 }
             )
             body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"

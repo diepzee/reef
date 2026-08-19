@@ -8,7 +8,7 @@ wipe every connector registration. Supplying our own store fixes the
 location but silently loses the encryption: FastMCP only wraps the store it
 builds itself. This module therefore mirrors that construction exactly
 (see fastmcp ``oauth_proxy/proxy.py``), rooted at the volume-backed
-directory and keyed from ``RIF_JWT_SIGNING_KEY`` -- deliberately decoupled
+directory and keyed from ``REEF_JWT_SIGNING_KEY`` -- deliberately decoupled
 from the WorkOS client secret, so rotating that secret cannot orphan the
 store.
 """

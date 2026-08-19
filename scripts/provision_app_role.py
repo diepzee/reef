@@ -11,14 +11,14 @@ production does not do.
 This script creates an ordinary role -- no ``SUPERUSER``, no ``BYPASSRLS``,
 no DDL -- and grants it exactly the data access the application needs. Point
 ``DATABASE_URL`` at it and give the admin credential to
-``RIF_MIGRATION_DATABASE_URL`` instead, so schema changes and request-time
+``REEF_MIGRATION_DATABASE_URL`` instead, so schema changes and request-time
 queries no longer share a privilege level.
 
 Idempotent: safe to re-run. Verifies its own work before exiting.
 
 Run as::
 
-    RIF_APP_ROLE_PASSWORD=... python scripts/provision_app_role.py <admin-dsn>
+    REEF_APP_ROLE_PASSWORD=... python scripts/provision_app_role.py <admin-dsn>
 """
 
 import asyncio
@@ -228,9 +228,9 @@ async def main() -> int:
     if len(sys.argv) != 2:
         print(__doc__)
         return 2
-    password = os.environ.get("RIF_APP_ROLE_PASSWORD")
+    password = os.environ.get("REEF_APP_ROLE_PASSWORD")
     if not password:
-        print("RIF_APP_ROLE_PASSWORD is not set")
+        print("REEF_APP_ROLE_PASSWORD is not set")
         return 2
 
     await provision(sys.argv[1], password)

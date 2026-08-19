@@ -3,11 +3,66 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+#: What settings are spelled with now.
+PREFIX = "REEF_"
+
+#: What they were spelled with when the module was called rif. Kept working
+#: because twelve of them are set on Railway production -- the signing key
+#: and the open-door pair among them -- and a variable renamed in code but
+#: not in the deployment does not read as "renamed", it reads as absent.
+#: reef treats absent config as a reason to refuse to boot, correctly, so
+#: the rename has to land in code before the environment, not with it.
+LEGACY_PREFIX = "RIF_"
+
+
+def legacy_environment_names() -> list[str]:
+    """Return the ``RIF_``-prefixed variables still doing work, sorted.
+
+    Empty means every setting arrives under the new name and the fallback
+    below can be deleted. That is the evidence for removing it; without this
+    the decision is a guess about what Railway holds.
+
+    :returns: legacy variable names with no ``REEF_`` equivalent set
+    """
+    return sorted(
+        name
+        for name in os.environ
+        if name.startswith(LEGACY_PREFIX)
+        and f"{PREFIX}{name[len(LEGACY_PREFIX) :]}" not in os.environ
+    )
+
+
+def env(suffix: str) -> str | None:
+    """Read one variable by suffix, preferring the new prefix.
+
+    For the handful of values read straight from the environment rather than
+    through :class:`Settings` -- the dev-mode escape hatches and the base
+    URL, which are consulted before settings exist.
+
+    :param suffix: the name without a prefix, for example ``BASE_URL``
+    :returns: the value, or ``None`` when neither spelling is set
+    """
+    value = os.environ.get(f"{PREFIX}{suffix}")
+    if value is not None:
+        return value
+    return os.environ.get(f"{LEGACY_PREFIX}{suffix}")
+
+
+def adopt_legacy_environment() -> None:
+    """Copy any legacy variable onto its new name, where the new one is unset.
+
+    Done once, before :class:`Settings` reads the environment, because
+    pydantic-settings takes a single prefix and the alternative is declaring
+    an alias on all seventeen fields.
+    """
+    for name in legacy_environment_names():
+        os.environ[f"{PREFIX}{name[len(LEGACY_PREFIX) :]}"] = os.environ[name]
+
 
 class Settings(BaseSettings):
     """Runtime configuration, read from the environment."""
 
-    model_config = SettingsConfigDict(env_prefix="RIF_")
+    model_config = SettingsConfigDict(env_prefix=PREFIX)
 
     database_url: str = "postgresql://rif:rif@localhost:5433/rif"
     test_database_url: str = "postgresql://rif:rif@localhost:5433/rif_test"
@@ -71,7 +126,7 @@ class Settings(BaseSettings):
         The app's own role must not be able to run DDL: it is the
         RLS-constrained principal, and a role that can ``ALTER TABLE`` can
         also ``DROP POLICY``. Migrations therefore need a separate, more
-        privileged credential, supplied as ``RIF_MIGRATION_DATABASE_URL``.
+        privileged credential, supplied as ``REEF_MIGRATION_DATABASE_URL``.
 
         Falls back to :attr:`dsn` when unset, which keeps local development
         and the test suite working unchanged -- there the app role owns its
@@ -88,4 +143,5 @@ def get_settings() -> Settings:
 
     :returns: cached settings instance
     """
+    adopt_legacy_environment()
     return Settings()

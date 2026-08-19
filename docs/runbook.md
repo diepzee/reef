@@ -66,7 +66,7 @@ assumed: it has no command for cron schedules or start commands)
       cron exists — step 1 pads the real corpus.
 
 - [x] **`reefwith.me` cutover.** Done 2026-08-11. Domain live behind
-      Cloudflare, WorkOS callback registered, `RIF_BASE_URL` flipped, and
+      Cloudflare, WorkOS callback registered, `REEF_BASE_URL` flipped, and
       all three auth surfaces verified naming the same host. Every
       connector must be removed and re-added at `https://reefwith.me/mcp`.
 
@@ -167,7 +167,7 @@ and tell it to run the spike instead of the real server:
 ```bash
 railway variables \
   --set WORKOS_AUTHKIT_DOMAIN=<your-authkit-domain> \
-  --set RIF_BASE_URL=https://<your-railway-domain>
+  --set REEF_BASE_URL=https://<your-railway-domain>
 ```
 
 In the Railway dashboard, open the service, go to **Settings → Deploy**, and
@@ -288,7 +288,7 @@ accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
 Wouter's personal space and the shared space were deleted, and the shared
 space's stale `school` slug was renamed to `household` — backup first, via
-`RIF_MIGRATION_DATABASE_URL`.)
+`REEF_MIGRATION_DATABASE_URL`.)
 
 Two things to get right:
 
@@ -427,8 +427,8 @@ spike service and for recovering when a bad commit is already on `main`.
 2. Create an S3-compatible API token, then:
 
    ```bash
-   railway variables --set RIF_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
-     --set RIF_S3_BUCKET=rif --set RIF_S3_ACCESS_KEY=<key> --set RIF_S3_SECRET_KEY=<secret>
+   railway variables --set REEF_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
+     --set REEF_S3_BUCKET=rif --set REEF_S3_ACCESS_KEY=<key> --set REEF_S3_SECRET_KEY=<secret>
    railway up
    ```
 
@@ -441,7 +441,7 @@ security policy`); it does not silently dump zero rows. Reproduced locally,
 not theorized. The backup connection needs a role with `BYPASSRLS`.
 
 **The credential already exists.** Since 7 Aug 2026 the roles are split:
-`DATABASE_URL` is the constrained `rif_app`, and `RIF_MIGRATION_DATABASE_URL`
+`DATABASE_URL` is the constrained `rif_app`, and `REEF_MIGRATION_DATABASE_URL`
 is the admin role. Give the backup cron the latter. Before that date the app
 itself ran as the superuser, so this trap could not fire — and neither could
 RLS.
@@ -502,7 +502,7 @@ it touches nothing but this role:
 ```bash
 railway link          # interactive: pick rif / production / rif-app
 railway run --service rif-app -- sh -c \
-  'psql "$RIF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  'psql "$REEF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
      -f scripts/provision_authz_role.sql'
 ```
 
@@ -543,12 +543,12 @@ of which alone meant no backup:**
   degraded dump.
 - **The credential must not be `DATABASE_URL`.** That is the constrained
   `rif_app` role, and `pg_dump` fails against it. `scripts/backup.py` reads
-  `RIF_BACKUP_DATABASE_URL` or `RIF_MIGRATION_DATABASE_URL` and refuses to
+  `REEF_BACKUP_DATABASE_URL` or `REEF_MIGRATION_DATABASE_URL` and refuses to
   start without one.
 
 **Status: a real backup exists and the drill has passed.**
 
-1. ✅ The backup credential is `RIF_MIGRATION_DATABASE_URL`, already set on
+1. ✅ The backup credential is `REEF_MIGRATION_DATABASE_URL`, already set on
    the service and distinct from the app's `DATABASE_URL`.
 2. Enable Railway's **managed Postgres backups** in the dashboard (belt).
    Still to do.
@@ -558,8 +558,8 @@ of which alone meant no backup:**
    dashboard: **New Service → deploy from this repo**, then Settings →
    - Start command: `uv run python scripts/backup.py`
    - Cron schedule: `0 3 * * *`
-   - Variables: `RIF_MIGRATION_DATABASE_URL`, `RIF_S3_ENDPOINT`,
-     `RIF_S3_BUCKET`, `RIF_S3_ACCESS_KEY`, `RIF_S3_SECRET_KEY`
+   - Variables: `REEF_MIGRATION_DATABASE_URL`, `REEF_S3_ENDPOINT`,
+     `REEF_S3_BUCKET`, `REEF_S3_ACCESS_KEY`, `REEF_S3_SECRET_KEY`
 
    It needs no `PORT` — and must not have one, or `rif.server` would boot a
    second instance.
@@ -684,7 +684,7 @@ budget must come from measurement on the real device, not arithmetic.
    every non-null body arrived intact (the payload is built so a host-side cut
    is detectable — a mismatch means truncation in transit).
 3. Record results in `docs/superpowers/plans/context-limits.md`; set
-   `RIF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
+   `REEF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
    misbehaved; `railway up`.
 4. Clean up: `scripts/measure_context.py wouter@rugvin.be 0`.
 
@@ -720,18 +720,18 @@ own static Connect app:
    screen), **Use PKCE** checked (rif's web login is a public client — no
    secret). Ours is "Rif Web", `client_01KZK71Z2R7PYWWS9WBNG9BEBD`.
 2. **Redirect URI.** On that Connect app → Sign-in callback → add
-   `{RIF_BASE_URL}/api/auth/callback`.
+   `{REEF_BASE_URL}/api/auth/callback`.
 3. **Environment variables:**
    - `WORKOS_CLIENT_ID` — the Connect app's client id (see above).
-   - `RIF_SESSION_SECRET` — a 64-character hex string, generated with:
+   - `REEF_SESSION_SECRET` — a 64-character hex string, generated with:
      ```bash
      python -c "import secrets; print(secrets.token_hex(32))"
      ```
    Until these are set, `/api/auth/login` returns 503 and the MCP surface
    is unaffected. The MCP path never reads `WORKOS_CLIENT_ID` (only
-   `WORKOS_AUTHKIT_DOMAIN` + `RIF_BASE_URL`), so changing it cannot break
+   `WORKOS_AUTHKIT_DOMAIN` + `REEF_BASE_URL`), so changing it cannot break
    connectors.
-4. **Development caveat.** `RIF_DEV_INSECURE=1` disables session encryption,
+4. **Development caveat.** `REEF_DEV_INSECURE=1` disables session encryption,
    for local testing only. Never set it in production.
 
 **Sign-out:** clearing rif's own cookie is not enough — the SPA bounces any
@@ -789,9 +789,9 @@ Order matters — the base URL drives the OAuth audience, so flip it last.
    railway.app callback is still listed and still marked **Default**;
    retiring it later means reassigning Default first, since WorkOS
    requires one.
-5. `RIF_BASE_URL=https://reefwith.me`. From here the MCP resource is
+5. `REEF_BASE_URL=https://reefwith.me`. From here the MCP resource is
    advertised under the new domain and access tokens are audience-bound
-   to `{RIF_BASE_URL}/mcp`, so connectors added against the old URL must
+   to `{REEF_BASE_URL}/mcp`, so connectors added against the old URL must
    be removed and re-added at `https://reefwith.me/mcp` — they do not
    heal on their own. Both hostnames keep answering; the old one can be
    removed once every member has switched.
@@ -800,7 +800,7 @@ Order matters — the base URL drives the OAuth audience, so flip it last.
    `https://reefwith.me/mcp`.** Easy to miss and nothing else reveals it.
    This is an allowlist of the `resource` values (RFC 8707) AuthKit will
    mint tokens for. It is *not* the same list as the Connect app's
-   redirect URIs, and changing `RIF_BASE_URL` does not update it. Keep
+   redirect URIs, and changing `REEF_BASE_URL` does not update it. Keep
    the old entry alongside the new one so connectors still on the
    railway.app URL keep working through the transition.
 
@@ -821,7 +821,7 @@ All three must name the same host. Note the metadata path carries the
 - **Registers, never prompts for login, sits "unauthorized".** Origin
   mismatch: the client connected to one host and the metadata claimed
   another, so under RFC 9728 it refuses to begin authorization. Fix
-  `RIF_BASE_URL`, then delete and re-add the connector — a registration
+  `REEF_BASE_URL`, then delete and re-add the connector — a registration
   bound to the old resource does not heal.
 - **Prompts, then fails after sign-in.** The callback carries
   `?error=invalid_target` and the client reports a confusing downstream
@@ -871,7 +871,7 @@ production memory: a token is per person and reaches every cove that person is
 in, so it could only ever be a throwaway account holding nothing.
 
 What is safe is claiming the listing, which is what
-`RIF_GLAMA_MAINTAINER_EMAIL` is for. Setting it serves:
+`REEF_GLAMA_MAINTAINER_EMAIL` is for. Setting it serves:
 
 ```json
 {
@@ -898,16 +898,16 @@ environment. None of this is forced — the OAuth-proxy world is opt-in
 behind the four vars in the table above, and unsetting two of them falls
 straight back to how reef has run since go-live.
 
-1. **Nothing set** (`WORKOS_AUTHKIT_DOMAIN` and `RIF_BASE_URL` both empty)
+1. **Nothing set** (`WORKOS_AUTHKIT_DOMAIN` and `REEF_BASE_URL` both empty)
    — no auth provider at all. Local dev and tests only; mirrors
    `current_principal`'s dev fallback.
-2. **`WORKOS_AUTHKIT_DOMAIN` + `RIF_BASE_URL`, nothing else** — AuthKit is
+2. **`WORKOS_AUTHKIT_DOMAIN` + `REEF_BASE_URL`, nothing else** — AuthKit is
    the authorization server; reef only validates the tokens it issues.
    This is the world reef has run in since go-live, and it is the
    rollback target below.
 3. **Those two, plus `WORKOS_MCP_CLIENT_ID`/`WORKOS_MCP_CLIENT_SECRET`**
-   (which in turn requires `RIF_JWT_SIGNING_KEY` and
-   `RIF_OAUTH_STORE_DIR`) — reef itself becomes the authorization server,
+   (which in turn requires `REEF_JWT_SIGNING_KEY` and
+   `REEF_OAUTH_STORE_DIR`) — reef itself becomes the authorization server,
    using FastMCP's OAuth proxy. AuthKit stays the identity provider,
    behind a single WorkOS Connect app ("Rif MCP"), and reef serves the
    consent page a connecting client sees.
@@ -923,17 +923,17 @@ someone went and audited the metadata by hand.
 it lives in a platformdirs cache directory — ephemeral on Railway, where
 every push to `main` redeploys the container, so every merge would wipe
 every connector's registration. `src/reef/oauth_store.py` points the store
-at `RIF_OAUTH_STORE_DIR` instead (the Railway volume), and mirrors
+at `REEF_OAUTH_STORE_DIR` instead (the Railway volume), and mirrors
 FastMCP's own construction to keep the encryption, which otherwise only
 wraps the store FastMCP builds itself. The encryption key derives from
-`RIF_JWT_SIGNING_KEY`, deliberately not from the WorkOS client secret, so
+`REEF_JWT_SIGNING_KEY`, deliberately not from the WorkOS client secret, so
 rotating that secret can never orphan the store — but rotating the
 signing key does: every stored entry becomes an undecryptable miss, which
 surfaces as every connector having to re-register.
 
 **The volume grows and nothing shrinks it.** Public dynamic client
 registration writes one permanent file per registering client to
-`RIF_OAUTH_STORE_DIR`, and the file store never deletes expired entries —
+`REEF_OAUTH_STORE_DIR`, and the file store never deletes expired entries —
 they are only filtered out on read, not removed on disk. reef has no rate
 limiting in front of registration, so a scripted flood of DCR requests
 grows the volume without bound. Watch usage with `railway volume list`; a
@@ -975,7 +975,7 @@ curl -sSI https://reefwith.me/mcp | grep -i www-authenticate
 
 ## Opening the door for the launch
 
-reef is invite-only. `RIF_OPEN_SEATS` + `RIF_OPEN_UNTIL` are the deliberate,
+reef is invite-only. `REEF_OPEN_SEATS` + `REEF_OPEN_UNTIL` are the deliberate,
 time-boxed exception: anyone who proves an address to AuthKit sees a page
 naming that address and a button that admits them. There is no code, token,
 or link on top of that — it is open signup with a button in front of it, so
@@ -984,7 +984,7 @@ treat the seat count as the thing actually protecting you.
 **Open it:**
 
 ```bash
-railway variables --set RIF_OPEN_SEATS=50 --set RIF_OPEN_UNTIL=2026-12-31
+railway variables --set REEF_OPEN_SEATS=50 --set REEF_OPEN_UNTIL=2026-12-31
 ```
 
 Both, or it stays shut — a missing one fails closed on purpose, because a
@@ -1000,7 +1000,7 @@ SELECT count(*) FROM persons WHERE joined_open_door;
 **Close it early** — takes effect on the next request, no deploy needed:
 
 ```bash
-railway variables --unset RIF_OPEN_UNTIL
+railway variables --unset REEF_OPEN_UNTIL
 ```
 
 Closing does not evict anybody already admitted; those rows stay, flagged,
@@ -1022,20 +1022,20 @@ and is bound by the same ceiling.
 |---|---|
 | `WORKOS_AUTHKIT_DOMAIN` | AuthKit app domain (`thankful-origami-62.authkit.app`, owned by the WorkOS **Production** environment); auth refuses to boot without it |
 | `WORKOS_CLIENT_ID` | Client id of the "Rif Web" **Connect OAuth application** (browser login only; the MCP path never reads it). Not the environment/default application client id — that one gets `application_not_found` |
-| `RIF_SESSION_SECRET` | 64-char hex; seals the browser session + OAuth state cookies |
-| `RIF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
+| `REEF_SESSION_SECRET` | 64-char hex; seals the browser session + OAuth state cookies |
+| `REEF_BASE_URL` | Public root URL, no path; drives advertised resource URL + token audience |
 | `WORKOS_MCP_CLIENT_ID` / `WORKOS_MCP_CLIENT_SECRET` | The "Rif MCP" Connect app (NOT "Rif Web"). Setting either selects the OAuth-proxy branch: reef becomes the authorization server. Unset both to roll back to AuthKit-as-AS |
-| `RIF_JWT_SIGNING_KEY` | 64-char hex (generate like `RIF_SESSION_SECRET`). Signs reef-issued JWTs and keys the OAuth store's encryption. Rotating it = every connector re-registers |
-| `RIF_OAUTH_STORE_DIR` | OAuth state directory; must live on the volume (`/data/oauth`) or every deploy wipes every connector registration |
-| `RIF_ALLOWED_CLIENT_REDIRECTS` | Optional comma-separated redirect-URI patterns; default allows Claude, ChatGPT, and loopback CLIs |
+| `REEF_JWT_SIGNING_KEY` | 64-char hex (generate like `REEF_SESSION_SECRET`). Signs reef-issued JWTs and keys the OAuth store's encryption. Rotating it = every connector re-registers |
+| `REEF_OAUTH_STORE_DIR` | OAuth state directory; must live on the volume (`/data/oauth`) or every deploy wipes every connector registration |
+| `REEF_ALLOWED_CLIENT_REDIRECTS` | Optional comma-separated redirect-URI patterns; default allows Claude, ChatGPT, and loopback CLIs |
 | `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
-| `RIF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
-| `RIF_S3_ENDPOINT` / `RIF_S3_BUCKET` / `RIF_S3_ACCESS_KEY` / `RIF_S3_SECRET_KEY` | R2 for images + backups |
-| `RIF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
-| `RIF_OPEN_SEATS` / `RIF_OPEN_UNTIL` | The launch door (see "Opening the door for the launch"). **Both** must be set or it stays shut; seats is an integer, until is `YYYY-MM-DD` and inclusive. Unset either one to close it immediately. Default (unset) = invite-only, which is the steady state |
+| `REEF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
+| `REEF_S3_ENDPOINT` / `REEF_S3_BUCKET` / `REEF_S3_ACCESS_KEY` / `REEF_S3_SECRET_KEY` | R2 for images + backups |
+| `REEF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
+| `REEF_OPEN_SEATS` / `REEF_OPEN_UNTIL` | The launch door (see "Opening the door for the launch"). **Both** must be set or it stays shut; seats is an integer, until is `YYYY-MM-DD` and inclusive. Unset either one to close it immediately. Default (unset) = invite-only, which is the steady state |
 | `LOGFIRE_TOKEN` | Write token for the `wouterdurnez/reef` Logfire project (EU instance). **Optional** — unset means telemetry is inert, and a missing token can never fail a request or stop the server booting |
 | `LOGFIRE_BASE_URL` | Only if the Logfire instance moves. Defaults to `https://logfire-eu.pydantic.dev`; the SDK's own default is the US instance, which is the wrong one for this project |
-| `RIF_GLAMA_MAINTAINER_EMAIL` | Email on the Glama account that owns the directory listing, served at `/.well-known/glama.json`. **Optional** — unset means that route 404s and the listing stays unclaimed. See "Why Glama says unhealthy" below |
+| `REEF_GLAMA_MAINTAINER_EMAIL` | Email on the Glama account that owns the directory listing, served at `/.well-known/glama.json`. **Optional** — unset means that route 404s and the listing stays unclaimed. See "Why Glama says unhealthy" below |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |
 
 **Escape hatches, in order of severity:**

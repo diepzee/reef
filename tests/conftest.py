@@ -94,11 +94,11 @@ def seed_dsn() -> str:
     something the application can do.
 
     Defaults to the superuser the local ``docker-compose.yml`` creates.
-    Override with ``RIF_SEED_DATABASE_URL`` for a cluster set up differently.
+    Override with ``REEF_SEED_DATABASE_URL`` for a cluster set up differently.
 
     :returns: a DSN usable by asyncpg
     """
-    override = os.environ.get("RIF_SEED_DATABASE_URL")
+    override = os.environ.get("REEF_SEED_DATABASE_URL")
     if override:
         return override
     return _swap_user(get_settings().test_database_url, "postgres", "postgres")
