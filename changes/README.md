@@ -4,8 +4,15 @@ Add a file here when your change is something a **person using reef** would
 notice. Most changes are not: test isolation, CI tuning and refactors never
 need one.
 
-Name it for your PR number, so two branches never collide:
-`changes/57-search-pages.md`.
+Name it for your branch, and commit it **with your work, before you open
+the pull request**: `changes/search-pages.md`.
+
+Branch names are unique, so two branches cannot collide — and unlike a PR
+number, you know yours before the PR exists. That ordering matters. The
+Changelog fragment check runs the moment a PR opens, so a fragment named
+after a number you cannot know yet fails once, every time, before you have
+done anything wrong. Nothing reads the filename: fragments are collected by
+glob and ordered by `kind`.
 
 ```markdown
 ---

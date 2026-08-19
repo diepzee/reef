@@ -96,8 +96,11 @@ scratch and force-pushes over whatever was there.
 
 The changelog above is commit subjects — useful to us, meaningless to
 someone using reef. If your change is something they'd notice, add a
-fragment under `changes/`. See [`changes/README.md`](../changes/README.md)
-for the format and when to skip it.
+fragment under `changes/`, named for your branch and committed before you
+open the pull request — the check runs on `opened`, so a fragment that
+arrives afterwards costs you a red tick first. See
+[`changes/README.md`](../changes/README.md) for the format and when to skip
+it.
 
 ## Set up once, by hand
 
