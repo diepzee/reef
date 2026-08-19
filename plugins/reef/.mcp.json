@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "reef": {
+      "type": "http",
+      "url": "https://reefwith.me/mcp"
+    }
+  }
+}

@@ -61,9 +61,10 @@ Nothing here is a step you run yourself.
    - runs `scripts/stamp_version.py` and `scripts/fold_changes.py`, which
      fold this release's `changes/*.md` fragments into
      `site/release-notes.json` and re-render `site/changelog.html`, then
-     delete the fragments they consumed, and write the new version into all
-     three manifests — `pyproject.toml`, `clients/python/pyproject.toml`,
-     and `clients/ts/package.json` — so `reef-cli` and `@haai/reef-cli`
+     delete the fragments they consumed, and write the new version into
+     every manifest — `pyproject.toml`, `clients/python/pyproject.toml`,
+     `clients/ts/package.json`, and the plugin's `plugin.json` and
+     `marketplace.json` — so `reef-cli`, `@haai/reef-cli` and the plugin
      never drift apart or fall behind the server;
    - writes the generated notes into `CHANGELOG.md`;
    - commits all of that as one commit, `chore(release): X.Y.Z`, with the

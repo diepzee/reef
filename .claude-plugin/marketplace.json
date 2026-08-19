@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "haai",
+  "description": "Plugins from Haai BV. reef \u2014 shared, living memory for you and the people you share your life with.",
+  "owner": {
+    "name": "Haai BV",
+    "url": "https://reefwith.me"
+  },
+  "plugins": [
+    {
+      "name": "reef",
+      "source": "./plugins/reef",
+      "description": "Shared, living memory for you and your people. Private spaces only you can read, coves your household or team share deliberately, all of it human-editable Markdown.",
+      "version": "0.5.0",
+      "category": "productivity",
+      "author": {
+        "name": "Haai BV",
+        "url": "https://reefwith.me"
+      },
+      "homepage": "https://reefwith.me",
+      "repository": "https://github.com/diepzee/rif",
+      "keywords": [
+        "memory",
+        "knowledge",
+        "notes",
+        "shared",
+        "household",
+        "mcp"
+      ],
+      "license": "MIT"
+    }
+  ]
+}

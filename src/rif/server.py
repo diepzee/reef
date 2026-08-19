@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
-from mcp.types import Icon
+from mcp.types import Icon, ToolAnnotations
 
 if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
@@ -211,6 +211,42 @@ mcp = FastMCP(
 register_auth_routes(mcp)
 register_api_routes(mcp)
 register_static_routes(mcp)
+
+
+# Every tool declares what it does to a user's memory, because Claude decides
+# from these hints whether a call may run without asking first — and because a
+# connector directory rejects a server whose tools do not. The three wrappers
+# below exist so that decision is made once, at the decorator, in words:
+# a tool is something that reads, something that adds, or something that
+# takes away. tests/test_tool_annotations.py holds the classification and
+# fails when a new tool joins without one.
+
+
+def _read_only(title: str):
+    """Register a tool that changes nothing, so Claude may run it unprompted."""
+    return mcp.tool(
+        annotations=ToolAnnotations(
+            title=title, readOnlyHint=True, destructiveHint=False
+        )
+    )
+
+
+def _additive(title: str):
+    """Register a write that only adds; nothing already remembered is lost."""
+    return mcp.tool(
+        annotations=ToolAnnotations(
+            title=title, readOnlyHint=False, destructiveHint=False
+        )
+    )
+
+
+def _destructive(title: str):
+    """Register a write that overwrites, removes, or revokes. Always prompts."""
+    return mcp.tool(
+        annotations=ToolAnnotations(
+            title=title, readOnlyHint=False, destructiveHint=True
+        )
+    )
 
 
 async def tool_load_context(principal: Principal) -> dict:
@@ -510,7 +546,7 @@ async def tool_remember(
     return {"space": space, "path": _INBOX, "appended": entry, "duplicate": False}
 
 
-@mcp.tool
+@_read_only("Load memory index")
 async def load_index() -> dict:
     """Load the memory index. Call this first, every conversation.
 
@@ -525,7 +561,7 @@ async def load_index() -> dict:
         return await tool_load_index(principal)
 
 
-@mcp.tool
+@_read_only("Read pages")
 async def read_pages(space: str, paths: list[str]) -> list[dict]:
     """Read several pages in one call.
 
@@ -537,7 +573,7 @@ async def read_pages(space: str, paths: list[str]) -> list[dict]:
         return await tool_read_pages(principal, space, paths)
 
 
-@mcp.tool
+@_read_only("Load all memory")
 async def load_all_context() -> dict:
     """Bulk-load every page body you can see. Not the normal path.
 
@@ -553,7 +589,7 @@ async def load_all_context() -> dict:
         return await tool_load_context(principal)
 
 
-@mcp.tool
+@_read_only("Get operating protocol")
 async def get_operating_protocol() -> str:
     """Return the operating protocol and your persona. Call after loading context."""
     async with transaction_scope():
@@ -561,7 +597,7 @@ async def get_operating_protocol() -> str:
         return await build_instructions(principal)
 
 
-@mcp.tool
+@_read_only("Read page")
 async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
     """Read one page by path; needed when load_all_context was truncated.
 
@@ -577,7 +613,7 @@ async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
         return await tool_read_page(principal, space, path, as_of=as_of)
 
 
-@mcp.tool
+@_read_only("Search memory")
 async def search_pages(
     query: str, space: str | None = None, limit: int = 10
 ) -> list[dict]:
@@ -599,7 +635,7 @@ async def search_pages(
         return await run_search(principal, query, space=space, limit=limit)
 
 
-@mcp.tool
+@_read_only("What's new")
 async def whats_new(since: str | None = None) -> dict:
     """List what changed across your spaces: who wrote what, where, when.
 
@@ -615,7 +651,7 @@ async def whats_new(since: str | None = None) -> dict:
         return await tool_whats_new(principal, since=since)
 
 
-@mcp.tool
+@_read_only("List spaces")
 async def list_spaces() -> list[dict]:
     """List your spaces: name, members, whether you own it, and a version counter."""
     async with transaction_scope():
@@ -623,7 +659,7 @@ async def list_spaces() -> list[dict]:
         return await tool_list_spaces(principal)
 
 
-@mcp.tool
+@_additive("Create cove")
 async def create_space(slug: str) -> dict:
     """Create a new shared space that you own.
 
@@ -637,7 +673,7 @@ async def create_space(slug: str) -> dict:
         return await tool_create_space(principal, slug)
 
 
-@mcp.tool
+@_additive("Invite to cove")
 async def invite(
     space: str,
     email: str,
@@ -668,7 +704,7 @@ async def invite(
         )
 
 
-@mcp.tool
+@_additive("Invite to reef")
 async def invite_to_reef(email: str, display_name: str | None = None) -> dict:
     """Invite someone to reef itself, without sharing any of your coves.
 
@@ -691,7 +727,7 @@ async def invite_to_reef(email: str, display_name: str | None = None) -> dict:
         return await tool_invite_to_reef(principal, email, display_name)
 
 
-@mcp.tool
+@_destructive("Remove cove member")
 async def remove_member(space: str, email: str) -> dict:
     """Remove a member from a shared space you own. Owner only.
 
@@ -705,7 +741,7 @@ async def remove_member(space: str, email: str) -> dict:
         return await tool_remove_member(principal, space, email)
 
 
-@mcp.tool
+@_destructive("Leave cove")
 async def leave_space(space: str) -> dict:
     """Leave a shared space, keeping it alive for everyone else.
 
@@ -722,7 +758,7 @@ async def leave_space(space: str) -> dict:
         return await tool_leave_space(principal, space)
 
 
-@mcp.tool
+@_destructive("Delete cove")
 async def delete_space(space: str) -> dict:
     """Permanently destroy a shared space you own and are alone in.
 
@@ -743,7 +779,7 @@ async def delete_space(space: str) -> dict:
     return outcome
 
 
-@mcp.tool
+@_destructive("Delete page")
 async def delete_page(space: str, path: str) -> dict:
     """Permanently delete a page and its entire history.
 
@@ -781,7 +817,7 @@ async def tool_rename_cove(principal: Principal, space: str, new_name: str) -> d
         return {"error": "space_error", "detail": str(exc)}
 
 
-@mcp.tool
+@_additive("Rename cove")
 async def rename_cove(space: str, new_name: str) -> dict:
     """Change what you call a shared cove. Only you see the new name.
 
@@ -800,7 +836,7 @@ async def rename_cove(space: str, new_name: str) -> dict:
         return await tool_rename_cove(principal, space, new_name)
 
 
-@mcp.tool
+@_additive("Remember a fact")
 async def remember(fact: str, space: str = "personal") -> dict:
     """Record a fact. Defaults to the private personal space.
 
@@ -816,7 +852,7 @@ async def remember(fact: str, space: str = "personal") -> dict:
         return await tool_remember(principal, fact, space)
 
 
-@mcp.tool
+@_destructive("Write page")
 async def write_page(
     space: str,
     path: str,
@@ -970,7 +1006,7 @@ async def tool_write_pages(
     return saved
 
 
-@mcp.tool
+@_destructive("Write pages")
 async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
     """Create or replace several pages in one call. Prefer this over repeated
     write_page calls whenever a turn saves more than one page: clients that
@@ -1034,7 +1070,7 @@ async def write_pages(space: str, pages: list[dict], message: str = "") -> dict:
     }
 
 
-@mcp.tool
+@_destructive("Edit page section")
 async def edit_page_section(
     space: str,
     path: str,
@@ -1132,7 +1168,7 @@ async def tool_update_meta_page(
     return {"space": space, "path": page.path, "version": page.version}
 
 
-@mcp.tool
+@_destructive("Update persona page")
 async def update_meta_page(
     space: str, path: str, body: str, message: str, confirm: bool = False
 ) -> dict:
@@ -1157,7 +1193,7 @@ async def update_meta_page(
         )
 
 
-@mcp.tool
+@_additive("Prepare to share")
 async def prepare_to_share(
     path: str, dest_space: str, section: str | None = None, dest_path: str | None = None
 ) -> dict:
@@ -1188,7 +1224,7 @@ async def prepare_to_share(
             return {"error": "promotion_failed", "detail": str(exc)}
 
 
-@mcp.tool
+@_destructive("Confirm share")
 async def confirm_share(nonce: str) -> dict:
     """Execute a staged share after the user has agreed. Step 2 of 2.
 
@@ -1282,7 +1318,7 @@ async def _delete_file(space: str, key: str) -> dict:
     return {"deleted": True, "key": key}
 
 
-@mcp.tool
+@_additive("Add file")
 async def add_file(
     space: str,
     filename: str,
@@ -1308,7 +1344,7 @@ async def add_file(
     return await _store_file(space, filename, data_base64, mime, description, page_path)
 
 
-@mcp.tool
+@_read_only("Read file")
 async def read_file(space: str, key: str) -> dict:
     """Return metadata and a short-lived URL for any stored file.
 
@@ -1318,7 +1354,7 @@ async def read_file(space: str, key: str) -> dict:
     return await _read_file(space, key)
 
 
-@mcp.tool
+@_destructive("Delete file")
 async def delete_file(space: str, key: str) -> dict:
     """Delete a stored file and its description. This cannot be undone.
 
@@ -1332,7 +1368,7 @@ async def delete_file(space: str, key: str) -> dict:
 
 # Compatibility aliases for clients and existing pages which still know the
 # old image-only vocabulary. New callers should use the general file tools.
-@mcp.tool
+@_additive("Add image")
 async def add_image(
     space: str,
     data_base64: str,
@@ -1347,13 +1383,13 @@ async def add_image(
     )
 
 
-@mcp.tool
+@_read_only("Read image")
 async def read_image(space: str, key: str) -> dict:
     """Compatibility alias for ``read_file``."""
     return await _read_file(space, key)
 
 
-@mcp.tool
+@_destructive("Delete image")
 async def delete_image(space: str, key: str) -> dict:
     """Compatibility alias for ``delete_file``."""
     return await _delete_file(space, key)

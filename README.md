@@ -34,6 +34,17 @@ reef load-index
 To use it from an assistant instead, add `https://reefwith.me/mcp` as a remote
 MCP connector and sign in with the address you were invited on.
 
+In Claude Code, the plugin carries that connector and three commands with it:
+
+```bash
+claude plugin marketplace add diepzee/rif
+claude plugin install reef@haai
+```
+
+`/reef:recall` answers from memory rather than from guesswork,
+`/reef:remember` files something away, and `/reef:whats-new` reports what the
+other people's assistants have been writing.
+
 There is a browser app too, at [reefwith.me/app](https://reefwith.me/app). Use
 it to read and edit pages without an assistant.
 
@@ -226,6 +237,27 @@ under `changes/` if a person using reef would notice the change — see
 | [`docs/runbook.md`](docs/runbook.md) | Deploying, and what is still open |
 | [`docs/restore.md`](docs/restore.md) | Backup and restore |
 | [`docs/competitor-research.md`](docs/competitor-research.md) | The market around it |
+
+## Licence
+
+The **server** — everything at the repository root — is
+[AGPL-3.0-or-later](LICENSE). Read it, run it for yourself, fork it. The one
+condition that bites is the network one: if you run a modified reef as a
+service other people use, you owe them your changes. That matches what reef
+asks of itself. If somebody else is holding your memory, you should be able
+to see the code that holds it.
+
+The parts you install rather than host are **MIT**, because a licence should
+not be a reason to hesitate over a client:
+
+| Part | Licence |
+|---|---|
+| The server (`src/`, this repository) | AGPL-3.0-or-later |
+| [`clients/python`](clients/python) — `reef-cli` on PyPI | MIT |
+| [`clients/ts`](clients/ts) — `@haai/reef-cli` on npm | MIT |
+| [`plugins/reef`](plugins/reef) — the Claude Code plugin | MIT |
+
+Copyright is held by Haai BV.
 
 ## A note on the name
 

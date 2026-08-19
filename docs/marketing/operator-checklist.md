@@ -21,9 +21,15 @@ advertise install commands before the packages exist.
 9. [ ] mcp.so — submit via their "Submit" flow with https://reefwith.me/mcp.
 10. [ ] glama.ai/mcp — claim/submit the server listing
         (see directory-submissions.md for the enrichment notes).
-10b. [ ] **Anthropic connector directory** — the highest-leverage listing;
-        ready-to-paste copy and the invite-only review caveat are in
-        directory-submissions.md. Needs a privacy policy page first.
+10b. [ ] **Anthropic plugin directory** — free, and open to an individual:
+        sign up for Console at platform.claude.com and submit the repo at
+        platform.claude.com/plugins/submit. The plugin already exists at
+        `plugins/reef/` and validates. Do this one first; it costs nothing.
+10c. [ ] **Anthropic Connectors Directory** — the widest reach, but the
+        portal lives in organisation settings, so it needs a paid Team or
+        Enterprise org. Blocked on a seeded demo account and a public docs
+        page, both named in directory-submissions.md. Privacy policy,
+        support contact, and tool annotations are already in place.
 11. [ ] awesome-mcp-servers — PR adding reef under a memory/knowledge section.
 12. [ ] Post Show HN and the X thread (docs/marketing/launch-drafts.md) —
         ideally a weekday morning US time; be around to answer comments.
