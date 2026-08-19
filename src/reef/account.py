@@ -85,7 +85,7 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
         # without permitting a great deal more, so the authority check lives
         # one line above the writes instead.
         handed_over = await Space.raw(
-            "SELECT rif_transfer_space_ownership({}, {}) AS ok",
+            "SELECT reef_transfer_space_ownership({}, {}) AS ok",
             space.id,
             successor.person_id,
         )

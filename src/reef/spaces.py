@@ -81,17 +81,17 @@ async def member_roster(space_id: UUID) -> list[dict]:
     share is about to reach, and the web members panel needs addresses to key
     removal by.
 
-    The disclosure rule is no longer this module's to remember. ``rif_roster``
+    The disclosure rule is no longer this module's to remember. ``reef_roster``
     returns an email only to the cove's owner and an empty string to everyone
     else, and returns nothing at all to a non-member -- decided in SQL, by
     the armed principal, so a caller that forgets to check gets the safe
     answer rather than the whole roster. The old version selected
     ``Person.email`` outright and trusted every caller to blank it.
 
-    Two queries rather than one, and not by preference: ``rif_roster`` lives
+    Two queries rather than one, and not by preference: ``reef_roster`` lives
     in ``disclosure_statements`` which historical migrations re-run against
     the August schema, so it cannot name the avatar columns without breaking
-    every database built from scratch. ``rif_member_faces`` names them from
+    every database built from scratch. ``reef_member_faces`` names them from
     ``avatar_statements``, which those migrations never call. See
     :func:`reef.rls.avatar_statements`.
 
@@ -103,8 +103,8 @@ async def member_roster(space_id: UUID) -> list[dict]:
         "avatar_len": int | None}, ...]``, sorted by display name; ``email``
         is ``""`` unless the caller owns the space
     """
-    rows = await Person.raw("SELECT * FROM rif_roster({})", space_id)
-    faces = await Person.raw("SELECT * FROM rif_member_faces({})", space_id)
+    rows = await Person.raw("SELECT * FROM reef_roster({})", space_id)
+    faces = await Person.raw("SELECT * FROM reef_member_faces({})", space_id)
     sizes = {face["person_id"]: face["avatar_len"] for face in faces}
     return [
         {
@@ -137,7 +137,7 @@ async def space_owner(space_id: UUID) -> dict | None:
     :param space_id: the space whose owner is wanted
     :returns: ``{"display_name": str, "email": str}``, or None
     """
-    rows = await Person.raw("SELECT * FROM rif_space_owner({})", space_id)
+    rows = await Person.raw("SELECT * FROM reef_space_owner({})", space_id)
     if not rows:
         return None
     return {
@@ -159,7 +159,7 @@ async def display_names(person_ids: list[UUID]) -> dict[UUID, str]:
     if not person_ids:
         return {}
     rows = await Person.raw(
-        "SELECT * FROM rif_display_names({})", list(dict.fromkeys(person_ids))
+        "SELECT * FROM reef_display_names({})", list(dict.fromkeys(person_ids))
     )
     return {row["person_id"]: row["display_name"] for row in rows}
 
@@ -198,7 +198,7 @@ async def create_space(principal: Principal, slug: str) -> Space:
     # is chosen and taken in one statement. The creator owns the cove by the
     # line above, which is what the function checks.
     admitted = await Space.raw(
-        "SELECT rif_admit_member({}, {}, {}, {}) AS alias",
+        "SELECT reef_admit_member({}, {}, {}, {}) AS alias",
         space.id,
         principal.person_id,
         slug,
@@ -317,7 +317,7 @@ async def invite(
         # statement inside the database. The cove's own name is offered first
         # and suffixed only if the invitee already uses it for something else.
         admitted = await Space.raw(
-            "SELECT rif_admit_member({}, {}, {}, {}) AS alias",
+            "SELECT reef_admit_member({}, {}, {}, {}) AS alias",
             space.id,
             entry.person_id,
             space.slug,
@@ -366,7 +366,7 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     """
     space = await _owned_shared_space(principal, slug)
     email = email.strip().lower()
-    rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
+    rows = await Person.raw("SELECT reef_person_id_by_email({}) AS id", email)
     person_id = rows[0]["id"] if rows else None
     if person_id is None or await _membership(person_id, space.id) is None:
         raise SpaceError(f"{email} is not a member of {slug!r}")
@@ -379,7 +379,7 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     # see memberships in coves they are not in -- so the count would come
     # back short and erase somebody still active elsewhere.
     outcome = await Person.raw(
-        "SELECT * FROM rif_remove_member({}, {})", space.id, person_id
+        "SELECT * FROM reef_remove_member({}, {})", space.id, person_id
     )
     if not outcome or not outcome[0]["removed"]:
         raise SpaceError(f"{email} is not a member of {slug!r}")
@@ -521,7 +521,7 @@ async def leave_space(principal: Principal, slug: str) -> dict:
         # who is in the cove -- including who they just handed it to.
         names = await display_names([successor.person_id])
         handed_over = await Space.raw(
-            "SELECT rif_transfer_space_ownership({}, {}) AS ok",
+            "SELECT reef_transfer_space_ownership({}, {}) AS ok",
             space.id,
             successor.person_id,
         )

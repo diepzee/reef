@@ -52,7 +52,7 @@ async def person_by_subject(subject: str) -> IdentityRow | None:
     """
     return _one(
         await Person.raw(
-            "SELECT * FROM rif_person_by_subject({})",
+            "SELECT * FROM reef_person_by_subject({})",
             subject,
         )
     )
@@ -68,7 +68,7 @@ async def person_by_email(email: str) -> IdentityRow | None:
     :param email: the address to look up
     :returns: the identity, or None if no person has that address
     """
-    return _one(await Person.raw("SELECT * FROM rif_person_by_email({})", email))
+    return _one(await Person.raw("SELECT * FROM reef_person_by_email({})", email))
 
 
 async def bind_subject(email: str, subject: str) -> IdentityRow | None:
@@ -83,7 +83,7 @@ async def bind_subject(email: str, subject: str) -> IdentityRow | None:
     :returns: the newly bound identity, or None if no unbound row matched
     """
     return _one(
-        await Person.raw("SELECT * FROM rif_person_bind({}, {})", email, subject)
+        await Person.raw("SELECT * FROM reef_person_bind({}, {})", email, subject)
     )
 
 
@@ -98,7 +98,7 @@ async def person_exists(person_id: UUID) -> bool:
     :param person_id: the id sealed into the session cookie
     :returns: True if the row exists
     """
-    rows = await Person.raw("SELECT rif_person_alive({}) AS alive", person_id)
+    rows = await Person.raw("SELECT reef_person_alive({}) AS alive", person_id)
     return bool(rows and rows[0]["alive"])
 
 
@@ -114,7 +114,7 @@ async def person_session_epoch(person_id: UUID) -> int | None:
     :param person_id: the id sealed into the session cookie
     :returns: the epoch, or None when no such person exists
     """
-    rows = await Person.raw("SELECT rif_person_session_epoch({}) AS epoch", person_id)
+    rows = await Person.raw("SELECT reef_person_session_epoch({}) AS epoch", person_id)
     if not rows:
         return None
     return rows[0]["epoch"]

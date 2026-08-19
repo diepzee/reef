@@ -5,7 +5,7 @@ Every checkout of this repository points at the same Postgres and the same
 fixture drops and recreates the RLS helper functions *globally*. Two suites
 running at once therefore rebuild the schema under each other, and the second
 one reports failures that have nothing to do with the code under test:
-``UndefinedFunctionError: function rif_person_bind(text, text) does not
+``UndefinedFunctionError: function reef_person_bind(text, text) does not
 exist``, duplicate keys on ``persons_email_key``, foreign-key violations on
 ``spaces_owner_person_id_fkey``, deadlocks, connection timeouts. Dozens at
 once, in tests nobody touched, and green again on the next run.

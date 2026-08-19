@@ -622,7 +622,7 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     space = await resolve_space(principal, slug)
     owner = await space_owner(space.id)
     is_owner = space.owner_person_id == principal.person_id
-    # No blanking pass here any more: rif_roster returns an address only to
+    # No blanking pass here any more: reef_roster returns an address only to
     # the cove's owner, so the rule is applied by Postgres against the armed
     # principal rather than by this handler remembering to strip a field it
     # had already fetched.
@@ -653,7 +653,7 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
     The counterpart to :func:`_get_avatar`, which is scoped to the caller by
     construction and so can never show anybody else's face. Here the id is in
     the path and therefore tamperable, so the rule is not this handler's to
-    enforce: ``rif_member_avatar`` returns rows only when the caller and the
+    enforce: ``reef_member_avatar`` returns rows only when the caller and the
     person asked about are both members of this cove. A miss is a 404 whether
     the cove is invisible, the person is not in it, or they simply have no
     picture -- the three are indistinguishable from outside, which is the
@@ -671,7 +671,7 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
         return JSONResponse({"error": "not_found"}, status_code=404)
     space = await resolve_space(principal, slug)
     rows = await Person.raw(
-        "SELECT * FROM rif_member_avatar({}, {})", space.id, person_id
+        "SELECT * FROM reef_member_avatar({}, {})", space.id, person_id
     )
     if not rows:
         return JSONResponse({"error": "not_found"}, status_code=404)

@@ -19,10 +19,10 @@ from reef.models import Person
 from reef.rls import AUTHZ_ROLE
 
 _FUNCTIONS = (
-    "rif_person_by_subject",
-    "rif_person_by_email",
-    "rif_person_bind",
-    "rif_person_alive",
+    "reef_person_by_subject",
+    "reef_person_by_email",
+    "reef_person_bind",
+    "reef_person_alive",
 )
 
 
@@ -45,10 +45,10 @@ async def test_they_are_closed_to_public():
     """Only the app role may call them."""
     for name in _FUNCTIONS:
         signature = {
-            "rif_person_by_subject": "rif_person_by_subject(text)",
-            "rif_person_by_email": "rif_person_by_email(text)",
-            "rif_person_bind": "rif_person_bind(text, text)",
-            "rif_person_alive": "rif_person_alive(uuid)",
+            "reef_person_by_subject": "reef_person_by_subject(text)",
+            "reef_person_by_email": "reef_person_by_email(text)",
+            "reef_person_bind": "reef_person_bind(text, text)",
+            "reef_person_alive": "reef_person_alive(uuid)",
         }[name]
         rows = await DB._run_in_new_connection(
             f"SELECT has_function_privilege('public', '{signature}', 'EXECUTE') AS pub"
@@ -62,7 +62,7 @@ async def test_lookup_by_subject_returns_only_the_principal_columns(tx, graph):
         "bysubject@example.test", "By Subject", subject="auth0|abc"
     )
 
-    rows = await Person.raw("SELECT * FROM rif_person_by_subject({})", "auth0|abc")
+    rows = await Person.raw("SELECT * FROM reef_person_by_subject({})", "auth0|abc")
     assert set(rows[0].keys()) == {
         "person_id",
         "person_email",
@@ -115,7 +115,7 @@ async def test_binding_an_uninvited_address_matches_nothing(tx, graph):
     """Invitation-only: no row means no account, never an implicit signup."""
     assert await bind_subject("stranger@example.test", "auth0|stranger") is None
     rows = await Person.raw(
-        "SELECT rif_person_id_by_email({}) AS id", "stranger@example.test"
+        "SELECT reef_person_id_by_email({}) AS id", "stranger@example.test"
     )
     assert rows[0]["id"] is None
 
