@@ -2,16 +2,16 @@ import json
 from io import BytesIO
 from zipfile import ZipFile
 
-from rif.access import Principal
-from rif.export import (
+from reef.access import Principal
+from reef.export import (
     build_full_dump,
     build_json_export,
     build_markdown_archive,
     export_space,
     render_page,
 )
-from rif.models import Attachment, AttachmentStatus, Page
-from rif.pages import get_page, save_page
+from reef.models import Attachment, AttachmentStatus, Page
+from reef.pages import get_page, save_page
 
 
 def principal_for(person) -> Principal:

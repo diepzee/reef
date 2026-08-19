@@ -11,10 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from rif.access import Principal
-from rif.db import transaction_scope
-from rif.models import Person
-from rif.pages import save_page
+from reef.access import Principal
+from reef.db import transaction_scope
+from reef.models import Person
+from reef.pages import save_page
 
 HOUSEHOLD = {"house.md", "money.md", "family-film.md"}
 PERSONAL = {

@@ -1,5 +1,5 @@
 [project]
-name = "rif"
+name = "reef"
 version = "0.6.0"
 description = "Shared, living memory for people and their AI assistants"
 readme = "README.md"

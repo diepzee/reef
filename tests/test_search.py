@@ -7,10 +7,10 @@ here are the point, not an afterthought.
 
 import pytest
 
-from rif.access import AccessDenied, Principal, arm
-from rif.models import Attachment, AttachmentStatus
-from rif.pages import save_page
-from rif.search import search_pages
+from reef.access import AccessDenied, Principal, arm
+from reef.models import Attachment, AttachmentStatus
+from reef.pages import save_page
+from reef.search import search_pages
 
 
 def principal_for(person) -> Principal:

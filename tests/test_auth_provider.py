@@ -7,8 +7,8 @@ from fastmcp import FastMCP
 from fastmcp.server.auth.providers.workos import AuthKitProvider, WorkOSProvider
 from fastmcp.server.auth.redirect_validation import validate_redirect_uri
 
-from rif.config import get_settings
-from rif.server import _DEFAULT_CLIENT_REDIRECTS, _build_auth
+from reef.config import get_settings
+from reef.server import _DEFAULT_CLIENT_REDIRECTS, _build_auth
 
 DOMAIN = "https://example-authkit.test"
 BASE = "https://reef.example.test"

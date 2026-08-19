@@ -48,7 +48,7 @@ async def test_a_column_grant_binds_the_probe_but_not_the_owner(probe):
     The owner sails through; the probe is refused. Any privilege test written
     against the owner would therefore be reporting the wrong answer.
     """
-    from rif.db import DB
+    from reef.db import DB
 
     await DB._run_in_new_connection("CREATE TABLE probe_demo (keep int, guard int)")
     try:
@@ -78,9 +78,9 @@ async def test_row_level_security_still_applies_to_the_probe(probe, graph):
     the rest of the suite can assert visibility from the ordinary connection.
     Confirmed here rather than assumed.
     """
-    from rif.access import Principal, arm
-    from rif.db import DB
-    from rif.pages import save_page
+    from reef.access import Principal, arm
+    from reef.db import DB
+    from reef.pages import save_page
 
     person = await graph.person("probe-rls@example.test", "Probe")
     await graph.personal_space(person, slug="probe-rls")

@@ -2,7 +2,7 @@
 
 Invoked by semantic-release's ``prepareCmd`` with the version it computed,
 so the entry carries the same number as the tag. All the logic lives in
-:mod:`rif.releasenotes` -- the ``Justfile`` lints and tests ``src``,
+:mod:`reef.releasenotes` -- the ``Justfile`` lints and tests ``src``,
 ``tests``, ``scripts`` and ``clients``, but this file stays a thin shell
 around that module rather than duplicating its logic.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from rif.releasenotes import FragmentError, fold, load_feed, render_page
+from reef.releasenotes import FragmentError, fold, load_feed, render_page
 
 ROOT = Path(__file__).resolve().parent.parent
 

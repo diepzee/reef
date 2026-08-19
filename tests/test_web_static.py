@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest_asyncio
 
-from rif.server import mcp  # importing server registers all web routes
+from reef.server import mcp  # importing server registers all web routes
 
 
 @pytest_asyncio.fixture
@@ -16,7 +16,7 @@ async def static_client(monkeypatch, tmp_path):
 
     :returns: an ``httpx.AsyncClient`` wired to the in-process ASGI app
     """
-    from rif.config import get_settings
+    from reef.config import get_settings
 
     (tmp_path / "index.html").write_text("<!doctype html><title>rif</title>")
     (tmp_path / "app.js").write_text("console.log(1)")
@@ -82,8 +82,8 @@ def _door(monkeypatch, *, is_open: bool) -> None:
     :param monkeypatch: pytest's patcher
     :param is_open: the state to force
     """
-    from rif.opendoor import DoorPolicy
-    from rif.web import static
+    from reef.opendoor import DoorPolicy
+    from reef.web import static
 
     monkeypatch.setattr(static, "door_policy", lambda: DoorPolicy(is_open, 500, ""))
 
@@ -194,7 +194,7 @@ async def static_client_with_icons(monkeypatch, tmp_path):
     :returns: an ``httpx.AsyncClient`` wired to the in-process ASGI app,
         with a built SPA and favicon assets both present in ``static_dir``
     """
-    from rif.config import get_settings
+    from reef.config import get_settings
 
     (tmp_path / "index.html").write_text("<!doctype html><title>rif</title>")
     (tmp_path / "reef-icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake-png-bytes")
@@ -276,7 +276,7 @@ async def test_glama_claim_served_when_configured(static_client, monkeypatch):
     it *can* read without a token -- so the assertion that matters is that
     an unauthenticated client gets the document, not a 401.
     """
-    from rif.config import get_settings
+    from reef.config import get_settings
 
     monkeypatch.setattr(get_settings(), "glama_maintainer_email", "a@example.com")
     response = await static_client.get("/.well-known/glama.json")

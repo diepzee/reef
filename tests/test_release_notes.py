@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from rif.releasenotes import (
+from reef.releasenotes import (
     Change,
     Entry,
     FragmentError,
@@ -194,7 +194,7 @@ def test_the_api_shape_is_plain_json():
 
 
 def test_the_page_lists_every_version_newest_first():
-    from rif.releasenotes import render_page
+    from reef.releasenotes import render_page
 
     html = render_page(
         [
@@ -217,7 +217,7 @@ def test_the_page_lists_every_version_newest_first():
 
 def test_the_page_escapes_the_text_it_is_given():
     """Fragments are prose written by hand, and prose contains angle brackets."""
-    from rif.releasenotes import render_page
+    from reef.releasenotes import render_page
 
     html = render_page(
         [
@@ -234,7 +234,7 @@ def test_the_page_escapes_the_text_it_is_given():
 
 def test_an_empty_feed_still_renders_a_page():
     """Before the first release the page must not look broken."""
-    from rif.releasenotes import render_page
+    from reef.releasenotes import render_page
 
     html = render_page([])
     assert html.startswith("<!doctype html>")

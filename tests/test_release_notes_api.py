@@ -5,9 +5,9 @@ import json
 import pytest
 from conftest import _login
 
-from rif.access import Principal, arm
-from rif.config import get_settings
-from rif.models import Person
+from reef.access import Principal, arm
+from reef.config import get_settings
+from reef.models import Person
 
 CSRF = {"X-Rif-Csrf": "1"}
 
@@ -38,7 +38,7 @@ def feed(tmp_path, monkeypatch):
     :returns: the directory the feed was written into
     """
     (tmp_path / "release-notes.json").write_text(json.dumps(FEED))
-    # site_dir is a str on Settings, not a Path -- see src/rif/config.py.
+    # site_dir is a str on Settings, not a Path -- see src/reef/config.py.
     monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
     return tmp_path
 

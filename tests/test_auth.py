@@ -1,8 +1,8 @@
 import pytest
 
-from rif.access import AccessDenied
-from rif.auth import current_principal, principal_from_claims
-from rif.identity import person_by_subject
+from reef.access import AccessDenied
+from reef.auth import current_principal, principal_from_claims
+from reef.identity import person_by_subject
 
 
 async def test_known_subject_resolves(tx, household, graph):
@@ -55,9 +55,9 @@ async def test_only_a_boolean_true_counts_as_a_verified_email(tx, household):
 
 
 async def test_first_bind_onboards_a_personal_space(tx, household):
-    from rif.access import Principal
-    from rif.pages import get_page
-    from rif.spaces import invite
+    from reef.access import Principal
+    from reef.pages import get_page
+    from reef.spaces import invite
 
     owner = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
     await invite(owner, "household", "anna@example.test", display_name="Anna")
@@ -135,7 +135,7 @@ def test_http_transport_refuses_to_start_without_auth(monkeypatch):
     authentication; a missing WORKOS_AUTHKIT_DOMAIN/RIF_BASE_URL has to be
     a loud startup failure rather than a silently unauthenticated server.
     """
-    from rif import server
+    from reef import server
 
     monkeypatch.setenv("PORT", "8080")
     assert server.mcp.auth is None  # the test env never sets the WorkOS vars

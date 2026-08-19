@@ -180,7 +180,7 @@ token.
 
 That is an inference from behavior rather than a captured payload, and the
 reasoning is worth keeping because it is tight: `principal_from_claims`
-(`src/rif/auth.py`) binds an unknown subject *only* when the token carries
+(`src/reef/auth.py`) binds an unknown subject *only* when the token carries
 both `email` and a truthy `email_verified`, and raises `AccessDenied`
 otherwise. Every principal in production started unknown. Binding succeeded.
 So both claims were present at first login.

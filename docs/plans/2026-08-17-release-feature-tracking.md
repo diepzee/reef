@@ -15,7 +15,7 @@
 - **Docstrings are mandatory** on every Python module, class and function, ReST-formatted, no types in the docstring (type hints carry those).
 - **Modern Python types** — `str | None`, not `Optional[str]`.
 - **Lint and format both gate CI:** `uv run ruff check src tests` *and* `uv run ruff format --check src tests`. Lint-clean is not enough; run `just fmt` before every commit.
-- **Only `src` and `tests` are linted.** Logic goes in `src/rif/`, not `scripts/` — `scripts/` is a thin CLI shell only, and is not on the pytest `pythonpath`.
+- **Only `src` and `tests` are linted.** Logic goes in `src/reef/`, not `scripts/` — `scripts/` is a thin CLI shell only, and is not on the pytest `pythonpath`.
 - **The Dockerfile copies `src`, `scripts`, `site`, `clients/python`, `piccolo_conf.py` — not `docs`.** Anything the running server must read lives under one of those.
 - **`kind` is exactly one of `added`, `changed`, `fixed`.** An unknown kind is an error, never a default.
 - **Semver comparison exists in Python only.** The frontend consumes the `unread` boolean and never parses a version.
@@ -30,8 +30,8 @@
 ### Task 1: The `last_seen_release` column
 
 **Files:**
-- Modify: `src/rif/models.py` (the `Person` table, after `session_epoch`)
-- Create: `src/rif/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py`
+- Modify: `src/reef/models.py` (the `Person` table, after `session_epoch`)
+- Create: `src/reef/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py`
 - Test: `tests/test_schema.py` (append)
 
 **Interfaces:**
@@ -77,7 +77,7 @@ Expected: FAIL — `UndefinedColumnError: column "last_seen_release" does not ex
 
 - [ ] **Step 3: Add the column to the model**
 
-In `src/rif/models.py`, inside `class Person`, immediately after the `session_epoch` line:
+In `src/reef/models.py`, inside `class Person`, immediately after the `session_epoch` line:
 
 ```python
     #: Version whose "what's new" this person has already read, or ``None``
@@ -92,7 +92,7 @@ In `src/rif/models.py`, inside `class Person`, immediately after the `session_ep
 
 - [ ] **Step 4: Write the migration**
 
-Create `src/rif/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py`:
+Create `src/reef/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py`:
 
 ```python
 """Remember which release each person has already read about."""
@@ -153,7 +153,7 @@ Expected: the chain runs to completion with no error, and `just psql` → `\d pe
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/models.py src/rif/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py tests/test_schema.py
+git add src/reef/models.py src/reef/piccolo_migrations/rif_2026_08_17t10_00_00_000000.py tests/test_schema.py
 git commit -m "feat(whats-new): remember which release each person has read"
 ```
 
@@ -162,7 +162,7 @@ git commit -m "feat(whats-new): remember which release each person has read"
 ### Task 2: Fragment parsing, the fold, and the unread rule
 
 **Files:**
-- Create: `src/rif/releasenotes.py`
+- Create: `src/reef/releasenotes.py`
 - Test: `tests/test_release_notes.py`
 
 **Interfaces:**
@@ -373,7 +373,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'rif.releasenotes'`.
 
 - [ ] **Step 3: Write the module**
 
-Create `src/rif/releasenotes.py`:
+Create `src/reef/releasenotes.py`:
 
 ```python
 """What shipped, in the words a person reading it would use.
@@ -621,7 +621,7 @@ Expected: PASS, all 17.
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/releasenotes.py tests/test_release_notes.py
+git add src/reef/releasenotes.py tests/test_release_notes.py
 git commit -m "feat(whats-new): fragments, the fold that consumes them, and the unread rule"
 ```
 
@@ -762,7 +762,7 @@ git commit -m "feat(whats-new): a place to write the sentence, and the fold that
 ### Task 4: The API endpoints
 
 **Files:**
-- Modify: `src/rif/web/routes_api.py` (handlers near `_appearances`; registration in `register_api_routes`)
+- Modify: `src/reef/web/routes_api.py` (handlers near `_appearances`; registration in `register_api_routes`)
 - Create: `tests/test_release_notes_api.py`
 
 **Interfaces:**
@@ -814,7 +814,7 @@ def feed(tmp_path, monkeypatch):
     :returns: the directory the feed was written into
     """
     (tmp_path / "release-notes.json").write_text(json.dumps(FEED))
-    # site_dir is a str on Settings, not a Path -- see src/rif/config.py.
+    # site_dir is a str on Settings, not a Path -- see src/reef/config.py.
     monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
     return tmp_path
 
@@ -950,7 +950,7 @@ Expected: FAIL — 404s, because the routes do not exist yet.
 
 - [ ] **Step 3: Add the handlers**
 
-In `src/rif/web/routes_api.py`, add to the imports:
+In `src/reef/web/routes_api.py`, add to the imports:
 
 ```python
 from rif.releasenotes import feed_as_json, is_unread, load_feed
@@ -1039,7 +1039,7 @@ Expected: PASS. The route registration is idempotent but shared across tests —
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/web/routes_api.py tests/test_release_notes_api.py
+git add src/reef/web/routes_api.py tests/test_release_notes_api.py
 git commit -m "feat(release-notes): serve the feed, and remember who has read it"
 ```
 
@@ -1048,7 +1048,7 @@ git commit -m "feat(release-notes): serve the feed, and remember who has read it
 ### Task 5: The public changelog page
 
 **Files:**
-- Modify: `src/rif/releasenotes.py` (add `render_page`)
+- Modify: `src/reef/releasenotes.py` (add `render_page`)
 - Modify: `scripts/fold_changes.py` (write the page after the fold)
 - Test: `tests/test_release_notes.py` (append)
 
@@ -1120,7 +1120,7 @@ Expected: FAIL — `ImportError: cannot import name 'render_page'`.
 
 - [ ] **Step 4: Add the renderer**
 
-Add to `src/rif/releasenotes.py` (and add `from html import escape` to its imports):
+Add to `src/reef/releasenotes.py` (and add `from html import escape` to its imports):
 
 ```python
 #: How each kind is announced on the public page. The reader is told what
@@ -1267,7 +1267,7 @@ git status --short
 ```bash
 just fmt
 uv run ruff check src tests
-git add src/rif/releasenotes.py scripts/fold_changes.py tests/test_release_notes.py
+git add src/reef/releasenotes.py scripts/fold_changes.py tests/test_release_notes.py
 git commit -m "feat(release-notes): a public page for what shipped"
 ```
 

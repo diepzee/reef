@@ -3,7 +3,7 @@
 import base64
 import json
 
-from rif.web.oidc import token_sid
+from reef.web.oidc import token_sid
 
 
 def _jwt(payload: dict) -> str:

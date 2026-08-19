@@ -32,7 +32,7 @@ import pytest
 import pytest_asyncio
 from conftest import seed_dsn
 
-from rif.config import get_settings
+from reef.config import get_settings
 
 #: Built and dropped per run. Named so a leftover after a hard kill is
 #: obviously debris rather than something anybody's data lives in.
@@ -244,7 +244,7 @@ async def test_the_migrated_schema_matches_the_one_the_suite_builds(drilled, par
     If the migration chain produces something else, then production -- which
     only ever gets there by migrating -- is not the thing under test.
 
-    Everything but functions. Those are checked against ``rif.rls`` directly
+    Everything but functions. Those are checked against ``reef.rls`` directly
     by the test below instead, because this database is long-lived and
     accumulates functions from branches that have since been rewritten --
     which would fail here as a divergence while saying nothing about the
@@ -262,7 +262,7 @@ async def test_the_migrated_schema_matches_the_one_the_suite_builds(drilled, par
 def _declared(pattern: str) -> set[str]:
     """Return the names the current DDL creates, matching ``pattern``.
 
-    Read out of :func:`rif.rls`' own statements rather than out of any
+    Read out of :func:`reef.rls`' own statements rather than out of any
     database, so this is the source of truth the migrations are judged
     against -- not a second copy of them.
 
@@ -271,7 +271,7 @@ def _declared(pattern: str) -> set[str]:
     """
     import re
 
-    from rif.rls import (
+    from reef.rls import (
         alias_statements,
         appearance_statements,
         enable_statements,
@@ -295,7 +295,7 @@ async def test_the_chain_creates_every_function_rif_rls_declares(drilled):
     """A helper the DDL declares but no migration applies does not exist.
 
     This is the failure that hides best. The suite builds its schema from
-    ``rif.rls`` directly, so a function added there works in every test
+    ``reef.rls`` directly, so a function added there works in every test
     immediately; production only ever gets one by migrating. Add a function
     to a group no migration calls and the tests stay green while the feature
     is a 500 in production.
@@ -314,7 +314,7 @@ async def test_the_chain_creates_every_function_rif_rls_declares(drilled):
     finally:
         await connection.close()
     assert declared - present == set(), (
-        "declared in rif.rls but no migration creates them: "
+        "declared in reef.rls but no migration creates them: "
         f"{sorted(declared - present)}"
     )
 
@@ -338,6 +338,6 @@ async def test_the_chain_creates_every_policy_rif_rls_declares(drilled):
     finally:
         await connection.close()
     assert declared - present == set(), (
-        f"declared in rif.rls but no migration creates them: "
+        f"declared in reef.rls but no migration creates them: "
         f"{sorted(declared - present)}"
     )

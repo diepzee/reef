@@ -5,7 +5,7 @@
  *
  * The hue is derived from the alias so every cove has one from the moment it
  * exists. A viewer who wants something else stores a *name* from this
- * palette (see `src/rif/appearance.py`, which validates against the same
+ * palette (see `src/reef/appearance.py`, which validates against the same
  * list) and it is passed in as an override — the derivation stays the
  * fallback, so an unset or unrecognised name simply behaves as before.
  */
@@ -18,7 +18,7 @@ export interface SpaceHue {
 
 /**
  * Every hue by name. Keep the keys in step with `COLORS` in
- * `src/rif/appearance.py`, which is what a stored choice is checked against.
+ * `src/reef/appearance.py`, which is what a stored choice is checked against.
  */
 export const HUES = {
   seafoam: { base: "#0d9488", light: "#5eead4" },

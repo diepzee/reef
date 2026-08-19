@@ -3,8 +3,8 @@
 import asyncpg
 import pytest
 
-from rif.access import Principal, arm
-from rif.models import MemberRole, Page, SpaceKind
+from reef.access import Principal, arm
+from reef.models import MemberRole, Page, SpaceKind
 
 
 async def test_household_fixture_creates_four_memberships(household, seed):
@@ -107,7 +107,7 @@ def test_enable_statements_names_no_column_the_old_migrations_predate():
     ``session_epoch`` was not, and shipped broken. This asserts the rule
     directly rather than trusting the next person to remember it.
     """
-    from rif.rls import enable_statements
+    from reef.rls import enable_statements
 
     combined = " ".join(enable_statements())
     for column in (

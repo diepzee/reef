@@ -8,12 +8,12 @@ copies a private page into the cove. Being persuaded used to be sufficient.
 
 import pytest
 
-from rif.access import Principal, resolve_space
-from rif.db import transaction_scope
-from rif.leakguard import SHINGLE_WORDS, overlaps, shingles
-from rif.pages import PrivateContentLeak, edit_section, get_page, save_page
-from rif.promotion import confirm_promotion, prepare_promotion
-from rif.server import tool_remember
+from reef.access import Principal, resolve_space
+from reef.db import transaction_scope
+from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
+from reef.pages import PrivateContentLeak, edit_section, get_page, save_page
+from reef.promotion import confirm_promotion, prepare_promotion
+from reef.server import tool_remember
 
 DIARY = (
     "I was diagnosed HIV positive in the spring of 2019 and have been on "

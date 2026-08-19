@@ -7,10 +7,10 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest_asyncio
 
-from rif.server import mcp
-from rif.web.oidc import OIDCError
-from rif.web.routes_auth import register_auth_routes
-from rif.web.session import seal, unseal
+from reef.server import mcp
+from reef.web.oidc import OIDCError
+from reef.web.routes_auth import register_auth_routes
+from reef.web.session import seal, unseal
 
 
 def _jwt_with_sid(sid: str) -> str:
@@ -88,8 +88,8 @@ async def web(monkeypatch, graph):
     """
     monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
     monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("RIF_BASE_URL", "https://rif.example")
-    from rif.config import get_settings
+    monkeypatch.setenv("RIF_BASE_URL", "https://reef.example")
+    from reef.config import get_settings
 
     monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
     person = await graph.person("member@example.com", "Member")
@@ -99,7 +99,7 @@ async def web(monkeypatch, graph):
     register_auth_routes(mcp, client_factory=lambda: fake)
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(
-        transport=transport, base_url="https://rif.example"
+        transport=transport, base_url="https://reef.example"
     ) as client:
         yield client, fake, person
 
@@ -114,7 +114,7 @@ async def test_login_redirects_to_authkit(web):
     query = parse_qs(url.query)
     assert query["client_id"] == ["client_123"]
     assert query["code_challenge_method"] == ["S256"]
-    assert query["redirect_uri"] == ["https://rif.example/api/auth/callback"]
+    assert query["redirect_uri"] == ["https://reef.example/api/auth/callback"]
     assert "rif_oauth" in response.cookies
 
 
@@ -251,7 +251,7 @@ async def test_login_unconfigured_is_503(monkeypatch):
     register_auth_routes(mcp, client_factory=lambda: FakeOIDC({}))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(
-        transport=transport, base_url="https://rif.example"
+        transport=transport, base_url="https://reef.example"
     ) as client:
         response = await client.get("/api/auth/login")
     assert response.status_code == 503
@@ -326,7 +326,7 @@ async def test_logout_returns_upstream_logout_url_when_sid_known(web):
     assert url.path == "/user_management/sessions/logout"
     query = parse_qs(url.query)
     assert query["session_id"] == ["ses_abc"]
-    assert query["return_to"] == ["https://rif.example/app/signed-out"]
+    assert query["return_to"] == ["https://reef.example/app/signed-out"]
     set_cookie_headers = response.headers.get_list("set-cookie")
     assert any(
         header.startswith("rif_session=") and "Max-Age=0" in header

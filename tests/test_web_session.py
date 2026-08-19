@@ -4,7 +4,7 @@ import base64
 import json
 from uuid import uuid4
 
-from rif.web.session import (
+from reef.web.session import (
     SESSION_MAX_LIFETIME_SECONDS,
     SESSION_TTL_SECONDS,
     _sign,
@@ -170,7 +170,7 @@ def test_a_token_sealed_before_iat_existed_still_verifies():
     """A deploy must not sign everybody out at once."""
     import json
 
-    from rif.web.session import _b64, _sign
+    from reef.web.session import _b64, _sign
 
     pid, secret = uuid4(), "s" * 32
     payload = json.dumps(

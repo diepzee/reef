@@ -1,10 +1,10 @@
 /**
  * Wire types for the `/api/*` JSON surface.
  *
- * Mirrors the dataclasses in `src/rif/context.py` (`IndexPayload`,
+ * Mirrors the dataclasses in `src/reef/context.py` (`IndexPayload`,
  * `SpaceIndex`, and the per-page/per-attachment dicts built in
  * `build_index`) and the handler return shapes in
- * `src/rif/web/routes_api.py` (`_get_page`, `_put_page`, `_me`,
+ * `src/reef/web/routes_api.py` (`_get_page`, `_put_page`, `_me`,
  * `_space_members`, `_invite`). Keep this file in lockstep with those —
  * it is the single source of truth every later task's fetch call trusts.
  */

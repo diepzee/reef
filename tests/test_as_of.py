@@ -7,9 +7,9 @@ the answer to the same RLS boundary as a present-day read.
 
 from datetime import UTC, datetime
 
-from rif.access import Principal
-from rif.pages import get_page_as_of, save_page
-from rif.server import tool_read_page
+from reef.access import Principal
+from reef.pages import get_page_as_of, save_page
+from reef.server import tool_read_page
 
 
 def principal_for(person) -> Principal:

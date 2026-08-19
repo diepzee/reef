@@ -2,17 +2,17 @@
 
 from conftest import _login
 
-from rif.access import Principal, arm
-from rif.account import delete_account_rows
-from rif.db import transaction_scope
-from rif.models import (
+from reef.access import Principal, arm
+from reef.account import delete_account_rows
+from reef.db import transaction_scope
+from reef.models import (
     Attachment,
     AttachmentStatus,
     MemberRole,
     Page,
     Revision,
 )
-from rif.pages import save_page
+from reef.pages import save_page
 
 
 def principal_for(person) -> Principal:

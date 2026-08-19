@@ -2,7 +2,7 @@
  * Choosing how to encode an avatar so the endpoint will actually take it.
  *
  * The endpoint caps a stored picture at 512kB (`AVATAR_MAX_BYTES` in
- * `src/rif/web/routes_api.py`). Downscaling to a 512px square is not on its
+ * `src/reef/web/routes_api.py`). Downscaling to a 512px square is not on its
  * own enough to stay under that: a 512px square of a *photograph* — foliage,
  * skin, hair, anything without flat areas — is around 750kB as PNG. So the
  * encoder has to be chosen by the size it actually produced, not assumed.

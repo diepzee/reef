@@ -1,6 +1,6 @@
-from rif.access import Principal
-from rif.pages import save_page
-from rif.protocol import build_instructions
+from reef.access import Principal
+from reef.pages import save_page
+from reef.protocol import build_instructions
 
 
 def principal_for(person) -> Principal:

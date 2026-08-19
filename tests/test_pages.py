@@ -1,9 +1,9 @@
 import pytest
 
-from rif.access import Principal
-from rif.config import get_settings
-from rif.models import Revision, Space
-from rif.pages import (
+from reef.access import Principal
+from reef.config import get_settings
+from reef.models import Revision, Space
+from reef.pages import (
     PageTooLarge,
     ProtectedPath,
     SectionNotFound,

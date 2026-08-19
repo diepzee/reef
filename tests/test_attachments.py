@@ -2,17 +2,17 @@
 
 import pytest
 
-from rif.access import AccessDenied, Principal, arm
-from rif.attachments import (
+from reef.access import AccessDenied, Principal, arm
+from reef.attachments import (
     INLINE_MIMES,
     _delivery,
     add_attachment,
     delete_attachment,
     get_attachment,
 )
-from rif.db import transaction_scope
-from rif.models import Attachment, AttachmentStatus
-from rif.pages import save_page
+from reef.db import transaction_scope
+from reef.models import Attachment, AttachmentStatus
+from reef.pages import save_page
 
 
 class FakeStore:

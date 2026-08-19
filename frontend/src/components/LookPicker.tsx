@@ -29,7 +29,7 @@ import { HUE_NAMES, HUES, spaceColor } from "./spaceColor";
 import { SpaceGlyph } from "./spaceGlyph";
 
 /**
- * Body plans on offer, mirroring `GLYPHS` in `src/rif/appearance.py` — the
+ * Body plans on offer, mirroring `GLYPHS` in `src/reef/appearance.py` — the
  * living families, which is `FAMILIES` minus the three retired plans.
  */
 const FAMILY_NAMES = [

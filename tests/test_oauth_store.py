@@ -1,6 +1,6 @@
 """The OAuth proxy's state store: encrypted at rest, durable across restarts."""
 
-from rif.oauth_store import build_oauth_store
+from reef.oauth_store import build_oauth_store
 
 KEY = "ab" * 32  # 64-char hex, same shape as RIF_SESSION_SECRET
 

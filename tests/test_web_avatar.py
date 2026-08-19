@@ -4,7 +4,7 @@ import base64
 
 from conftest import _login
 
-from rif.web.routes_api import AVATAR_MAX_BYTES
+from reef.web.routes_api import AVATAR_MAX_BYTES
 
 CSRF = {"X-Rif-Csrf": "1"}
 
