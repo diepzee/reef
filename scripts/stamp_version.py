@@ -34,6 +34,10 @@ _JSON_MANIFESTS = (
     ("clients/ts/package.json", 2),
     ("plugins/reef/.claude-plugin/plugin.json", 2),
     (".claude-plugin/marketplace.json", 6),
+    # The MCP registry record. It sat at 0.1.0 while the server reached
+    # 0.6.0, because nothing stamped it -- and the registry is the one
+    # listing that tells a stranger which version they are connecting to.
+    ("server.json", 2),
 )
 
 #: Every file :func:`stamp` writes, in the order it writes them.

@@ -15,7 +15,7 @@
     }
   ],
   "repository": { "url": "https://github.com/diepzee/reef", "source": "github" },
-  "version": "0.1.0",
+  "version": "0.6.0",
   "remotes": [
     { "type": "streamable-http", "url": "https://reefwith.me/mcp" }
   ]
