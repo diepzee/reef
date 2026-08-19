@@ -33,7 +33,9 @@ STATEMENTS = [
 
 async def forwards() -> MigrationManager:
     """Replace cascading identity references with preservation-safe actions."""
-    manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
+    manager = MigrationManager(
+        migration_id=ID, app_name="reef", description=DESCRIPTION
+    )
 
     async def run() -> None:
         for statement in STATEMENTS:

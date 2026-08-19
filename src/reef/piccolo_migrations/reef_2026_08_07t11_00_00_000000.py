@@ -40,7 +40,9 @@ async def forwards() -> MigrationManager:
 
     :returns: the migration manager
     """
-    manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
+    manager = MigrationManager(
+        migration_id=ID, app_name="reef", description=DESCRIPTION
+    )
 
     async def run() -> None:
         """Execute the DDL, in order."""

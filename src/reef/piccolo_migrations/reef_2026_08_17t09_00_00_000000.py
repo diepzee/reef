@@ -25,7 +25,9 @@ async def forwards() -> MigrationManager:
     version. Re-running the whole group keeps every deployment on one
     definition rather than maintaining two.
     """
-    manager = MigrationManager(migration_id=ID, app_name="rif", description=DESCRIPTION)
+    manager = MigrationManager(
+        migration_id=ID, app_name="reef", description=DESCRIPTION
+    )
 
     async def run() -> None:
         await run_ddl_atomically([*mutation_statements()])
