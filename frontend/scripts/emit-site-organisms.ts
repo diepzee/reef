@@ -35,10 +35,9 @@ const STRIP_SEEDS: Record<string, number> = {
   spiral: 3, bubbles: 1, seagrass: 2, shell: 5, nudibranch: 3,
 };
 
-// o-brain-coral is NOT emitted: the brand mark is the traced brain coral, which
-// lives verbatim in site/index.html's defs (copied from ReefMark.tsx) and
-// only ever appears in brand positions (nav, lockup) — never as a cove
-// glyph or a strip organism.
+// o-brain-coral and its detailed hero companion are NOT emitted: both traced
+// marks live verbatim in site/index.html's defs. They only appear in brand
+// positions (hero, nav, lockup) — never as cove glyphs or strip organisms.
 for (const fam of FAMILIES) {
   const org = generateFamily(fam, STRIP_SEEDS[fam]!);
   console.log(`<g id="o-${fam}">${pathsToMarkup(org.paths)}</g>`);

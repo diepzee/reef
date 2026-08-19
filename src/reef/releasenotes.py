@@ -273,7 +273,7 @@ _PAGE = """<!doctype html>
 <meta property="og:image" content="https://reefwith.me/site/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="The reef share card: the curled brain-coral mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
+<meta property="og:image:alt" content="The reef share card: the branching brain-coral mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
 <meta name="twitter:card" content="summary_large_image">
 <style>
 @font-face {
