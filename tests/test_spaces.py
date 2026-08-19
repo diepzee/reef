@@ -114,7 +114,7 @@ async def test_invite_new_email_creates_person_and_membership(tx, household):
     # reef now knows the address, the membership carries it, and a budget
     # entry was spent, which is only true if invited_by names the inviter.
     rows = await Person.raw(
-        "SELECT rif_person_id_by_email({}) AS id", "anna@example.test"
+        "SELECT reef_person_id_by_email({}) AS id", "anna@example.test"
     )
     anna_id = rows[0]["id"]
     assert anna_id is not None

@@ -232,7 +232,7 @@ async def test_confirm_rechecks_membership_lost_after_prepare(tx, graph):
     prepared = await prepare_promotion(me, "invite.md", "club")
 
     # No owner-removes-member DELETE policy exists; removal lives in
-    # rif_remove_member. Seeding the loss directly keeps this test about
+    # reef_remove_member. Seeding the loss directly keeps this test about
     # what confirm() rechecks rather than about how the row went away.
     await graph.drop_membership(wouter, club)
 

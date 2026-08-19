@@ -199,7 +199,7 @@ async def test_an_already_bound_address_is_refused_rather_than_rebound(
 ):
     """A live account must never be handed to whoever signs in with its address.
 
-    ``rif_person_bind`` matches only unbound rows for this reason; the open
+    ``reef_person_bind`` matches only unbound rows for this reason; the open
     door needs the same rule, or it becomes an account-takeover route for
     anyone who can prove control of an address a member already uses.
     """
@@ -222,7 +222,7 @@ async def test_concurrent_admissions_cannot_oversell_the_last_seat(monkeypatch, 
     transaction lock serialises nothing when both callers share one.
     """
     _open(monkeypatch, seats=1)
-    call = ("SELECT * FROM rif_open_door_admit($1, $2, $3, 1)",)
+    call = ("SELECT * FROM reef_open_door_admit($1, $2, $3, 1)",)
 
     async def attempt(nth: int) -> bool:
         """Admit on a connection of its own.

@@ -7,11 +7,11 @@ from reef.rls import mutation_statements
 
 ID = "2026-08-17T09:00:00:000000"
 VERSION = "1.36.0"
-DESCRIPTION = "rif_admit_member gains a role parameter"
+DESCRIPTION = "reef_admit_member gains a role parameter"
 
 
 async def forwards() -> MigrationManager:
-    """Replace ``rif_admit_member`` with the four-argument version.
+    """Replace ``reef_admit_member`` with the four-argument version.
 
     The write policies have required ``role = 'member'`` since day one; what
     was missing was any way to *create* a viewer on purpose. The admit

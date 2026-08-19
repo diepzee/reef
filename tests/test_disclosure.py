@@ -30,9 +30,9 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
     rows = await DB._run_in_new_connection(
         "SELECT p.proname, pg_get_userbyid(p.proowner) AS owner, p.prosecdef, "
         "p.proconfig FROM pg_proc p WHERE p.proname IN "
-        "('rif_roster', 'rif_space_owner', 'rif_display_names', "
-        "'rif_person_id_by_email', 'rif_invites_minted', 'rif_oldest_invite', "
-        "'rif_member_faces', 'rif_member_avatar')"
+        "('reef_roster', 'reef_space_owner', 'reef_display_names', "
+        "'reef_person_id_by_email', 'reef_invites_minted', 'reef_oldest_invite', "
+        "'reef_member_faces', 'reef_member_avatar')"
     )
     assert len(rows) == 8
     for row in rows:
@@ -137,7 +137,7 @@ async def test_a_member_sees_a_co_members_picture(tx, household, seed):
     await _arm(household["partner"])
 
     rows = await Person.raw(
-        "SELECT * FROM rif_member_avatar({}, {})",
+        "SELECT * FROM reef_member_avatar({}, {})",
         household["shared"].id,
         household["wouter"].id,
     )
@@ -153,7 +153,7 @@ async def test_a_non_member_cannot_see_a_picture(tx, household, graph, seed):
     await _arm(stranger)
 
     rows = await Person.raw(
-        "SELECT * FROM rif_member_avatar({}, {})",
+        "SELECT * FROM reef_member_avatar({}, {})",
         household["shared"].id,
         household["wouter"].id,
     )
@@ -173,7 +173,7 @@ async def test_a_cove_is_not_a_lookup_oracle_over_every_account(
     await _arm(household["partner"])  # a real member of the shared cove
 
     rows = await Person.raw(
-        "SELECT * FROM rif_member_avatar({}, {})",
+        "SELECT * FROM reef_member_avatar({}, {})",
         household["shared"].id,
         outsider.id,
     )
@@ -184,7 +184,7 @@ async def test_an_unarmed_caller_sees_no_picture(tx, household, seed):
     """Fail closed when no principal is bound at all."""
     await _set_avatar(seed, household["wouter"])
     rows = await Person.raw(
-        "SELECT * FROM rif_member_avatar({}, {})",
+        "SELECT * FROM reef_member_avatar({}, {})",
         household["shared"].id,
         household["wouter"].id,
     )
@@ -208,6 +208,6 @@ async def test_a_non_member_learns_no_face_sizes(tx, household, graph, seed):
     await _arm(stranger)
 
     rows = await Person.raw(
-        "SELECT * FROM rif_member_faces({})", household["shared"].id
+        "SELECT * FROM reef_member_faces({})", household["shared"].id
     )
     assert rows == []

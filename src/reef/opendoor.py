@@ -100,7 +100,7 @@ async def admit(email: str, subject: str, display_name: str) -> IdentityRow | No
         return None
     return _one(
         await Person.raw(
-            "SELECT * FROM rif_open_door_admit({}, {}, {}, {})",
+            "SELECT * FROM reef_open_door_admit({}, {}, {}, {})",
             email.strip().lower(),
             subject,
             display_name,

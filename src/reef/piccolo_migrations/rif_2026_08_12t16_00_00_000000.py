@@ -27,7 +27,7 @@ async def forwards() -> MigrationManager:
     forgot a filter.
 
     Functions first, policies second: ``memberships_insert`` calls
-    ``rif_owns_space``, and ``CREATE POLICY`` resolves the name immediately.
+    ``reef_owns_space``, and ``CREATE POLICY`` resolves the name immediately.
 
     The column grant is not optional decoration. ``spaces_member_update``
     has to admit every member because a page write bumps ``spaces.version``,

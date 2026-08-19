@@ -27,7 +27,7 @@ async def forwards() -> MigrationManager:
     historical migrations predate, and a ``LANGUAGE sql`` body is validated
     at creation.
 
-    ``rif_roster`` is dropped rather than replaced. It gains ``person_id``,
+    ``reef_roster`` is dropped rather than replaced. It gains ``person_id``,
     and widening a ``RETURNS TABLE`` is a signature change -- ``CREATE OR
     REPLACE`` refuses it outright, and creating alongside would leave two
     candidates and make every call ambiguous. The roster needs that id
@@ -46,7 +46,7 @@ async def forwards() -> MigrationManager:
     async def run() -> None:
         await run_ddl_atomically(
             [
-                "DROP FUNCTION IF EXISTS rif_roster(uuid)",
+                "DROP FUNCTION IF EXISTS reef_roster(uuid)",
                 *disclosure_statements(),
                 *avatar_statements(),
             ]

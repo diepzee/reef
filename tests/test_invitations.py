@@ -76,7 +76,7 @@ async def test_invite_to_reef_allowlists_without_any_membership(tx, household):
     # spent (true only if invited_by names the inviter), and no membership
     # was created, which is the whole point of a reef invite.
     rows = await Person.raw(
-        "SELECT rif_person_id_by_email({}) AS id", "curious@example.test"
+        "SELECT reef_person_id_by_email({}) AS id", "curious@example.test"
     )
     person_id = rows[0]["id"]
     assert person_id is not None
@@ -94,7 +94,7 @@ async def test_budget_boundary_last_one_lands_next_one_refused(tx, household):
         await allowlist(me, "one-too-many@example.test")
 
     rows = await Person.raw(
-        "SELECT rif_person_id_by_email({}) AS id", "one-too-many@example.test"
+        "SELECT reef_person_id_by_email({}) AS id", "one-too-many@example.test"
     )
     assert rows[0]["id"] is None
 

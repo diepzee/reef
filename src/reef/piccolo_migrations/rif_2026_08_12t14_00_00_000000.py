@@ -16,7 +16,7 @@ async def forwards() -> MigrationManager:
     Still no policies, so nothing a user can see changes. What changes is
     where the rule lives: "only a cove's owner sees member email addresses"
     moves out of a web handler that had already fetched the addresses and
-    remembered to blank them, and into ``rif_roster``, which never returns
+    remembered to blank them, and into ``reef_roster``, which never returns
     them to anyone else and returns nothing at all to a non-member.
 
     Idempotent, so a re-run after a partial failure is safe.

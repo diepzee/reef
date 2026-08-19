@@ -112,12 +112,12 @@ async def forwards() -> MigrationManager:
                 # constraint would go on refusing the squat this migration
                 # exists to permit.
                 "ALTER TABLE spaces DROP CONSTRAINT IF EXISTS spaces_slug_key",
-                # rif_admit_member lands here; it is what picks a free alias
+                # reef_admit_member lands here; it is what picks a free alias
                 # for an invitee whose other memberships the inviter cannot
                 # see. identity_grant_statements adds the column-level
                 # narrowing that lets a person rewrite alias and nothing else.
                 *mutation_statements(),
-                # rif_admit_member and the GRANT UPDATE (alias) live here
+                # reef_admit_member and the GRANT UPDATE (alias) live here
                 # rather than in the two groups above, because both are
                 # also run by August migrations that predate this column.
                 # See alias_statements.

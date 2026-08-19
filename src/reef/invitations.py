@@ -75,7 +75,7 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     # read the rows they minted, and a count that silently came back 0 would
     # hand out unlimited invites rather than fail closed.
     rows = await Person.raw(
-        "SELECT rif_invites_minted({}) AS spent", INVITE_WINDOW_DAYS
+        "SELECT reef_invites_minted({}) AS spent", INVITE_WINDOW_DAYS
     )
     return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
@@ -94,7 +94,7 @@ async def next_invite_at(
     """
     await arm(inviter)
     rows = await Person.raw(
-        "SELECT rif_oldest_invite({}) AS oldest", INVITE_WINDOW_DAYS
+        "SELECT reef_oldest_invite({}) AS oldest", INVITE_WINDOW_DAYS
     )
     oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
@@ -157,7 +157,7 @@ async def allowlist(
     # Only the id comes back. Inviting somebody who already has an account
     # must link a membership without letting the inviter read a stranger's
     # row -- so the lookup answers "who, if anyone" and nothing more.
-    rows = await Person.raw("SELECT rif_person_id_by_email({}) AS id", email)
+    rows = await Person.raw("SELECT reef_person_id_by_email({}) AS id", email)
     existing_id = rows[0]["id"] if rows else None
     if existing_id is not None:
         return AllowlistEntry(person_id=existing_id, email=email), False
@@ -170,7 +170,7 @@ async def allowlist(
     # RETURNING gives back, so a self-only persons policy refuses the inviter
     # their own invitee and reports it as a check-policy violation.
     rows = await Person.raw(
-        "SELECT rif_allowlist_person({}, {}, {}, {}) AS id",
+        "SELECT reef_allowlist_person({}, {}, {}, {}) AS id",
         email,
         display_name or email.split("@")[0],
         INVITE_WINDOW_DAYS,
