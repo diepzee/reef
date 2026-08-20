@@ -19,7 +19,7 @@ async def test_a_choice_round_trips(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     stored = await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": "violet", "glyph": "spiral"},
         headers=CSRF,
     )
@@ -36,7 +36,7 @@ async def test_choosing_again_replaces_rather_than_stacks(api, world):
     _login(api, alice)
     for color in ("violet", "amber", "sky"):
         await api.put(
-            "/api/spaces/team/appearance",
+            "/api/coves/team/appearance",
             json={"color": color, "glyph": None},
             headers=CSRF,
         )
@@ -50,12 +50,12 @@ async def test_clearing_both_removes_the_choice_entirely(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": "pink", "glyph": "tubes"},
         headers=CSRF,
     )
     cleared = await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": None, "glyph": None},
         headers=CSRF,
     )
@@ -72,7 +72,7 @@ async def test_one_persons_look_is_invisible_to_another(api, world):
     alice, bob, _ = world
     _login(api, alice)
     await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": "lime", "glyph": "bubbles"},
         headers=CSRF,
     )
@@ -81,7 +81,7 @@ async def test_one_persons_look_is_invisible_to_another(api, world):
 
     # And Bob's own choice for the same cove leaves Alice's untouched.
     await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": "orange", "glyph": None},
         headers=CSRF,
     )
@@ -99,7 +99,7 @@ async def test_an_unoffered_colour_is_refused(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": "#ff00ff", "glyph": None},
         headers=CSRF,
     )
@@ -112,7 +112,7 @@ async def test_a_retired_body_plan_is_refused(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/spaces/team/appearance",
+        "/api/coves/team/appearance",
         json={"color": None, "glyph": "brain"},
         headers=CSRF,
     )
@@ -124,7 +124,7 @@ async def test_a_cove_you_cannot_see_cannot_be_styled(api, world):
     _alice, bob, _ = world
     _login(api, bob)
     response = await api.put(
-        "/api/spaces/nowhere/appearance",
+        "/api/coves/nowhere/appearance",
         json={"color": "amber", "glyph": None},
         headers=CSRF,
     )
@@ -136,7 +136,7 @@ async def test_the_personal_cove_can_be_styled_too(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     stored = await api.put(
-        "/api/spaces/personal/appearance",
+        "/api/coves/personal/appearance",
         json={"color": "indigo", "glyph": None},
         headers=CSRF,
     )
@@ -152,6 +152,6 @@ async def test_writing_a_look_requires_the_csrf_header(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/spaces/team/appearance", json={"color": "sky", "glyph": None}
+        "/api/coves/team/appearance", json={"color": "sky", "glyph": None}
     )
     assert response.status_code == 403

@@ -53,7 +53,7 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
     monkeypatch.setenv("REEF_ACCESS_TOKEN", "secret-token")
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     FakeClient.calls = []
-    FakeClient.result = {"spaces": []}
+    FakeClient.result = {"coves": []}
     args = build_parser().parse_args(
         ["--url", "https://example.test/mcp", "load-index"]
     )
@@ -67,7 +67,7 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
         "secret-token",
     )
     assert FakeClient.calls[1] == ("load_index", {})
-    assert json.loads(capsys.readouterr().out) == {"spaces": []}
+    assert json.loads(capsys.readouterr().out) == {"coves": []}
 
 
 async def test_search_pages_maps_query_and_options(monkeypatch, tmp_path, capsys):
@@ -76,7 +76,7 @@ async def test_search_pages_maps_query_and_options(monkeypatch, tmp_path, capsys
     FakeClient.calls = []
     FakeClient.result = []
     args = build_parser().parse_args(
-        ["search-pages", "vaillant boiler", "--space", "household", "--limit", "5"]
+        ["search-pages", "vaillant boiler", "--cove", "household", "--limit", "5"]
     )
 
     status = await run(args, client_class=FakeClient)
@@ -84,7 +84,7 @@ async def test_search_pages_maps_query_and_options(monkeypatch, tmp_path, capsys
     assert status == 0
     assert FakeClient.calls[-1] == (
         "search_pages",
-        {"query": "vaillant boiler", "space": "household", "limit": 5},
+        {"query": "vaillant boiler", "cove": "household", "limit": 5},
     )
     assert json.loads(capsys.readouterr().out) == []
 
@@ -103,7 +103,7 @@ async def test_read_page_maps_as_of(monkeypatch, tmp_path, capsys):
     assert status == 0
     assert FakeClient.calls[-1] == (
         "read_page",
-        {"space": "personal", "path": "house.md", "as_of": "2026-03-01T12:00:00"},
+        {"cove": "personal", "path": "house.md", "as_of": "2026-03-01T12:00:00"},
     )
     assert json.loads(capsys.readouterr().out) == {"body": "then"}
 
@@ -116,7 +116,7 @@ async def test_write_page_reads_body_file_and_maps_options(
     body = tmp_path / "page.md"
     body.write_text("# Plans\n\nTake the train.\n", encoding="utf-8")
     FakeClient.calls = []
-    FakeClient.result = {"space": "personal", "path": "plans.md", "version": 4}
+    FakeClient.result = {"cove": "personal", "path": "plans.md", "version": 4}
     args = build_parser().parse_args(
         [
             "write-page",
@@ -141,7 +141,7 @@ async def test_write_page_reads_body_file_and_maps_options(
     assert FakeClient.calls[-1] == (
         "write_page",
         {
-            "space": "personal",
+            "cove": "personal",
             "path": "plans.md",
             "body": "# Plans\n\nTake the train.\n",
             "message": "update travel plan",
@@ -178,7 +178,7 @@ async def test_add_file_encodes_bytes_and_infers_mime(monkeypatch, tmp_path, cap
     name, payload = FakeClient.calls[-1]
     assert name == "add_file"
     assert payload == {
-        "space": "personal",
+        "cove": "personal",
         "filename": "note.txt",
         "data_base64": base64.b64encode(b"hello reef").decode("ascii"),
         "mime": "text/plain",
@@ -192,7 +192,7 @@ async def test_call_is_exact_json_passthrough(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     arguments = tmp_path / "args.json"
-    arguments.write_text('{"space":"personal","paths":["a.md"]}')
+    arguments.write_text('{"cove":"personal","paths":["a.md"]}')
     FakeClient.calls = []
     FakeClient.result = [{"path": "a.md", "body": "alpha"}]
     args = build_parser().parse_args(["call", "read_pages", f"@{arguments}"])
@@ -202,7 +202,7 @@ async def test_call_is_exact_json_passthrough(monkeypatch, tmp_path, capsys):
     assert status == 0
     assert FakeClient.calls[-1] == (
         "read_pages",
-        {"space": "personal", "paths": ["a.md"]},
+        {"cove": "personal", "paths": ["a.md"]},
     )
     assert json.loads(capsys.readouterr().out)[0]["body"] == "alpha"
 

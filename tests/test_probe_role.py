@@ -36,7 +36,7 @@ async def test_the_probe_is_not_a_superuser_and_does_not_bypass_rls(probe):
 async def test_the_probe_does_not_own_the_tables(probe):
     """Ownership is the thing that makes column grants toothless."""
     owner = await probe.fetchval(
-        "SELECT tableowner FROM pg_tables WHERE tablename = 'spaces'"
+        "SELECT tableowner FROM pg_tables WHERE tablename = 'coves'"
     )
     assert owner != PROBE_ROLE
 
@@ -83,7 +83,7 @@ async def test_row_level_security_still_applies_to_the_probe(probe, graph):
     from reef.pages import save_page
 
     person = await graph.person("probe-rls@example.test", "Probe")
-    await graph.personal_space(person, slug="probe-rls")
+    await graph.personal_cove(person, slug="probe-rls")
 
     # The write itself needs an armed principal -- the insert policy is
     # already enforced against the owner, which is FORCE RLS doing its job.
@@ -101,25 +101,25 @@ async def test_row_level_security_still_applies_to_the_probe(probe, graph):
 async def test_a_member_may_bump_version_but_not_rewrite_a_cove(probe, graph):
     """The column grant, asserted from a role it actually constrains.
 
-    A page write bumps ``spaces.version``, so the row policy has to admit
+    A page write bumps ``coves.version``, so the row policy has to admit
     every member. Row security cannot say *which column*, so without the
     grant a member could rename a cove or hand themselves its ownership with
     one statement. This is the assertion the whole probe fixture exists for:
     against the owning role it would pass while the grant was absent.
     """
     person = await graph.person("grant@example.test", "Grant")
-    space = await graph.shared_space("grant-cove", person)
+    cove = await graph.shared_cove("grant-cove", person)
 
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(person.id))
     try:
         await probe.execute(
-            "UPDATE spaces SET version = version + 1 WHERE id = $1", space.id
+            "UPDATE coves SET version = version + 1 WHERE id = $1", cove.id
         )
 
         for column, value in (("slug", "stolen"), ("owner_person_id", str(person.id))):
             with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
                 await probe.execute(
-                    f"UPDATE spaces SET {column} = $1 WHERE id = $2", value, space.id
+                    f"UPDATE coves SET {column} = $1 WHERE id = $2", value, cove.id
                 )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
@@ -138,16 +138,16 @@ async def test_only_an_owner_may_add_someone_to_a_cove(probe, graph):
     owner = await graph.person("cove-owner@example.test", "Owner")
     member = await graph.person("cove-member@example.test", "Member")
     outsider = await graph.person("cove-outsider@example.test", "Outsider")
-    space = await graph.shared_space("admin-cove", owner, member)
+    cove = await graph.shared_cove("admin-cove", owner, member)
 
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(member.id))
     try:
         with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
             await probe.execute(
-                "INSERT INTO memberships (person_id, space_id, role) "
+                "INSERT INTO memberships (person_id, cove_id, role) "
                 "VALUES ($1, $2, 'member')",
                 outsider.id,
-                space.id,
+                cove.id,
             )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
@@ -157,10 +157,10 @@ async def test_only_an_owner_may_add_someone_to_a_cove(probe, graph):
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(owner.id))
     try:
         await probe.execute(
-            "INSERT INTO memberships (person_id, space_id, role) "
+            "INSERT INTO memberships (person_id, cove_id, role) "
             "VALUES ($1, $2, 'member')",
             outsider.id,
-            space.id,
+            cove.id,
         )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
@@ -169,7 +169,7 @@ async def test_only_an_owner_may_add_someone_to_a_cove(probe, graph):
 async def test_only_an_owner_may_delete_a_cove(probe, graph):
     """The delete policy, asserted from a role it actually constrains.
 
-    ``spaces_owner_delete`` restricts DELETE to the owner, and until the
+    ``coves_owner_delete`` restricts DELETE to the owner, and until the
     application grew a way to delete a cove nothing exercised it. It needs a
     probe more than most policies do: a DELETE filtered by a row policy is not
     an error. Postgres removes zero rows and reports success, so a member's
@@ -178,14 +178,14 @@ async def test_only_an_owner_may_delete_a_cove(probe, graph):
     """
     owner = await graph.person("del-owner@example.test", "Owner")
     member = await graph.person("del-member@example.test", "Member")
-    space = await graph.shared_space("del-cove", owner, member)
+    cove = await graph.shared_cove("del-cove", owner, member)
 
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(member.id))
     try:
         # No exception: the policy filters the row out rather than refusing.
-        await probe.execute("DELETE FROM spaces WHERE id = $1", space.id)
+        await probe.execute("DELETE FROM coves WHERE id = $1", cove.id)
         assert (
-            await probe.fetchval("SELECT count(*) FROM spaces WHERE id = $1", space.id)
+            await probe.fetchval("SELECT count(*) FROM coves WHERE id = $1", cove.id)
             == 1
         )
     finally:
@@ -195,9 +195,9 @@ async def test_only_an_owner_may_delete_a_cove(probe, graph):
     # rather than about the delete being broken.
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(owner.id))
     try:
-        await probe.execute("DELETE FROM spaces WHERE id = $1", space.id)
+        await probe.execute("DELETE FROM coves WHERE id = $1", cove.id)
         assert (
-            await probe.fetchval("SELECT count(*) FROM spaces WHERE id = $1", space.id)
+            await probe.fetchval("SELECT count(*) FROM coves WHERE id = $1", cove.id)
             == 0
         )
     finally:
@@ -215,27 +215,27 @@ async def test_a_member_may_rename_a_cove_but_not_promote_themselves(probe, grap
     do not belong to.
     """
     person = await graph.person("rename@example.test", "Rename")
-    space = await graph.shared_space("rename-cove", person)
-    other = await graph.shared_space("other-cove", person)
+    cove = await graph.shared_cove("rename-cove", person)
+    other = await graph.shared_cove("other-cove", person)
 
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(person.id))
     try:
         await probe.execute(
-            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND space_id = $3",
+            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND cove_id = $3",
             "renamed",
             person.id,
-            space.id,
+            cove.id,
         )
         assert (
             await probe.fetchval(
-                "SELECT alias FROM memberships WHERE person_id = $1 AND space_id = $2",
+                "SELECT alias FROM memberships WHERE person_id = $1 AND cove_id = $2",
                 person.id,
-                space.id,
+                cove.id,
             )
             == "renamed"
         )
 
-        for column, value in (("role", "member"), ("space_id", str(other.id))):
+        for column, value in (("role", "member"), ("cove_id", str(other.id))):
             with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
                 await probe.execute(
                     f"UPDATE memberships SET {column} = $1 WHERE person_id = $2",
@@ -250,15 +250,15 @@ async def test_a_person_cannot_rename_somebody_elses_membership(probe, graph, se
     """The row half of the same policy: my names, nobody else's."""
     mine = await graph.person("mine@example.test", "Mine")
     theirs = await graph.person("theirs@example.test", "Theirs")
-    space = await graph.shared_space("joint-cove", mine, theirs)
+    cove = await graph.shared_cove("joint-cove", mine, theirs)
 
     await probe.execute("SELECT set_config('app.person_id', $1, false)", str(mine.id))
     try:
         await probe.execute(
-            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND space_id = $3",
+            "UPDATE memberships SET alias = $1 WHERE person_id = $2 AND cove_id = $3",
             "hijacked",
             theirs.id,
-            space.id,
+            cove.id,
         )
     finally:
         await probe.execute("SELECT set_config('app.person_id', '', false)")
@@ -269,9 +269,9 @@ async def test_a_person_cannot_rename_somebody_elses_membership(probe, graph, se
     # way, which would make an unchanged value and a hidden one identical.
     assert (
         await seed.fetchval(
-            "SELECT alias FROM memberships WHERE person_id = $1 AND space_id = $2",
+            "SELECT alias FROM memberships WHERE person_id = $1 AND cove_id = $2",
             theirs.id,
-            space.id,
+            cove.id,
         )
         == "joint-cove"
     )

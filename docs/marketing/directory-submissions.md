@@ -69,8 +69,8 @@ line below overruns. Use one of:
 
 > Your assistant forgets you between conversations. reef gives it a memory
 > that lasts — and one your household, your family, or your small circle
-> can deliberately share. Everyone gets a private space only they can
-> read; shared spaces hold exactly what members chose to put there.
+> can deliberately share. Everyone gets a private cove only they can
+> read; shared coves hold exactly what members chose to put there.
 > Memory is human-editable Markdown you can read, edit, and export — not
 > an opaque blob. Sharing anything personal is a two-step consent flow
 > that names every reader before it moves. Privacy is enforced by the
@@ -88,10 +88,10 @@ server, which is the supported DCR mode).
 **Example prompts** (directories usually ask for 3):
 
 1. "What do we know about the boiler?" — index-first retrieval plus
-   full-text search across your spaces.
+   full-text search across your coves.
 2. "Remember that Nora's swim class moved to Thursdays." — staged capture,
    announced before it lands, filed on the next tidy-up.
-3. "What did my partner's assistant add to the household space this week?"
+3. "What did my partner's assistant add to the household cove this week?"
    — the whats_new activity surface.
 
 The portal also asks for use cases, what a user needs before connecting,
@@ -161,6 +161,6 @@ proof), mcp.so, awesome-mcp-servers, Show HN. The Show HN and X drafts live
 in `launch-drafts.md`.
 
 One line worth adding to all of them now exists and did not when the
-drafts were written: *search that cannot leak across spaces by
+drafts were written: *search that cannot leak across coves by
 construction, point-in-time reads of any page, an activity feed of what
 the other assistants wrote, and read-only members for the accountant.*

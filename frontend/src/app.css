@@ -175,12 +175,12 @@ textarea {
 }
 
 /*
- * Home's space cards. Tokenized to the seafoam palette (mockup has no
+ * Home's cove cards. Tokenized to the seafoam palette (mockup has no
  * literal reference for this screen — it dissolves into the sidebar on
  * desktop — so this borrows --panel/--hairline/--ink from the shell
  * chrome those cards route into). The old `text-transform: capitalize`
  * is gone: the alias is spoken and stored lowercase (Sidebar and
- * SpaceView already render it that way), so capitalizing it here was a
+ * CoveView already render it that way), so capitalizing it here was a
  * cosmetic inconsistency, not a deliberate title-case choice.
  */
 .card {
@@ -196,18 +196,18 @@ textarea {
 }
 
 /*
- * Identity pass: each space card carries its `spaceColor(alias)` pair via
+ * Identity pass: each cove card carries its `coveColor(alias)` pair via
  * the `--hue-base`/`--hue-light` inline custom properties Home sets per
- * card (see Home.tsx's `SpaceCard`) — every rule below just reads those,
- * so the CSS itself has no per-space knowledge.
+ * card (see Home.tsx's `CoveCard`) — every rule below just reads those,
+ * so the CSS itself has no per-cove knowledge.
  */
-.space-card {
+.cove-card {
   position: relative;
   overflow: hidden;
   padding-top: calc(1rem + 4px);
 }
 
-.space-card-stripe {
+.cove-card-stripe {
   position: absolute;
   top: 0;
   left: 0;
@@ -216,13 +216,13 @@ textarea {
   background: linear-gradient(90deg, var(--hue-base), var(--hue-light));
 }
 
-.space-card-row {
+.cove-card-row {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.space-card-chip {
+.cove-card-chip {
   width: 36px;
   height: 36px;
   border-radius: 10px;
@@ -233,7 +233,7 @@ textarea {
   background: color-mix(in srgb, var(--hue-base) 12%, white);
 }
 
-.space-card-text {
+.cove-card-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -241,25 +241,25 @@ textarea {
   flex: 1;
 }
 
-.space-card-alias {
+.cove-card-alias {
   font-weight: 600;
   font-size: var(--text-md);
   color: var(--ink);
 }
 
-.space-card-sub {
+.cove-card-sub {
   font-size: var(--text-sm);
 }
 
-/* Spaces heading row: title left, view picker right (spec: "Main screen"). */
-.spaces-head {
+/* Coves heading row: title left, view picker right (spec: "Main screen"). */
+.coves-head {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
 }
 
-.spaces-head h1 {
+.coves-head h1 {
   margin-right: auto;
 }
 
@@ -316,13 +316,13 @@ textarea {
   gap: 0.75rem;
 }
 
-.space-tile {
+.cove-tile {
   align-items: flex-start;
   gap: 0.4rem;
   min-height: 7.5rem;
 }
 
-.space-tile-pool {
+.cove-tile-pool {
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -332,7 +332,7 @@ textarea {
   background: color-mix(in srgb, var(--hue-base) 12%, white);
 }
 
-.space-tile-new {
+.cove-tile-new {
   border-style: dashed;
   align-items: center;
   justify-content: center;
@@ -341,7 +341,7 @@ textarea {
   font-size: var(--text-base);
 }
 
-.space-tile-plus {
+.cove-tile-plus {
   font-size: 1.5rem;
   color: var(--accent);
   line-height: 1;
@@ -945,7 +945,7 @@ button.danger {
 }
 
 /*
- * The editor form (Editor/NewPage/NewSpace): per the mockup's `.ed` block
+ * The editor form (Editor/NewPage/NewCove): per the mockup's `.ed` block
  * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html) —
  * uppercase faint labels above bordered fields on a --field fill, a
  * monospace body, a quiet toggle chip, and an accent Save button with a
@@ -1307,7 +1307,7 @@ button.danger {
 }
 
 /*
- * Just a box to centre the organism in — `SpaceGlyph` carries its own
+ * Just a box to centre the organism in — `CoveGlyph` carries its own
  * colour, sized to sit inside the 26px row without changing its rhythm.
  * The mark keeps the cove's own hue even when the row is active; only the
  * row's background goes accent-soft.
@@ -1567,7 +1567,7 @@ button.danger {
 
 /* Inside the sheet these line up with every other section, which is inset
    from the sheet's edge rather than flush to it. Scoped, because the same
-   picker renders in SpaceView's body for the personal cove, where the page
+   picker renders in CoveView's body for the personal cove, where the page
    already provides the margin. */
 .mbs-sheet .look-field {
   margin-inline: 20px;
@@ -1589,7 +1589,7 @@ button.danger {
 .look-row {
   display: grid;
   /* Capped rather than `1fr`: in the sheet the tiles shrink to fit, but in
-     SpaceView's much wider body `1fr` grew them to about 70px each, which
+     CoveView's much wider body `1fr` grew them to about 70px each, which
      turned a row of swatches into a row of tiles the size of buttons. */
   grid-template-columns: repeat(9, minmax(0, 40px));
   gap: 6px;
@@ -1739,8 +1739,8 @@ button.danger {
 }
 
 /*
- * SpaceView's whobar: the avatar stack + audience sentence + (owner-only)
- * Manage link that sits under the space title and opens the shared
+ * CoveView's whobar: the avatar stack + audience sentence + (owner-only)
+ * Manage link that sits under the cove title and opens the shared
  * MembersSheet. Mirrors the mockup's `.sp .whobar`
  * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html).
  */
@@ -1771,7 +1771,7 @@ button.danger {
 }
 
 /*
- * SpaceView's hero title, "PAGES" section label, and doc-icon page rows.
+ * CoveView's hero title, "PAGES" section label, and doc-icon page rows.
  * Mirrors the mockup's `.sp .hero`, `.sp .sectionlbl`, `.sp .row`, `.sp
  * .fab` (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html):
  * hero color inherits --ink, sectionlbl faint #9aa8af -> --faint (same
@@ -1899,7 +1899,7 @@ button.danger {
 }
 
 /*
- * PageView's page bar: back-to-space crumb, member avatar stack (opens
+ * PageView's page bar: back-to-cove crumb, member avatar stack (opens
  * MembersSheet, same mechanism as the whobar above), and an Edit link —
  * hidden for meta/ pages, which show a `.disclosure` note instead. Mirrors
  * the mockup's `.content .pagebar` / `.p-top`.
@@ -1934,7 +1934,7 @@ button.danger {
   font-weight: 600;
 }
 
-.page-bar-spacer {
+.page-bar-cover {
   flex: 1;
 }
 
@@ -2184,7 +2184,7 @@ button.danger {
 }
 
 /* Both can land on one row — the owner looking at their own. The first
-   claims the free space; the second must not claim it again. */
+   claims the free cove; the second must not claim it again. */
 .mbs-you-tag + .mbs-owner-tag {
   margin-left: 8px;
 }
@@ -2524,10 +2524,10 @@ button.danger {
       box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
     }
 
-    /* Home card chip + tile pool + SpaceView hero chip: same --hue-base,
-       darker mix target (see Home.tsx, SpaceView.tsx). */
-    .space-card-chip,
-    .space-tile-pool,
+    /* Home card chip + tile pool + CoveView hero chip: same --hue-base,
+       darker mix target (see Home.tsx, CoveView.tsx). */
+    .cove-card-chip,
+    .cove-tile-pool,
     .hero-chip {
       background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
     }
@@ -2578,8 +2578,8 @@ button.danger {
     box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
   }
 
-  .space-card-chip,
-  .space-tile-pool,
+  .cove-card-chip,
+  .cove-tile-pool,
   .hero-chip {
     background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
   }

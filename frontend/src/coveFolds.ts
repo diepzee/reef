@@ -11,7 +11,7 @@
  * localStorage-backed so a fold survives a reload without a server
  * round-trip, and reached through `window.localStorage` (not the bare
  * global) so the module works unchanged under jsdom, which installs `window`
- * but no top-level `localStorage` binding — same discipline as `spacesView`.
+ * but no top-level `localStorage` binding — same discipline as `covesView`.
  */
 
 export type CoveFolds = Record<string, boolean>;

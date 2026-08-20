@@ -1527,7 +1527,7 @@ export function useReleaseNotes(): ReleaseNotesContextValue {
 
 - [ ] **Step 7: Wire it into `AppShell`**
 
-In `frontend/src/components/AppShell.tsx`, alongside the existing `sheetSpace` / `appearance` state and following the same idiom.
+In `frontend/src/components/AppShell.tsx`, alongside the existing `sheetCove` / `appearance` state and following the same idiom.
 
 Add the imports:
 

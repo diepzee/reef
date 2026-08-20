@@ -91,7 +91,7 @@ function renderSheet(open = true, onClose = () => {}) {
         value={{ appearance: {} as never, setAppearance: () => {} }}
       >
         <MemoryRouter>
-          <MembersSheet space="trip" open={open} onClose={onClose} />
+          <MembersSheet cove="trip" open={open} onClose={onClose} />
         </MemoryRouter>
       </AppearanceContext.Provider>
     </MeContext.Provider>,
@@ -164,7 +164,7 @@ test("a member with a picture is shown it, not their initial", () => {
         person_id: "33333333-3333-4333-8333-333333333333",
         display_name: "Ada",
         email: "own@example.com",
-        avatar: "/api/spaces/trip/members/33333333-3333-4333-8333-333333333333/avatar?v=7",
+        avatar: "/api/coves/trip/members/33333333-3333-4333-8333-333333333333/avatar?v=7",
       },
       {
         person_id: "44444444-4444-4444-8444-444444444444",
@@ -182,7 +182,7 @@ test("a member with a picture is shown it, not their initial", () => {
 });
 
 test("the cove's own look is changed from here", () => {
-  // It used to sit loose in SpaceView's body, between "New page" and the
+  // It used to sit loose in CoveView's body, between "New page" and the
   // delete zone, where it read as a property of the cove rather than of the
   // viewer. Name, colour and creature now share one section, because all
   // three change this cove for you and for nobody else in it.
@@ -254,7 +254,7 @@ test("confirming a removal sends it for that person only", async () => {
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "DELETE",
-    path: "/api/spaces/trip/members/guest%40example.com",
+    path: "/api/coves/trip/members/guest%40example.com",
   });
 });
 
@@ -293,7 +293,7 @@ test("Escape does nothing while the sheet is shut", () => {
 });
 
 /*
- * The way out of the cove, moved here from SpaceView's body. Which act is on
+ * The way out of the cove, moved here from CoveView's body. Which act is on
  * offer depends on who else is in it, and the guards in front of each are the
  * only thing between a misclick and a cove nobody can get back.
  */
@@ -326,7 +326,7 @@ test("leaving asks once, then posts", async () => {
   fireEvent.click(screen.getByText("Confirm — leave trip"));
   await waitFor(() => expect(navigated).toEqual(["/"]));
   expect(sent).toEqual([
-    { method: "POST", path: "/api/spaces/trip/leave", body: undefined },
+    { method: "POST", path: "/api/coves/trip/leave", body: undefined },
   ]);
 });
 
@@ -359,7 +359,7 @@ test("the typed name unlocks deletion, and it sends the confirmation", async () 
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "DELETE",
-    path: "/api/spaces/trip",
+    path: "/api/coves/trip",
     body: { confirmation: "trip" },
   });
 });
@@ -391,7 +391,7 @@ test("a half-armed deletion does not survive closing the sheet", () => {
         value={{ appearance: {} as never, setAppearance: () => {} }}
       >
         <MemoryRouter>
-          <MembersSheet space="trip" open={false} onClose={() => {}} />
+          <MembersSheet cove="trip" open={false} onClose={() => {}} />
         </MemoryRouter>
       </AppearanceContext.Provider>
     </MeContext.Provider>,

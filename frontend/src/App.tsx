@@ -9,12 +9,12 @@ import IndexView from "./views/IndexView";
 import Connect from "./views/Connect";
 import InviteToReef from "./views/InviteToReef";
 import NewPage from "./views/NewPage";
-import NewSpace from "./views/NewSpace";
+import NewCove from "./views/NewCove";
 import PageView from "./views/PageView";
 import Profile from "./views/Profile";
 import { Gallery } from "./views/Gallery";
 import SignedOut from "./views/SignedOut";
-import SpaceView from "./views/SpaceView";
+import CoveView from "./views/CoveView";
 
 /** Everything that requires a session: shell chrome plus the inner routes. */
 function AuthedApp() {
@@ -26,13 +26,13 @@ function AuthedApp() {
           <Route path="/index" element={<IndexView />} />
           <Route path="/export" element={<ExportView />} />
           <Route path="/profile" element={<Profile />} />
-          <Route path="/spaces/new" element={<NewSpace />} />
+          <Route path="/coves/new" element={<NewCove />} />
           <Route path="/invite" element={<InviteToReef />} />
           <Route path="/connect" element={<Connect />} />
-          <Route path="/s/:space" element={<SpaceView />} />
-          <Route path="/s/:space/new" element={<NewPage />} />
-          <Route path="/s/:space/p/*" element={<PageView />} />
-          <Route path="/s/:space/e/*" element={<Editor />} />
+          <Route path="/s/:cove" element={<CoveView />} />
+          <Route path="/s/:cove/new" element={<NewPage />} />
+          <Route path="/s/:cove/p/*" element={<PageView />} />
+          <Route path="/s/:cove/e/*" element={<Editor />} />
         </Routes>
       </AppShell>
     </IndexProvider>

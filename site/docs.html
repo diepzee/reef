@@ -320,13 +320,6 @@ footer a { color: var(--muted); }
   The description is what an assistant sees in the index, so it is worth
   writing as a real summary rather than a label.
 </p>
-<div class="aside">
-  <p>
-    <b>Cove or space?</b> The app and this page say <em>cove</em>. The tools and
-    the CLI say <code>space</code> — every tool takes a <code>space</code>
-    argument. They are the same thing.
-  </p>
-</div>
 
 <h2 id="reading">How your assistant reads</h2>
 <p>
@@ -439,7 +432,7 @@ reef load-index
 reef read-pages personal profile.md preferences.md
 reef write-page personal plans.md --body-file ./plans.md \
   --message "Add the summer plan" --title Plans
-reef call read_pages '{"space":"personal","paths":["plans.md"]}'</code></pre>
+reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
 <p>
   <code>reef call</code> takes any tool name and a JSON object, so it reaches
   everything the named commands do. Run <code>reef tools</code> for the live
@@ -460,7 +453,7 @@ reef call read_pages '{"space":"personal","paths":["plans.md"]}'</code></pre>
 <h2 id="tools">Tool reference</h2>
 <p>
   These are the tools an assistant sees over MCP, and the commands the CLI
-  mirrors. Every one that touches a cove takes a <code>space</code> argument.
+  mirrors. Every one that touches a cove takes a <code>cove</code> argument.
 </p>
 <p><b>Reading</b></p>
 <table>
@@ -486,11 +479,11 @@ reef call read_pages '{"space":"personal","paths":["plans.md"]}'</code></pre>
 <p><b>Coves</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>list_spaces</code></td><td>The coves you are in.</td></tr>
-  <tr><td><code>create_space</code></td><td>Makes a new shared cove.</td></tr>
+  <tr><td><code>list_coves</code></td><td>The coves you are in.</td></tr>
+  <tr><td><code>create_cove</code></td><td>Makes a new shared cove.</td></tr>
   <tr><td><code>rename_cove</code></td><td>Changes your own name for a cove.</td></tr>
-  <tr><td><code>leave_space</code></td><td>Removes you from a cove.</td></tr>
-  <tr><td><code>delete_space</code></td><td>Deletes a cove and its pages.</td></tr>
+  <tr><td><code>leave_cove</code></td><td>Removes you from a cove.</td></tr>
+  <tr><td><code>delete_cove</code></td><td>Deletes a cove and its pages.</td></tr>
 </table>
 <p><b>People and sharing</b></p>
 <table>
@@ -596,7 +589,7 @@ reef call read_pages '{"space":"personal","paths":["plans.md"]}'</code></pre>
 <p>
   Cove names are per person. Their name for a cove is not necessarily yours, so
   ask what is on the pages rather than what the cove is called — or check
-  <code>list_spaces</code> for what you actually have. If it is nowhere, you
+  <code>list_coves</code> for what you actually have. If it is nowhere, you
   have not been invited to it yet.
 </p>
 

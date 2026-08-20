@@ -1,5 +1,5 @@
 /**
- * The "create a shared space" form: one slug field, one submit.
+ * The "create a shared cove" form: one slug field, one submit.
  *
  * A 400 from the backend (invalid or already-taken slug) is a routine,
  * expected outcome of this form, not a crash — it renders inline via
@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 
-export default function NewSpace() {
+export default function NewCove() {
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -24,7 +24,7 @@ export default function NewSpace() {
     setError(null);
     setSubmitting(true);
     try {
-      await apiSend<{ alias: string; slug: string }>("POST", "/api/spaces", {
+      await apiSend<{ alias: string; slug: string }>("POST", "/api/coves", {
         slug,
       });
       await refresh();

@@ -73,15 +73,15 @@ mock.module("react-router-dom", () => ({
 
 const { default: PageView } = await import("./PageView");
 
-/** Render the view for a page at `path` in cove `space`. */
-async function renderPage(path: string, space = "trip") {
+/** Render the view for a page at `path` in cove `cove`. */
+async function renderPage(path: string, cove = "trip") {
   render(
     <AppearanceContext.Provider
       value={{ appearance: {}, setAppearance: () => {} }}
     >
-      <MemoryRouter initialEntries={[`/s/${space}/p/${path}`]}>
+      <MemoryRouter initialEntries={[`/s/${cove}/p/${path}`]}>
       <Routes>
-        <Route path="/s/:space/p/*" element={<PageView />} />
+        <Route path="/s/:cove/p/*" element={<PageView />} />
       </Routes>
       </MemoryRouter>
     </AppearanceContext.Provider>,
@@ -178,7 +178,7 @@ test("a page that will not load says so instead of hanging", async () => {
     >
       <MemoryRouter initialEntries={["/s/trip/p/gone.md"]}>
       <Routes>
-        <Route path="/s/:space/p/*" element={<PageView />} />
+        <Route path="/s/:cove/p/*" element={<PageView />} />
       </Routes>
       </MemoryRouter>
     </AppearanceContext.Provider>,

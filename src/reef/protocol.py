@@ -29,7 +29,7 @@ async def build_instructions(principal: Principal) -> str:
     The protocol is the packaged product text — any ``meta/protocol.md``
     page left over from the old design is ignored. The persona is an
     ordinary page (editable through ``update_meta_page``, with revision
-    history), read from the caller's own personal space so it is never
+    history), read from the caller's own personal cove so it is never
     shared between people.
 
     :param principal: the authenticated person

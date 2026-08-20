@@ -22,10 +22,10 @@ from reef import audit
 from reef.access import AccessDenied, Principal, arm
 from reef.auth import principal_from_claims
 from reef.config import env, get_settings
+from reef.coves import ensure_personal_cove
 from reef.db import transaction_scope
 from reef.identity import person_session_epoch, revoke_sessions
 from reef.opendoor import admit, door_policy
-from reef.spaces import ensure_personal_space
 from reef.web.oidc import (
     OAUTH_COOKIE_TTL_SECONDS,
     AuthKitOIDC,
@@ -362,11 +362,11 @@ def register_auth_routes(
                 return JSONResponse({"error": "door_closed"}, status_code=403)
             principal = Principal(person_id=identity.person_id, email=identity.email)
             # Armed before onboarding, for the reason principal_from_claims
-            # spells out: ensure_personal_space inserts a space and a
+            # spells out: ensure_personal_cove inserts a cove and a
             # membership, and those inserts are checked against the armed
             # principal.
             await arm(principal)
-            await ensure_personal_space(identity.person_id, identity.email)
+            await ensure_personal_cove(identity.person_id, identity.email)
             audit.record(audit.OPEN_DOOR_ADMITTED, actor=identity.person_id)
             epoch = await person_session_epoch(identity.person_id) or 0
 

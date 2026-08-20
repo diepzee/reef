@@ -61,7 +61,7 @@ async def test_fetch_refuses_a_malformed_id(tx, household):
     assert (await tool_fetch(me, "nonsense"))["error"] == "bad_id"
 
 
-async def test_search_cannot_see_another_persons_space(tx, household):
+async def test_search_cannot_see_another_persons_cove(tx, household):
     """The adapter inherits the boundary; it does not get to widen it."""
     partner = principal_for(household["partner"])
     wouter = principal_for(household["wouter"])

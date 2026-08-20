@@ -163,7 +163,7 @@ async def test_asset_served(static_client):
 
 async def test_spa_fallback(static_client):
     """A client-side route with no matching file falls back to index.html."""
-    response = await static_client.get("/app/spaces/team/pages/notes.md")
+    response = await static_client.get("/app/coves/team/pages/notes.md")
     assert response.status_code == 200
     assert "<title>rif</title>" in response.text
 

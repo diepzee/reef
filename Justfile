@@ -105,8 +105,19 @@ db-reset-test:
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
     GRANT ALL ON SCHEMA public TO rif;
-    GRANT USAGE ON SCHEMA public TO rif_probe, rif_authz;
-    GRANT CREATE ON SCHEMA public TO rif_authz;
+    GRANT USAGE ON SCHEMA public TO rif_probe;
+    -- Both spellings of the authz role: it was renamed once, and a cluster
+    -- may carry either. Granting only the old one leaves the new one unable
+    -- to create its helper functions, which fails as "permission denied for
+    -- schema public" long after the reset that caused it.
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef_authz') THEN
+        GRANT USAGE, CREATE ON SCHEMA public TO reef_authz;
+      END IF;
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_authz') THEN
+        GRANT USAGE, CREATE ON SCHEMA public TO rif_authz;
+      END IF;
+    END $$;
     SQL
     echo "rif_test schema reset; the next test run rebuilds it"
 

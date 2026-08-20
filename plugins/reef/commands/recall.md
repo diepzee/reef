@@ -11,7 +11,7 @@ Answer this from reef: $ARGUMENTS
 2. Call `search_pages` when the index does not settle which pages matter. It
    matches words inside bodies, titles, and stored files that the index omits.
 3. Call `read_pages` for everything that looks relevant, in one call.
-4. Answer from what you read, naming the space and path behind each claim.
+4. Answer from what you read, naming the cove and path behind each claim.
 
 If reef holds nothing on this, say so plainly rather than filling the gap
 from your own guesses. An invented memory is worse than an absent one.

@@ -1,7 +1,7 @@
 /**
  * The coves list, and the view choice that persists across visits.
  *
- * `spacesView.test.ts` covers reading and writing the stored preference.
+ * `covesView.test.ts` covers reading and writing the stored preference.
  * What only rendering shows is that the picker is a real tablist — the
  * selected tab has to report itself, or the choice is invisible to anyone
  * not looking at the highlight — and that choosing one records it.
@@ -52,7 +52,7 @@ function cove(alias: string) {
 beforeEach(() => {
   error = null;
   window.localStorage.clear();
-  index = { spaces: [cove("trip"), cove("home")] };
+  index = { coves: [cove("trip"), cove("home")] };
 });
 
 afterEach(cleanup);
@@ -88,7 +88,7 @@ test("choosing a view records it for next time", () => {
   // Persisted, so the next visit opens the way this one was left. The
   // stored value is "grid" though the control reads "Tile view" -- the
   // label and the stored token are not the same vocabulary.
-  expect(window.localStorage.getItem("reef.spacesView")).toBe("grid");
+  expect(window.localStorage.getItem("reef.covesView")).toBe("grid");
 });
 
 test("an index that failed to load reports it", () => {

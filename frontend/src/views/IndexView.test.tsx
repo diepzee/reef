@@ -39,7 +39,7 @@ function renderIndex() {
 beforeEach(() => {
   error = null;
   index = {
-    spaces: [
+    coves: [
       {
         alias: "trip",
         version: 4,
@@ -70,7 +70,7 @@ test("each cove links to itself and lists its pages", () => {
 });
 
 test("a cove with nothing in it says so rather than looking broken", () => {
-  index = { spaces: [{ alias: "trip", pages: [], attachments: [] }] };
+  index = { coves: [{ alias: "trip", pages: [], attachments: [] }] };
   renderIndex();
   expect(screen.getByText("No pages.")).toBeDefined();
 });

@@ -49,7 +49,7 @@ def parse_markdown(text: str) -> tuple[dict, str]:
 
 
 async def main(source: Path, email: str) -> None:
-    """Import the listed files into their assigned spaces.
+    """Import the listed files into their assigned coves.
 
     :param source: the mark wiki directory
     :param email: Wouter's email, to resolve the principal
@@ -57,10 +57,10 @@ async def main(source: Path, email: str) -> None:
     async with transaction_scope():
         person = await Person.objects().where(Person.email == email).first()
         principal = Principal(person_id=person.id, email=person.email)
-        # One-shot importer targeting the production shared space: the old
-        # "household" alias no longer resolves post-migration (spaces are
+        # One-shot importer targeting the production shared cove: the old
+        # "household" alias no longer resolves post-migration (coves are
         # named groups, addressed by slug), so this points at "school", the
-        # shared space the former household space became.
+        # shared cove the former household cove became.
         for name, alias in [(n, "school") for n in sorted(HOUSEHOLD)] + [
             (n, "personal") for n in sorted(PERSONAL)
         ]:

@@ -63,12 +63,12 @@ mock.module("react-router-dom", () => ({
   useNavigate: () => (to: string) => navigated.push(to),
 }));
 
-const { default: NewSpace } = await import("./NewSpace");
+const { default: NewCove } = await import("./NewCove");
 
-function renderNewSpace() {
+function renderNewCove() {
   render(
     <MemoryRouter>
-      <NewSpace />
+      <NewCove />
     </MemoryRouter>,
   );
 }
@@ -88,7 +88,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test("cannot submit an empty name", () => {
-  renderNewSpace();
+  renderNewCove();
   expect(
     (screen.getByText("Create cove") as HTMLButtonElement).disabled,
   ).toBe(true);
@@ -97,21 +97,21 @@ test("cannot submit an empty name", () => {
 test("creating navigates to the new cove and refreshes the index", async () => {
   // The index has to be refetched before navigating, or the cove the person
   // was just sent to is missing from the sidebar they land next to.
-  renderNewSpace();
+  renderNewCove();
   type("trip");
   fireEvent.click(screen.getByText("Create cove"));
   await waitFor(() => expect(navigated).toEqual(["/s/trip"]));
   expect(sent).toEqual([
-    { method: "POST", path: "/api/spaces", body: { slug: "trip" } },
+    { method: "POST", path: "/api/coves", body: { slug: "trip" } },
   ]);
   expect(refreshed).toBe(1);
 });
 
 test("a refusal is shown with its reason and the form stays usable", async () => {
   respond = () => {
-    throw new FakeApiError(400, "space_error", "that name is already taken");
+    throw new FakeApiError(400, "cove_error", "that name is already taken");
   };
-  renderNewSpace();
+  renderNewCove();
   type("trip");
   fireEvent.click(screen.getByText("Create cove"));
   await waitFor(() =>
@@ -128,7 +128,7 @@ test("a failure that is not from the API still says something", async () => {
   respond = () => {
     throw new Error("network down");
   };
-  renderNewSpace();
+  renderNewCove();
   type("trip");
   fireEvent.click(screen.getByText("Create cove"));
   await waitFor(() =>

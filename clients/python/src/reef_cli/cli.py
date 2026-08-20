@@ -252,12 +252,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     _tool_parser(sub, "load_index", "load the body-free memory index")
-    read_pages = _tool_parser(sub, "read_pages", "read several pages from one space")
-    read_pages.add_argument("space")
+    read_pages = _tool_parser(sub, "read_pages", "read several pages from one cove")
+    read_pages.add_argument("cove")
     read_pages.add_argument("paths", nargs="+")
     search = _tool_parser(sub, "search_pages", "full-text search across your pages")
     search.add_argument("query")
-    search.add_argument("--space", help="restrict to one space")
+    search.add_argument("--cove", help="restrict to one cove")
     search.add_argument("--limit", type=int, default=10)
     # The two-tool connector shape, carried here for parity with the MCP
     # surface. A person at a terminal wants search-pages and read-page --
@@ -269,16 +269,16 @@ def build_parser() -> argparse.ArgumentParser:
     _tool_parser(sub, "load_all_context", "load all page bodies for maintenance")
     _tool_parser(sub, "get_operating_protocol", "load the protocol and persona")
     read_page = _tool_parser(sub, "read_page", "read one page")
-    read_page.add_argument("space")
+    read_page.add_argument("cove")
     read_page.add_argument("path")
     read_page.add_argument("--as-of", help="ISO-8601 moment to read the page as of")
-    whats_new = _tool_parser(sub, "whats_new", "list recent changes across spaces")
+    whats_new = _tool_parser(sub, "whats_new", "list recent changes across coves")
     whats_new.add_argument("--since", help="ISO-8601 moment to report changes after")
-    _tool_parser(sub, "list_spaces", "list spaces, members, ownership, and versions")
-    create_space = _tool_parser(sub, "create_space", "create a shared space")
-    create_space.add_argument("slug")
-    invite = _tool_parser(sub, "invite", "invite a person into a shared space")
-    invite.add_argument("space")
+    _tool_parser(sub, "list_coves", "list coves, members, ownership, and versions")
+    create_cove = _tool_parser(sub, "create_cove", "create a shared cove")
+    create_cove.add_argument("slug")
+    invite = _tool_parser(sub, "invite", "invite a person into a shared cove")
+    invite.add_argument("cove")
     invite.add_argument("email")
     invite.add_argument("--display-name")
     invite.add_argument(
@@ -288,28 +288,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="viewer reads everything and writes nothing",
     )
     invite_reef = _tool_parser(
-        sub, "invite_to_reef", "invite someone to Reef without sharing a space"
+        sub, "invite_to_reef", "invite someone to Reef without sharing a cove"
     )
     invite_reef.add_argument("email")
     invite_reef.add_argument("--display-name")
-    remove = _tool_parser(sub, "remove_member", "remove a shared-space member")
-    remove.add_argument("space")
+    remove = _tool_parser(sub, "remove_member", "remove a shared-cove member")
+    remove.add_argument("cove")
     remove.add_argument("email")
     rename = _tool_parser(sub, "rename_cove", "change what you call a shared cove")
-    rename.add_argument("space")
+    rename.add_argument("cove")
     rename.add_argument("new_name")
-    leave = _tool_parser(sub, "leave_space", "leave a shared space, handing it on")
-    leave.add_argument("space")
-    delete = _tool_parser(
-        sub, "delete_space", "destroy a shared space you are alone in"
-    )
-    delete.add_argument("space")
-    remember = _tool_parser(sub, "remember", "append a fact to a space inbox")
+    leave = _tool_parser(sub, "leave_cove", "leave a shared cove, handing it on")
+    leave.add_argument("cove")
+    delete = _tool_parser(sub, "delete_cove", "destroy a shared cove you are alone in")
+    delete.add_argument("cove")
+    remember = _tool_parser(sub, "remember", "append a fact to a cove inbox")
     remember.add_argument("fact", help="fact text; '-' reads stdin")
-    remember.add_argument("--space", default="personal")
+    remember.add_argument("--cove", default="personal")
 
     write = _tool_parser(sub, "write_page", "create or replace one Markdown page")
-    write.add_argument("space")
+    write.add_argument("cove")
     write.add_argument("path")
     _add_text_source(write, "body")
     write.add_argument("--message", required=True)
@@ -320,16 +318,16 @@ def build_parser() -> argparse.ArgumentParser:
     delete_page = _tool_parser(
         sub, "delete_page", "permanently delete a page and its history"
     )
-    delete_page.add_argument("space")
+    delete_page.add_argument("cove")
     delete_page.add_argument("path")
 
     writes = _tool_parser(sub, "write_pages", "atomically write up to 20 pages")
-    writes.add_argument("space")
+    writes.add_argument("cove")
     writes.add_argument("pages", help="JSON array, @file, or '-' for stdin")
     writes.add_argument("--message", default="")
 
     edit = _tool_parser(sub, "edit_page_section", "replace one exact page span")
-    edit.add_argument("space")
+    edit.add_argument("cove")
     edit.add_argument("path")
     _add_text_source(edit, "old-text")
     _add_text_source(edit, "new-text")
@@ -349,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub, "prepare_to_share", "stage personal content for sharing"
     )
     prepare.add_argument("path")
-    prepare.add_argument("dest_space")
+    prepare.add_argument("dest_cove")
     prepare.add_argument("--section")
     prepare.add_argument("--section-file")
     prepare.add_argument("--dest-path")
@@ -359,33 +357,33 @@ def build_parser() -> argparse.ArgumentParser:
     add_file = _tool_parser(
         sub, "add_file", "upload a file with a searchable description"
     )
-    add_file.add_argument("space")
+    add_file.add_argument("cove")
     add_file.add_argument("file", type=Path)
     add_file.add_argument("--mime")
     add_file.add_argument("--description", required=True)
     add_file.add_argument("--page-path")
     read_file = _tool_parser(sub, "read_file", "get file metadata and a signed URL")
-    read_file.add_argument("space")
+    read_file.add_argument("cove")
     read_file.add_argument("key")
     delete_file = _tool_parser(sub, "delete_file", "permanently delete a stored file")
-    delete_file.add_argument("space")
+    delete_file.add_argument("cove")
     delete_file.add_argument("key")
 
     add_image = _tool_parser(
         sub, "add_image", "compatibility alias for uploading an image"
     )
-    add_image.add_argument("space")
+    add_image.add_argument("cove")
     add_image.add_argument("file", type=Path)
     add_image.add_argument("--mime")
     add_image.add_argument("--description", required=True)
     add_image.add_argument("--page-path")
     read_image = _tool_parser(sub, "read_image", "compatibility alias for read-file")
-    read_image.add_argument("space")
+    read_image.add_argument("cove")
     read_image.add_argument("key")
     delete_image = _tool_parser(
         sub, "delete_image", "compatibility alias for delete-file"
     )
-    delete_image.add_argument("space")
+    delete_image.add_argument("cove")
     delete_image.add_argument("key")
     return parser
 
@@ -399,7 +397,7 @@ def _file_arguments(args: argparse.Namespace, *, image: bool = False) -> dict[st
     if mime is None:
         mime = "application/octet-stream"
     result = {
-        "space": args.space,
+        "cove": args.cove,
         "data_base64": base64.b64encode(data).decode("ascii"),
         "mime": mime,
         "description": args.description,
@@ -417,40 +415,40 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         "load_index",
         "load_all_context",
         "get_operating_protocol",
-        "list_spaces",
+        "list_coves",
     }:
         return tool, {}
     if tool == "read_pages":
-        return tool, {"space": args.space, "paths": args.paths}
+        return tool, {"cove": args.cove, "paths": args.paths}
     if tool == "search_pages":
-        return tool, {"query": args.query, "space": args.space, "limit": args.limit}
+        return tool, {"query": args.query, "cove": args.cove, "limit": args.limit}
     if tool == "read_page":
-        payload = {"space": args.space, "path": args.path}
+        payload = {"cove": args.cove, "path": args.path}
         if args.as_of is not None:
             payload["as_of"] = args.as_of
         return tool, payload
     if tool == "whats_new":
         return tool, {"since": args.since} if args.since is not None else {}
-    if tool == "create_space":
+    if tool == "create_cove":
         return tool, {"slug": args.slug}
     if tool in {"invite", "invite_to_reef"}:
         payload = {"email": args.email, "display_name": args.display_name}
         if tool == "invite":
-            payload["space"] = args.space
+            payload["cove"] = args.cove
             payload["role"] = args.role
         return tool, payload
     if tool == "remove_member":
-        return tool, {"space": args.space, "email": args.email}
+        return tool, {"cove": args.cove, "email": args.email}
     if tool == "rename_cove":
-        return tool, {"space": args.space, "new_name": args.new_name}
-    if tool in {"leave_space", "delete_space"}:
-        return tool, {"space": args.space}
+        return tool, {"cove": args.cove, "new_name": args.new_name}
+    if tool in {"leave_cove", "delete_cove"}:
+        return tool, {"cove": args.cove}
     if tool == "remember":
         fact = sys.stdin.read() if args.fact == "-" else args.fact
-        return tool, {"fact": fact, "space": args.space}
+        return tool, {"fact": fact, "cove": args.cove}
     if tool == "write_page":
         return tool, {
-            "space": args.space,
+            "cove": args.cove,
             "path": args.path,
             "body": _text_source(args.body, args.body_file, "body"),
             "message": args.message,
@@ -462,10 +460,10 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         pages = _json_source(args.pages)
         if not isinstance(pages, list):
             raise CLIError("write-pages input must be a JSON array")
-        return tool, {"space": args.space, "pages": pages, "message": args.message}
+        return tool, {"cove": args.cove, "pages": pages, "message": args.message}
     if tool == "edit_page_section":
         return tool, {
-            "space": args.space,
+            "cove": args.cove,
             "path": args.path,
             "old_text": _text_source(args.old_text, args.old_text_file, "old-text"),
             "new_text": _text_source(args.new_text, args.new_text_file, "new-text"),
@@ -474,7 +472,7 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
         }
     if tool == "update_meta_page":
         return tool, {
-            "space": "personal",
+            "cove": "personal",
             "path": "meta/persona.md",
             "body": _text_source(args.body, args.body_file, "body"),
             "message": args.message,
@@ -488,7 +486,7 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
             section = _text_source(args.section, args.section_file, "section")
         return tool, {
             "path": args.path,
-            "dest_space": args.dest_space,
+            "dest_cove": args.dest_cove,
             "section": section,
             "dest_path": args.dest_path,
         }
@@ -499,7 +497,7 @@ def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
     if tool == "add_image":
         return tool, _file_arguments(args, image=True)
     if tool in {"read_file", "delete_file", "read_image", "delete_image"}:
-        return tool, {"space": args.space, "key": args.key}
+        return tool, {"cove": args.cove, "key": args.key}
     raise CLIError(f"unsupported command: {tool}")
 
 

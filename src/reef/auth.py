@@ -4,8 +4,8 @@ import os
 
 from reef.access import AccessDenied, Principal, arm
 from reef.config import env
+from reef.coves import ensure_personal_cove
 from reef.identity import bind_subject, person_by_email, person_by_subject
-from reef.spaces import ensure_personal_space
 
 
 async def principal_from_claims(claims: dict) -> Principal:
@@ -17,7 +17,7 @@ async def principal_from_claims(claims: dict) -> Principal:
     invitation at runtime, not by migration. An unknown identity is denied
     exactly as before: a token whose email no member ever invited never gets
     in — invitation-only, never open signup. First sign-in binds the
-    provider subject and onboards a personal space with starter pages. The
+    provider subject and onboards a personal cove with starter pages. The
     ``email_verified`` claim must be the boolean ``True``, not merely truthy.
 
     Both lookups go through ``reef.identity``, so this function -- the one
@@ -25,7 +25,7 @@ async def principal_from_claims(claims: dict) -> Principal:
     key and nothing else.
 
     The principal is armed the moment it is known, before onboarding. That
-    ordering is load-bearing: ``ensure_personal_space`` inserts a space and a
+    ordering is load-bearing: ``ensure_personal_cove`` inserts a cove and a
     membership, and once those tables carry policies the inserts are checked
     against the armed principal. Arming afterwards would deny them, and the
     symptom would be every first sign-in failing.
@@ -55,7 +55,7 @@ async def principal_from_claims(claims: dict) -> Principal:
         raise AccessDenied(f"not on the allowlist: {email}")
     principal = Principal(person_id=identity.person_id, email=identity.email)
     await arm(principal)
-    await ensure_personal_space(identity.person_id, identity.email)
+    await ensure_personal_cove(identity.person_id, identity.email)
     return principal
 
 

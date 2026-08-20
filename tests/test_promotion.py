@@ -37,7 +37,7 @@ async def test_whole_page_share_with_a_new_name_stubs_the_source_only(tx, househ
     """A whole-page share stubs the page that moved, never the page it was renamed to.
 
     The stub belongs to the source: it is what stays behind in the personal
-    space. Writing it to ``dest_path`` instead left the source's full body
+    cove. Writing it to ``dest_path`` instead left the source's full body
     private-but-unmarked and overwrote whatever unrelated personal page
     happened to carry that name — data loss the user never saw disclosed.
     """
@@ -190,12 +190,12 @@ async def test_section_share_source_changed_since_prepare_fails(tx, household):
         await confirm_promotion(me, prepared["nonce"])
 
 
-async def test_share_targets_a_chosen_space(tx, household, graph):
+async def test_share_targets_a_chosen_cove(tx, household, graph):
     me = principal_for(household["wouter"])
-    await graph.shared_space("trip", household["wouter"])
+    await graph.shared_cove("trip", household["wouter"])
     await save_page(me, "personal", "packing.md", "tent, stove", message="x")
     prepared = await prepare_promotion(me, "packing.md", "trip")
-    assert prepared["dest_space"] == "trip"
+    assert prepared["dest_cove"] == "trip"
     await confirm_promotion(me, prepared["nonce"])
     assert (await get_page(me, "trip", "packing.md")).body == "tent, stove"
     assert await get_page(me, "household", "packing.md") is None
@@ -209,10 +209,10 @@ async def test_disclosure_enumerates_the_destination_members(tx, household):
     assert "Partner" in prepared["warning"]
 
 
-async def test_share_to_unjoined_or_personal_space_is_refused(tx, household, graph):
+async def test_share_to_unjoined_or_personal_cove_is_refused(tx, household, graph):
     me = principal_for(household["wouter"])
     stranger = await graph.person("carla@example.test", "Carla")
-    await graph.shared_space("carla-club", stranger)
+    await graph.shared_cove("carla-club", stranger)
     await save_page(me, "personal", "n.md", "x", message="x")
     with pytest.raises(PromotionError):
         await prepare_promotion(me, "n.md", "carla-club")
@@ -223,8 +223,8 @@ async def test_share_to_unjoined_or_personal_space_is_refused(tx, household, gra
 async def test_confirm_rechecks_membership_lost_after_prepare(tx, graph):
     owner2 = await graph.person("owner2@example.test", "Owner2")
     wouter = await graph.person("wouter2@example.test", "Wouter2")
-    await graph.personal_space(wouter, slug="wouter2")
-    club = await graph.shared_space("club", owner2, wouter)
+    await graph.personal_cove(wouter, slug="wouter2")
+    club = await graph.shared_cove("club", owner2, wouter)
     me = principal_for(wouter)
     owner_principal = principal_for(owner2)
 

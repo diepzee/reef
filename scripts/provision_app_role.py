@@ -42,13 +42,13 @@ AUTHZ_ROLE = "reef_authz"
 # so a future table is a deliberate decision, not an automatic grant.
 TABLES = (
     "persons",
-    "spaces",
+    "coves",
     "memberships",
     "pages",
     "revisions",
     "attachments",
     "promotions",
-    "space_appearances",
+    "cove_appearances",
 )
 
 # Tables carrying RLS policies (see reef.rls). Used only to verify enforcement.

@@ -11,7 +11,7 @@ import {
   organismFor,
   type OrganismPath,
 } from "../src/components/organisms";
-import { spaceColor } from "../src/components/spaceColor";
+import { coveColor } from "../src/components/coveColor";
 
 function pathsToMarkup(paths: readonly OrganismPath[]): string {
   return paths
@@ -54,7 +54,7 @@ const HUE_VARS: Record<string, string> = {
 console.log("\n# circle aliases (family / hue var / def markup):");
 for (const alias of ["household", "schoolrun", "accountant", "japan", "personal"]) {
   const org = organismFor(alias);
-  const hue = spaceColor(alias);
+  const hue = coveColor(alias);
   console.log(`## ${alias}: ${org.family} ${HUE_VARS[hue.base] ?? hue.base}`);
   console.log(`<g id="o-cove-${alias}">${pathsToMarkup(org.paths)}</g>`);
 }

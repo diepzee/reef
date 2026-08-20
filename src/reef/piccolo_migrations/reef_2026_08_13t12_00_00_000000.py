@@ -17,7 +17,7 @@ DESCRIPTION = "memberships.alias, per-person uniqueness, admit function"
 async def forwards() -> MigrationManager:
     """Make a cove's name a property of the reader rather than the cluster.
 
-    ``spaces.slug`` was ``UNIQUE``, which made cove names one namespace
+    ``coves.slug`` was ``UNIQUE``, which made cove names one namespace
     shared by every tenant. Three things followed, all bad: the first person
     to take ``family`` took it from everybody who would ever sign up; a name
     already used by a stranger failed against a constraint the creator's own
@@ -40,7 +40,7 @@ async def forwards() -> MigrationManager:
     2. Fill it, personal first, before any uniqueness is demanded.
     3. Only then add the constraint -- added earlier it would reject every
        row at once, since they would all share the empty-string default.
-    4. Drop ``spaces_slug_key`` last, once nothing depends on it.
+    4. Drop ``coves_slug_key`` last, once nothing depends on it.
 
     All in one transaction: a database left half-way through this has a
     column the application reads and no values in it, which resolves every
@@ -77,30 +77,30 @@ async def forwards() -> MigrationManager:
                 # ever sees the table with its policies relaxed.
                 #
                 # Both tables, not just the one being written: each statement
-                # below reads ``spaces`` to decide what the alias should be,
+                # below reads ``coves`` to decide what the alias should be,
                 # and a filtered join contributes no rows just as silently as
                 # a filtered update. Lifted, the fallback further down fires
                 # for every row and renames every cove to ``cove-<n>``.
                 "ALTER TABLE memberships NO FORCE ROW LEVEL SECURITY",
-                "ALTER TABLE spaces NO FORCE ROW LEVEL SECURITY",
-                # The personal space is addressed by a fixed name, and its
+                "ALTER TABLE coves NO FORCE ROW LEVEL SECURITY",
+                # The personal cove is addressed by a fixed name, and its
                 # slug (personal-<hex>) is an internal detail that must never
                 # become one.
                 (
-                    "UPDATE memberships m SET alias = 'personal' FROM spaces s "
-                    "WHERE s.id = m.space_id AND s.kind = 'personal'"
+                    "UPDATE memberships m SET alias = 'personal' FROM coves s "
+                    "WHERE s.id = m.cove_id AND s.kind = 'personal'"
                 ),
                 (
-                    "UPDATE memberships m SET alias = s.slug FROM spaces s "
-                    "WHERE s.id = m.space_id AND s.kind = 'shared'"
+                    "UPDATE memberships m SET alias = s.slug FROM coves s "
+                    "WHERE s.id = m.cove_id AND s.kind = 'shared'"
                 ),
-                # Belt and braces: a membership whose space vanished under it
+                # Belt and braces: a membership whose cove vanished under it
                 # would otherwise keep the empty default and collide with any
                 # other such row. If this ever fires for a row that *does*
-                # have a space, the two statements above silently matched
+                # have a cove, the two statements above silently matched
                 # nothing -- see the note on row security above.
                 "UPDATE memberships SET alias = 'cove-' || id::text WHERE alias = ''",
-                "ALTER TABLE spaces FORCE ROW LEVEL SECURITY",
+                "ALTER TABLE coves FORCE ROW LEVEL SECURITY",
                 "ALTER TABLE memberships FORCE ROW LEVEL SECURITY",
                 (
                     "ALTER TABLE memberships DROP CONSTRAINT IF EXISTS "
@@ -113,7 +113,7 @@ async def forwards() -> MigrationManager:
                 # A cove's name is no longer globally unique, and keeping the
                 # constraint would go on refusing the squat this migration
                 # exists to permit.
-                "ALTER TABLE spaces DROP CONSTRAINT IF EXISTS spaces_slug_key",
+                "ALTER TABLE coves DROP CONSTRAINT IF EXISTS coves_slug_key",
                 # reef_admit_member lands here; it is what picks a free alias
                 # for an invitee whose other memberships the inviter cannot
                 # see. identity_grant_statements adds the column-level

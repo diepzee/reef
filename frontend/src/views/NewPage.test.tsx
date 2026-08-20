@@ -53,7 +53,7 @@ function renderNewPage() {
   render(
     <MemoryRouter initialEntries={["/s/trip/new"]}>
       <Routes>
-        <Route path="/s/:space/new" element={<NewPage />} />
+        <Route path="/s/:cove/new" element={<NewPage />} />
       </Routes>
     </MemoryRouter>,
   );

@@ -3,7 +3,7 @@
  *
  * A drawing that carries information has to describe itself, or it is
  * simply absent for anyone not looking at it. `organisms.test.ts` and
- * `spaceColor.test.ts` already cover the geometry and hues underneath.
+ * `coveColor.test.ts` already cover the geometry and hues underneath.
  */
 
 import { afterEach, expect, test } from "bun:test";
@@ -13,14 +13,14 @@ import { MemoryRouter } from "react-router-dom";
 import { AppearanceContext } from "../useAppearance";
 import { CoveGraph } from "./CoveGraph";
 
-/** Render the graph for `spaces`, under the contexts it expects. */
-function renderGraph(spaces: unknown[]) {
+/** Render the graph for `coves`, under the contexts it expects. */
+function renderGraph(coves: unknown[]) {
   return render(
     <AppearanceContext.Provider
       value={{ appearance: {} as never, setAppearance: () => {} }}
     >
       <MemoryRouter>
-        <CoveGraph spaces={spaces as never} />
+        <CoveGraph coves={coves as never} />
       </MemoryRouter>
     </AppearanceContext.Provider>,
   );

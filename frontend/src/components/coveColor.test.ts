@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { spaceColor } from "./spaceColor";
+import { coveColor } from "./coveColor";
 
 const ALL_PAIRS = [
   { base: "#0d9488", light: "#5eead4" }, // personal (seafoam)
@@ -13,15 +13,15 @@ const ALL_PAIRS = [
 ];
 
 test("deterministic per alias", () => {
-  expect(spaceColor("roadtrip")).toEqual(spaceColor("roadtrip"));
+  expect(coveColor("roadtrip")).toEqual(coveColor("roadtrip"));
 });
 
 test("personal is always fixed seafoam", () => {
-  expect(spaceColor("personal")).toEqual({ base: "#0d9488", light: "#5eead4" });
+  expect(coveColor("personal")).toEqual({ base: "#0d9488", light: "#5eead4" });
 });
 
 test("result is always one of the eight pairs", () => {
   for (const alias of ["personal", "roadtrip", "kitchen", "張三", "", "a", "zzz"]) {
-    expect(ALL_PAIRS).toContainEqual(spaceColor(alias));
+    expect(ALL_PAIRS).toContainEqual(coveColor(alias));
   }
 });

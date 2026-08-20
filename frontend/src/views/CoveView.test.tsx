@@ -59,7 +59,7 @@ mock.module("../IndexProvider", () => ({
     // "personal" too: the page list, and the appearance section under it,
     // only render for a cove the index actually holds.
     index: {
-      spaces: [
+      coves: [
         { alias: "trip", pages: [] },
         { alias: "personal", pages: [] },
       ],
@@ -82,17 +82,17 @@ mock.module("react-router-dom", () => ({
   useNavigate: () => (to: string) => navigated.push(to),
 }));
 
-const { default: SpaceView } = await import("./SpaceView");
+const { default: CoveView } = await import("./CoveView");
 
-/** Render the cove page for `space`. */
-function renderSpace(space = "trip") {
+/** Render the cove page for `cove`. */
+function renderCove(cove = "trip") {
   render(
     <AppearanceContext.Provider
       value={{ appearance: {}, setAppearance: () => {} }}
     >
-      <MemoryRouter initialEntries={[`/s/${space}`]}>
+      <MemoryRouter initialEntries={[`/s/${cove}`]}>
       <Routes>
-        <Route path="/s/:space" element={<SpaceView />} />
+        <Route path="/s/:cove" element={<CoveView />} />
       </Routes>
       </MemoryRouter>
     </AppearanceContext.Provider>,
@@ -120,7 +120,7 @@ test("no cove is left or deleted from this screen", () => {
   // Leaving and deleting moved into the members sheet's danger zone — see
   // MembersSheet.test.tsx, which holds the guards. What matters here is that
   // a permanent delete no longer sits one scroll under the page list.
-  renderSpace();
+  renderCove();
   expect(screen.queryByText(/Leave this cove/)).toBeNull();
   expect(screen.queryByText(/Delete this cove/)).toBeNull();
 });
@@ -128,12 +128,12 @@ test("no cove is left or deleted from this screen", () => {
 test("the personal cove is styled from this screen, having no sheet", () => {
   // Every shared cove reaches the picker from Manage. The personal one has
   // no roster and so no sheet, and would otherwise lose the control.
-  renderSpace("personal");
+  renderCove("personal");
   expect(screen.getByText("Appearance")).toBeDefined();
   expect(screen.getByText("Colour")).toBeDefined();
 });
 
 test("a shared cove keeps its appearance behind Manage, not in the body", () => {
-  renderSpace();
+  renderCove();
   expect(screen.queryByText("Appearance")).toBeNull();
 });

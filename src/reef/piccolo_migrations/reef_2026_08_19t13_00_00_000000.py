@@ -33,8 +33,8 @@ BEGIN
                function.oid::regprocedure AS signature,
                function.proname AS name
         FROM pg_proc AS function
-        JOIN pg_namespace AS space ON space.oid = function.pronamespace
-        WHERE space.nspname = 'public'
+        JOIN pg_namespace AS schema ON schema.oid = function.pronamespace
+        WHERE schema.nspname = 'public'
           AND function.proname LIKE 'rif\\_%'
     LOOP
         -- Skip when the new name is already taken. That happens on any
@@ -48,9 +48,9 @@ BEGIN
         IF NOT EXISTS (
             SELECT 1
             FROM pg_proc AS existing
-            JOIN pg_namespace AS existing_space
-              ON existing_space.oid = existing.pronamespace
-            WHERE existing_space.nspname = 'public'
+            JOIN pg_namespace AS existing_schema
+              ON existing_schema.oid = existing.pronamespace
+            WHERE existing_schema.nspname = 'public'
               AND existing.proname = 'reef_' || substring(target.name FROM 5)
               AND pg_get_function_identity_arguments(existing.oid)
                   = pg_get_function_identity_arguments(target.oid)

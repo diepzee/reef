@@ -17,7 +17,7 @@ import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
 from reef.db import DB, transaction_scope
-from reef.models import TABLES, Person, Space, SpaceKind
+from reef.models import TABLES, Cove, CoveKind, Person
 from reef.rls import (
     AUTHZ_ROLE,
     FORMER_AUTHZ_ROLE,
@@ -157,15 +157,15 @@ async def schema():
     # not have either.
     #
     # Before enable_statements, not after: the policy DDL revokes table-wide
-    # UPDATE on spaces and grants back only the version column, and a blanket
+    # UPDATE on coves and grants back only the version column, and a blanket
     # grant afterwards would silently undo it -- leaving a member able to
     # rewrite a cove's slug while the suite reported success.
     for table in (
         *CONTENT_TABLES,
         "memberships",
-        "spaces",
+        "coves",
         "persons",
-        "space_appearances",
+        "cove_appearances",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -243,7 +243,7 @@ async def clean():
     is itself filtered and would silently remove nothing.
     """
     await DB._run_in_new_connection(
-        f"TRUNCATE {', '.join(CONTENT_TABLES)}, memberships, spaces, persons "
+        f"TRUNCATE {', '.join(CONTENT_TABLES)}, memberships, coves, persons "
         f"RESTART IDENTITY CASCADE"
     )
 
@@ -262,7 +262,7 @@ async def tx():
 
 
 class Graph:
-    """Builders for arbitrary person/space/membership topologies.
+    """Builders for arbitrary person/cove/membership topologies.
 
     These seed *pre-existing* state, so they write through a connection that
     is not subject to the identity policies -- see :func:`seed_dsn` for why
@@ -315,37 +315,37 @@ class Graph:
         row._exists_in_db = True
         return row
 
-    async def personal_space(self, owner: Person, slug: str | None = None) -> Space:
-        """Create a personal space plus its single membership.
+    async def personal_cove(self, owner: Person, slug: str | None = None) -> Cove:
+        """Create a personal cove plus its single membership.
 
-        :param owner: the person the space belongs to
+        :param owner: the person the cove belongs to
         :param slug: explicit slug; defaults to the onboarding form
-        :returns: the saved space
+        :returns: the saved cove
         """
-        space = Space(
+        cove = Cove(
             slug=slug or f"personal-{owner.id.hex}",
-            kind=SpaceKind.PERSONAL.value,
+            kind=CoveKind.PERSONAL.value,
             owner_person_id=owner.id,
         )
-        await self._insert_space(space, owner, alias="personal")
-        return space
+        await self._insert_cove(cove, owner, alias="personal")
+        return cove
 
-    async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
-        """Create a shared space owned by ``owner``, with memberships.
+    async def shared_cove(self, slug: str, owner: Person, *members: Person) -> Cove:
+        """Create a shared cove owned by ``owner``, with memberships.
 
-        :param slug: the space's slug
+        :param slug: the cove's slug
         :param owner: the accountable owner, who is also a member
         :param members: further people to admit
-        :returns: the saved space
+        :returns: the saved cove
         """
-        space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
-        await self._insert_space(space, owner, *members, alias=slug)
-        return space
+        cove = Cove(slug=slug, kind=CoveKind.SHARED.value, owner_person_id=owner.id)
+        await self._insert_cove(cove, owner, *members, alias=slug)
+        return cove
 
     async def add_membership(
-        self, person: Person, space: Space, role: str, alias: str | None = None
+        self, person: Person, cove: Cove, role: str, alias: str | None = None
     ) -> None:
-        """Admit ``person`` to ``space`` with an explicit role.
+        """Admit ``person`` to ``cove`` with an explicit role.
 
         Seeded rather than inserted through the application: admitting
         somebody is an owner-only act under ``memberships_insert``, and a
@@ -353,16 +353,16 @@ class Graph:
         impersonate the owner to get it.
 
         :param person: who to admit
-        :param space: which cove
+        :param cove: which cove
         :param role: the role to store
         """
         await self._connection.execute(
-            "INSERT INTO memberships (person_id, space_id, role, alias) "
+            "INSERT INTO memberships (person_id, cove_id, role, alias) "
             "VALUES ($1, $2, $3, $4)",
             person.id,
-            space.id,
+            cove.id,
             role,
-            alias or space.slug,
+            alias or cove.slug,
         )
 
     async def bind_subject(self, person: Person, subject: str) -> None:
@@ -387,7 +387,7 @@ class Graph:
         """
         await self._connection.execute("DELETE FROM persons WHERE id = $1", person.id)
 
-    async def set_role(self, person: Person, space: Space, role: str) -> None:
+    async def set_role(self, person: Person, cove: Cove, role: str) -> None:
         """Set a membership's role directly.
 
         ``memberships`` has no ``UPDATE`` policy at all -- role changes belong
@@ -395,26 +395,26 @@ class Graph:
         has to seed one.
 
         :param person: whose membership
-        :param space: which cove
+        :param cove: which cove
         :param role: the role to store
         """
         await self._connection.execute(
-            "UPDATE memberships SET role = $1 WHERE person_id = $2 AND space_id = $3",
+            "UPDATE memberships SET role = $1 WHERE person_id = $2 AND cove_id = $3",
             role,
             person.id,
-            space.id,
+            cove.id,
         )
 
-    async def drop_membership(self, person: Person, space: Space) -> None:
+    async def drop_membership(self, person: Person, cove: Cove) -> None:
         """Remove a membership directly.
 
         :param person: whose membership
-        :param space: which cove
+        :param cove: which cove
         """
         await self._connection.execute(
-            "DELETE FROM memberships WHERE person_id = $1 AND space_id = $2",
+            "DELETE FROM memberships WHERE person_id = $1 AND cove_id = $2",
             person.id,
-            space.id,
+            cove.id,
         )
 
     async def backdate_person(self, person: Person, created_at) -> None:
@@ -427,30 +427,30 @@ class Graph:
             "UPDATE persons SET created_at = $1 WHERE id = $2", created_at, person.id
         )
 
-    async def _insert_space(
-        self, space: Space, *members: Person, alias: str | None = None
+    async def _insert_cove(
+        self, cove: Cove, *members: Person, alias: str | None = None
     ) -> None:
-        """Insert a space row and one membership per member.
+        """Insert a cove row and one membership per member.
 
-        :param space: the space to write
+        :param cove: the cove to write
         :param members: everyone who belongs to it
         """
         await self._connection.execute(
-            "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
+            "INSERT INTO coves (id, slug, kind, owner_person_id, version) "
             "VALUES ($1, $2, $3, $4, 0)",
-            space.id,
-            space.slug,
-            space.kind,
-            space.owner_person_id,
+            cove.id,
+            cove.slug,
+            cove.kind,
+            cove.owner_person_id,
         )
-        space._exists_in_db = True
+        cove._exists_in_db = True
         for person in members:
             await self._connection.execute(
-                "INSERT INTO memberships (person_id, space_id, role, alias) "
+                "INSERT INTO memberships (person_id, cove_id, role, alias) "
                 "VALUES ($1, $2, 'member', $3)",
                 person.id,
-                space.id,
-                alias or space.slug,
+                cove.id,
+                alias or cove.slug,
             )
 
 
@@ -488,16 +488,16 @@ async def graph(seed):
 
 @pytest_asyncio.fixture
 async def household(graph: Graph) -> dict:
-    """Two people, two personal spaces, one shared space they both belong to.
+    """Two people, two personal coves, one shared cove they both belong to.
 
     :returns: mapping with keys ``wouter``, ``partner``, ``w_personal``,
         ``p_personal``, ``shared``
     """
     wouter = await graph.person("wouter@example.test", "Wouter")
     partner = await graph.person("partner@example.test", "Partner")
-    w_personal = await graph.personal_space(wouter, slug="wouter")
-    p_personal = await graph.personal_space(partner, slug="partner")
-    shared = await graph.shared_space("household", wouter, partner)
+    w_personal = await graph.personal_cove(wouter, slug="wouter")
+    p_personal = await graph.personal_cove(partner, slug="partner")
+    shared = await graph.shared_cove("household", wouter, partner)
     return {
         "wouter": wouter,
         "partner": partner,
@@ -570,7 +570,7 @@ async def world(graph: Graph):
     """
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
-    await graph.personal_space(alice)
-    await graph.personal_space(bob)
-    team = await graph.shared_space("team", alice, bob)
+    await graph.personal_cove(alice)
+    await graph.personal_cove(bob)
+    team = await graph.shared_cove("team", alice, bob)
     return alice, bob, team

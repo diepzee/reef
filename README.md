@@ -14,7 +14,7 @@ lasts — and one your partner, your household, or your project can share.
 
 - **Ask once.** Tell your assistant the boiler is a Vaillant. Next month, in a
   different conversation, it still knows.
-- **Share on purpose.** Your private notes stay private. A shared space holds
+- **Share on purpose.** Your private notes stay private. A shared cove holds
   only what you deliberately put there.
 - **Bring your own assistant.** Claude, ChatGPT desktop, or Codex. reef is a
   remote [MCP](https://modelcontextprotocol.io) connector, not another chat app.
@@ -50,26 +50,26 @@ it to read and edit pages without an assistant.
 
 ## How memory is organised
 
-Memory lives in **spaces**. You get one private space the first time you sign
+Memory lives in **coves**. You get one private cove the first time you sign
 in. You can create any number of shared ones — a household, a school circle, an
 accountant, a small project.
 
-| | Private space | Shared space |
+| | Private cove | Shared cove |
 |---|---|---|
 | Who can read it | Only you | Everyone invited |
 | Created | At first sign-in | By whoever needs it |
 | Named | Always `personal` | By you, for you |
 | People join | Never | By email invitation from the owner |
 
-**You name shared spaces for yourself.** Your name for a space is yours alone.
+**You name shared coves for yourself.** Your name for a cove is yours alone.
 Two households can each have a `family` without either knowing the other
 exists, and nobody can take a name from anybody else.
 
 **Sharing is deliberate and permanent.** Moving something out of your private
-space takes two steps. First your assistant shows you the exact text and names
+cove takes two steps. First your assistant shows you the exact text and names
 everyone who will be able to read it. Only then does it move.
 
-Writing private content into a shared space any other way is refused — not
+Writing private content into a shared cove any other way is refused — not
 discouraged, refused. And there is no un-sharing.
 
 ## How your assistant reads it
@@ -93,7 +93,7 @@ date.
 ## How your assistant writes it
 
 Nothing is recorded silently. Mid-conversation, a fact worth keeping goes
-through `remember`, which stages it as a dated line in that space's inbox —
+through `remember`, which stages it as a dated line in that cove's inbox —
 and before the conversation ends, the assistant says what it is keeping so
 you can strike anything first.
 
@@ -146,7 +146,7 @@ reef read-pages personal profile.md preferences.md
 reef write-page personal plans.md --body-file ./plans.md \
   --message "Add the summer plan" --title Plans
 reef add-file personal ./lease.pdf --description "Signed rental agreement"
-reef call read_pages '{"space":"personal","paths":["plans.md"]}'
+reef call read_pages '{"cove":"personal","paths":["plans.md"]}'
 ```
 
 `reef call` takes any MCP tool name and a JSON object, so it reaches everything
@@ -173,7 +173,7 @@ locking, and when it must ask you before acting.
 Railway behind WorkOS AuthKit, and in daily use.
 
 Complete and reviewed: the schema and access control, index and page reads,
-versioned writes, and section-level sharing. Also multi-user spaces with
+versioned writes, and section-level sharing. Also multi-user coves with
 owner-managed invitations, file storage, the browser app, import, backup, and
 export.
 
@@ -218,9 +218,9 @@ Two things about the local database are deliberate, not accidental:
   comment in [`docker-compose.yml`](docker-compose.yml).
 - **It creates a separate non-owner role for tests.** A table's owner is not
   bound by column grants. Without that role, a test asserting "a member cannot
-  rename a space" would pass for the wrong reason.
+  rename a cove" would pass for the wrong reason.
 
-Migrations seed one person and their spaces. Nobody else is seeded, on purpose.
+Migrations seed one person and their coves. Nobody else is seeded, on purpose.
 An email address is the key a first sign-in binds against, and a migration does
 not re-run to correct a wrong guess. Everyone else arrives by invitation.
 

@@ -1,17 +1,17 @@
 /**
- * The shared roster/invite panel for a space — a bottom sheet under
+ * The shared roster/invite panel for a cove — a bottom sheet under
  * `900px`, a right-side panel at or above it (see `useMediaQuery`, moved
  * out of `AppShell` so this module can share it). `AppShell` mounts the
- * single app-wide instance and hands out `openMembers(space)` via
- * `useMembersSheet`; every trigger (space header stack, "Manage", sidebar
+ * single app-wide instance and hands out `openMembers(cove)` via
+ * `useMembersSheet`; every trigger (cove header stack, "Manage", sidebar
  * stack, and — from Task 6 — the page header stack) calls that instead of
  * owning its own sheet.
  *
- * `AppShell` renders this keyed by `space` (`key={space}`), so navigating
- * from one shared space's sheet straight to another's remounts fresh: all
+ * `AppShell` renders this keyed by `cove` (`key={cove}`), so navigating
+ * from one shared cove's sheet straight to another's remounts fresh: all
  * local state here (pending remove, invite fields, the disclosure
- * callout) is scoped to one space and must never survive onto the next —
- * a stale disclosure naming the wrong space/email would be a trust bug.
+ * callout) is scoped to one cove and must never survive onto the next —
+ * a stale disclosure naming the wrong cove/email would be a trust bug.
  * Closing (`onClose`) does not change the key — only the parent's `open`
  * flag flips — so the sheet's content stays in place while it animates
  * away instead of blanking out.
@@ -19,7 +19,7 @@
  * This is also where a cove's per-person settings live — "Rename for me" in
  * the head and `LookPicker` at the foot. Both change this cove for the
  * viewer alone and for nobody else in it, which is the property that groups
- * them; the look picker used to sit loose in `SpaceView`'s body, between
+ * them; the look picker used to sit loose in `CoveView`'s body, between
  * "New page" and the delete zone, where it read as a property of the cove
  * itself.
  *
@@ -52,30 +52,30 @@ import { useMembers } from "../useMembers";
 import type { InviteResult } from "../types";
 import { Avatar } from "./Avatar";
 import { LookPicker } from "./LookPicker";
-import { SpaceGlyph } from "./spaceGlyph";
+import { CoveGlyph } from "./coveGlyph";
 
 /** Props for {@link MembersSheet}. */
 interface MembersSheetProps {
-  /** The space whose roster this sheet shows. */
-  space: string;
+  /** The cove whose roster this sheet shows. */
+  cove: string;
   /** Whether the sheet is visible (drives the open/closed transform). */
   open: boolean;
   /** Called on scrim click or the × button. */
   onClose: () => void;
 }
 
-export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
+export function MembersSheet({ cove, open, onClose }: MembersSheetProps) {
   const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 900px)");
-  const { members, error, refresh } = useMembers(space);
-  const { hue, family } = useCoveLook()(space);
+  const { members, error, refresh } = useMembers(cove);
+  const { hue, family } = useCoveLook()(cove);
   const { me } = useMe();
   const [renaming, setRenaming] = useState(false);
   const [newName, setNewName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const { refresh: refreshIndex } = useIndex();
 
-  // The way out of the cove, moved here from SpaceView's body.
+  // The way out of the cove, moved here from CoveView's body.
   const [leaving, setLeaving] = useState(false);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -97,7 +97,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [disclosure, setDisclosure] = useState<string | null>(null);
 
-  // The sheet stays mounted (same `space`, same key) across a close/reopen
+  // The sheet stays mounted (same `cove`, same key) across a close/reopen
   // cycle so the close transition has something to animate — but that
   // means, unlike a remount, nothing else clears these on its own. Without
   // this, closing after an invite and reopening later would re-show that
@@ -140,7 +140,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
   async function rename(event: FormEvent) {
     event.preventDefault();
     const wanted = newName.trim();
-    if (!wanted || wanted === space) {
+    if (!wanted || wanted === cove) {
       setRenaming(false);
       return;
     }
@@ -148,7 +148,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
     try {
       await apiSend<{ was: string; now: string }>(
         "POST",
-        `/api/spaces/${encodeURIComponent(space)}/name`,
+        `/api/coves/${encodeURIComponent(cove)}/name`,
         { name: wanted },
       );
       await refreshIndex();
@@ -189,7 +189,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
     setRemoving(true);
     setRemoveError(null);
     try {
-      await apiSend("DELETE", `/api/spaces/${space}/members/${encodeURIComponent(memberEmail)}`);
+      await apiSend("DELETE", `/api/coves/${cove}/members/${encodeURIComponent(memberEmail)}`);
       setPendingRemove(null);
       await refresh();
       refreshIndex();
@@ -207,7 +207,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
     try {
       const result = await apiSend<InviteResult>(
         "POST",
-        `/api/spaces/${space}/invites`,
+        `/api/coves/${cove}/invites`,
         { email, display_name: displayName || null },
       );
       setDisclosure(result.disclosure);
@@ -237,7 +237,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
         className={`mbs-sheet ${open ? "mbs-sheet-open" : ""}`}
         role="dialog"
         aria-modal="true"
-        aria-label={`People in ${space}`}
+        aria-label={`People in ${cove}`}
         // `inert` (not `aria-hidden`) while closed: `aria-hidden` on a
         // container is purely an AT hint — it does not stop a descendant
         // (e.g. the × button, right after a click) from *keeping* DOM
@@ -253,9 +253,9 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
           <div>
             <h2 className="mbs-title">
               <span className="mbs-glyph" aria-hidden="true">
-                <SpaceGlyph alias={space} color={hue.base} size={20} family={family} />
+                <CoveGlyph alias={cove} color={hue.base} size={20} family={family} />
               </span>
-              People in {space}
+              People in {cove}
             </h2>
             <p className="mbs-sub">Everyone here can see every page.</p>
           </div>
@@ -423,19 +423,19 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               type="button"
               className="mbs-rename-open"
               onClick={() => {
-                setNewName(space);
+                setNewName(cove);
                 setRenaming(true);
               }}
             >
-              {space}
+              {cove}
               <span className="mbs-rename-hint">Rename for me</span>
             </button>
           )}
         </div>
-        <LookPicker alias={space} />
+        <LookPicker alias={cove} />
 
         {/*
-          The way out, moved here from SpaceView's body. Which way is on
+          The way out, moved here from CoveView's body. Which way is on
           offer depends on who else is in the cove — they are different acts,
           so only the one that applies is ever shown:
 
@@ -451,10 +451,10 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               {alone
                 ? "You are the only member. Its pages, files, and history go with it, permanently."
                 : members.is_owner
-                  ? `Ownership passes to another member and ${space} stays for the ` +
+                  ? `Ownership passes to another member and ${cove} stays for the ` +
                     `${others === 1 ? "one other person" : `${others} other people`} in it. ` +
                     "You lose your own access; it cannot unread what you already saw."
-                  : `You lose access to ${space}. It stays for everyone else, ` +
+                  : `You lose access to ${cove}. It stays for everyone else, ` +
                     "and this cannot unread what you already saw."}
             </p>
             {exitError && <div className="notice">{exitError}</div>}
@@ -471,7 +471,7 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
               ) : (
                 <div className="mbs-danger-guards">
                   <label className="mbs-danger-phrase">
-                    Type <strong>{space}</strong> to confirm
+                    Type <strong>{cove}</strong> to confirm
                     <input
                       value={confirmation}
                       onChange={(event) => setConfirmation(event.target.value)}
@@ -483,18 +483,18 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
                     <button
                       type="button"
                       className="mbs-danger mbs-danger-final"
-                      disabled={confirmation !== space || leaving}
+                      disabled={confirmation !== cove || leaving}
                       onClick={() =>
                         exitCove(() =>
                           apiSend(
                             "DELETE",
-                            `/api/spaces/${encodeURIComponent(space)}`,
-                            { confirmation: space },
+                            `/api/coves/${encodeURIComponent(cove)}`,
+                            { confirmation: cove },
                           ),
                         )
                       }
                     >
-                      {leaving ? "Deleting…" : `Permanently delete ${space}`}
+                      {leaving ? "Deleting…" : `Permanently delete ${cove}`}
                     </button>
                     <button
                       type="button"
@@ -519,12 +519,12 @@ export function MembersSheet({ space, open, onClose }: MembersSheetProps) {
                     exitCove(() =>
                       apiSend(
                         "POST",
-                        `/api/spaces/${encodeURIComponent(space)}/leave`,
+                        `/api/coves/${encodeURIComponent(cove)}/leave`,
                       ),
                     )
                   }
                 >
-                  {leaving ? "Leaving…" : `Confirm — leave ${space}`}
+                  {leaving ? "Leaving…" : `Confirm — leave ${cove}`}
                 </button>
                 <button
                   type="button"

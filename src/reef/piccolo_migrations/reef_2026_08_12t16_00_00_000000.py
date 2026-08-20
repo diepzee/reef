@@ -12,11 +12,11 @@ from reef.rls import (
 
 ID = "2026-08-12T16:00:00:000000"
 VERSION = "1.36.0"
-DESCRIPTION = "identity policies, mutation functions, spaces column grant"
+DESCRIPTION = "identity policies, mutation functions, coves column grant"
 
 
 async def forwards() -> MigrationManager:
-    """Enforce isolation of ``persons``, ``spaces`` and ``memberships``.
+    """Enforce isolation of ``persons``, ``coves`` and ``memberships``.
 
     The one migration in this sequence that changes what a request can see.
     Everything before it was groundwork: the bypassing helper functions the
@@ -27,10 +27,10 @@ async def forwards() -> MigrationManager:
     forgot a filter.
 
     Functions first, policies second: ``memberships_insert`` calls
-    ``reef_owns_space``, and ``CREATE POLICY`` resolves the name immediately.
+    ``reef_owns_cove``, and ``CREATE POLICY`` resolves the name immediately.
 
-    The column grant is not optional decoration. ``spaces_member_update``
-    has to admit every member because a page write bumps ``spaces.version``,
+    The column grant is not optional decoration. ``coves_member_update``
+    has to admit every member because a page write bumps ``coves.version``,
     and row security cannot say *which column* -- so without the grant a
     member could rename a cove or take its ownership with one statement.
 

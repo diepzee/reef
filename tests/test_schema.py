@@ -4,7 +4,7 @@ import asyncpg
 import pytest
 
 from reef.access import Principal, arm
-from reef.models import MemberRole, Page, SpaceKind
+from reef.models import CoveKind, MemberRole, Page
 
 
 async def test_household_fixture_creates_four_memberships(household, seed):
@@ -19,7 +19,7 @@ async def test_content_is_invisible_without_a_principal(tx, household):
     )
     await arm(principal)
     await Page(
-        space_id=household["w_personal"].id,
+        cove_id=household["w_personal"].id,
         path="a.md",
         title="a",
         tags=[],
@@ -37,7 +37,7 @@ async def test_membership_role_defaults_to_member(household, seed):
     compares against.
     """
     role = await seed.fetchval(
-        "SELECT role FROM memberships WHERE person_id = $1 AND space_id = $2",
+        "SELECT role FROM memberships WHERE person_id = $1 AND cove_id = $2",
         household["wouter"].id,
         household["shared"].id,
     )
@@ -45,7 +45,7 @@ async def test_membership_role_defaults_to_member(household, seed):
 
 
 async def seed_owned_shared(person):
-    """Return the slugs of shared spaces ``person`` owns, read past the policies.
+    """Return the slugs of shared coves ``person`` owns, read past the policies.
 
     :param person: the owner
     :returns: a set of slugs
@@ -56,7 +56,7 @@ async def seed_owned_shared(person):
     connection = await _asyncpg.connect(seed_dsn())
     try:
         rows = await connection.fetch(
-            "SELECT slug FROM spaces WHERE owner_person_id = $1 AND kind = 'shared'",
+            "SELECT slug FROM coves WHERE owner_person_id = $1 AND kind = 'shared'",
             person.id,
         )
     finally:
@@ -64,12 +64,12 @@ async def seed_owned_shared(person):
     return {row["slug"] for row in rows}
 
 
-async def test_one_personal_space_per_person_is_a_db_invariant(household, seed):
-    """A second personal space for the same owner must be refused.
+async def test_one_personal_cove_per_person_is_a_db_invariant(household, seed):
+    """A second personal cove for the same owner must be refused.
 
     The invariant is a partial unique index, not a column constraint: it
     holds only where ``kind = 'personal'``. If it ever lapsed,
-    ``resolve_space(principal, "personal")`` would find two spaces, raise
+    ``resolve_cove(principal, "personal")`` would find two coves, raise
     ``AccessDenied``, and lock the person out of every tool call.
     """
     # Written through the seed connection: this asserts a *database*
@@ -77,18 +77,18 @@ async def test_one_personal_space_per_person_is_a_db_invariant(household, seed):
     # away earlier by a policy.
     with pytest.raises(asyncpg.exceptions.UniqueViolationError):
         await seed.execute(
-            "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
+            "INSERT INTO coves (id, slug, kind, owner_person_id, version) "
             "VALUES (gen_random_uuid(), $1, $2, $3, 0)",
             "second-personal",
-            SpaceKind.PERSONAL.value,
+            CoveKind.PERSONAL.value,
             household["wouter"].id,
         )
 
 
-async def test_a_person_may_own_many_shared_spaces(household, graph):
-    """Owning shared spaces is unbounded: the old global UNIQUE is gone."""
+async def test_a_person_may_own_many_shared_coves(household, graph):
+    """Owning shared coves is unbounded: the old global UNIQUE is gone."""
     for slug in ("trip", "admin"):
-        await graph.shared_space(slug, household["wouter"])
+        await graph.shared_cove(slug, household["wouter"])
     owned = await seed_owned_shared(household["wouter"])
     assert owned == {"household", "trip", "admin"}
 
@@ -103,7 +103,7 @@ def test_enable_statements_names_no_column_the_old_migrations_predate():
     restore drill in ``docs/restore.md`` -- while production, already past
     those migrations, never notices.
 
-    ``space_appearances`` was caught in review and split out.
+    ``cove_appearances`` was caught in review and split out.
     ``session_epoch`` was not, and shipped broken. This asserts the rule
     directly rather than trusting the next person to remember it.
     """
@@ -113,7 +113,7 @@ def test_enable_statements_names_no_column_the_old_migrations_predate():
     for column in (
         "session_epoch",
         "joined_open_door",
-        "space_appearances",
+        "cove_appearances",
         "last_seen_release",
     ):
         assert column not in combined, (

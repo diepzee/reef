@@ -183,11 +183,11 @@ async def test_the_roster_points_a_co_member_at_the_picture(api, world):
 
     api.cookies.clear()
     _login(api, bob)
-    roster = (await api.get("/api/spaces/team/members")).json()["members"]
+    roster = (await api.get("/api/coves/team/members")).json()["members"]
     by_name = {member["display_name"]: member for member in roster}
 
     assert by_name["Alice"]["avatar"] == (
-        f"/api/spaces/team/members/{by_name['Alice']['person_id']}/avatar?v={len(PNG)}"
+        f"/api/coves/team/members/{by_name['Alice']['person_id']}/avatar?v={len(PNG)}"
     )
     assert by_name["Bob"]["avatar"] is None
 
@@ -199,7 +199,7 @@ async def test_a_co_member_is_served_the_picture(api, world):
 
     api.cookies.clear()
     _login(api, bob)
-    roster = (await api.get("/api/spaces/team/members")).json()["members"]
+    roster = (await api.get("/api/coves/team/members")).json()["members"]
     url = next(m["avatar"] for m in roster if m["display_name"] == "Alice")
 
     served = await api.get(url)
@@ -217,11 +217,11 @@ async def test_a_stranger_cannot_fetch_a_members_picture(api, world, graph):
     """Someone outside the cove gets the same 404 as a cove that is not there."""
     alice, _bob, _ = world
     await _give_alice_a_face(api, alice)
-    roster = (await api.get("/api/spaces/team/members")).json()["members"]
+    roster = (await api.get("/api/coves/team/members")).json()["members"]
     url = next(m["avatar"] for m in roster if m["display_name"] == "Alice")
 
     stranger = await graph.person("stranger@example.test", "Stranger")
-    await graph.personal_space(stranger)
+    await graph.personal_cove(stranger)
     api.cookies.clear()
     _login(api, stranger)
 
@@ -232,5 +232,5 @@ async def test_a_malformed_person_id_is_a_404_not_a_500(api, world):
     """The id is in the path, so it arrives as whatever the caller typed."""
     alice, _bob, _ = world
     _login(api, alice)
-    response = await api.get("/api/spaces/team/members/not-a-uuid/avatar")
+    response = await api.get("/api/coves/team/members/not-a-uuid/avatar")
     assert response.status_code == 404

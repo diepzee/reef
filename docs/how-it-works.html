@@ -238,21 +238,21 @@
   </figure>
 </section>
 
-<section id="spaces">
-  <h2>Your space, and the spaces you share</h2>
-  <p>Knowledge lives in <strong>spaces</strong>. Every person gets exactly one
-  personal space, created automatically the first time they sign in. Beyond
-  that, a <strong>space is a named group of people</strong> — a household, a
+<section id="coves">
+  <h2>Your cove, and the coves you share</h2>
+  <p>Knowledge lives in <strong>coves</strong>. Every person gets exactly one
+  personal cove, created automatically the first time they sign in. Beyond
+  that, a <strong>cove is a named group of people</strong> — a household, a
   school run, a small project — started by whoever needs it and addressed by
   a short slug, like <code>school</code>.</p>
-  <p>A membership table records who may enter which space. Every reader's
-  access is one row in that table: their name, and the space. The privacy
+  <p>A membership table records who may enter which cove. Every reader's
+  access is one row in that table: their name, and the cove. The privacy
   model is simple to state, and the database — not the application code —
-  enforces it: <strong>a space's pages are readable by exactly its members,
+  enforces it: <strong>a cove's pages are readable by exactly its members,
   and by no one else.</strong></p>
 
   <figure>
-    <svg viewBox="0 0 640 230" role="img" aria-label="Example membership graph: Wouter connects to his personal space and to the shared space school. She connects to her personal space and to school too. No edge crosses between the two personal spaces.">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Example membership graph: Wouter connects to his personal cove and to the shared cove school. She connects to her personal cove and to school too. No edge crosses between the two personal coves.">
       <defs>
         <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -263,7 +263,7 @@
       <text class="lbl" x="170" y="44" text-anchor="middle">W</text>
       <circle cx="470" cy="40" r="22" fill="none" stroke="currentColor" stroke-width="1.3"/>
       <text class="lbl" x="470" y="44" text-anchor="middle">her</text>
-      <!-- spaces -->
+      <!-- coves -->
       <rect class="box" x="40" y="140" width="160" height="52" rx="3"/>
       <text class="lbl" x="120" y="161" text-anchor="middle">his personal</text>
       <text class="sm" x="120" y="177" text-anchor="middle">health · work · taste</text>
@@ -282,25 +282,25 @@
       <!-- absence -->
       <text class="sm" x="320" y="218" text-anchor="middle" fill="var(--gate)">presence is the whole model: a row grants access, its absence denies it — enforced by the database</text>
     </svg>
-    <figcaption>One example, not the whole world: two people, three spaces,
-    four membership rows. A space can have more members, and a person can
-    belong to any number of shared spaces — the model is the same either
-    way, one row per person per space. Neither assistant can reach the
-    other's personal space, and neither person can even name it directly:
-    tools address spaces by <code>personal</code> or by slug, resolved per
-    person. Internal space identifiers never leave the server.</figcaption>
+    <figcaption>One example, not the whole world: two people, three coves,
+    four membership rows. A cove can have more members, and a person can
+    belong to any number of shared coves — the model is the same either
+    way, one row per person per cove. Neither assistant can reach the
+    other's personal cove, and neither person can even name it directly:
+    tools address coves by <code>personal</code> or by slug, resolved per
+    person. Internal cove identifiers never leave the server.</figcaption>
   </figure>
 </section>
 
 <section id="joining">
-  <h2>Joining a space</h2>
-  <p>The owner of a shared space invites people in by email — there is no
+  <h2>Joining a cove</h2>
+  <p>The owner of a shared cove invites people in by email — there is no
   other door. Inviting an unknown address creates that person's record on the
-  spot, plus a membership row joining them to the space, before they have
+  spot, plus a membership row joining them to the cove, before they have
   ever signed in.</p>
   <p>The first time someone signs in with that exact, verified email, rif
   recognizes the standing invite and finishes onboarding in the same
-  transaction: their own personal space appears, with two starter pages
+  transaction: their own personal cove appears, with two starter pages
   waiting — a protocol page and a persona page for them to fill in. There are
   no invite links to click and no open signup form. An email nobody invited
   is denied, exactly as before.</p>
@@ -324,10 +324,10 @@
       The rule in the protocol: never answer from the index's descriptions
       alone.</li>
     <li><strong>Remember.</strong> New facts go through
-      <code>remember(fact)</code>. Its default target is the private space —
+      <code>remember(fact)</code>. Its default target is the private cove —
       the default is in the function signature, not in a guideline. Only
       clearly shared facts (joint things, joint decisions, shared duties) go
-      to a shared space. Anything unclear stays private.</li>
+      to a shared cove. Anything unclear stays private.</li>
     <li><strong>Compile.</strong> Lasting edits go through
       <code>edit_page_section</code>: small, precise changes with a version
       check. Every write records who wrote it, why, and the full page state.
@@ -346,12 +346,12 @@
   never read hers.</p>
   <p>Application code does not enforce this rule. The database does. Postgres
   <strong>row-level security</strong> (RLS) filters every query on the content
-  tables: it returns only rows that belong to a space the current person is a
+  tables: it returns only rows that belong to a cove the current person is a
   member of. The policies run in FORCE mode, which means they also bind rif's
   own database account.</p>
 
   <figure>
-    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the space, which sets the transaction-local principal. All SQL then passes through RLS policies, which return only rows in that person's spaces. A query with no principal set returns zero rows.">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the cove, which sets the transaction-local principal. All SQL then passes through RLS policies, which return only rows in that person's coves. A query with no principal set returns zero rows.">
       <defs>
         <marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -361,7 +361,7 @@
       <text class="lbl" x="80" y="61" text-anchor="middle">tool call</text>
       <text class="sm" x="80" y="77" text-anchor="middle">authenticated person</text>
       <rect class="box" x="184" y="40" width="150" height="52" rx="3"/>
-      <text class="lbl" x="259" y="61" text-anchor="middle">resolve_space</text>
+      <text class="lbl" x="259" y="61" text-anchor="middle">resolve_cove</text>
       <text class="mono" x="259" y="77" text-anchor="middle">SET app.person_id</text>
       <rect class="hot box" x="374" y="40" width="130" height="52" rx="3"/>
       <text class="lbl" x="439" y="61" text-anchor="middle">RLS policies</text>
@@ -399,22 +399,22 @@
 
 <section id="sharing">
   <h2>Sharing cannot be undone</h2>
-  <p>Sharing moves content from your personal space to a shared space you
+  <p>Sharing moves content from your personal cove to a shared cove you
   belong to. Once its members could have read it, taking it back means
   nothing. So there is no unshare tool, and sharing takes two steps. One step
   would not be enough: a model can pass <code>confirm=true</code> on its own,
   and that proves nothing about what you agreed to.</p>
   <p>You can share one section instead of a whole page. The service
   <strong>extracts</strong> the section: it becomes its own small page in the
-  destination space, and the source page keeps a marker where it was. What
+  destination cove, and the source page keeps a marker where it was. What
   you approve is exactly the text that moves. The rest of the page — and its
   full edit history — stays private. Extraction also forces the shared text
   to stand alone, so no private context around it travels along. The
-  disclosure names every current member of the destination space, so you
+  disclosure names every current member of the destination cove, so you
   confirm <em>who</em> will see it, not only where it goes.</p>
 
   <figure>
-    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: prepare returns the exact text and a one-time code. After the human agrees, confirm copies the content to the destination space, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: prepare returns the exact text and a one-time code. After the human agrees, confirm copies the content to the destination cove, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
       <defs>
         <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -455,7 +455,7 @@
   database table. A table can be queried: "what did we know about the boiler
   in March?" is one <code>WHERE</code> clause. To restore an old version, the
   assistant writes it again. History only grows.</p>
-  <p class="mut">Each space also has a version counter. Every write increases
+  <p class="mut">Each cove also has a version counter. Every write increases
   it. A client can ask "did anything change?" at almost no cost. A future
   <code>changes_since</code> tool can use it to open her conversations with:
   "Since yesterday, Wouter noted the boiler service is booked."</p>
@@ -468,7 +468,7 @@
   description travels with every context load — for example: "the boiler's
   model plate, reading Vaillant ecoTEC VU 246/5-5." The image itself is
   fetched only when the pixels matter, through a link that expires after five
-  minutes and is issued only after the same space check as any page.</p>
+  minutes and is issued only after the same cove check as any page.</p>
 </section>
 
 <section id="safety">
@@ -484,7 +484,7 @@
       survive deletion. No database dump contains the files, so this is their
       only net.</li>
     <li><strong>The export</strong> — <code>python -m rif.export</code> writes
-      every space back to plain markdown files. The format matches the
+      every cove back to plain markdown files. The format matches the
       importer, so a lost database can be rebuilt from it. If rif dies or you
       change your mind, the knowledge leaves as files. The store never holds
       it hostage.</li>
@@ -519,10 +519,10 @@
     <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>Two-step sharing — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>
     <tr><td><code>update_meta_page</code></td><td>The only way to change the protocol and persona pages — the pages that steer the assistant.</td></tr>
     <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store an image with a required description. Fetch it through a short-lived link.</td></tr>
-    <tr><td><code>delete_image</code></td><td>The one thing here that really deletes: an image and its description, for a bad upload or a photo added to the wrong space. Confirm with the person first — the bytes do not come back.</td></tr>
+    <tr><td><code>delete_image</code></td><td>The one thing here that really deletes: an image and its description, for a bad upload or a photo added to the wrong cove. Confirm with the person first — the bytes do not come back.</td></tr>
     <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol and persona. They are pages, versioned like all pages.</td></tr>
-    <tr><td><code>list_spaces</code></td><td>What you can see: your personal space and every shared space you belong to — with each space's member list, because knowing who is in the room is what informed sharing means.</td></tr>
-    <tr><td><code>create_space</code></td><td>Start a new shared space with a slug. You become its owner.</td></tr>
+    <tr><td><code>list_coves</code></td><td>What you can see: your personal cove and every shared cove you belong to — with each cove's member list, because knowing who is in the room is what informed sharing means.</td></tr>
+    <tr><td><code>create_cove</code></td><td>Start a new shared cove with a slug. You become its owner.</td></tr>
     <tr><td><code>invite</code> / <code>remove_member</code></td><td>Owner-only. Add or remove a member by email. Removing stops future access; it cannot unshare what was already read.</td></tr>
   </table>
   </div>

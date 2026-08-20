@@ -7,7 +7,7 @@ running at once therefore rebuild the schema under each other, and the second
 one reports failures that have nothing to do with the code under test:
 ``UndefinedFunctionError: function reef_person_bind(text, text) does not
 exist``, duplicate keys on ``persons_email_key``, foreign-key violations on
-``spaces_owner_person_id_fkey``, deadlocks, connection timeouts. Dozens at
+``coves_owner_person_id_fkey``, deadlocks, connection timeouts. Dozens at
 once, in tests nobody touched, and green again on the next run.
 
 That failure is indistinguishable from a real regression until you notice it

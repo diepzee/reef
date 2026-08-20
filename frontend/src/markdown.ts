@@ -1,7 +1,7 @@
 /**
  * Render a page body's markdown to sanitized HTML.
  *
- * Page bodies are untrusted author input (any space member can write one),
+ * Page bodies are untrusted author input (any cove member can write one),
  * so the pipeline is fixed: markdown-it with raw HTML disabled, a rule
  * override that rewrites relative image sources to the ACL-checked image
  * endpoint, then DOMPurify over the result. Every caller renders the
@@ -14,30 +14,30 @@ import MarkdownIt from "markdown-it";
 
 /** Render-time context threaded through markdown-it's renderer rules. */
 interface RenderEnv {
-  space: string;
+  cove: string;
 }
 
 /** Matches an absolute URL (has a scheme, e.g. `https://`) or a protocol-relative one. */
 const ABSOLUTE_URL = /^([a-z][a-z0-9+.-]*:|\/\/)/i;
 
 /**
- * A relative src that resolves outside the space's image root gets pointed
+ * A relative src that resolves outside the cove's image root gets pointed
  * here instead — a key no attachment can ever have, so it 404s rather than
  * ever reaching a page the browser would resolve the traversal against.
  */
 const INVALID_IMAGE_SRC = "invalid";
 
 /**
- * Rewrite a markdown image src to the space-scoped image endpoint.
+ * Rewrite a markdown image src to the cove-scoped image endpoint.
  *
  * Page bodies reference attachments by their storage key, e.g.
  * `![roof](attachments/xyz)`, and those relative sources need to resolve
- * against the ACL-checked `/api/images/<space>/<key>` route rather than as
+ * against the ACL-checked `/api/images/<cove>/<key>` route rather than as
  * a bare (and unauthenticated) relative URL. The rewrite has to defend
  * against path traversal, though: naively concatenating an untrusted
  * relative src (`../../secret`) would let a page author smuggle a
  * cookie-authenticated request to an arbitrary same-origin path past the
- * intended `/api/images/<space>/` prefix, once every viewer's browser
+ * intended `/api/images/<cove>/` prefix, once every viewer's browser
  * resolves the `..` segments. Every path segment is therefore validated
  * (no empty/`.`/`..` segment survives) and percent-encoded before being
  * rejoined, so no character in a key — including a literal `/` or `\` —
@@ -45,11 +45,11 @@ const INVALID_IMAGE_SRC = "invalid";
  * resolution.
  *
  * :param src: the image src exactly as written in the markdown body
- * :param space: the space alias the page belongs to
+ * :param cove: the cove alias the page belongs to
  * :returns: `src` untouched if absolute; otherwise the rewritten,
- *     traversal-safe `/api/images/<space>/<key>` URL
+ *     traversal-safe `/api/images/<cove>/<key>` URL
  */
-function resolveImageSrc(src: string, space: string): string {
+function resolveImageSrc(src: string, cove: string): string {
   if (ABSOLUTE_URL.test(src)) {
     return src;
   }
@@ -60,7 +60,7 @@ function resolveImageSrc(src: string, space: string): string {
   const key = hasTraversal
     ? INVALID_IMAGE_SRC
     : segments.map(encodeURIComponent).join("/");
-  return `/api/images/${encodeURIComponent(space)}/${key}`;
+  return `/api/images/${encodeURIComponent(cove)}/${key}`;
 }
 
 const md: MarkdownIt = new MarkdownIt({ html: false, linkify: true });
@@ -85,7 +85,7 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
     const srcIndex = token.attrIndex("src");
     const attr = srcIndex >= 0 ? token.attrs?.[srcIndex] : undefined;
     if (attr) {
-      attr[1] = resolveImageSrc(attr[1], (env as RenderEnv).space);
+      attr[1] = resolveImageSrc(attr[1], (env as RenderEnv).cove);
     }
   }
   return defaultImageRule(tokens, idx, options, env, self);
@@ -95,11 +95,11 @@ md.renderer.rules.image = (tokens, idx, options, env, self) => {
  * Render a page's markdown body to sanitized HTML.
  *
  * :param body: the page's markdown body
- * :param space: the space alias the page belongs to, used to rewrite
+ * :param cove: the cove alias the page belongs to, used to rewrite
  *     relative image sources
  * :returns: sanitized HTML safe to pass to `dangerouslySetInnerHTML`
  */
-export function renderMarkdown(body: string, space: string): string {
-  const html = md.render(body, { space } satisfies RenderEnv);
+export function renderMarkdown(body: string, cove: string): string {
+  const html = md.render(body, { cove } satisfies RenderEnv);
   return DOMPurify.sanitize(html);
 }

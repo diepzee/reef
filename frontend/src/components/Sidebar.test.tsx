@@ -68,7 +68,7 @@ function cove(alias: string) {
 
 beforeEach(() => {
   window.localStorage.clear();
-  index = { spaces: [cove("trip"), cove("home")] };
+  index = { coves: [cove("trip"), cove("home")] };
 });
 
 afterEach(cleanup);
@@ -85,7 +85,7 @@ test("the index, new cove, and invite are all reachable", () => {
   expect(screen.getByText("Index").closest("a")!.getAttribute("href")).toBe(
     "/index",
   );
-  expect(screen.getByText(/New cove/).getAttribute("href")).toBe("/spaces/new");
+  expect(screen.getByText(/New cove/).getAttribute("href")).toBe("/coves/new");
   expect(screen.getByText(/Invite someone/).getAttribute("href")).toBe(
     "/invite",
   );
@@ -113,7 +113,7 @@ test("the account menu sits in the sidebar", () => {
 
 test("a reef with no coves yet still renders its actions", () => {
   // A brand-new account lands here before it has made anything.
-  index = { spaces: [] };
+  index = { coves: [] };
   renderSidebar();
   expect(screen.getByText(/New cove/)).toBeDefined();
 });

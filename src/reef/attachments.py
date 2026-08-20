@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import boto3
 
-from reef.access import Principal, arm, resolve_space, resolve_writable_space
+from reef.access import Principal, arm, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.models import Attachment, AttachmentStatus, Page
@@ -228,28 +228,28 @@ async def add_attachment(
     **Must not be called inside an open transaction** — it opens two.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param data: file bytes
     :param mime: content type
     :param filename: original human-readable filename, when known
     :param description: text description, always required
     :param store: object store to write to
-    :param page_path: page in the same space to associate with, if any
+    :param page_path: page in the same cove to associate with, if any
     :returns: the stored attachment, status READY
     """
     async with transaction_scope():
-        space = await resolve_writable_space(principal, alias)
+        cove = await resolve_writable_cove(principal, alias)
         page_id = None
         if page_path is not None:
             page = (
                 await Page.objects()
-                .where(Page.space_id == space.id, Page.path == page_path)
+                .where(Page.cove_id == cove.id, Page.path == page_path)
                 .first()
             )
             page_id = page.id if page else None
-        # Opaque: never derived from space.id, which must not cross the tool
+        # Opaque: never derived from cove.id, which must not cross the tool
         # boundary (it would let two keys sharing a prefix reveal they're the
-        # same space, an internal-identifier correlation leak).
+        # same cove, an internal-identifier correlation leak).
         #
         # The constant "attachments/" prefix is safe for that reason too --
         # every attachment carries it, so it distinguishes nothing. It exists
@@ -260,7 +260,7 @@ async def add_attachment(
         # the whole bucket and no dump can ever be expired.
         key = f"attachments/{uuid4().hex}-{sha256(data).hexdigest()[:16]}"
         attachment = Attachment(
-            space_id=space.id,
+            cove_id=cove.id,
             page_id=page_id,
             object_key=key,
             filename=filename,
@@ -342,23 +342,23 @@ async def delete_attachment(
     The second is strictly the safer wreckage, so the row goes first.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param key: object key
     :param store: object store to delete the bytes from
     :returns: True if an attachment was removed, False if it was not found
     """
     async with transaction_scope():
         await arm(principal)
-        space = await resolve_writable_space(principal, alias)
+        cove = await resolve_writable_cove(principal, alias)
         existing = (
             await Attachment.objects()
-            .where(Attachment.space_id == space.id, Attachment.object_key == key)
+            .where(Attachment.cove_id == cove.id, Attachment.object_key == key)
             .first()
         )
         if existing is None:
             return False
         await Attachment.delete().where(
-            Attachment.space_id == space.id, Attachment.object_key == key
+            Attachment.cove_id == cove.id, Attachment.object_key == key
         )
 
     await store.delete(key)
@@ -368,7 +368,7 @@ async def delete_attachment(
 async def get_attachment(
     principal: Principal, alias: str, key: str
 ) -> Attachment | None:
-    """Fetch attachment metadata, scoped to a space the principal can see.
+    """Fetch attachment metadata, scoped to a cove the principal can see.
 
     READY only, matching every other reader (the index and the context loader
     both filter on it). A PENDING row is one whose bytes have not reached the
@@ -378,15 +378,15 @@ async def get_attachment(
     losing a file rather than as an upload that never finished.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param key: object key
     :returns: the attachment, or None
     """
-    space = await resolve_space(principal, alias)
+    cove = await resolve_cove(principal, alias)
     return (
         await Attachment.objects()
         .where(
-            Attachment.space_id == space.id,
+            Attachment.cove_id == cove.id,
             Attachment.object_key == key,
             Attachment.status == AttachmentStatus.READY.value,
         )

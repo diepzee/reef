@@ -1,11 +1,11 @@
-"""Space administration: creation, invitation, removal, departure, and onboarding.
+"""Cove administration: creation, invitation, removal, departure, and onboarding.
 
-The ``spaces``, ``memberships``, and ``persons`` tables have carried row-level
+The ``coves``, ``memberships``, and ``persons`` tables have carried row-level
 security since the identity policies landed, so the checks here are the outer
 of two layers rather than the only one. They stay because a policy filters
 rows silently — a caller who is not the owner sees an empty result, not a
 refusal — and an administrative tool owes the caller a reason. The rule is
-creator-admin: whoever created a space owns it, and only the owner changes its
+creator-admin: whoever created a cove owns it, and only the owner changes its
 member list or destroys it.
 
 Ownership is not a life sentence. An owner who leaves a shared cove hands it
@@ -22,61 +22,61 @@ import re
 from uuid import UUID
 
 from reef import audit
-from reef.access import PERSONAL_ALIAS, Principal, arm, resolve_space
+from reef.access import PERSONAL_ALIAS, Principal, arm, resolve_cove
 from reef.invitations import allowlist, relay_instructions
 from reef.models import (
     Attachment,
+    Cove,
+    CoveKind,
     MemberRole,
     Membership,
     Page,
     Person,
     Revision,
-    Space,
-    SpaceKind,
 )
 from reef.pages import save_page
 from reef.protocol import PERSONA_PATH, PERSONA_STUB
 
 _SLUG_RE = re.compile(r"[a-z][a-z0-9-]{1,63}\Z")
 _RESERVED_PREFIXES = ("personal",)
-"""Name prefixes no shared space may use.
+"""Name prefixes no shared cove may use.
 
 Reserving the whole ``personal`` prefix, not just the exact alias, does two
-jobs. It stops a space whose name renders as the private one in
-``list_spaces`` — a confused-deputy path into an attacker's space — and it
+jobs. It stops a cove whose name renders as the private one in
+``list_coves`` — a confused-deputy path into an attacker's cove — and it
 stops a squat on ``personal-{person.id.hex}``, the slug
-:func:`ensure_personal_space` derives. That slug is globally unique, so a
+:func:`ensure_personal_cove` derives. That slug is globally unique, so a
 squat would make the victim's first sign-in raise inside
 ``principal_from_claims`` and lock them out of every tool call, permanently.
 """
 
 
-class SpaceError(Exception):
-    """Raised when a space-administration request cannot proceed."""
+class CoveError(Exception):
+    """Raised when a cove-administration request cannot proceed."""
 
 
-async def _membership(person_id: UUID, space_id: UUID) -> Membership | None:
+async def _membership(person_id: UUID, cove_id: UUID) -> Membership | None:
     """Fetch one membership row by its real key.
 
     Piccolo gives every table a single surrogate primary key, so the
-    composite ``(person_id, space_id)`` key cannot be fetched by identity the
+    composite ``(person_id, cove_id)`` key cannot be fetched by identity the
     way SQLAlchemy's ``session.get`` did it.
 
     :param person_id: the member
-    :param space_id: the space
+    :param cove_id: the cove
     :returns: the membership row, or None
     """
     return (
         await Membership.objects()
-        .where(Membership.person_id == person_id, Membership.space_id == space_id)
+        .where(Membership.person_id == person_id, Membership.cove_id == cove_id)
         .first()
     )
 
 
-async def member_roster(space_id: UUID) -> list[dict]:
-    """Return a space's members, sorted by display name.
+async def member_roster(cove_id: UUID) -> list[dict]:
+    """Return a cove's members, sorted by display name.
 
-    Both consent surfaces read through this: ``list_spaces`` tells a person
+    Both consent surfaces read through this: ``list_coves`` tells a person
     who is in the room, ``prepare_promotion``'s warning names every reader a
     share is about to reach, and the web members panel needs addresses to key
     removal by.
@@ -98,13 +98,13 @@ async def member_roster(space_id: UUID) -> list[dict]:
     ``avatar_len`` is ``None`` for a member who has chosen no picture, which
     is what tells the UI to draw their initials instead.
 
-    :param space_id: the space to list
+    :param cove_id: the cove to list
     :returns: ``[{"person_id": UUID, "display_name": str, "email": str,
         "avatar_len": int | None}, ...]``, sorted by display name; ``email``
-        is ``""`` unless the caller owns the space
+        is ``""`` unless the caller owns the cove
     """
-    rows = await Person.raw("SELECT * FROM reef_roster({})", space_id)
-    faces = await Person.raw("SELECT * FROM reef_member_faces({})", space_id)
+    rows = await Person.raw("SELECT * FROM reef_roster({})", cove_id)
+    faces = await Person.raw("SELECT * FROM reef_member_faces({})", cove_id)
     sizes = {face["person_id"]: face["avatar_len"] for face in faces}
     return [
         {
@@ -117,27 +117,27 @@ async def member_roster(space_id: UUID) -> list[dict]:
     ]
 
 
-async def member_names(space_id: UUID) -> list[str]:
-    """Return the sorted display names of a space's members.
+async def member_names(cove_id: UUID) -> list[str]:
+    """Return the sorted display names of a cove's members.
 
-    :param space_id: the space to list
+    :param cove_id: the cove to list
     :returns: display names, sorted
     """
-    return [member["display_name"] for member in await member_roster(space_id)]
+    return [member["display_name"] for member in await member_roster(cove_id)]
 
 
-async def space_owner(space_id: UUID) -> dict | None:
-    """Return the display name and email of a space's owner.
+async def cove_owner(cove_id: UUID) -> dict | None:
+    """Return the display name and email of a cove's owner.
 
     Every member sees the owner's address, unlike ordinary members' -- the
     owner is the cove's accountable contact, which is the existing contract
     and is preserved deliberately. The membership check lives inside the
     function, so a non-member gets nothing.
 
-    :param space_id: the space whose owner is wanted
+    :param cove_id: the cove whose owner is wanted
     :returns: ``{"display_name": str, "email": str}``, or None
     """
-    rows = await Person.raw("SELECT * FROM reef_space_owner({})", space_id)
+    rows = await Person.raw("SELECT * FROM reef_cove_owner({})", cove_id)
     if not rows:
         return None
     return {
@@ -164,8 +164,8 @@ async def display_names(person_ids: list[UUID]) -> dict[UUID, str]:
     return {row["person_id"]: row["display_name"] for row in rows}
 
 
-async def create_space(principal: Principal, slug: str) -> Space:
-    """Create a shared space; the creator becomes owner and first member.
+async def create_cove(principal: Principal, slug: str) -> Cove:
+    """Create a shared cove; the creator becomes owner and first member.
 
     The name is *this person's* name for the cove, stored on their
     membership. Cove names are no longer a global namespace, so a name
@@ -175,38 +175,38 @@ async def create_space(principal: Principal, slug: str) -> Space:
 
     :param principal: the authenticated person
     :param slug: the cove's name — lowercase letters, digits, hyphens
-    :raises SpaceError: for an invalid, reserved, or already-used name
-    :returns: the created space
+    :raises CoveError: for an invalid, reserved, or already-used name
+    :returns: the created cove
     """
     if not _SLUG_RE.fullmatch(slug) or slug.startswith(_RESERVED_PREFIXES):
-        raise SpaceError(
-            f"{slug!r} is not a usable space name: 2-64 characters, lowercase "
+        raise CoveError(
+            f"{slug!r} is not a usable cove name: 2-64 characters, lowercase "
             "letters, digits, and hyphens, starting with a letter; names "
             "beginning 'personal' are reserved"
         )
-    # Unlike every other entry point here this one resolves no existing space,
+    # Unlike every other entry point here this one resolves no existing cove,
     # so nothing else arms the principal -- and both the rows it inserts are
-    # checked against it once spaces and memberships carry policies.
+    # checked against it once coves and memberships carry policies.
     await arm(principal)
     if await _alias_taken(principal.person_id, slug):
-        raise SpaceError(f"you already have a cove called {slug!r}; pick another name")
-    space = Space(
-        slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=principal.person_id
+        raise CoveError(f"you already have a cove called {slug!r}; pick another name")
+    cove = Cove(
+        slug=slug, kind=CoveKind.SHARED.value, owner_person_id=principal.person_id
     )
-    await space.save()
+    await cove.save()
     # Through the definer function like every other admission, so the alias
     # is chosen and taken in one statement. The creator owns the cove by the
     # line above, which is what the function checks.
-    admitted = await Space.raw(
+    admitted = await Cove.raw(
         "SELECT reef_admit_member({}, {}, {}, {}) AS alias",
-        space.id,
+        cove.id,
         principal.person_id,
         slug,
         MemberRole.MEMBER.value,
     )
     if not admitted or admitted[0]["alias"] is None:
-        raise SpaceError(f"could not create {slug!r}; nothing was changed")
-    return space
+        raise CoveError(f"could not create {slug!r}; nothing was changed")
+    return cove
 
 
 async def _alias_taken(person_id: UUID, alias: str) -> bool:
@@ -235,44 +235,44 @@ async def rename_cove(principal: Principal, alias: str, new_alias: str) -> dict:
     :param principal: the authenticated person
     :param alias: the cove's current name, as this principal knows it
     :param new_alias: the name to use instead
-    :raises SpaceError: for an invalid, reserved, or already-used new name
+    :raises CoveError: for an invalid, reserved, or already-used new name
     :raises AccessDenied: if no such cove is reachable
     :returns: the old and new names
     """
-    space = await resolve_space(principal, alias)
-    if space.kind == SpaceKind.PERSONAL.value:
-        raise SpaceError("the personal space is always called 'personal'")
+    cove = await resolve_cove(principal, alias)
+    if cove.kind == CoveKind.PERSONAL.value:
+        raise CoveError("the personal cove is always called 'personal'")
     if not _SLUG_RE.fullmatch(new_alias) or new_alias.startswith(_RESERVED_PREFIXES):
-        raise SpaceError(
-            f"{new_alias!r} is not a usable space name: 2-64 characters, "
+        raise CoveError(
+            f"{new_alias!r} is not a usable cove name: 2-64 characters, "
             "lowercase letters, digits, and hyphens, starting with a letter; "
             "names beginning 'personal' are reserved"
         )
     if new_alias != alias and await _alias_taken(principal.person_id, new_alias):
-        raise SpaceError(
+        raise CoveError(
             f"you already have a cove called {new_alias!r}; pick another name"
         )
     await Membership.update({Membership.alias: new_alias}).where(
         Membership.person_id == principal.person_id,
-        Membership.space_id == space.id,
+        Membership.cove_id == cove.id,
     )
     return {"was": alias, "now": new_alias}
 
 
-async def _owned_shared_space(principal: Principal, slug: str) -> Space:
-    """Resolve ``slug`` and require it to be a shared space this principal owns.
+async def _owned_shared_cove(principal: Principal, slug: str) -> Cove:
+    """Resolve ``slug`` and require it to be a shared cove this principal owns.
 
     :param principal: the authenticated person
-    :param slug: the space name as given by the caller
-    :raises SpaceError: if the space is personal or owned by someone else
-    :returns: the resolved space
+    :param slug: the cove name as given by the caller
+    :raises CoveError: if the cove is personal or owned by someone else
+    :returns: the resolved cove
     """
-    space = await resolve_space(principal, slug)
-    if space.kind == SpaceKind.PERSONAL.value:
-        raise SpaceError("the personal space cannot be shared or administered")
-    if space.owner_person_id != principal.person_id:
-        raise SpaceError(f"only the owner of {slug!r} may change its members")
-    return space
+    cove = await resolve_cove(principal, slug)
+    if cove.kind == CoveKind.PERSONAL.value:
+        raise CoveError("the personal cove cannot be shared or administered")
+    if cove.owner_person_id != principal.person_id:
+        raise CoveError(f"only the owner of {slug!r} may change its members")
+    return cove
 
 
 async def invite(
@@ -282,7 +282,7 @@ async def invite(
     display_name: str | None = None,
     role: str = MemberRole.MEMBER.value,
 ) -> dict:
-    """Invite an email address into a shared space the principal owns.
+    """Invite an email address into a shared cove the principal owns.
 
     An unknown email becomes a person row on the spot — the runtime
     allowlist entry. The invitee gets in when they first sign in with this
@@ -291,54 +291,54 @@ async def invite(
     Row creation is delegated to :func:`reef.invitations.allowlist`, which is
     the only place an invite may mint one and which holds the per-inviter
     budget. Routing both invite flows through it is what stops the budget
-    being bypassed by creating a junk space and inviting into that.
+    being bypassed by creating a junk cove and inviting into that.
 
     :param principal: the authenticated person
-    :param slug: the shared space to invite into
+    :param slug: the shared cove to invite into
     :param email: the address the invitee will sign in with
     :param display_name: how members see them; defaults to the email's name part
     :param role: ``member`` (read and write) or ``viewer`` (read only)
-    :raises SpaceError: if the principal does not own the space, or the role
+    :raises CoveError: if the principal does not own the cove, or the role
         is not one a membership can hold
     :raises InviteBudgetExceeded: if a new entry is needed and none remain
     :returns: outcome with the role, disclosure text, ``already_member``, and
         the relay instruction the inviter must pass on themselves
     """
     if role not in {MemberRole.MEMBER.value, MemberRole.VIEWER.value}:
-        raise SpaceError(f"a membership is 'member' or 'viewer', not {role!r}")
-    space = await _owned_shared_space(principal, slug)
+        raise CoveError(f"a membership is 'member' or 'viewer', not {role!r}")
+    cove = await _owned_shared_cove(principal, slug)
     entry, _ = await allowlist(principal, email, display_name)
     email = entry.email
-    membership = await _membership(entry.person_id, space.id)
+    membership = await _membership(entry.person_id, cove.id)
     already = membership is not None
     if not already:
         # The alias has to be free for the *invitee*, whose other memberships
         # the inviter cannot see -- so choosing it and taking it happen in one
         # statement inside the database. The cove's own name is offered first
         # and suffixed only if the invitee already uses it for something else.
-        admitted = await Space.raw(
+        admitted = await Cove.raw(
             "SELECT reef_admit_member({}, {}, {}, {}) AS alias",
-            space.id,
+            cove.id,
             entry.person_id,
-            space.slug,
+            cove.slug,
             role,
         )
         if not admitted or admitted[0]["alias"] is None:
-            raise SpaceError(f"could not admit {email} to {slug!r}")
+            raise CoveError(f"could not admit {email} to {slug!r}")
         audit.record(
             audit.MEMBER_ADMITTED,
             actor=principal.person_id,
-            space_id=space.id,
+            cove_id=cove.id,
             member_id=entry.person_id,
         )
-    page_count = await Page.count().where(Page.space_id == space.id)
+    page_count = await Page.count().where(Page.cove_id == cove.id)
     rights = (
         "read and write everything"
         if role == MemberRole.MEMBER.value
         else "read everything, without being able to write"
     )
     return {
-        "space": slug,
+        "cove": slug,
         "email": email,
         "role": role,
         "already_member": already,
@@ -352,26 +352,26 @@ async def invite(
 
 
 async def remove_member(principal: Principal, slug: str, email: str) -> dict:
-    """Remove a member from a shared space the principal owns.
+    """Remove a member from a shared cove the principal owns.
 
     Removal stops future access; it cannot unshare what was already read.
     Removing an invitee who never signed in (no bound subject, no other
     memberships) also erases the orphaned person row — the typo-repair path.
 
     :param principal: the authenticated person
-    :param slug: the shared space to remove from
+    :param slug: the shared cove to remove from
     :param email: the member's email
-    :raises SpaceError: if not owner, target absent, or target is the owner
+    :raises CoveError: if not owner, target absent, or target is the owner
     :returns: outcome with a ``person_erased`` flag
     """
-    space = await _owned_shared_space(principal, slug)
+    cove = await _owned_shared_cove(principal, slug)
     email = email.strip().lower()
     rows = await Person.raw("SELECT reef_person_id_by_email({}) AS id", email)
     person_id = rows[0]["id"] if rows else None
-    if person_id is None or await _membership(person_id, space.id) is None:
-        raise SpaceError(f"{email} is not a member of {slug!r}")
+    if person_id is None or await _membership(person_id, cove.id) is None:
+        raise CoveError(f"{email} is not a member of {slug!r}")
     if person_id == principal.person_id:
-        raise SpaceError("the owner cannot remove themselves from their own space")
+        raise CoveError("the owner cannot remove themselves from their own cove")
 
     # The removal and the orphan check are one statement in the database.
     # Deciding here whether the departing person still belongs anywhere would
@@ -379,41 +379,41 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     # see memberships in coves they are not in -- so the count would come
     # back short and erase somebody still active elsewhere.
     outcome = await Person.raw(
-        "SELECT * FROM reef_remove_member({}, {})", space.id, person_id
+        "SELECT * FROM reef_remove_member({}, {})", cove.id, person_id
     )
     if not outcome or not outcome[0]["removed"]:
-        raise SpaceError(f"{email} is not a member of {slug!r}")
+        raise CoveError(f"{email} is not a member of {slug!r}")
     person_erased = bool(outcome[0]["person_erased"])
     audit.record(
         audit.MEMBER_REMOVED,
         actor=principal.person_id,
-        space_id=space.id,
+        cove_id=cove.id,
         member_id=person_id,
         person_erased=person_erased,
     )
     return {
-        "space": slug,
+        "cove": slug,
         "email": email,
         "removed": True,
         "person_erased": person_erased,
     }
 
 
-async def _others_in(space_id: UUID, person_id: UUID) -> list[Membership]:
-    """Return a space's memberships other than this person's.
+async def _others_in(cove_id: UUID, person_id: UUID) -> list[Membership]:
+    """Return a cove's memberships other than this person's.
 
-    :param space_id: the space to count
+    :param cove_id: the cove to count
     :param person_id: the person to exclude
     :returns: the remaining membership rows
     """
     return await Membership.objects().where(
-        Membership.space_id == space_id,
+        Membership.cove_id == cove_id,
         Membership.person_id != person_id,
     )
 
 
-async def delete_space(principal: Principal, slug: str) -> dict:
-    """Destroy a shared space the principal owns and is alone in.
+async def delete_cove(principal: Principal, slug: str) -> dict:
+    """Destroy a shared cove the principal owns and is alone in.
 
     Deletion is deliberately refused while anybody else is a member, and the
     refusal names the alternative. Handing a cove on is what leaving already
@@ -428,59 +428,59 @@ async def delete_space(principal: Principal, slug: str) -> dict:
     the caller to erase once this transaction has committed.
 
     Children are deleted explicitly rather than left to the cascades. They
-    would cascade correctly — every foreign key pointing at ``spaces`` is
+    would cascade correctly — every foreign key pointing at ``coves`` is
     ``ON DELETE CASCADE`` — but a cascade runs as an internal referential
     action that bypasses row-level security, whereas these statements are
     checked against the principal's own membership. Nothing is relied upon
     that the policies would not already permit.
 
     :param principal: the authenticated person
-    :param slug: the shared space to destroy
-    :raises SpaceError: if personal, not owned, or anyone else is still a member
+    :param slug: the shared cove to destroy
+    :raises CoveError: if personal, not owned, or anyone else is still a member
     :returns: outcome with the page count and the object keys still to erase
     """
-    space = await _owned_shared_space(principal, slug)
-    others = await _others_in(space.id, principal.person_id)
+    cove = await _owned_shared_cove(principal, slug)
+    others = await _others_in(cove.id, principal.person_id)
     if others:
-        raise SpaceError(
+        raise CoveError(
             f"{slug!r} still has {len(others)} other member(s); leave it to hand "
             "it on, or remove them first if it must be destroyed"
         )
 
     file_keys = (
         await Attachment.select(Attachment.object_key)
-        .where(Attachment.space_id == space.id)
+        .where(Attachment.cove_id == cove.id)
         .output(as_list=True)
     )
     page_ids = (
-        await Page.select(Page.id).where(Page.space_id == space.id).output(as_list=True)
+        await Page.select(Page.id).where(Page.cove_id == cove.id).output(as_list=True)
     )
     if page_ids:
         await Revision.delete().where(Revision.page_id.is_in(page_ids))
-    await Attachment.delete().where(Attachment.space_id == space.id)
-    await Page.delete().where(Page.space_id == space.id)
-    # The principal's own membership goes with the space, by cascade.
-    await Space.delete().where(Space.id == space.id)
+    await Attachment.delete().where(Attachment.cove_id == cove.id)
+    await Page.delete().where(Page.cove_id == cove.id)
+    # The principal's own membership goes with the cove, by cascade.
+    await Cove.delete().where(Cove.id == cove.id)
     # Recorded not because the policies were bypassed -- they were not -- but
     # because nothing survives to be read afterwards. Counts, never the slug:
     # a cove's name is the user's words, and the trail takes identifiers only.
     audit.record(
         audit.COVE_DELETED,
         actor=principal.person_id,
-        space_id=space.id,
+        cove_id=cove.id,
         page_count=len(page_ids),
         file_count=len(file_keys),
     )
     return {
-        "space": slug,
+        "cove": slug,
         "deleted": True,
         "pages": len(page_ids),
         "file_keys": file_keys,
     }
 
 
-async def leave_space(principal: Principal, slug: str) -> dict:
-    """Leave a shared space, handing it on if the principal owned it.
+async def leave_cove(principal: Principal, slug: str) -> dict:
+    """Leave a shared cove, handing it on if the principal owned it.
 
     The invariant this preserves is the one account deletion already keeps:
     departing never destroys somebody else's memory. An owner who leaves
@@ -493,22 +493,22 @@ async def leave_space(principal: Principal, slug: str) -> dict:
     consequence, and it has its own verb.
 
     :param principal: the authenticated person
-    :param slug: the shared space to leave
-    :raises SpaceError: if personal, or the principal is its only member
+    :param slug: the shared cove to leave
+    :raises CoveError: if personal, or the principal is its only member
     :returns: outcome, including who inherited the cove if anyone did
     """
-    space = await resolve_space(principal, slug)
-    if space.kind == SpaceKind.PERSONAL.value:
-        raise SpaceError("the personal space cannot be left")
+    cove = await resolve_cove(principal, slug)
+    if cove.kind == CoveKind.PERSONAL.value:
+        raise CoveError("the personal cove cannot be left")
 
-    others = await _others_in(space.id, principal.person_id)
+    others = await _others_in(cove.id, principal.person_id)
     if not others:
-        raise SpaceError(
+        raise CoveError(
             f"you are the only member of {slug!r}; delete it instead of leaving it"
         )
 
     handed_to = None
-    if space.owner_person_id == principal.person_id:
+    if cove.owner_person_id == principal.person_id:
         successor = min(
             others,
             key=lambda membership: (
@@ -520,32 +520,32 @@ async def leave_space(principal: Principal, slug: str) -> dict:
         # once the membership below is gone this principal can no longer ask
         # who is in the cove -- including who they just handed it to.
         names = await display_names([successor.person_id])
-        handed_over = await Space.raw(
-            "SELECT reef_transfer_space_ownership({}, {}) AS ok",
-            space.id,
+        handed_over = await Cove.raw(
+            "SELECT reef_transfer_cove_ownership({}, {}) AS ok",
+            cove.id,
             successor.person_id,
         )
         if not handed_over or not handed_over[0]["ok"]:
-            raise SpaceError(f"could not hand {slug!r} on; nothing was changed")
+            raise CoveError(f"could not hand {slug!r} on; nothing was changed")
         handed_to = names.get(successor.person_id)
         audit.record(
             audit.OWNERSHIP_TRANSFERRED,
             actor=principal.person_id,
-            space_id=space.id,
+            cove_id=cove.id,
             successor_id=successor.person_id,
         )
 
     await Membership.delete().where(
-        Membership.space_id == space.id,
+        Membership.cove_id == cove.id,
         Membership.person_id == principal.person_id,
     )
-    return {"space": slug, "left": True, "handed_to": handed_to}
+    return {"cove": slug, "left": True, "handed_to": handed_to}
 
 
-async def ensure_personal_space(person_id: UUID, email: str) -> None:
-    """Create the person's personal space and starter pages, once.
+async def ensure_personal_cove(person_id: UUID, email: str) -> None:
+    """Create the person's personal cove and starter pages, once.
 
-    Called at first sign-in, with the principal already armed — the space and
+    Called at first sign-in, with the principal already armed — the cove and
     membership inserts below are checked against it once those tables carry
     policies, so arming afterwards would deny a person their own onboarding.
 
@@ -554,7 +554,7 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
     from (see ``reef.identity``), deliberately not a full row.
 
     The slug is derived from the person id — it is globally unique by
-    construction and never crosses the tool boundary, because personal spaces
+    construction and never crosses the tool boundary, because personal coves
     are always addressed by the ``personal`` alias.
 
     :param person_id: the newly bound person's id
@@ -567,24 +567,22 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
     principal = Principal(person_id=person_id, email=email)
     await arm(principal)
     existing = (
-        await Space.objects()
+        await Cove.objects()
         .where(
-            Space.kind == SpaceKind.PERSONAL.value,
-            Space.owner_person_id == person_id,
+            Cove.kind == CoveKind.PERSONAL.value,
+            Cove.owner_person_id == person_id,
         )
         .first()
     )
     if existing is not None:
         return
-    space = Space(
+    cove = Cove(
         slug=f"personal-{person_id.hex}",
-        kind=SpaceKind.PERSONAL.value,
+        kind=CoveKind.PERSONAL.value,
         owner_person_id=person_id,
     )
-    await space.save()
-    await Membership(
-        person_id=person_id, space_id=space.id, alias=PERSONAL_ALIAS
-    ).save()
+    await cove.save()
+    await Membership(person_id=person_id, cove_id=cove.id, alias=PERSONAL_ALIAS).save()
     await save_page(
         principal,
         "personal",

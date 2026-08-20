@@ -4,7 +4,7 @@ import { relativeTime } from "../relativeTime";
  * Build a metadata sentence for a page, e.g. "seen by everyone in reef · edited by Wouter, 2 h ago · v2".
  */
 export function pageMetaSentence(parts: {
-  space: string;
+  cove: string;
   personal: boolean;
   lastEditor: string | null;
   updated: string;
@@ -16,7 +16,7 @@ export function pageMetaSentence(parts: {
   if (parts.personal) {
     clauses.push("only you");
   } else {
-    clauses.push(`seen by everyone in ${parts.space}`);
+    clauses.push(`seen by everyone in ${parts.cove}`);
   }
 
   // Editor clause (omitted if null)

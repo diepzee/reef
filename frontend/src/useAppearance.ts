@@ -13,7 +13,7 @@
 
 import { createContext, useCallback, useContext } from "react";
 
-import { spaceColor, type SpaceHue } from "./components/spaceColor";
+import { coveColor, type CoveHue } from "./components/coveColor";
 
 /** One cove's chosen look; either field null when it is still derived. */
 export interface CoveAppearance {
@@ -47,7 +47,7 @@ export function useAppearance(): AppearanceContextValue {
 
 /** One cove's resolved look: the hue to paint, and the body plan to grow. */
 export interface CoveLook {
-  hue: SpaceHue;
+  hue: CoveHue;
   family: string | null;
 }
 
@@ -63,7 +63,7 @@ export function useCoveLook(): (alias: string) => CoveLook {
     (alias: string) => {
       const chosen = appearance[alias];
       return {
-        hue: spaceColor(alias, chosen?.color),
+        hue: coveColor(alias, chosen?.color),
         family: chosen?.glyph ?? null,
       };
     },

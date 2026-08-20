@@ -17,11 +17,11 @@ test("env url override and --compact", () => {
 });
 
 test("call with inline json", () => {
-  const parsed = parseArgs(["call", "read_page", '{"space":"personal","path":"index.md"}'], {});
+  const parsed = parseArgs(["call", "read_page", '{"cove":"personal","path":"index.md"}'], {});
   assert.deepEqual(parsed.command, {
     kind: "call",
     tool: "read_page",
-    args: '{"space":"personal","path":"index.md"}',
+    args: '{"cove":"personal","path":"index.md"}',
   });
 });
 

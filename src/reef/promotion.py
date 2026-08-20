@@ -11,12 +11,12 @@ from reef.access import (
     AccessDenied,
     Principal,
     alias_map,
-    resolve_space,
-    resolve_writable_space,
+    resolve_cove,
+    resolve_writable_cove,
 )
-from reef.models import Page, Promotion, Space, utc_now
+from reef.coves import member_names
+from reef.models import Cove, Page, Promotion, utc_now
 from reef.pages import get_page, save_page
-from reef.spaces import member_names
 
 NONCE_TTL = timedelta(minutes=10)
 
@@ -28,7 +28,7 @@ class PromotionError(Exception):
 async def prepare_promotion(
     principal: Principal,
     path: str,
-    dest_space: str,
+    dest_cove: str,
     *,
     section: str | None = None,
     dest_path: str | None = None,
@@ -38,30 +38,30 @@ async def prepare_promotion(
     Whole page: the disclosure is the full body and the destination defaults
     to the same path. Section: ``section`` is the exact text to extract (it
     must occur exactly once) and ``dest_path`` names the new page it becomes —
-    the rest of the source page never leaves the personal space.
+    the rest of the source page never leaves the personal cove.
 
     The disclosure is what the assistant must show the user before confirming:
     the exact content that will become readable by every current and future
-    member of the destination space, permanently.
+    member of the destination cove, permanently.
 
     :param principal: the authenticated person
-    :param path: page path in the personal space
-    :param dest_space: destination shared-space slug, from list_spaces
+    :param path: page path in the personal cove
+    :param dest_cove: destination shared-cove slug, from list_coves
     :param section: exact span to extract; None shares the whole page
     :param dest_path: name of the new page in the destination; required with
         section
-    :raises PromotionError: if the destination is not a shared space the
+    :raises PromotionError: if the destination is not a shared cove the
         principal belongs to, the page is missing, the section is absent or
         ambiguous, or a section share names no destination
     :returns: nonce, disclosure text, destination, and its members
     """
-    if dest_space == "personal":
+    if dest_cove == "personal":
         raise PromotionError(
-            "sharing moves content out of the personal space; pick a shared "
-            "space from list_spaces as the destination"
+            "sharing moves content out of the personal cove; pick a shared "
+            "cove from list_coves as the destination"
         )
     try:
-        dest = await resolve_writable_space(principal, dest_space)
+        dest = await resolve_writable_cove(principal, dest_cove)
     except AccessDenied as exc:
         raise PromotionError(str(exc)) from exc
     page = await get_page(principal, "personal", path)
@@ -83,7 +83,7 @@ async def prepare_promotion(
         person_id=principal.person_id,
         source_page_id=page.id,
         source_version=page.version,
-        dest_space_id=dest.id,
+        dest_cove_id=dest.id,
         dest_path=dest_path or path,
         section_text=section,
     )
@@ -91,20 +91,20 @@ async def prepare_promotion(
     members = await member_names(dest.id)
     return {
         "nonce": str(staged.id),
-        "dest_space": dest_space,
+        "dest_cove": dest_cove,
         "dest_path": staged.dest_path,
         "members": members,
         "disclosure": section if section is not None else page.body,
         "warning": (
             f"Sharing is permanent; there is no un-sharing. Everyone in "
-            f"{dest_space!r} — {', '.join(members)} — and anyone invited "
+            f"{dest_cove!r} — {', '.join(members)} — and anyone invited "
             "later can read this forever."
         ),
     }
 
 
 async def confirm_promotion(principal: Principal, nonce: str) -> dict:
-    """Execute a staged promotion: copy to the staged space, stub the original.
+    """Execute a staged promotion: copy to the staged cove, stub the original.
 
     Validates ownership, expiry, source-unchanged, continued membership in
     the destination, and destination-absent. A consumed nonce reports success
@@ -116,19 +116,19 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     :raises PromotionError: on any failed validation
     :returns: outcome, with already_done=True on an idempotent retry
     """
-    await resolve_space(principal, "personal")
+    await resolve_cove(principal, "personal")
     staged = (
         await Promotion.objects().where(Promotion.id == UUID(nonce)).lock_rows().first()
     )
     if staged is None or staged.person_id != principal.person_id:
         raise PromotionError("unknown promotion nonce")
     aliases = await alias_map(principal)
-    dest = await Space.objects().where(Space.id == staged.dest_space_id).first()
+    dest = await Cove.objects().where(Cove.id == staged.dest_cove_id).first()
     # The caller's own name for the destination. A cove has no single name
     # any more, and the one staged at prepare time is the one this person
     # used then -- read it fresh in case they have renamed it since.
-    dest_alias = aliases.get(staged.dest_space_id) if dest else None
-    # A nonce outlives the membership that justified it. Once spaces carry a
+    dest_alias = aliases.get(staged.dest_cove_id) if dest else None
+    # A nonce outlives the membership that justified it. Once coves carry a
     # policy, losing that membership makes the destination invisible rather
     # than merely unauthorised, so this is the recheck: without it the code
     # below dereferences None and the caller gets an AttributeError where it
@@ -138,7 +138,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     if staged.consumed_at is not None:
         return {
             "promoted": True,
-            "dest_space": dest_alias,
+            "dest_cove": dest_alias,
             "dest_path": staged.dest_path,
             "already_done": True,
         }
@@ -150,12 +150,12 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     if source is None or source.version != staged.source_version:
         raise PromotionError("the page changed since it was prepared; prepare again")
     try:
-        await resolve_writable_space(principal, dest_alias)
+        await resolve_writable_cove(principal, dest_alias)
     except AccessDenied as exc:
         raise PromotionError(str(exc)) from exc
     if await get_page(principal, dest_alias, staged.dest_path) is not None:
         raise PromotionError(
-            f"{staged.dest_path!r} already exists in the {dest_alias} space; "
+            f"{staged.dest_path!r} already exists in the {dest_alias} cove; "
             "merge through normal edits instead"
         )
 
@@ -174,7 +174,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             title=staged.dest_path.removesuffix(".md"),
         )
         marker = (
-            f"*(section moved to the {dest_alias} space — see "
+            f"*(section moved to the {dest_alias} cove — see "
             f"`{staged.dest_path}` there)*"
         )
         await save_page(
@@ -198,7 +198,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             tags=list(source.tags),
         )
         # The stub replaces the *source* page, whatever the destination is
-        # named: it is what stays behind in the personal space. Writing it to
+        # named: it is what stays behind in the personal cove. Writing it to
         # dest_path instead left the source unstubbed and destroyed any
         # unrelated personal page of that name. expected_version pins the
         # source that was just re-checked, so nothing is overwritten blind.
@@ -206,7 +206,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             principal,
             "personal",
             source.path,
-            f"# {source.title}\n\nMoved to the {dest_alias} space; "
+            f"# {source.title}\n\nMoved to the {dest_alias} cove; "
             f"see `{staged.dest_path}` there.",
             message="stubbed after promotion",
             title=source.title,
@@ -216,7 +216,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     await staged.save()
     return {
         "promoted": True,
-        "dest_space": dest_alias,
+        "dest_cove": dest_alias,
         "dest_path": staged.dest_path,
         "already_done": False,
     }

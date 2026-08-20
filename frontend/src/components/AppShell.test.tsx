@@ -51,7 +51,7 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    index: { spaces: [] },
+    index: { coves: [] },
     error: null,
     refresh: () => Promise.resolve(),
   }),

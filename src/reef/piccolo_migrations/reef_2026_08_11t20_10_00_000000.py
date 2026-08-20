@@ -23,9 +23,9 @@ STATEMENTS = [
         "ON UPDATE CASCADE ON DELETE SET NULL"
     ),
     (
-        "ALTER TABLE promotions DROP CONSTRAINT promotions_dest_space_id_fkey, "
-        "ADD CONSTRAINT promotions_dest_space_id_fkey "
-        "FOREIGN KEY (dest_space_id) REFERENCES spaces(id) "
+        "ALTER TABLE promotions DROP CONSTRAINT promotions_dest_cove_id_fkey, "
+        "ADD CONSTRAINT promotions_dest_cove_id_fkey "
+        "FOREIGN KEY (dest_cove_id) REFERENCES coves(id) "
         "ON UPDATE CASCADE ON DELETE CASCADE"
     ),
 ]

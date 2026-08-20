@@ -18,10 +18,11 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
+from reef.access import AccessDenied, Principal, accessible_coves, alias_map
 from reef.attachments import S3ObjectStore
 from reef.config import env
 from reef.context import build_index
+from reef.coves import display_names, member_names
 from reef.models import (
     Attachment,
     AttachmentStatus,
@@ -32,7 +33,6 @@ from reef.models import (
     Revision,
 )
 from reef.pages import list_pages
-from reef.spaces import display_names, member_names
 
 
 class FileReader(Protocol):
@@ -92,25 +92,23 @@ async def _export_rows(
     caller rendering one needs this reader's own names rather than a
     property of the row.
     """
-    # accessible_spaces arms the principal, so it must precede the person
+    # accessible_coves arms the principal, so it must precede the person
     # lookup: read first and that query runs unarmed, returning nothing once
     # persons carries a policy, and the export would name nobody.
-    spaces = await accessible_spaces(principal)
+    coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if alias is not None:
-        spaces = [space for space in spaces if aliases.get(space.id) == alias]
-        if not spaces:
-            raise AccessDenied(f"no space {alias!r} for {principal.email}")
-    space_ids = [space.id for space in spaces]
-    pages = (
-        await Page.objects().where(Page.space_id.is_in(space_ids)).order_by(Page.path)
-    )
+        coves = [cove for cove in coves if aliases.get(cove.id) == alias]
+        if not coves:
+            raise AccessDenied(f"no cove {alias!r} for {principal.email}")
+    cove_ids = [cove.id for cove in coves]
+    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids)).order_by(Page.path)
     files = await Attachment.objects().where(
-        Attachment.space_id.is_in(space_ids),
+        Attachment.cove_id.is_in(cove_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
-    return person, spaces, pages, files, aliases
+    return person, coves, pages, files, aliases
 
 
 def _file_metadata(file: Attachment, page_paths: dict[object, str]) -> dict:
@@ -155,11 +153,11 @@ def render_page(page: Page) -> str:
     return f"---\n{front}\n---\n\n{page.body}\n"
 
 
-async def export_space(principal: Principal, alias: str, target: Path) -> int:
-    """Write every page in a space to a directory as markdown.
+async def export_cove(principal: Principal, alias: str, target: Path) -> int:
+    """Write every page in a cove to a directory as markdown.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param target: directory to write into
     :returns: number of files written
     """
@@ -181,13 +179,13 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
     :param alias: one cove alias, or ``None`` for every accessible cove
     :returns: UTF-8 JSON bytes
     """
-    person, spaces, pages, files, aliases = await _export_rows(principal, alias)
-    pages_by_space: dict[object, list[Page]] = {space.id: [] for space in spaces}
-    files_by_space: dict[object, list[Attachment]] = {space.id: [] for space in spaces}
+    person, coves, pages, files, aliases = await _export_rows(principal, alias)
+    pages_by_cove: dict[object, list[Page]] = {cove.id: [] for cove in coves}
+    files_by_cove: dict[object, list[Attachment]] = {cove.id: [] for cove in coves}
     for page in pages:
-        pages_by_space[page.space_id].append(page)
+        pages_by_cove[page.cove_id].append(page)
     for file in files:
-        files_by_space[file.space_id].append(file)
+        files_by_cove[file.cove_id].append(file)
     page_paths = {page.id: page.path for page in pages}
 
     return _json_bytes(
@@ -200,15 +198,15 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
             },
             "coves": [
                 {
-                    "alias": aliases[space.id],
-                    "version": space.version,
-                    "pages": [_page_payload(page) for page in pages_by_space[space.id]],
+                    "alias": aliases[cove.id],
+                    "version": cove.version,
+                    "pages": [_page_payload(page) for page in pages_by_cove[cove.id]],
                     "files": [
                         _file_metadata(file, page_paths)
-                        for file in files_by_space[space.id]
+                        for file in files_by_cove[cove.id]
                     ],
                 }
-                for space in spaces
+                for cove in coves
             ],
         }
     )
@@ -223,8 +221,8 @@ async def build_markdown_archive(
     :param alias: one cove alias, or ``None`` for every accessible cove
     :returns: ZIP bytes
     """
-    person, spaces, pages, files, aliases = await _export_rows(principal, alias)
-    alias_by_space = aliases
+    person, coves, pages, files, aliases = await _export_rows(principal, alias)
+    alias_by_cove = aliases
     page_paths = {page.id: page.path for page in pages}
     output = BytesIO()
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
@@ -239,7 +237,7 @@ async def build_markdown_archive(
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": [aliases[space.id] for space in spaces],
+                    "coves": [aliases[cove.id] for cove in coves],
                     "note": "Current pages only. Use Dump my data for history and file bytes.",
                 }
             ),
@@ -247,7 +245,7 @@ async def build_markdown_archive(
         for page in pages:
             page_path = _safe_archive_path(page.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_space[page.space_id]}/pages/{page_path}",
+                f"coves/{alias_by_cove[page.cove_id]}/pages/{page_path}",
                 render_page(page),
             )
         if files:
@@ -256,7 +254,7 @@ async def build_markdown_archive(
                 _json_bytes(
                     [
                         {
-                            "cove": alias_by_space[file.space_id],
+                            "cove": alias_by_cove[file.cove_id],
                             **_file_metadata(file, page_paths),
                         }
                         for file in files
@@ -281,9 +279,9 @@ async def build_full_dump(
     :param store: injectable object reader; defaults to R2 when files exist
     :returns: complete ZIP bytes
     """
-    person, spaces, pages, files, aliases = await _export_rows(principal)
-    alias_by_space = aliases
-    space_by_id = {space.id: space for space in spaces}
+    person, coves, pages, files, aliases = await _export_rows(principal)
+    alias_by_cove = aliases
+    cove_by_id = {cove.id: cove for cove in coves}
     page_by_id = {page.id: page for page in pages}
     page_paths = {page.id: page.path for page in pages}
 
@@ -303,23 +301,23 @@ async def build_full_dump(
     )
     memberships = await Membership.objects().where(
         Membership.person_id == principal.person_id,
-        Membership.space_id.is_in(list(space_by_id)),
+        Membership.cove_id.is_in(list(cove_by_id)),
     )
-    role_by_space = {membership.space_id: membership.role for membership in memberships}
+    role_by_cove = {membership.cove_id: membership.role for membership in memberships}
     shares = await Promotion.objects().where(Promotion.person_id == principal.person_id)
     index = await build_index(principal)
 
     cove_manifest = []
-    for space in spaces:
+    for cove in coves:
         cove_manifest.append(
             {
-                "alias": aliases[space.id],
-                "version": space.version,
-                "you_are_owner": space.owner_person_id == principal.person_id,
-                "your_role": role_by_space.get(space.id),
-                "members": await member_names(space.id),
-                "page_count": sum(page.space_id == space.id for page in pages),
-                "file_count": sum(file.space_id == space.id for file in files),
+                "alias": aliases[cove.id],
+                "version": cove.version,
+                "you_are_owner": cove.owner_person_id == principal.person_id,
+                "your_role": role_by_cove.get(cove.id),
+                "members": await member_names(cove.id),
+                "page_count": sum(page.cove_id == cove.id for page in pages),
+                "file_count": sum(file.cove_id == cove.id for file in files),
             }
         )
 
@@ -338,7 +336,7 @@ async def build_full_dump(
             continue
         revision_payload.append(
             {
-                "cove": alias_by_space[page.space_id],
+                "cove": alias_by_cove[page.cove_id],
                 "path": revision["path"],
                 "title": revision["title"],
                 "tags": list(revision["tags"]),
@@ -352,10 +350,10 @@ async def build_full_dump(
     share_payload = []
     for share in shares:
         source = page_by_id.get(share.source_page_id)
-        destination = space_by_id.get(share.dest_space_id)
+        destination = cove_by_id.get(share.dest_cove_id)
         share_payload.append(
             {
-                "source_cove": alias_by_space.get(source.space_id) if source else None,
+                "source_cove": alias_by_cove.get(source.cove_id) if source else None,
                 "source_path": source.path if source else None,
                 "source_version": share.source_version,
                 "destination_cove": (
@@ -380,13 +378,13 @@ async def build_full_dump(
         for page in pages:
             path = _safe_archive_path(page.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_space[page.space_id]}/pages/{path}",
+                f"coves/{alias_by_cove[page.cove_id]}/pages/{path}",
                 render_page(page),
             )
 
         for file in files:
             metadata = {
-                "cove": alias_by_space[file.space_id],
+                "cove": alias_by_cove[file.cove_id],
                 **_file_metadata(file, page_paths),
             }
             token = _safe_archive_path(
@@ -446,9 +444,9 @@ async def build_full_dump(
 
 
 async def _main(alias: str, target: str) -> None:
-    """CLI entrypoint: export one space as the dev principal.
+    """CLI entrypoint: export one cove as the dev principal.
 
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param target: output directory
     """
 
@@ -463,7 +461,7 @@ async def _main(alias: str, target: str) -> None:
         if identity is None:
             raise SystemExit("REEF_DEV_PRINCIPAL_EMAIL names no known person")
         principal = Principal(person_id=identity.person_id, email=identity.email)
-        count = await export_space(principal, alias, Path(target))
+        count = await export_cove(principal, alias, Path(target))
     print(f"exported {count} page(s) to {target}")
 
 

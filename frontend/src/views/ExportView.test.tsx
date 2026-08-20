@@ -55,7 +55,7 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    rawIndex: { spaces: [{ alias: "trip" }, { alias: "home" }] },
+    rawIndex: { coves: [{ alias: "trip" }, { alias: "home" }] },
     error: null,
     refresh: () => Promise.resolve(),
   }),

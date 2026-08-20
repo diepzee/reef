@@ -3,7 +3,7 @@
  *
  * Renders the two rows and nothing around them: no heading and no "only
  * you" note, because both callers already sit inside a section that says
- * so once — the members sheet's "Appearance", and `SpaceView`'s for the
+ * so once — the members sheet's "Appearance", and `CoveView`'s for the
  * personal cove. Saying it twice under one heading read as a warning
  * rather than a fact.
  *
@@ -25,8 +25,8 @@ import { useState } from "react";
 
 import { apiSend } from "../api";
 import { useAppearance } from "../useAppearance";
-import { HUE_NAMES, HUES, spaceColor } from "./spaceColor";
-import { SpaceGlyph } from "./spaceGlyph";
+import { HUE_NAMES, HUES, coveColor } from "./coveColor";
+import { CoveGlyph } from "./coveGlyph";
 
 /**
  * Body plans on offer, mirroring `GLYPHS` in `src/reef/appearance.py` — the
@@ -82,7 +82,7 @@ export function LookPicker({ alias }: { alias: string }) {
     try {
       await apiSend(
         "PUT",
-        `/api/spaces/${encodeURIComponent(alias)}/appearance`,
+        `/api/coves/${encodeURIComponent(alias)}/appearance`,
         next,
       );
     } catch {
@@ -93,8 +93,8 @@ export function LookPicker({ alias }: { alias: string }) {
     }
   }
 
-  const preview = spaceColor(alias, chosen.color);
-  const derived = spaceColor(alias, null);
+  const preview = coveColor(alias, chosen.color);
+  const derived = coveColor(alias, null);
 
   return (
     <div className="look">
@@ -159,7 +159,7 @@ export function LookPicker({ alias }: { alias: string }) {
             aria-pressed={chosen.glyph === null}
             onClick={() => choose({ ...chosen, glyph: null })}
           >
-            <SpaceGlyph alias={alias} color={preview.base} size={20} family={null} />
+            <CoveGlyph alias={alias} color={preview.base} size={20} family={null} />
           </button>
           {FAMILY_NAMES.map((family) => (
             <button
@@ -172,7 +172,7 @@ export function LookPicker({ alias }: { alias: string }) {
               aria-pressed={chosen.glyph === family}
               onClick={() => choose({ ...chosen, glyph: family })}
             >
-              <SpaceGlyph
+              <CoveGlyph
                 alias={alias}
                 color={preview.base}
                 size={20}

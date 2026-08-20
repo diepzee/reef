@@ -4,7 +4,7 @@ description: What the other people's assistants wrote to your coves
 argument-hint: "[since — e.g. 2026-08-01]"
 ---
 
-Report what changed across this person's reef spaces.
+Report what changed across this person's reef coves.
 
 Call `whats_new`. If $ARGUMENTS names a moment, pass it as `since`; otherwise
 call it bare and it resumes from where they last looked.

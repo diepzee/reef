@@ -2,7 +2,7 @@
 
 Shared memory rots socially before it rots factually — a cove only feels
 alive if members can see what the others' assistants wrote. The same RLS
-boundary applies: activity in somebody else's personal space is invisible,
+boundary applies: activity in somebody else's personal cove is invisible,
 and the leak test proves it.
 """
 
@@ -32,7 +32,7 @@ async def test_a_partners_shared_edit_is_visible_with_author_and_message(tx, hou
     events = await whats_new(me)
     assert len(events) == 1
     event = events[0]
-    assert event["space"] == "household"
+    assert event["cove"] == "household"
     assert event["kind"] == "page"
     assert event["path"] == "house.md"
     assert event["author"] == "Partner"
@@ -43,7 +43,7 @@ async def test_own_edits_are_listed_too(tx, household):
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "notes.md", "A note.", message="x")
     events = await whats_new(me)
-    assert [(e["space"], e["author"]) for e in events] == [("personal", "Wouter")]
+    assert [(e["cove"], e["author"]) for e in events] == [("personal", "Wouter")]
 
 
 async def test_anothers_personal_activity_is_invisible(tx, household):
@@ -75,7 +75,7 @@ async def test_a_new_file_is_an_event(tx, household):
     me = principal_for(household["wouter"])
     await arm(me)
     await Attachment(
-        space_id=household["shared"].id,
+        cove_id=household["shared"].id,
         object_key="attachments/lease",
         filename="lease.pdf",
         mime="application/pdf",
@@ -87,7 +87,7 @@ async def test_a_new_file_is_an_event(tx, household):
     assert len(events) == 1
     event = events[0]
     assert event["kind"] == "file"
-    assert event["space"] == "household"
+    assert event["cove"] == "household"
     assert event["key"] == "attachments/lease"
     assert event["filename"] == "lease.pdf"
 

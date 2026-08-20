@@ -1,21 +1,21 @@
 """Index-first retrieval, plus the whole-corpus bulk path.
 
 Both entry points assume they run inside :func:`reef.db.transaction_scope`;
-:func:`reef.access.accessible_spaces` arms RLS before either reads anything.
+:func:`reef.access.accessible_coves` arms RLS before either reads anything.
 """
 
 import re
 from dataclasses import dataclass
 from uuid import UUID
 
-from reef.access import Principal, accessible_spaces, alias_map
+from reef.access import Principal, accessible_coves, alias_map
+from reef.coves import display_names
 from reef.models import Attachment, AttachmentStatus, Page, Revision
-from reef.spaces import display_names
 
 
 @dataclass
-class SpaceContext:
-    """Everything the principal may see in one space."""
+class CoveContext:
+    """Everything the principal may see in one cove."""
 
     alias: str
     version: int
@@ -37,12 +37,12 @@ class ContextPayload:
     note: str | None
     page_count: int
     included_count: int
-    spaces: list[SpaceContext]
+    coves: list[CoveContext]
 
 
 @dataclass
-class SpaceIndex:
-    """The map of one space: page metadata and described files, no bodies."""
+class CoveIndex:
+    """The map of one cove: page metadata and described files, no bodies."""
 
     alias: str
     version: int
@@ -60,7 +60,7 @@ class IndexPayload:
     """
 
     version: str
-    spaces: list[SpaceIndex]
+    coves: list[CoveIndex]
 
 
 _WIKI_LINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
@@ -71,14 +71,14 @@ def _page_references(body: str, source_alias: str) -> list[dict[str, str]]:
     """Extract distinct wiki-link targets from prose in a page body.
 
     References use the operating protocol's ``[[page.md]]`` and
-    ``[[space:page.md]]`` forms. Fenced and inline code are ignored: those
+    ``[[cove:page.md]]`` forms. Fenced and inline code are ignored: those
     commonly contain examples of the syntax and must not turn into graph
     edges. A target's existence and visibility are checked later, once the
     complete accessible index is known.
 
     :param body: markdown page body
-    :param source_alias: alias used to resolve same-space references
-    :returns: ordered, de-duplicated ``space`` / ``path`` target pairs
+    :param source_alias: alias used to resolve same-cove references
+    :returns: ordered, de-duplicated ``cove`` / ``path`` target pairs
     """
     references: list[dict[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -113,7 +113,7 @@ def _page_references(body: str, source_alias: str) -> list[dict[str, str]]:
             if not alias or not path or key in seen:
                 continue
             seen.add(key)
-            references.append({"space": alias, "path": path})
+            references.append({"cove": alias, "path": path})
     return references
 
 
@@ -175,43 +175,43 @@ async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
 
 
 async def build_index(principal: Principal) -> IndexPayload:
-    """Return the index of every space the principal can see — no bodies.
+    """Return the index of every cove the principal can see — no bodies.
 
     :param principal: the authenticated person
     :returns: the index payload
     """
-    spaces = await accessible_spaces(principal)
+    coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
-    space_ids = [space.id for space in spaces]
-    pages = await Page.objects().where(Page.space_id.is_in(space_ids))
+    cove_ids = [cove.id for cove in coves]
+    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids))
     attachments = await Attachment.objects().where(
-        Attachment.space_id.is_in(space_ids),
+        Attachment.cove_id.is_in(cove_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
     editors = await latest_editors([page.id for page in pages])
 
-    # Keyed by space id: Piccolo Table instances are unhashable, so the row
+    # Keyed by cove id: Piccolo Table instances are unhashable, so the row
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
-    by_space = {
-        space.id: SpaceIndex(
-            alias=aliases[space.id],
-            version=space.version,
+    by_cove = {
+        cove.id: CoveIndex(
+            alias=aliases[cove.id],
+            version=cove.version,
             pages=[],
             attachments=[],
         )
-        for space in spaces
+        for cove in coves
     }
-    alias_by_space_id = aliases
-    visible_pages = {(alias_by_space_id[page.space_id], page.path) for page in pages}
+    alias_by_cove_id = aliases
+    visible_pages = {(alias_by_cove_id[page.cove_id], page.path) for page in pages}
     page_path_by_id = {page.id: page.path for page in pages}
     for page in sorted(pages, key=lambda p: p.path):
-        source_alias = alias_by_space_id[page.space_id]
+        source_alias = alias_by_cove_id[page.cove_id]
         references = [
             reference
             for reference in _page_references(page.body, source_alias)
-            if (reference["space"], reference["path"]) in visible_pages
+            if (reference["cove"], reference["path"]) in visible_pages
         ]
-        by_space[page.space_id].pages.append(
+        by_cove[page.cove_id].pages.append(
             {
                 "path": page.path,
                 "title": page.title,
@@ -225,7 +225,7 @@ async def build_index(principal: Principal) -> IndexPayload:
             }
         )
     for attachment in attachments:
-        by_space[attachment.space_id].attachments.append(
+        by_cove[attachment.cove_id].attachments.append(
             {
                 "key": attachment.object_key,
                 "filename": attachment.filename
@@ -238,10 +238,10 @@ async def build_index(principal: Principal) -> IndexPayload:
         )
 
     version = (
-        ";".join(f"{aliases[space.id]}={space.version}" for space in spaces) or "empty"
+        ";".join(f"{aliases[cove.id]}={cove.version}" for cove in coves) or "empty"
     )
     return IndexPayload(
-        version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
+        version=f"{principal.person_id}:{version}", coves=list(by_cove.values())
     )
 
 
@@ -259,7 +259,7 @@ def _priority(page: Page) -> tuple:
 
 
 async def load_context(principal: Principal, *, char_budget: int) -> ContextPayload:
-    """Return every page in every space the principal can see.
+    """Return every page in every cove the principal can see.
 
     Bodies are included by priority until the character budget is spent;
     everything else still appears with ``body=None`` so omission is visible,
@@ -269,12 +269,12 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
     :param char_budget: approximate ceiling on total body characters
     :returns: the assembled context payload
     """
-    spaces = await accessible_spaces(principal)
+    coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
-    space_ids = [space.id for space in spaces]
-    pages = await Page.objects().where(Page.space_id.is_in(space_ids))
+    cove_ids = [cove.id for cove in coves]
+    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids))
     attachments = await Attachment.objects().where(
-        Attachment.space_id.is_in(space_ids),
+        Attachment.cove_id.is_in(cove_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
 
@@ -297,17 +297,17 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         else None
     )
 
-    by_space = {
-        space.id: SpaceContext(
-            alias=aliases[space.id],
-            version=space.version,
+    by_cove = {
+        cove.id: CoveContext(
+            alias=aliases[cove.id],
+            version=cove.version,
             pages=[],
             attachments=[],
         )
-        for space in spaces
+        for cove in coves
     }
     for page in sorted(pages, key=lambda p: p.path):
-        by_space[page.space_id].pages.append(
+        by_cove[page.cove_id].pages.append(
             {
                 "path": page.path,
                 "title": page.title,
@@ -319,7 +319,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
             }
         )
     for attachment in attachments:
-        by_space[attachment.space_id].attachments.append(
+        by_cove[attachment.cove_id].attachments.append(
             {
                 "key": attachment.object_key,
                 "filename": attachment.filename
@@ -332,7 +332,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         )
 
     version = (
-        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
+        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_cove.values()) or "empty"
     )
     return ContextPayload(
         version=version,
@@ -340,5 +340,5 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         note=note,
         page_count=len(pages),
         included_count=included,
-        spaces=list(by_space.values()),
+        coves=list(by_cove.values()),
     )

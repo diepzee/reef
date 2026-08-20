@@ -312,7 +312,7 @@ async def test_an_open_door_offers_the_button_instead_of_the_wall(monkeypatch, d
 
 
 async def test_the_button_admits_and_opens_a_session(monkeypatch, door, seed):
-    """Pressing it produces an account, a personal space, and a session."""
+    """Pressing it produces an account, a personal cove, and a session."""
     client, _ = door
     _open(monkeypatch)
     await _walk_to_the_wall(client)
@@ -324,11 +324,11 @@ async def test_the_button_admits_and_opens_a_session(monkeypatch, door, seed):
 
     row = await _row(seed, "stranger@example.test")
     assert row["joined_open_door"] is True
-    spaces = await seed.fetchval(
-        "SELECT count(*) FROM spaces WHERE owner_person_id = $1 AND kind = 'personal'",
+    coves = await seed.fetchval(
+        "SELECT count(*) FROM coves WHERE owner_person_id = $1 AND kind = 'personal'",
         row["id"],
     )
-    assert spaces == 1
+    assert coves == 1
 
 
 async def test_the_button_needs_the_csrf_header(monkeypatch, door, seed):
