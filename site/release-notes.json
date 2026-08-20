@@ -1,6 +1,40 @@
 {
   "entries": [
     {
+      "version": "1.0.0",
+      "date": "2026-08-20",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "reef now has documentation at reefwith.me/docs — how coves and pages work, how your assistant reads and writes memory, the steps to connect Claude, ChatGPT, Codex or the CLI, and every tool listed in one place. Search it from the panel on the left, or jump straight to a section and share the link."
+        },
+        {
+          "kind": "added",
+          "text": "reef now works in clients that only allow two tools — ChatGPT connectors outside developer mode, and company-knowledge sources — by answering to `search` and `fetch` alongside its full set."
+        },
+        {
+          "kind": "added",
+          "text": "reef now says plainly that it is free while it is small, and that you will hear about any change from us rather than from a bill."
+        },
+        {
+          "kind": "changed",
+          "text": "Reef now uses a compact branching brain-coral mark across the app and its icons, with a more detailed companion mark on the landing page."
+        },
+        {
+          "kind": "changed",
+          "text": "Reef now uses its curled brain-coral mark everywhere, including the app, website, favicons, shared previews, and assistant connections."
+        },
+        {
+          "kind": "changed",
+          "text": "Everything reef calls a shared memory is now a cove, in the app, the tools your assistant uses, and the CLI. If you have scripts or saved prompts that name a space — `list_spaces`, a `space` argument, `reef list-spaces` — they need the cove spelling now."
+        },
+        {
+          "kind": "fixed",
+          "text": "Storing a large file no longer fails: uploads up to the full 25MB file limit now make it through, where anything over about 3MB used to be rejected before reef saw it."
+        }
+      ]
+    },
+    {
       "version": "0.6.0",
       "date": "2026-08-19",
       "changes": [

@@ -11,7 +11,7 @@
       "name": "reef",
       "source": "./plugins/reef",
       "description": "Shared, living memory for you and your people. Private spaces only you can read, coves your household or team share deliberately, all of it human-editable Markdown.",
-      "version": "0.6.0",
+      "version": "1.0.0",
       "category": "productivity",
       "author": {
         "name": "Haai BV",
