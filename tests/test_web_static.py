@@ -343,6 +343,22 @@ async def test_changelog_404s_without_a_site_tree(static_client):
     assert response.status_code == 404
 
 
+async def test_docs_page_is_served_at_the_root(static_client, tmp_path):
+    """The nav and footer link /docs, so it must resolve."""
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "docs.html").write_text("<!doctype html><title>reef docs</title>")
+    response = await static_client.get("/docs")
+    assert response.status_code == 200
+    assert "reef docs" in response.text
+
+
+async def test_docs_404s_without_a_site_tree(static_client):
+    """No site/ packaged: a clean 404 rather than a 500."""
+    response = await static_client.get("/docs")
+    assert response.status_code == 404
+
+
 async def test_crawler_files_are_served_at_the_root(static_client, tmp_path):
     """robots.txt, sitemap.xml and llms.txt are fetched at fixed paths.
 
@@ -383,13 +399,20 @@ async def test_the_site_copy_of_a_page_redirects_to_its_clean_url(
     """
     site = tmp_path / "site"
     site.mkdir()
-    for name in ("index.html", "privacy.html", "terms.html", "changelog.html"):
+    for name in (
+        "index.html",
+        "privacy.html",
+        "terms.html",
+        "changelog.html",
+        "docs.html",
+    ):
         (site / name).write_text("<!doctype html>")
     for name, clean in (
         ("index.html", "/"),
         ("privacy.html", "/privacy"),
         ("terms.html", "/terms"),
         ("changelog.html", "/changelog"),
+        ("docs.html", "/docs"),
     ):
         response = await static_client.get(f"/site/{name}", follow_redirects=False)
         assert response.status_code == 301, name
@@ -413,6 +436,7 @@ def test_every_marketing_page_declares_one_canonical_url():
         ("privacy.html", "https://reefwith.me/privacy"),
         ("terms.html", "https://reefwith.me/terms"),
         ("changelog.html", "https://reefwith.me/changelog"),
+        ("docs.html", "https://reefwith.me/docs"),
     ):
         page = (site / name).read_text()
         assert page.count('<link rel="canonical"') == 1, name
@@ -428,7 +452,13 @@ def test_every_marketing_page_renders_a_share_card():
     """
     site = Path(__file__).parents[1] / "site"
     assert (site / "og-card.png").is_file()
-    for name in ("index.html", "privacy.html", "terms.html", "changelog.html"):
+    for name in (
+        "index.html",
+        "privacy.html",
+        "terms.html",
+        "changelog.html",
+        "docs.html",
+    ):
         page = (site / name).read_text()
         assert 'content="https://reefwith.me/site/og-card.png"' in page, name
         assert '<meta name="twitter:card" content="summary_large_image">' in page, name
@@ -470,10 +500,59 @@ def test_the_sitemap_lists_exactly_the_canonical_pages():
     sitemap = (Path(__file__).parents[1] / "site" / "sitemap.xml").read_text()
     assert set(re.findall(r"<loc>(.*?)</loc>", sitemap)) == {
         "https://reefwith.me/",
+        "https://reefwith.me/docs",
         "https://reefwith.me/changelog",
         "https://reefwith.me/privacy",
         "https://reefwith.me/terms",
     }
+
+
+def test_the_docs_outline_and_its_sections_stay_in_step():
+    """The left panel and the page it indexes are one hand-edited file.
+
+    Nothing generates the outline, so the two halves drift the moment a
+    section is renamed, added or dropped -- and both failures are silent
+    in a browser: a stale link scrolls nowhere, and a section missing from
+    the outline is unreachable and unsearchable, since the search index is
+    built from the sections the outline names.
+    """
+    page = (Path(__file__).parents[1] / "site" / "docs.html").read_text()
+    outline = re.search(r'<nav class="outline".*?</nav>', page, re.DOTALL).group(0)
+    linked = set(re.findall(r'href="#([^"]+)"', outline))
+    anchors = set(re.findall(r'<h[23] id="([^"]+)"', page))
+    sections = set(re.findall(r'<h2 id="([^"]+)"', page))
+    assert linked <= anchors, linked - anchors
+    assert sections <= linked, sections - linked
+
+
+def test_the_docs_page_carries_its_prose_as_markup():
+    """Search reads the rendered page, so the text has to be in the file.
+
+    Moving the content into a script -- a JSON blob the page renders on
+    load, say -- would take it away from the three readers that never run
+    it: a crawler, someone with JavaScript off, and the search index this
+    page builds by walking its own DOM.
+    """
+    page = (Path(__file__).parents[1] / "site" / "docs.html").read_text()
+    body = re.sub(r"<script.*?</script>", "", page, flags=re.DOTALL)
+    for phrase in (
+        "a small group and the memory it shares",
+        "load_index",
+        "reefwith.me/mcp",
+    ):
+        assert phrase in body, phrase
+
+
+def test_the_docs_search_box_is_optional():
+    """No JavaScript, no search -- but still a whole readable document.
+
+    The box is hidden in the markup and revealed by the script, so a
+    reader without JavaScript gets the outline and the prose rather than
+    an input that silently does nothing when they type in it.
+    """
+    page = (Path(__file__).parents[1] / "site" / "docs.html").read_text()
+    box = re.search(r"<form class=\"search\"[^>]*>", page).group(0)
+    assert "hidden" in box
 
 
 def test_the_spa_shell_asks_not_to_be_indexed():

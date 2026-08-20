@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>reef documentation — shared memory for you and your assistants</title>
+<meta name="description" content="How reef works: coves and pages, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="icon" type="image/png" sizes="180x180" href="/favicon.ico">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="canonical" href="https://reefwith.me/docs">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="reef">
+<meta property="og:url" content="https://reefwith.me/docs">
+<meta property="og:title" content="reef documentation">
+<meta property="og:description" content="How reef works: coves and pages, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
+<meta property="og:image" content="https://reefwith.me/site/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The reef share card: the branching brain-coral mark beside the words &quot;Memories you grow together&quot;, on deep teal.">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+@font-face {
+  font-family: "Nunito";
+  src: url("/site/nunito-latin.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  --ground: #fbfcfd; --panel: #f2f7f8; --hairline: #e5edf0; --hairline-soft: #eef3f5;
+  --ink: #1c2b33; --muted: #7b8a92; --faint: #b3bec4;
+  --accent: #0d9488; --accent-deep: #0b6b62;
+  --flash: #d9f2ee;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #0d1a20; --panel: #0f2129; --hairline: #1c333d; --hairline-soft: #16292f;
+    --ink: #e2f1f5; --muted: #8fb0ba; --faint: #5b7681;
+    --accent: #38bdd8; --accent-deep: #7ce3d3;
+    --flash: #17394a;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--ink);
+  font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px; line-height: 1.65;
+}
+a { color: var(--accent); }
+.reef-name { color: var(--accent); }
+.skip {
+  position: absolute; left: -9999px; top: 0; background: var(--panel);
+  padding: 0.6rem 1rem; z-index: 10; border-radius: 0 0 8px 0;
+}
+.skip:focus { left: 0; }
+
+/* ---- frame ---- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  max-width: 66rem; margin: 0 auto; padding: 1.4rem 1.25rem;
+}
+.brand {
+  display: inline-flex; align-items: baseline; gap: 7px; font-weight: 800;
+  font-size: 1.25rem; color: var(--accent); text-decoration: none;
+}
+.topnav { display: flex; align-items: center; gap: 1.1rem; font-size: 0.92rem; }
+.topnav a { color: var(--muted); text-decoration: none; }
+.topnav a:hover, .topnav a:focus-visible { color: var(--accent); }
+.topnav a[aria-current] { color: var(--accent); font-weight: 700; }
+.topnav .btn {
+  color: var(--ground); background: var(--accent); font-weight: 700;
+  padding: 0.35rem 0.85rem; border-radius: 999px;
+}
+.topnav .btn:hover, .topnav .btn:focus-visible { background: var(--accent-deep); color: var(--ground); }
+.shell {
+  max-width: 66rem; margin: 0 auto; padding: 0 1.25rem;
+  display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 3rem;
+  align-items: start;
+}
+
+/* ---- left panel ---- */
+.side { position: sticky; top: 1.5rem; max-height: calc(100vh - 3rem); overflow-y: auto; }
+.search { margin: 0 0 1rem; position: relative; }
+.search input {
+  width: 100%; font: inherit; font-size: 0.92rem; color: var(--ink);
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: 8px; padding: 0.45rem 0.7rem 0.45rem 1.9rem;
+}
+.search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.search::before {
+  content: "⌕"; position: absolute; left: 0.6rem; top: 50%;
+  transform: translateY(-55%); color: var(--faint); font-size: 1.1rem;
+  pointer-events: none;
+}
+.search .hint {
+  position: absolute; right: 0.55rem; top: 50%; transform: translateY(-50%);
+  color: var(--faint); font-size: 0.72rem; border: 1px solid var(--hairline);
+  border-radius: 4px; padding: 0 0.3rem; pointer-events: none;
+}
+.search input:focus-visible ~ .hint, .search input:not(:placeholder-shown) ~ .hint { display: none; }
+.toc > summary {
+  cursor: pointer; font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: var(--muted); padding: 0.4rem 0; list-style: revert;
+}
+.outline ol { list-style: none; margin: 0; padding: 0; }
+.outline > ol { border-left: 1px solid var(--hairline); }
+.outline ol ol { margin: 0.1rem 0 0.35rem; }
+.outline li { margin: 0; }
+.outline a {
+  display: block; padding: 0.28rem 0 0.28rem 0.85rem; margin-left: -1px;
+  border-left: 2px solid transparent;
+  color: var(--muted); text-decoration: none; font-size: 0.9rem; line-height: 1.35;
+}
+.outline ol ol a { padding-left: 1.7rem; font-size: 0.85rem; }
+.outline a:hover, .outline a:focus-visible { color: var(--accent); }
+.outline a[aria-current] { color: var(--accent); font-weight: 700; border-left-color: var(--accent); }
+.results { list-style: none; margin: 0; padding: 0; }
+.results li { margin: 0 0 0.15rem; }
+.results a {
+  display: block; padding: 0.4rem 0.55rem; border-radius: 7px;
+  color: var(--ink); text-decoration: none; font-size: 0.88rem; line-height: 1.4;
+}
+.results a:hover, .results a:focus-visible { background: var(--panel); }
+.results .r-title { display: block; font-weight: 700; color: var(--accent); }
+.results .r-snip { display: block; color: var(--muted); font-size: 0.82rem; }
+.results mark { background: var(--flash); color: inherit; border-radius: 2px; }
+.no-results { color: var(--muted); font-size: 0.88rem; padding: 0.4rem 0.55rem; }
+
+/* ---- content ---- */
+main { min-width: 0; padding-bottom: 2rem; }
+h1 { font-size: 2.1rem; line-height: 1.15; letter-spacing: -0.015em; margin: 0.6rem 0 0.5rem; }
+h2 {
+  font-size: 1.35rem; margin: 3rem 0 0.7rem; padding-top: 1.6rem;
+  border-top: 1px solid var(--hairline-soft); scroll-margin-top: 1.5rem;
+}
+h3 { font-size: 1.02rem; margin: 1.9rem 0 0.5rem; scroll-margin-top: 1.5rem; }
+p, li { margin: 0 0 0.9rem; }
+ul, ol { padding-left: 1.2rem; }
+li { margin-bottom: 0.4rem; }
+.lede { color: var(--muted); font-size: 1.05rem; }
+.step-note { color: var(--muted); font-size: 0.92rem; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 1.2rem; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+th { color: var(--muted); font-weight: 700; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88em;
+  background: var(--panel); border: 1px solid var(--hairline);
+  border-radius: 5px; padding: 0.05em 0.35em;
+}
+pre {
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: 10px;
+  padding: 0.85rem 1rem; overflow-x: auto; margin: 0 0 1.2rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: 0.85rem; line-height: 1.55; }
+.aside {
+  background: var(--panel); border: 1px solid var(--hairline); border-radius: 10px;
+  padding: 0.9rem 1.1rem; margin: 0 0 1.2rem; font-size: 0.95rem;
+}
+.aside p:last-child { margin-bottom: 0; }
+/* A jumped-to heading is easy to lose when the page barely scrolls -- a
+   short wash of colour says "here", without leaving a permanent mark. */
+.flash { animation: flash 1.4s ease-out; }
+@keyframes flash {
+  from { background: var(--flash); }
+  to { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; } }
+
+footer {
+  margin-top: 3rem; border-top: 1px solid var(--hairline-soft);
+  padding: 1.6rem 1.25rem 2.2rem; display: flex; justify-content: center; align-items: baseline;
+  gap: 0.4rem 1.1rem; flex-wrap: wrap; text-align: center; color: var(--faint); font-size: 0.85rem;
+}
+footer a { color: var(--muted); }
+/* The haai mark swoops in beside the credit on hover. It occupies no width
+   at rest, so the footer reads as plain text until you reach for it; the
+   overshoot in the easing is what makes it arrive rather than merely fade. */
+/* Inline, not inline-flex: an inline-flex anchor takes its baseline from
+   its first flex item, and an <svg> has none, so the word "haai" drifted off
+   the baseline "made by" sits on. Inline-block + an explicit baseline offset
+   puts the mark, the credit and the label on one line. */
+.haai { text-decoration: none; white-space: nowrap; }
+.haai-mark {
+  display: inline-block; vertical-align: -0.13em;
+  height: 0.95em; width: 0; opacity: 0;
+  transform: translateX(-0.45em) rotate(-14deg);
+  transition: width 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              margin-right 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.35),
+              opacity 0.22s ease;
+}
+.haai:hover .haai-mark, .haai:focus-visible .haai-mark {
+  width: 0.95em; margin-right: 0.38em; opacity: 1;
+  transform: translateX(0) rotate(0deg);
+}
+@media (prefers-reduced-motion: reduce) { .haai-mark { transition: none; } }
+
+/* One column below the width where a 15rem panel and readable prose stop
+   fitting side by side. The panel keeps its place at the top of the
+   document rather than becoming an overlay: a table of contents is a
+   reasonable first screen for a documentation page. */
+@media (max-width: 62rem) {
+  .shell { grid-template-columns: 1fr; gap: 1.5rem; }
+  .side { position: static; max-height: none; overflow: visible; }
+  .search .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#content">Skip to content</a>
+
+<div class="topbar">
+  <a class="brand" href="/">reef</a>
+  <nav class="topnav" aria-label="Site">
+    <a href="/docs" aria-current="page">Docs</a>
+    <a href="/changelog">What's new</a>
+    <a class="btn" href="/api/auth/login">Sign in</a>
+  </nav>
+</div>
+
+<div class="shell">
+
+<aside class="side">
+  <form class="search" role="search" hidden onsubmit="return false">
+    <label class="skip" for="docs-search">Search the documentation</label>
+    <input id="docs-search" type="search" placeholder="Search the docs" autocomplete="off" spellcheck="false">
+    <span class="hint">/</span>
+  </form>
+  <details class="toc" open>
+    <summary>Contents</summary>
+    <nav class="outline" aria-label="Documentation outline">
+      <ol>
+        <li><a href="#what-reef-is">What reef is</a></li>
+        <li><a href="#coves-and-pages">Coves and pages</a></li>
+        <li><a href="#reading">How your assistant reads</a></li>
+        <li><a href="#writing">How your assistant writes</a></li>
+        <li><a href="#connect">Connect an assistant</a>
+          <ol>
+            <li><a href="#connect-claude">Claude</a></li>
+            <li><a href="#connect-chatgpt">ChatGPT</a></li>
+            <li><a href="#connect-codex">Codex</a></li>
+            <li><a href="#connect-claude-code">Claude Code</a></li>
+            <li><a href="#connect-cli">The CLI</a></li>
+          </ol>
+        </li>
+        <li><a href="#tools">Tool reference</a></li>
+        <li><a href="#sharing">Sharing and invitations</a></li>
+        <li><a href="#your-data">Your data</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+      </ol>
+    </nav>
+  </details>
+  <ul class="results" hidden></ul>
+  <p class="no-results" hidden>Nothing matches that.</p>
+</aside>
+
+<main id="content">
+
+<h1>Documentation</h1>
+<p class="lede">
+  Everything <span class="reef-name">reef</span> does, in the order you are likely to
+  need it: what it is, how memory is organised, how your assistant reads and
+  writes it, and how to connect one.
+</p>
+
+<h2 id="what-reef-is">What <span class="reef-name">reef</span> is</h2>
+<p>
+  <span class="reef-name">reef</span> is a shared, living memory for a group of people
+  and the AI assistants they talk to. You keep pages; your assistant reads them
+  before it answers, and writes back to them as things change.
+</p>
+<p>Three things separate it from the memory built into an assistant:</p>
+<ul>
+  <li><b>Shared, not personal.</b> A cove belongs to a household, a project or a
+    team, so everyone's assistant starts from the same picture.</li>
+  <li><b>A wiki, not a blob.</b> Memory is pages you can read, correct and
+    reorganise — not an opaque store you have to trust.</li>
+  <li><b>Map before memory.</b> An assistant loads an index of what exists, then
+    fetches only the pages the conversation actually needs.</li>
+</ul>
+<p>There are three ways in, all reaching the same memory:</p>
+<table>
+  <tr><th>Way in</th><th>Address</th></tr>
+  <tr><td>The browser app — read, edit, invite, export</td><td><a href="/app">reefwith.me/app</a></td></tr>
+  <tr><td>Any assistant that speaks MCP</td><td><code>https://reefwith.me/mcp</code></td></tr>
+  <tr><td>The terminal</td><td><code>uv tool install reef-cli</code></td></tr>
+</table>
+<div class="aside">
+  <p>
+    <span class="reef-name">reef</span> is invitation-only. There is no public
+    sign-up: you get in because someone already inside adds you to a cove.
+  </p>
+</div>
+
+<h2 id="coves-and-pages">Coves and pages</h2>
+<p>
+  A <b>cove</b> is a small group and the memory it shares. You get one private
+  cove, called <code>personal</code>, the first time you sign in. You can create
+  any number of shared ones — a household, a school circle, an accountant, a
+  small project.
+</p>
+<table>
+  <tr><th></th><th>Private cove</th><th>Shared cove</th></tr>
+  <tr><td>Who can read it</td><td>Only you</td><td>Everyone invited</td></tr>
+  <tr><td>Created</td><td>At first sign-in</td><td>By whoever needs it</td></tr>
+  <tr><td>Named</td><td>Always <code>personal</code></td><td>By you, for you</td></tr>
+  <tr><td>People join</td><td>Never</td><td>By email invitation from the owner</td></tr>
+</table>
+<p>
+  <b>You name a shared cove for yourself.</b> Your name for a cove is yours
+  alone. Two households can each have a <code>family</code> without either
+  knowing the other exists, and nobody can take a name from anybody else. The
+  consequence worth remembering: when someone tells you a page is "in the
+  family cove", they mean <em>their</em> name for it, which need not be yours.
+</p>
+<p>
+  A <b>page</b> is Markdown, from the moment you write it. Each one carries a
+  path such as <code>plans.md</code>, a title, tags, and a one-line description.
+  The description is what an assistant sees in the index, so it is worth
+  writing as a real summary rather than a label.
+</p>
+<div class="aside">
+  <p>
+    <b>Cove or space?</b> The app and this page say <em>cove</em>. The tools and
+    the CLI say <code>space</code> — every tool takes a <code>space</code>
+    argument. They are the same thing.
+  </p>
+</div>
+
+<h2 id="reading">How your assistant reads</h2>
+<p>
+  <span class="reef-name">reef</span> loads an <b>index first, then pages</b>. This
+  is the LLM Wiki pattern, adapted for shared, permissioned memory, and it is
+  why a large memory stays cheap to consult.
+</p>
+<ol>
+  <li>The assistant calls <code>load_index</code> and gets a map of every page it
+    may see: path, title, tags, and the one-line description. No page bodies.</li>
+  <li>It reads the map, decides what this conversation needs, and fetches only
+    that with <code>read_pages</code>.</li>
+  <li>It fetches again as the topic moves. When the map alone cannot settle what
+    to read, <code>search_pages</code> matches words inside page bodies.</li>
+</ol>
+<p>
+  The index is rebuilt from the database on every call, so it cannot fall out of
+  date. Search runs under the same row-level security as every other read, so it
+  can never surface a page its caller could not open.
+</p>
+
+<h2 id="writing">How your assistant writes</h2>
+<p>
+  Nothing is recorded silently. Mid-conversation, a fact worth keeping goes
+  through <code>remember</code>, which stages it as a dated line in that cove's
+  inbox. Before the conversation ends, the assistant says what it is keeping, so
+  you can strike anything first.
+</p>
+<p>
+  An inbox entry is not memory yet. A <b>tidy-up</b> — ask for one any time —
+  compiles inboxes onto real pages, flags pages that have gone stale, and
+  surfaces contradictions between your pages and shared ones instead of quietly
+  picking a winner.
+</p>
+<p>
+  Deliberate capture, reviewed by you, is the design:
+  <span class="reef-name">reef</span> will not transcribe your conversations behind
+  your back.
+</p>
+<p>For edits to real pages rather than the inbox, an assistant uses:</p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>write_page</code></td><td>Creates or replaces one page.</td></tr>
+  <tr><td><code>write_pages</code></td><td>Writes several pages as one change.</td></tr>
+  <tr><td><code>edit_page_section</code></td><td>Replaces one section, leaving the rest of the page untouched.</td></tr>
+  <tr><td><code>update_meta_page</code></td><td>Updates a cove's own index page.</td></tr>
+</table>
+
+<h2 id="connect">Connect an assistant</h2>
+<p>
+  Every route below signs in through the same browser flow. Use the email
+  address you were invited on — that is how invitations to a cove reach you, and
+  signing in with a different one gets you a different, empty account.
+</p>
+
+<h3 id="connect-claude">Claude</h3>
+<ol>
+  <li>Go to <b>Settings → Connectors</b> and choose to add a custom connector.</li>
+  <li>Paste <code>https://reefwith.me/mcp</code> as the address.</li>
+  <li>Claude opens a sign-in page. Sign in once.</li>
+</ol>
+<p class="step-note">
+  After this, every conversation — desktop, web, or the phone app — starts
+  already knowing.
+</p>
+
+<h3 id="connect-chatgpt">ChatGPT</h3>
+<ol>
+  <li>In the desktop app, go to <b>Settings → MCP servers</b> and select
+    <b>Add server</b>.</li>
+  <li>Name it <b class="reef-name">reef</b>, choose <b>Streamable HTTP</b>, paste
+    <code>https://reefwith.me/mcp</code>, and save. Then select <b>Restart</b>.</li>
+  <li>Back in MCP servers, select <b>Authenticate</b> and sign in.</li>
+</ol>
+<p class="step-note">
+  The ChatGPT desktop app and Codex share this setup on the same computer, so
+  doing it here does it for both.
+</p>
+
+<h3 id="connect-codex">Codex</h3>
+<pre><code>codex mcp add reef --url https://reefwith.me/mcp
+codex mcp login reef</code></pre>
+<p class="step-note">The second command finishes the sign-in in your browser.</p>
+
+<h3 id="connect-claude-code">Claude Code</h3>
+<p>The plugin carries the connector and three commands with it:</p>
+<pre><code>claude plugin marketplace add diepzee/reef
+claude plugin install reef@haai</code></pre>
+<p>
+  <code>/reef:recall</code> answers from memory rather than from guesswork,
+  <code>/reef:remember</code> files something away, and
+  <code>/reef:whats-new</code> reports what the other people's assistants have
+  been writing.
+</p>
+
+<h3 id="connect-cli">The CLI</h3>
+<p>Two packages, both installing a <code>reef</code> command:</p>
+<table>
+  <tr><th></th><th>Install</th><th>What you get</th></tr>
+  <tr><td><b>Python</b></td><td><code>uv tool install reef-cli</code></td><td>Every tool as a named command</td></tr>
+  <tr><td><b>npm</b></td><td><code>npm install -g @haai/reef-cli</code></td><td><code>login</code>, <code>tools</code>, and <code>call</code></td></tr>
+</table>
+<p>
+  Named commands use hyphens, so <code>load_index</code> becomes
+  <code>load-index</code>. Every result is JSON, and an error such as
+  <code>not_found</code> also exits non-zero.
+</p>
+<pre><code>reef login
+reef load-index
+reef read-pages personal profile.md preferences.md
+reef write-page personal plans.md --body-file ./plans.md \
+  --message "Add the summer plan" --title Plans
+reef call read_pages '{"space":"personal","paths":["plans.md"]}'</code></pre>
+<p>
+  <code>reef call</code> takes any tool name and a JSON object, so it reaches
+  everything the named commands do. Run <code>reef tools</code> for the live
+  schemas, and <code>reef &lt;command&gt; --help</code> for arguments.
+</p>
+<p>
+  Set <code>REEF_MCP_URL</code> to point at another server, or
+  <code>REEF_ACCESS_TOKEN</code> for a headless run. Each package caches its own
+  token, so signing in with one does not sign in the other.
+</p>
+<p>
+  There is also a bundled agent skill at
+  <a href="https://github.com/diepzee/reef/tree/main/skills/reef">skills/reef</a>,
+  which teaches an assistant the retrieval protocol, private-by-default writing,
+  optimistic locking, and when it must ask you before acting.
+</p>
+
+<h2 id="tools">Tool reference</h2>
+<p>
+  These are the tools an assistant sees over MCP, and the commands the CLI
+  mirrors. Every one that touches a cove takes a <code>space</code> argument.
+</p>
+<p><b>Reading</b></p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>load_index</code></td><td>The map of every page you may see — no bodies.</td></tr>
+  <tr><td><code>read_pages</code></td><td>Fetches several pages from one cove.</td></tr>
+  <tr><td><code>read_page</code></td><td>Fetches one page, optionally as it stood at a past date.</td></tr>
+  <tr><td><code>search_pages</code></td><td>Matches words inside page bodies.</td></tr>
+  <tr><td><code>load_all_context</code></td><td>Everything at once — for small coves, or a fresh start.</td></tr>
+  <tr><td><code>whats_new</code></td><td>What has changed since you last looked.</td></tr>
+  <tr><td><code>get_operating_protocol</code></td><td>The rules an assistant should follow here.</td></tr>
+</table>
+<p><b>Writing</b></p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>remember</code></td><td>Stages a fact as a dated line in the cove's inbox.</td></tr>
+  <tr><td><code>write_page</code></td><td>Creates or replaces one page.</td></tr>
+  <tr><td><code>write_pages</code></td><td>Writes several pages as one change.</td></tr>
+  <tr><td><code>edit_page_section</code></td><td>Replaces one section of a page.</td></tr>
+  <tr><td><code>update_meta_page</code></td><td>Updates a cove's own index page.</td></tr>
+  <tr><td><code>delete_page</code></td><td>Removes a page.</td></tr>
+</table>
+<p><b>Coves</b></p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>list_spaces</code></td><td>The coves you are in.</td></tr>
+  <tr><td><code>create_space</code></td><td>Makes a new shared cove.</td></tr>
+  <tr><td><code>rename_cove</code></td><td>Changes your own name for a cove.</td></tr>
+  <tr><td><code>leave_space</code></td><td>Removes you from a cove.</td></tr>
+  <tr><td><code>delete_space</code></td><td>Deletes a cove and its pages.</td></tr>
+</table>
+<p><b>People and sharing</b></p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>invite</code></td><td>Adds someone to one of your coves.</td></tr>
+  <tr><td><code>invite_to_reef</code></td><td>Brings someone new onto <span class="reef-name">reef</span>.</td></tr>
+  <tr><td><code>remove_member</code></td><td>Takes someone out of a cove.</td></tr>
+  <tr><td><code>prepare_to_share</code></td><td>Shows the exact text, and who would read it.</td></tr>
+  <tr><td><code>confirm_share</code></td><td>Moves it, once you have seen it.</td></tr>
+</table>
+<p><b>Files and images</b></p>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>add_file</code> · <code>read_file</code> · <code>delete_file</code></td><td>Documents attached to a cove.</td></tr>
+  <tr><td><code>add_image</code> · <code>read_image</code> · <code>delete_image</code></td><td>Images attached to a cove.</td></tr>
+</table>
+
+<h2 id="sharing">Sharing and invitations</h2>
+<p>
+  <b>Sharing is deliberate and permanent.</b> Moving something out of your
+  private cove takes two steps. First your assistant calls
+  <code>prepare_to_share</code>, which shows you the exact text and names
+  everyone who will be able to read it. Only then, with
+  <code>confirm_share</code>, does it move.
+</p>
+<p>
+  Writing private content into a shared cove any other way is refused — not
+  discouraged, refused. And there is no un-sharing: once other people can read
+  something, treat it as read.
+</p>
+<div class="aside">
+  <p>
+    <b><span class="reef-name">reef</span> sends no email.</b> Inviting someone
+    records that they may join — it does not tell them. Pass the invitation on
+    yourself, however you normally reach that person, or they will never know.
+  </p>
+</div>
+<p>
+  Invite someone already on <span class="reef-name">reef</span> into a cove with
+  <code>invite</code>. For someone new, <code>invite_to_reef</code> brings them
+  on. Both are addressed to an email, and that address is the one they must sign
+  in with.
+</p>
+
+<h2 id="your-data">Your data</h2>
+<p>
+  Pages are Markdown from the moment you write them. The browser app exports
+  two ways:
+</p>
+<ul>
+  <li><b>Current content</b>, as a Markdown archive or JSON.</li>
+  <li><b>Everything</b>, as one download with full revision history and your
+    stored file bytes.</li>
+</ul>
+<p>
+  Both are plain files that outlive this deployment. Export is one-way, out of
+  <span class="reef-name">reef</span> — nothing here locks your memory in. Deleting
+  means deleted.
+</p>
+<p>
+  Privacy is enforced by the database, not by application code. Every page,
+  file and membership is guarded by PostgreSQL row-level security, so a query
+  with a forgotten filter returns <b>nothing</b> rather than somebody else's
+  data. Getting it wrong fails closed.
+</p>
+<p>
+  The <a href="/privacy">privacy page</a> spells out what is stored, where it
+  lives, who can see it, and how to get it back or delete it. The
+  <a href="/terms">terms</a> cover the agreement itself.
+</p>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<h3 id="trouble-not-reading">My assistant answers without checking memory</h3>
+<p>
+  Ask it to load the index. Connecting <span class="reef-name">reef</span> makes the
+  memory available; it does not force an assistant to consult it every turn. In
+  Claude Code, <code>/reef:recall</code> asks for an answer from memory rather
+  than from guesswork.
+</p>
+
+<h3 id="trouble-invite-silent">I invited someone and they heard nothing</h3>
+<p>
+  That is expected. <span class="reef-name">reef</span> sends no email, so the
+  invitation reaches nobody until you pass it on yourself.
+</p>
+
+<h3 id="trouble-wrong-email">I signed in and my coves are gone</h3>
+<p>
+  You are probably in a second account. Invitations are addressed to an email
+  address, so signing in with a different one gives you a new, empty
+  <span class="reef-name">reef</span> rather than an error. Sign out and sign back in
+  with the address you were invited on.
+</p>
+
+<h3 id="trouble-two-logins">The CLI is signed in but my assistant is not</h3>
+<p>
+  Each package caches its own token, and the MCP connection has its own again.
+  Signing in to one does not sign in the others — do each once.
+</p>
+
+<h3 id="trouble-cove-name">Someone mentioned a cove I cannot find</h3>
+<p>
+  Cove names are per person. Their name for a cove is not necessarily yours, so
+  ask what is on the pages rather than what the cove is called — or check
+  <code>list_spaces</code> for what you actually have. If it is nowhere, you
+  have not been invited to it yet.
+</p>
+
+</main>
+</div>
+
+<footer>
+  <span>made by <a class="haai" href="https://www.rugvin.be" target="_blank" rel="noopener" aria-label="haai"><svg class="haai-mark" viewBox="0 0 146.8 146.8" fill="currentColor" aria-hidden="true" focusable="false"><path d="M0,0v146.8h146.8V0H0ZM141.8,115.2c-.4,0-.8,0-1.2,0-.6,0-1.2,0-1.8,0-.8,0-1.6,0-2.4,0-.5,0-1,0-1.5,0-.9,0-1.9,0-2.8,0-.4,0-.7,0-1.1,0-1.3,0-2.6,0-3.9,0-.5,0-.9,0-1.4,0-.2,0-.3,0-.5,0-.3,0-.6,0-.9,0,0,0-.1,0-.2,0,2.5-.9,5.9-1.9,8.5-2.4l3.4-.6-3.2-1.5c-1.7-.8-3.4-1.6-5-2.4-3.5-1.7-6.7-3.3-10.1-4.7-8.7-3.6-13.8-10.1-15.2-19.4-1.4-9.3-3-19.9-3.3-30.2,0-3.5-.5-5.8-2.2-7.1-1.3-1-3.2-1.1-6.1-.4-5.5,1.4-7.7,2.6-13.5,7.4-1.6,1.1-3.1,2.3-4.4,3.7-10.1,8.6-18,19.6-25.7,30.2-2.2,3.1-4.5,6.2-6.8,9.3-8.3,11-16.4,16.2-27.1,17.3-2.2.2-4.3.5-6.5.7l-1.8.2V5.1h136.7v110.2Z"/></svg>haai</a></span>
+  <span>© 2026 · <a href="/docs">Docs</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/changelog">Changelog</a></span>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var main = document.getElementById("content");
+  var form = document.querySelector(".search");
+  var input = document.getElementById("docs-search");
+  var outline = document.querySelector(".outline");
+  var toc = document.querySelector(".toc");
+  var results = document.querySelector(".results");
+  var empty = document.querySelector(".no-results");
+  if (!main || !form || !input || !outline || !toc || !results || !empty) return;
+
+  // ---- the index ----
+  // Built by walking the rendered page, never from a second copy of the
+  // content. A hand-maintained index beside a hand-maintained page is two
+  // things to keep in step, and the one that rots is always the one nobody
+  // can see rotting: search would quietly stop finding a section that was
+  // renamed, with the page itself looking perfectly correct.
+  var entries = [];
+  (function build() {
+    var walker = document.createTreeWalker(
+      main, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
+    );
+    var current = null;
+    var section = "";
+    var node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === 1) {
+        var tag = node.tagName;
+        // Every element boundary is a word boundary for indexing purposes.
+        // Without this the text nodes of adjacent cells, list items and
+        // paragraphs are concatenated bare, which welds the last word of one
+        // to the first of the next -- "read itOnly you" -- and those welded
+        // pairs match nothing anybody would type.
+        if (current) current.text += " ";
+        if ((tag === "H2" || tag === "H3") && node.id) {
+          // An h3's crumb is the h2 above it, so a result can say where it
+          // sits without the reader having to follow it to find out.
+          if (tag === "H2") section = node.textContent.trim();
+          current = {
+            id: node.id,
+            title: node.textContent.trim(),
+            crumb: tag === "H3" ? section : "",
+            text: ""
+          };
+          entries.push(current);
+        }
+      } else if (current) {
+        current.text += node.nodeValue;
+      }
+    }
+    entries.forEach(function (entry) {
+      entry.text = entry.text.replace(/\s+/g, " ").trim();
+      entry.haystack = (entry.title + " " + entry.text).toLowerCase();
+    });
+  })();
+
+  // ---- search ----
+  var LIMIT = 12;
+
+  function escapeHtml(text) {
+    return text.replace(/[&<>"]/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch];
+    });
+  }
+
+  function snippet(entry, term) {
+    var at = entry.text.toLowerCase().indexOf(term);
+    if (at < 0) return escapeHtml(entry.text.slice(0, 90)) + "…";
+    var from = Math.max(0, at - 35);
+    // Start on a word, not mid-syllable: an opening "...ve Who can read it"
+    // reads as a typo rather than as an excerpt.
+    if (from > 0) {
+      var space = entry.text.indexOf(" ", from);
+      if (space >= 0 && space < at) from = space + 1;
+    }
+    var slice = entry.text.slice(from, from + 110);
+    var marked = escapeHtml(slice).replace(
+      new RegExp("(" + term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"),
+      "<mark>$1</mark>"
+    );
+    return (from > 0 ? "…" : "") + marked + "…";
+  }
+
+  function render(query) {
+    var terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) {
+      // The disclosure, not the list inside it: results live outside the
+      // <details> precisely so a folded "Contents" -- which is how the
+      // narrow layout starts -- cannot swallow them. Toggling the whole
+      // element keeps the reader's open/closed choice for when they clear
+      // the box.
+      toc.hidden = false;
+      results.hidden = true;
+      empty.hidden = true;
+      results.innerHTML = "";
+      return;
+    }
+    var hits = entries.filter(function (entry) {
+      return terms.every(function (term) {
+        return entry.haystack.indexOf(term) >= 0;
+      });
+    }).slice(0, LIMIT);
+
+    toc.hidden = true;
+    empty.hidden = hits.length > 0;
+    results.hidden = hits.length === 0;
+    results.innerHTML = hits.map(function (entry) {
+      var where = entry.crumb ? escapeHtml(entry.crumb) + " › " : "";
+      return '<li><a href="#' + entry.id + '">' +
+        '<span class="r-title">' + where + escapeHtml(entry.title) + "</span>" +
+        '<span class="r-snip">' + snippet(entry, terms[0]) + "</span></a></li>";
+    }).join("");
+  }
+
+  form.hidden = false;   // the box works from here on, so now it may be seen
+  input.addEventListener("input", function () { render(input.value.trim()); });
+
+  input.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") {
+      input.value = "";
+      render("");
+      input.blur();
+    } else if (event.key === "Enter" || event.key === "ArrowDown") {
+      var first = results.querySelector("a");
+      if (first) { event.preventDefault(); first.focus(); }
+    }
+  });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+    var active = document.activeElement;
+    if (active && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) return;
+    event.preventDefault();
+    input.focus();
+  });
+
+  // Following a result restores the outline: the search has done its job,
+  // and leaving the results up would hide where the reader has landed.
+  results.addEventListener("click", function () {
+    input.value = "";
+    render("");
+  });
+
+  // ---- landing on a section ----
+  function flash() {
+    var target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (!target) return;
+    target.classList.remove("flash");
+    void target.offsetWidth;       // restart the animation on a repeat jump
+    target.classList.add("flash");
+  }
+  window.addEventListener("hashchange", flash);
+  if (location.hash) flash();
+
+  // ---- which section am I in ----
+  var links = {};
+  Array.prototype.forEach.call(outline.querySelectorAll("a[href^='#']"), function (a) {
+    links[a.getAttribute("href").slice(1)] = a;
+  });
+  var headings = main.querySelectorAll("h2[id], h3[id]");
+  if (!window.IntersectionObserver || !headings.length) return;
+
+  var visible = new Set();
+  var order = Array.prototype.map.call(headings, function (h) { return h.id; });
+
+  function mark() {
+    // The topmost heading currently in the reading band, so a long section
+    // keeps its own entry lit rather than handing it to the next one early.
+    var current = order.find(function (id) { return visible.has(id); });
+    Object.keys(links).forEach(function (id) {
+      if (id === current) links[id].setAttribute("aria-current", "true");
+      else links[id].removeAttribute("aria-current");
+    });
+  }
+
+  var observer = new IntersectionObserver(function (records) {
+    records.forEach(function (record) {
+      if (record.isIntersecting) visible.add(record.target.id);
+      else visible.delete(record.target.id);
+    });
+    mark();
+  }, { rootMargin: "0px 0px -70% 0px" });
+  Array.prototype.forEach.call(headings, function (h) { observer.observe(h); });
+
+  // Below the two-column breakpoint the outline is a long list standing
+  // between the reader and the first paragraph, so it starts folded there.
+  if (window.matchMedia("(max-width: 62rem)").matches) {
+    toc.open = false;
+  }
+})();
+</script>
+</body>
+</html>
