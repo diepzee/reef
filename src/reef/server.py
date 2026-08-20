@@ -1525,6 +1525,45 @@ async def delete_image(space: str, key: str) -> dict:
     return await _delete_file(space, key)
 
 
+def transport_body_limit(file_max_bytes: int) -> int:
+    """Request-body ceiling that lets the largest allowed file through.
+
+    An ``add_file`` payload carries the file as base64 (4/3 the raw size)
+    inside a JSON-RPC envelope, so the transport must accept more than
+    ``file_max_bytes`` or the advertised cap is unreachable.
+
+    :param file_max_bytes: the raw-file cap from settings
+    :returns: that cap in base64 form, plus a MiB of envelope headroom
+    """
+    return file_max_bytes * 4 // 3 + 1_048_576
+
+
+def _lift_transport_body_limit() -> None:
+    """Make the Streamable HTTP transport accept a maximum-size ``add_file``.
+
+    The MCP SDK's session manager 413s any request body over 4 MiB before
+    reef sees it, silently capping uploads far below ``file_max_bytes`` —
+    a 25MB file arrives as ~34MB of base64-encoded JSON and never reaches
+    the tool. FastMCP constructs the manager itself and offers no way to
+    pass ``max_request_body_size`` through, so the default is injected at
+    the SDK base class; ``setdefault`` keeps any explicitly passed value
+    winning, and the sentinel keeps a second call from wrapping twice.
+    """
+    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+
+    if getattr(StreamableHTTPSessionManager, "_reef_body_limit", False):
+        return
+    limit = transport_body_limit(get_settings().file_max_bytes)
+    original = StreamableHTTPSessionManager.__init__
+
+    def sized_init(self, *args, **kwargs):
+        kwargs.setdefault("max_request_body_size", limit)
+        original(self, *args, **kwargs)
+
+    StreamableHTTPSessionManager.__init__ = sized_init
+    StreamableHTTPSessionManager._reef_body_limit = True
+
+
 def main() -> None:
     """Run over HTTP when PORT is set (production), otherwise stdio (dev).
 
@@ -1588,6 +1627,7 @@ def main() -> None:
             telemetry.instrument_clients()
             middleware = telemetry.request_middleware()
             print("telemetry: exporting to Logfire")
+        _lift_transport_body_limit()
         mcp.run(
             transport="http",
             host="0.0.0.0",
