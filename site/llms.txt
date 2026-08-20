@@ -26,6 +26,9 @@ someone already inside adds them to a cove.
 
 - [Home](https://reefwith.me/): what reef is, how coves work, and how to
   connect Claude, ChatGPT, Codex or the CLI to it.
+- [Documentation](https://reefwith.me/docs): coves and pages, how an assistant
+  reads and writes memory, connection steps for each client, and the full tool
+  reference.
 - [What's new](https://reefwith.me/changelog): release notes, newest first.
 - [Privacy](https://reefwith.me/privacy): what is stored, where it lives, who
   can see it, and how to get it back or delete it.

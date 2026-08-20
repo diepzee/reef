@@ -173,7 +173,16 @@ nav {
   color: var(--accent); text-decoration: none;
 }
 .brand svg { color: var(--accent); width: 20px; height: 17px; }
-nav .cta { margin-left: auto; transition: opacity 0.25s ease, visibility 0.25s ease; }
+/* The docs link takes the auto margin, so it — not the button — is what
+   holds the right-hand side of the nav. That matters because .cta gets
+   hidden on handover below, and the link must not go with it. */
+.navlink {
+  margin-left: auto; color: var(--muted); text-decoration: none;
+  font-weight: 700; font-size: 0.95rem;
+  transition: color 0.2s ease;
+}
+.navlink:hover, .navlink:focus-visible { color: var(--accent); }
+nav .cta { margin-left: 1.25rem; transition: opacity 0.25s ease, visibility 0.25s ease; }
 /* Sign in appears once at a time: the nav button steps aside while the closing panel — which
    carries the same action as its primary call — is on screen. */
 nav.handover .cta { opacity: 0; visibility: hidden; }
@@ -648,6 +657,7 @@ footer a { color: var(--muted); }
     <svg viewBox="9.5 10.5 45 43" width="21" height="20" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><use href="#o-brain-coral"/></svg>
     <span>reef</span>
   </a>
+  <a class="navlink" href="/docs">Docs</a>
   <span class="cta"><a class="btn" href="/api/auth/login">Sign in</a></span>
 </nav>
 
@@ -1040,7 +1050,7 @@ footer a { color: var(--muted); }
   <div class="wrap">
     <footer>
       <span>made by <a class="haai" href="https://www.rugvin.be" target="_blank" rel="noopener" aria-label="haai"><svg class="haai-mark" viewBox="0 0 146.8 146.8" fill="currentColor" aria-hidden="true" focusable="false"><path d="M0,0v146.8h146.8V0H0ZM141.8,115.2c-.4,0-.8,0-1.2,0-.6,0-1.2,0-1.8,0-.8,0-1.6,0-2.4,0-.5,0-1,0-1.5,0-.9,0-1.9,0-2.8,0-.4,0-.7,0-1.1,0-1.3,0-2.6,0-3.9,0-.5,0-.9,0-1.4,0-.2,0-.3,0-.5,0-.3,0-.6,0-.9,0,0,0-.1,0-.2,0,2.5-.9,5.9-1.9,8.5-2.4l3.4-.6-3.2-1.5c-1.7-.8-3.4-1.6-5-2.4-3.5-1.7-6.7-3.3-10.1-4.7-8.7-3.6-13.8-10.1-15.2-19.4-1.4-9.3-3-19.9-3.3-30.2,0-3.5-.5-5.8-2.2-7.1-1.3-1-3.2-1.1-6.1-.4-5.5,1.4-7.7,2.6-13.5,7.4-1.6,1.1-3.1,2.3-4.4,3.7-10.1,8.6-18,19.6-25.7,30.2-2.2,3.1-4.5,6.2-6.8,9.3-8.3,11-16.4,16.2-27.1,17.3-2.2.2-4.3.5-6.5.7l-1.8.2V5.1h136.7v110.2Z"/></svg>haai</a></span>
-      <span>© 2026 · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/changelog">Changelog</a></span>
+      <span>© 2026 · <a href="/docs">Docs</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/changelog">Changelog</a></span>
     </footer>
   </div>
 </section>

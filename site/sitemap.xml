@@ -8,6 +8,10 @@
     <priority>1.0</priority>
   </url>
   <url>
+    <loc>https://reefwith.me/docs</loc>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://reefwith.me/changelog</loc>
     <priority>0.6</priority>
   </url>

@@ -16,11 +16,11 @@ Glama directory's ownership claim on the same footing: a public, tokenless
 document at a fixed path that a third party fetches on its own schedule.
 
 The marketing pages that outside parties address by name get root paths of
-their own for the same reason: ``GET /privacy``, ``GET /terms`` and ``GET
-/changelog`` for the pages the footer links, and ``GET /robots.txt``, ``GET
-/sitemap.xml`` and ``GET /llms.txt`` for the files crawlers fetch at fixed
-locations. Their ``/site/*.html`` copies 301 to those paths, so each page
-answers at exactly one address.
+their own for the same reason: ``GET /privacy``, ``GET /terms``, ``GET
+/changelog`` and ``GET /docs`` for the pages the nav and footer link, and
+``GET /robots.txt``, ``GET /sitemap.xml`` and ``GET /llms.txt`` for the
+files crawlers fetch at fixed locations. Their ``/site/*.html`` copies 301
+to those paths, so each page answers at exactly one address.
 """
 
 import re
@@ -205,6 +205,7 @@ _CANONICAL_PAGES = {
     "privacy.html": "/privacy",
     "terms.html": "/terms",
     "changelog.html": "/changelog",
+    "docs.html": "/docs",
 }
 
 
@@ -314,6 +315,19 @@ def register_static_routes(mcp) -> None:
         """
         return _serve_site_page("changelog.html")
 
+    async def docs(request: Request) -> Response:
+        """Serve the documentation page at the origin root.
+
+        The one page somebody links to a specific part of -- a section
+        anchor like ``/docs#connect-codex`` is what gets pasted into a
+        chat when someone is talked through setup -- so the path in front
+        of the fragment has to be short and permanent.
+
+        :param request: the incoming request
+        :returns: see :func:`_serve_site_page`
+        """
+        return _serve_site_page("docs.html")
+
     async def robots(request: Request) -> Response:
         """Serve the crawl policy.
 
@@ -421,6 +435,7 @@ def register_static_routes(mcp) -> None:
     mcp.custom_route("/privacy", methods=["GET"])(privacy)
     mcp.custom_route("/terms", methods=["GET"])(terms)
     mcp.custom_route("/changelog", methods=["GET"])(changelog)
+    mcp.custom_route("/docs", methods=["GET"])(docs)
     mcp.custom_route("/robots.txt", methods=["GET"])(robots)
     mcp.custom_route("/sitemap.xml", methods=["GET"])(sitemap)
     mcp.custom_route("/llms.txt", methods=["GET"])(llms)
