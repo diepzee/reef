@@ -36,7 +36,7 @@ ROLE = "rif_app"
 # BYPASSRLS function owner breaks the cycle. NOLOGIN and no password: nothing
 # connects as it, so the bypass is reachable only by calling one of the
 # functions it owns.
-AUTHZ_ROLE = "rif_authz"
+AUTHZ_ROLE = "reef_authz"
 
 # The application's own tables. Granted explicitly rather than via ALL TABLES
 # so a future table is a deliberate decision, not an automatic grant.
@@ -118,7 +118,7 @@ async def _provision_authz(conn: asyncpg.Connection) -> None:
     Creating a ``BYPASSRLS`` role requires superuser, which is why this runs
     here -- by hand, on the admin credential -- rather than in the boot
     migration. The ``GRANT`` afterwards is not cosmetic: migrations run
-    ``ALTER FUNCTION ... OWNER TO rif_authz``, and Postgres requires the
+    ``ALTER FUNCTION ... OWNER TO reef_authz``, and Postgres requires the
     executing role to be a member of the role it gives ownership to.
 
     :param conn: an open connection on a role that can create roles

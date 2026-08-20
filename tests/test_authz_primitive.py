@@ -5,7 +5,7 @@ policy system possible: that ``reef_space_ids()`` reads ``memberships``
 without being filtered by ``memberships``' own policy, so a predicate can
 call it without recursing.
 
-If ``rif_authz`` ever loses ``BYPASSRLS``, or a future migration recreates a
+If ``reef_authz`` ever loses ``BYPASSRLS``, or a future migration recreates a
 function under a different owner, the design silently reverts to the shape
 that exhausts the server's stack on the first request. The ownership test
 below is the tripwire for exactly that.

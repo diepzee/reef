@@ -54,17 +54,23 @@ _FROZEN_DISABLE = [
     "DROP FUNCTION IF EXISTS reef_member_space_ids()",
 ]
 
+# The owner named here moved with the role itself. These statements are
+# frozen against code drift, not against the cluster: any database that
+# already ran this migration will never run it again, and every database
+# that runs it from now on is built by an initdb that creates reef_authz.
+# Leaving the old name would fail on exactly the clusters this still runs
+# against, and help none of the ones it does not.
 _FROZEN_ENABLE = [
     "CREATE OR REPLACE FUNCTION reef_space_ids() RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $reef$SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid$reef$",
-    "ALTER FUNCTION reef_space_ids() OWNER TO rif_authz",
+    "ALTER FUNCTION reef_space_ids() OWNER TO reef_authz",
     "REVOKE ALL ON FUNCTION reef_space_ids() FROM PUBLIC",
-    "GRANT SELECT ON memberships TO rif_authz",
+    "GRANT SELECT ON memberships TO reef_authz",
     "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_space_ids() TO rif_app'; END IF; END $do$",
     "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_space_ids() TO rif'; END IF; END $do$",
     "CREATE OR REPLACE FUNCTION reef_member_space_ids() RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $reef$SELECT space_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'$reef$",
-    "ALTER FUNCTION reef_member_space_ids() OWNER TO rif_authz",
+    "ALTER FUNCTION reef_member_space_ids() OWNER TO reef_authz",
     "REVOKE ALL ON FUNCTION reef_member_space_ids() FROM PUBLIC",
-    "GRANT SELECT ON memberships TO rif_authz",
+    "GRANT SELECT ON memberships TO reef_authz",
     "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_space_ids() TO rif_app'; END IF; END $do$",
     "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_space_ids() TO rif'; END IF; END $do$",
     "ALTER TABLE pages ENABLE ROW LEVEL SECURITY",

@@ -24,7 +24,7 @@ which reads ``memberships``, which... -- the server dies with "stack depth
 limit exceeded". ``FORCE ROW LEVEL SECURITY`` closes the usual escape,
 because it subjects the table *owner* to policies too, and a
 ``SECURITY DEFINER`` function owned by the owner is therefore no help. Only
-an owner holding ``BYPASSRLS`` breaks the cycle. Hence ``rif_authz``: a
+an owner holding ``BYPASSRLS`` breaks the cycle. Hence ``reef_authz``: a
 ``NOLOGIN`` role that owns these functions and nothing else, so the bypass is
 reachable only by calling one of them. All of this was verified against a
 live server before being relied on.
