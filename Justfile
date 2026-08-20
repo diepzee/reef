@@ -65,20 +65,29 @@ db-roles:
     #!/usr/bin/env bash
     set -euo pipefail
     psql() { PGPASSWORD=postgres command psql -h localhost -p 5433 -U postgres "$@"; }
+    # Rename an old cluster's authz role rather than making a second one.
+    # It is NOLOGIN, so nothing connects as it and the rename cannot lock
+    # anybody out; function ownership is recorded by OID and follows along.
+    # Clusters that already say reef_authz, and brand new ones, skip this.
     psql -d postgres -v ON_ERROR_STOP=0 -q <<'SQL' 2>/dev/null || true
-    CREATE ROLE rif_authz NOLOGIN BYPASSRLS;
-    GRANT rif_authz TO rif;
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_authz')
+         AND NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef_authz')
+      THEN ALTER ROLE rif_authz RENAME TO reef_authz; END IF;
+    END $$;
+    CREATE ROLE reef_authz NOLOGIN BYPASSRLS;
+    GRANT reef_authz TO rif;
     CREATE ROLE rif_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
       NOCREATEDB NOCREATEROLE NOREPLICATION;
     SQL
     for db in rif rif_test; do
       psql -d "$db" -q <<'SQL'
-    GRANT CREATE ON SCHEMA public TO rif_authz;
+    GRANT CREATE ON SCHEMA public TO reef_authz;
     GRANT USAGE ON SCHEMA public TO rif_probe;
     SQL
       psql -d "$db" -q -c "GRANT CONNECT ON DATABASE $db TO rif_probe" || true
     done
-    echo "roles present: rif_authz (NOLOGIN BYPASSRLS), rif_probe (ordinary)"
+    echo "roles present: reef_authz (NOLOGIN BYPASSRLS), rif_probe (ordinary)"
 
 # Apply migrations to the development database.
 migrate:
