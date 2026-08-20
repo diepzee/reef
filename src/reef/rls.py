@@ -1,7 +1,7 @@
 """Row-level security policy DDL, shared by the schema migration and tests.
 
 The migrations under ``src/reef/piccolo_migrations/`` apply these policies to
-the real database; ``tests/conftest.py`` applies them to ``rif_test`` when
+the real database; ``tests/conftest.py`` applies them to ``reef_test`` when
 building the test schema. RLS is the security boundary for this project, so
 the two call sites must never be allowed to drift apart — a difference here
 would mean tests validate policies that production does not actually enforce.
@@ -105,8 +105,8 @@ this role in the first place. So the rename lands on the operator's
 schedule, not a deploy's, and the DDL below has to work on either side of it.
 
 Safe to rename precisely because it is ``NOLOGIN``: nothing connects as it,
-so no credential names it. That is what separates it from ``rif``/``rif_app``
-/``rif_probe``, whose names live in connection strings and cannot move
+so no credential names it. That is what separates it from ``reef``/``reef_app``
+/``reef_probe``, whose names live in connection strings and cannot move
 without the connection string moving in the same breath."""
 
 
@@ -236,7 +236,7 @@ def _function_ddl(
         _for_authz(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO %I")
         for table in writes
     ]
-    # A cluster has either rif_app (production) or rif (dev/test), not both.
+    # A cluster has either reef_app (production) or reef (dev/test), not both.
     # GRANT against a missing role is a hard error, so each is guarded.
     statements += [
         f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "

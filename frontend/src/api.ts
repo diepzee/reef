@@ -2,7 +2,7 @@
  * The `/api/*` fetch client every later task's data access builds on.
  *
  * Requests always send same-origin cookies (session auth); mutations carry
- * the CSRF header the backend requires (`X-Rif-Csrf: 1`, see
+ * the CSRF header the backend requires (`X-Reef-Csrf: 1`, see
  * `src/reef/web/requests.py:require_csrf`). A 401 anywhere means the session
  * is gone, so it redirects to the login route rather than surfacing an
  * error the caller would have to special-case.
@@ -82,7 +82,7 @@ export async function apiSend<T>(
     method,
     credentials: "same-origin",
     headers: {
-      "X-Rif-Csrf": "1",
+      "X-Reef-Csrf": "1",
       "Content-Type": "application/json",
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -126,7 +126,7 @@ export async function apiDownload(
     method: "POST",
     credentials: "same-origin",
     headers: {
-      "X-Rif-Csrf": "1",
+      "X-Reef-Csrf": "1",
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body ?? {}),

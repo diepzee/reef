@@ -1,10 +1,10 @@
--- Create the role that owns rif.rls's SECURITY DEFINER helper functions.
+-- Create the role that owns reef.rls's SECURITY DEFINER helper functions.
 --
 -- Run once per database, before the migration that installs those functions.
 -- Idempotent: safe to re-run, and re-asserts the attributes rather than
 -- assuming a role of the right name is the right shape.
 --
---     railway run --service rif-app -- sh -c \
+--     railway run --service reef-app -- sh -c \
 --       'psql "$REEF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \
 --          -f scripts/provision_authz_role.sql'
 --

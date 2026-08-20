@@ -2,10 +2,10 @@ services:
   db:
     image: postgres:17
     environment:
-      # Deliberately NOT POSTGRES_USER: "rif". The image always makes
+      # Deliberately NOT POSTGRES_USER: "reef". The image always makes
       # POSTGRES_USER a superuser with BYPASSRLS, and that bit can never be
       # stripped back off the bootstrap role -- see
-      # docker/initdb/01-create-app-role-and-databases.sql. "rif" is
+      # docker/initdb/01-create-app-role-and-databases.sql. "reef" is
       # created there instead, as an ordinary role, so RLS is actually
       # enforced against it in local dev/test the way it will be on
       # Railway's non-superuser app role.

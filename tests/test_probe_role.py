@@ -1,9 +1,9 @@
 """The probe role, and why the suite cannot do without it.
 
 The tests here assert a property of the *test harness* rather than of reef.
-Everything else in the suite connects as ``rif``, which owns the tables, and
+Everything else in the suite connects as ``reef``, which owns the tables, and
 an owner's privileges are implicit: a column grant that stops production's
-``rif_app`` dead does not constrain the owner at all.
+``reef_app`` dead does not constrain the owner at all.
 
 So a test written the obvious way -- "a member cannot rewrite a cove's slug"
 -- would pass against the owner while the policy it claims to prove was

@@ -6,9 +6,9 @@
 # The database is the part worth knowing about. reef's privacy boundary is
 # row-level security, and RLS is only enforced against an *ordinary* role: a
 # superuser, or any role holding BYPASSRLS, ignores every policy. The local
-# cluster therefore has three roles with different jobs — `rif` owns the
+# cluster therefore has three roles with different jobs — `reef` owns the
 # databases, `rif_authz` owns the policy helper functions and nothing else,
-# and `rif_probe` is a non-owner stand-in that the test suite uses to assert
+# and `reef_probe` is a non-owner stand-in that the test suite uses to assert
 # privileges honestly. They are created once, at first cluster bootstrap, by
 # docker/initdb — which only runs on an empty volume. `just db-roles` repairs
 # a cluster that predates them.
@@ -76,18 +76,18 @@ db-roles:
       THEN ALTER ROLE rif_authz RENAME TO reef_authz; END IF;
     END $$;
     CREATE ROLE reef_authz NOLOGIN BYPASSRLS;
-    GRANT reef_authz TO rif;
-    CREATE ROLE rif_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
+    GRANT reef_authz TO reef;
+    CREATE ROLE reef_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
       NOCREATEDB NOCREATEROLE NOREPLICATION;
     SQL
-    for db in rif rif_test; do
+    for db in reef reef_test; do
       psql -d "$db" -q <<'SQL'
     GRANT CREATE ON SCHEMA public TO reef_authz;
-    GRANT USAGE ON SCHEMA public TO rif_probe;
+    GRANT USAGE ON SCHEMA public TO reef_probe;
     SQL
-      psql -d "$db" -q -c "GRANT CONNECT ON DATABASE $db TO rif_probe" || true
+      psql -d "$db" -q -c "GRANT CONNECT ON DATABASE $db TO reef_probe" || true
     done
-    echo "roles present: reef_authz (NOLOGIN BYPASSRLS), rif_probe (ordinary)"
+    echo "roles present: reef_authz (NOLOGIN BYPASSRLS), reef_probe (ordinary)"
 
 # Apply migrations to the development database.
 migrate:
@@ -95,17 +95,17 @@ migrate:
 
 # Open a psql shell on the development database as the app role.
 psql:
-    PGPASSWORD=rif psql -h localhost -p 5433 -U rif -d rif
+    PGPASSWORD=reef psql -h localhost -p 5433 -U reef -d reef
 
 # Drop and rebuild the *test* database's schema. Development data is untouched.
 db-reset-test:
     #!/usr/bin/env bash
     set -euo pipefail
-    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d rif_test -q <<'SQL'
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test -q <<'SQL'
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
-    GRANT ALL ON SCHEMA public TO rif;
-    GRANT USAGE ON SCHEMA public TO rif_probe;
+    GRANT ALL ON SCHEMA public TO reef;
+    GRANT USAGE ON SCHEMA public TO reef_probe;
     -- Both spellings of the authz role: it was renamed once, and a cluster
     -- may carry either. Granting only the old one leaves the new one unable
     -- to create its helper functions, which fails as "permission denied for
@@ -119,14 +119,14 @@ db-reset-test:
       END IF;
     END $$;
     SQL
-    echo "rif_test schema reset; the next test run rebuilds it"
+    echo "reef_test schema reset; the next test run rebuilds it"
 
 # --- tests and checks -----------------------------------------------------
 
 # Everything CI would run: lint, format check, backend and frontend tests.
 test: lint test-py test-js
 
-# Every worktree shares one rif_test, and the schema fixture rebuilds the
+# Every worktree shares one reef_test, and the schema fixture rebuilds the
 # helper functions globally — so two suites at once clobber each other and
 # the second reports a screenful of failures that are not about the code.
 # scripts/run_tests.py holds a machine-wide lock so the second one waits.

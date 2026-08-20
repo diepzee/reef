@@ -36,16 +36,16 @@ from reef.config import get_settings
 
 #: Built and dropped per run. Named so a leftover after a hard kill is
 #: obviously debris rather than something anybody's data lives in.
-DRILL_DATABASE = "rif_migration_drill"
+DRILL_DATABASE = "reef_migration_drill"
 
 #: What ``docker/initdb`` gives the real databases at cluster bootstrap, and
 #: what ``scripts/provision_authz_role.sql`` gives production. The chain is
 #: entitled to assume this much and no more; anything else it needs, it must
 #: create for itself.
 _PROVISION = (
-    "ALTER SCHEMA public OWNER TO rif",
+    "ALTER SCHEMA public OWNER TO reef",
     "GRANT CREATE ON SCHEMA public TO reef_authz",
-    "GRANT USAGE ON SCHEMA public TO rif_probe",
+    "GRANT USAGE ON SCHEMA public TO reef_probe",
     "CREATE EXTENSION IF NOT EXISTS pgcrypto",
 )
 
@@ -100,7 +100,7 @@ async def drilled() -> str:
             DRILL_DATABASE,
         )
         await admin.execute(f'DROP DATABASE IF EXISTS "{DRILL_DATABASE}"')
-        await admin.execute(f'CREATE DATABASE "{DRILL_DATABASE}" OWNER rif')
+        await admin.execute(f'CREATE DATABASE "{DRILL_DATABASE}" OWNER reef')
     finally:
         await admin.close()
 
@@ -163,16 +163,16 @@ def _repo_root() -> str:
 def _swap_to_app_role(dsn: str) -> str:
     """Return ``dsn`` with the owning role's credentials.
 
-    Migrations run as ``rif`` locally -- the role that owns the databases --
+    Migrations run as ``reef`` locally -- the role that owns the databases --
     not as the superuser that created this one, so the drill exercises the
     privileges the chain actually has.
 
     :param dsn: a superuser DSN
-    :returns: the same target as ``rif``
+    :returns: the same target as ``reef``
     """
     scheme, _, rest = dsn.partition("://")
     _, _, hostpart = rest.rpartition("@")
-    return f"{scheme}://rif:rif@{hostpart}"
+    return f"{scheme}://reef:reef@{hostpart}"
 
 
 async def _shape(dsn: str) -> dict[str, set]:
@@ -214,7 +214,7 @@ async def _shape(dsn: str) -> dict[str, set]:
         grants = await connection.fetch(
             "SELECT table_name, column_name, grantee FROM "
             "information_schema.column_privileges WHERE table_schema = 'public' "
-            "AND privilege_type = 'UPDATE' AND grantee IN ('rif', 'rif_app') "
+            "AND privilege_type = 'UPDATE' AND grantee IN ('reef', 'reef_app') "
             "AND table_name <> 'migration'"
         )
         return {
@@ -308,7 +308,7 @@ async def test_the_chain_creates_every_function_reef_rls_declares(drilled):
             for row in await connection.fetch(
                 "SELECT p.proname FROM pg_proc p "
                 "JOIN pg_namespace n ON n.oid = p.pronamespace "
-                "WHERE n.nspname = 'public' AND p.proname LIKE 'rif%'"
+                "WHERE n.nspname = 'public' AND p.proname LIKE 'reef%'"
             )
         }
     finally:

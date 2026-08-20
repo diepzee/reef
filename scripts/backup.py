@@ -2,7 +2,7 @@
 leave the machine in the same run.
 
 Deliberately does NOT read ``DATABASE_URL``. That is the application's
-constrained ``rif_app`` role, and ``pg_dump`` issues ``COPY <table> TO
+constrained ``reef_app`` role, and ``pg_dump`` issues ``COPY <table> TO
 stdout``, which Postgres refuses outright on an RLS-protected table for any
 role subject to the policy::
 
@@ -45,7 +45,7 @@ def _database_url() -> str:
 def main() -> None:
     """Dump the database and upload it, verifying the object landed."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    key = f"backups/rif-{stamp}.dump"
+    key = f"backups/reef-{stamp}.dump"
 
     dump = subprocess.run(
         ["pg_dump", "--format=custom", _database_url()],

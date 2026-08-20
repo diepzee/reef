@@ -54,12 +54,12 @@ jobs:
           enable-cache: true
 
       - name: Wait for the cluster to finish bootstrapping
-        # The app role and rif_test are created by the init script, so
-        # connecting as rif to rif_test is the real readiness condition --
+        # The app role and reef_test are created by the init script, so
+        # connecting as reef to reef_test is the real readiness condition --
         # an open port is not, and pg_isready would pass too early.
         run: |
           for _ in $(seq 1 60); do
-            if PGPASSWORD=rif psql -h localhost -p 5433 -U rif -d rif_test \
+            if PGPASSWORD=reef psql -h localhost -p 5433 -U reef -d reef_test \
                  -c 'select 1' >/dev/null 2>&1; then
               echo "cluster ready"
               exit 0

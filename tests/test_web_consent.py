@@ -17,7 +17,7 @@ def _render(**overrides) -> str:
         "txn_id": "txn-1",
         "csrf_token": "csrf-tok",
         "client_name": "Claude",
-        "server_name": "rif",
+        "server_name": "reef",
         "server_icon_url": None,
         "server_website_url": "https://reefwith.me",
         "client_website_url": None,
@@ -76,14 +76,17 @@ def test_page_tells_the_truth():
 
 
 def test_brand_header_always_reads_reef():
-    """The header names the product, never the FastMCP server's internal name.
+    """The header names the product, never the FastMCP server's own name.
 
-    FastMCP's server is named "rif" -- server_name would carry that
-    verbatim into production if it leaked into the brand header.
+    The two agree today -- the server is called "reef" -- which is exactly
+    when this guard stops being observable. So it is rendered with a name
+    that is deliberately not the product's: if the header ever starts
+    echoing server_name, this fails instead of silently passing because the
+    two happen to match.
     """
-    html = _render(server_name="rif")
+    html = _render(server_name="some-internal-name")
     assert ">reef</span>" in html
-    assert ">rif</span>" not in html
+    assert "some-internal-name" not in html
 
 
 def test_client_name_is_escaped():

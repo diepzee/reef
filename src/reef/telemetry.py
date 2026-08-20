@@ -61,7 +61,7 @@ def configure() -> bool:
     import logfire
 
     logfire.configure(
-        service_name="rif",
+        service_name="reef",
         # Railway injects the deploying commit, which makes it possible to
         # say which build a trace came from. Absent locally, hence the guard.
         service_version=os.environ.get("RAILWAY_GIT_COMMIT_SHA") or None,

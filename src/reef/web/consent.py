@@ -168,7 +168,7 @@ def create_consent_html(
     :param title: page title override (unused; reef sets its own)
     :param server_name: accepted and unused -- the brand header always
         reads "reef", the product name, never the FastMCP server's
-        internal name (``"rif"``)
+        internal name (``"reef"``)
     :param server_icon_url: this server's icon, if advertised
     :param server_website_url: accepted and unused (this design has no
         server-site link)

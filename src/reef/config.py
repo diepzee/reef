@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 #: What settings are spelled with now.
 PREFIX = "REEF_"
 
-#: What they were spelled with when the module was called rif. Kept working
+#: What they were spelled with when the module was called reef. Kept working
 #: because twelve of them are set on Railway production -- the signing key
 #: and the open-door pair among them -- and a variable renamed in code but
 #: not in the deployment does not read as "renamed", it reads as absent.
@@ -64,8 +64,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix=PREFIX)
 
-    database_url: str = "postgresql://rif:rif@localhost:5433/rif"
-    test_database_url: str = "postgresql://rif:rif@localhost:5433/rif_test"
+    database_url: str = "postgresql://reef:reef@localhost:5433/reef"
+    test_database_url: str = "postgresql://reef:reef@localhost:5433/reef_test"
     migration_database_url: str = ""
     context_char_budget: int = 150_000
     # Above context_char_budget on purpose: a page bigger than the whole

@@ -1,7 +1,7 @@
 """Test fixtures: a real Postgres, real RLS policies, a real household.
 
-``DATABASE_URL`` is set before any ``rif`` import because ``reef.db`` builds
-its engine at module scope; pointing it at ``rif_test`` afterwards would be
+``DATABASE_URL`` is set before any ``reef`` import because ``reef.db`` builds
+its engine at module scope; pointing it at ``reef_test`` afterwards would be
 too late.
 """
 
@@ -36,13 +36,13 @@ from reef.rls import (
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
-PROBE_ROLE = "rif_probe"
-"""A non-owner login role standing in for production's ``rif_app``.
+PROBE_ROLE = "reef_probe"
+"""A non-owner login role standing in for production's ``reef_app``.
 
-The suite's own connection is ``rif``, which *owns* the tables. An owner's
+The suite's own connection is ``reef``, which *owns* the tables. An owner's
 privileges are implicit, so column-level grants -- ``REVOKE UPDATE`` then
 ``GRANT UPDATE (version)`` -- do not constrain it the way they constrain
-``rif_app``. Any test asserting "a member cannot rewrite a cove's slug" would
+``reef_app``. Any test asserting "a member cannot rewrite a cove's slug" would
 pass against the owner for the wrong reason. Tests that assert a *privilege*
 rather than a *policy* must therefore run through :func:`probe`.
 """
@@ -56,8 +56,8 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
     PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d postgres \\
       -c "CREATE ROLE {PROBE_ROLE} WITH LOGIN PASSWORD 'probe' NOSUPERUSER \\
           NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION"
-    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d rif_test \\
-      -c "GRANT CONNECT ON DATABASE rif_test TO {PROBE_ROLE}" \\
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test \\
+      -c "GRANT CONNECT ON DATABASE reef_test TO {PROBE_ROLE}" \\
       -c "GRANT USAGE ON SCHEMA public TO {PROBE_ROLE}"
 """
 
@@ -115,8 +115,8 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
 
     PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d postgres \\
       -c "CREATE ROLE {AUTHZ_ROLE} NOLOGIN BYPASSRLS" \\
-      -c "GRANT {AUTHZ_ROLE} TO rif"
-    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d rif_test \\
+      -c "GRANT {AUTHZ_ROLE} TO reef"
+    PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test \\
       -c "GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}"
 """
 
@@ -152,7 +152,7 @@ async def schema():
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     # Granted here rather than in docker/initdb because the tables do not
-    # exist at cluster bootstrap. Exactly what production grants rif_app --
+    # exist at cluster bootstrap. Exactly what production grants reef_app --
     # no more, so a privilege the app does not have is one the probe does
     # not have either.
     #

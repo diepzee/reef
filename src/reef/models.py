@@ -1,4 +1,4 @@
-"""Piccolo table definitions for the rif store.
+"""Piccolo table definitions for the reef store.
 
 Three schema facts Piccolo cannot express in a table definition, and which
 ``reef.rls.constraint_statements`` therefore emits as raw DDL: the composite

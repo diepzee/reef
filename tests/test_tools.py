@@ -127,7 +127,7 @@ async def test_update_meta_page_refuses_any_cove_but_personal(tx, household):
 
 
 async def test_update_meta_page_refuses_the_protocol_path(tx, household):
-    """The protocol ships with rif; only the persona is an editable page."""
+    """The protocol ships with reef; only the persona is an editable page."""
     me = principal_for(household["wouter"])
     refused = await tool_update_meta_page(
         me, "personal", "meta/protocol.md", "MY OWN RULES", "x", confirm=True

@@ -7,7 +7,7 @@ deploy's, and the application has to work on both sides of it without
 knowing which side it is on.
 
 The role is NOLOGIN — nothing connects as it — so renaming it cannot break a
-credential. That is what separates it from rif/rif_app/rif_probe, whose names
+credential. That is what separates it from reef/reef_app/reef_probe, whose names
 live in connection strings.
 """
 

@@ -65,14 +65,14 @@ _FROZEN_ENABLE = [
     "ALTER FUNCTION reef_cove_ids() OWNER TO reef_authz",
     "REVOKE ALL ON FUNCTION reef_cove_ids() FROM PUBLIC",
     "GRANT SELECT ON memberships TO reef_authz",
-    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_cove_ids() TO rif_app'; END IF; END $do$",
-    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_cove_ids() TO rif'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_cove_ids() TO reef_app'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_cove_ids() TO reef'; END IF; END $do$",
     "CREATE OR REPLACE FUNCTION reef_member_cove_ids() RETURNS SETOF uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $reef$SELECT cove_id FROM memberships WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid AND role = 'member'$reef$",
     "ALTER FUNCTION reef_member_cove_ids() OWNER TO reef_authz",
     "REVOKE ALL ON FUNCTION reef_member_cove_ids() FROM PUBLIC",
     "GRANT SELECT ON memberships TO reef_authz",
-    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_cove_ids() TO rif_app'; END IF; END $do$",
-    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rif') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_cove_ids() TO rif'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef_app') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_cove_ids() TO reef_app'; END IF; END $do$",
+    "DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'reef') THEN EXECUTE 'GRANT EXECUTE ON FUNCTION reef_member_cove_ids() TO reef'; END IF; END $do$",
     "ALTER TABLE pages ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE pages FORCE ROW LEVEL SECURITY",
     "CREATE POLICY pages_select ON pages FOR SELECT USING (cove_id IN (SELECT reef_cove_ids()))",
@@ -104,7 +104,7 @@ superuser can grant. This migration creates it automatically when the
 migration credential is privileged enough; yours is not, so an operator has
 to do it once, out of band:
 
-    railway run --service rif-app -- sh -c \\
+    railway run --service reef-app -- sh -c \\
       'psql "$REEF_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 \\
          -f scripts/provision_authz_role.sql'
 

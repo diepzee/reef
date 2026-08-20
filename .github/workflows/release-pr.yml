@@ -99,8 +99,8 @@ jobs:
           python3 scripts/stamp_version.py "$VERSION"
           python3 scripts/fold_changes.py "$VERSION" "$(date -u +%Y-%m-%d)"
           printf '%s' "$NOTES" | python3 scripts/prepend_changelog.py CHANGELOG.md
-          git config user.name "rif-release-bot[bot]"
-          git config user.email "rif-release-bot[bot]@users.noreply.github.com"
+          git config user.name "reef-release-bot[bot]"
+          git config user.email "reef-release-bot[bot]@users.noreply.github.com"
           git add -A
           git commit -m "chore(release): $VERSION" -m "$NOTES" -m "Release-base: $base"
           # Force: the branch is rebuilt from main's tip on every push, and
