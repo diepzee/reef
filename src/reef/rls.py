@@ -758,9 +758,14 @@ def mutation_statements() -> list[str]:
         # dropped wherever this group runs. A fresh chain never created it
         # and the drop is a no-op there.
         "DROP FUNCTION IF EXISTS reef_admit_member(uuid, uuid, text)",
+        # The parameter keeps its old name, alone among these. Policies call
+        # this function, so it cannot be dropped and recreated the way the
+        # others are -- dropping it needs CASCADE, which takes the policies
+        # with it -- and CREATE OR REPLACE refuses to rename a parameter.
+        # The name is invisible: every caller passes positionally.
         *_function_ddl(
-            "reef_owns_cove(p_cove uuid)",
-            "SELECT EXISTS (SELECT 1 FROM coves WHERE id = p_cove "
+            "reef_owns_cove(p_space uuid)",
+            "SELECT EXISTS (SELECT 1 FROM coves WHERE id = p_space "
             f"AND owner_person_id = {PRINCIPAL})",
             returns="boolean",
             reads=("coves",),
