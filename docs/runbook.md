@@ -1060,6 +1060,66 @@ answers, but connectors must use `reefwith.me` — see "Custom domain".
 dashboard setting, no CI). `railway up` is the manual override. See
 "Phase 3 → How deploys actually happen".
 
+## Renaming the database roles
+
+The last thing still called `rif`. The application already works with either
+spelling, so this is purely an operator step and can happen whenever suits —
+nothing is waiting on it, and nothing breaks while it is undone.
+
+The roles split into two kinds, and only one of them is delicate.
+
+**`rif_authz` is NOLOGIN.** Nothing connects as it; it exists to own the RLS
+helper functions and hold `BYPASSRLS`. No connection string names it, so
+renaming it cannot lock anybody out. Function ownership follows the rename
+automatically — ownership is recorded by role OID, which a rename preserves.
+
+```sql
+ALTER ROLE rif_authz RENAME TO reef_authz;
+```
+
+Needs a connection that may alter roles. The migration credential cannot:
+that is why the role was created out of band in the first place, as the
+12 August migration records.
+
+**`rif`, `rif_app` and `rif_probe` log in, and their names are inside
+connection strings.** Renaming one without changing the credential in the
+same window locks the application out of its own database. On Railway that
+means the role rename and `DATABASE_URL` have to move together:
+
+1. Take the rename and the variable change as one window. Do not deploy
+   anything else during it.
+2. `ALTER ROLE rif_app RENAME TO reef_app;` — the password is preserved by
+   the rename, so only the username in the DSN changes.
+3. Update `DATABASE_URL` (and `REEF_MIGRATION_DATABASE_URL` if its user is
+   the renamed role) to name `reef_app`.
+4. Redeploy. Existing connections survive a rename; new ones need the new
+   name, so a deploy is what proves it rather than uptime.
+
+**Rollback** is the same statement backwards, with the variable put back:
+
+```sql
+ALTER ROLE reef_app RENAME TO rif_app;
+```
+
+Locally, `rif` and `rif_probe` are created by `docker/initdb`, which only
+runs on an empty volume. Renaming them on an existing local cluster is the
+same `ALTER ROLE`, run as the superuser on port 5433.
+
+**Verify afterwards**, with something that exercises the boundary rather than
+just the connection:
+
+```bash
+psql "$DATABASE_URL" -Atc "SELECT count(*) FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  JOIN pg_roles r ON r.oid = p.proowner
+  WHERE n.nspname = 'public' AND r.rolname LIKE 'reef%' AND r.rolbypassrls"
+```
+
+A count matching the helper functions means the functions are owned by a
+bypassing role under its new name. A count of zero means the policies are
+about to recurse, and that is the failure worth catching in the window rather
+than from a user.
+
 ## Publishing the MCP registry record
 
 `server.json` is reef's entry in the official MCP registry — the listing a

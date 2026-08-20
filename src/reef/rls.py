@@ -93,18 +93,79 @@ def constraint_statements() -> list[str]:
 PRINCIPAL = "NULLIF(current_setting('app.person_id', true), '')::uuid"
 """SQL for the armed principal, or NULL when unarmed. See the module docstring."""
 
-AUTHZ_ROLE = "rif_authz"
+AUTHZ_ROLE = "reef_authz"
+"""What a cluster created from now on names the function-owner role."""
+
+FORMER_AUTHZ_ROLE = "rif_authz"
+"""What clusters created before the rename call it.
+
+Renaming it is an operator step run out of band: the migration credential
+cannot ``ALTER ROLE`` -- the 12 August migration says as much about creating
+this role in the first place. So the rename lands on the operator's
+schedule, not a deploy's, and the DDL below has to work on either side of it.
+
+Safe to rename precisely because it is ``NOLOGIN``: nothing connects as it,
+so no credential names it. That is what separates it from ``rif``/``rif_app``
+/``rif_probe``, whose names live in connection strings and cannot move
+without the connection string moving in the same breath."""
+
+
+def authz_role_expression() -> str:
+    """Return SQL evaluating to this cluster's authz role name.
+
+    Prefers the new name, falls back to the old, and defaults to the new so
+    a cluster with neither -- one about to have the role created -- still
+    yields a usable name rather than NULL. A NULL would reach Postgres as
+    ``OWNER TO ""`` and fail somewhere far from the cause.
+
+    :returns: a SQL scalar expression returning ``text``
+    """
+    return (
+        "COALESCE("
+        f"(SELECT rolname FROM pg_roles WHERE rolname = '{AUTHZ_ROLE}'), "
+        f"(SELECT rolname FROM pg_roles WHERE rolname = '{FORMER_AUTHZ_ROLE}'), "
+        f"'{AUTHZ_ROLE}')"
+    )
+
+
+def _for_authz(template: str) -> str:
+    """Wrap a statement whose one ``%I`` placeholder is the authz role.
+
+    The name is resolved inside the server rather than baked in here, so the
+    same DDL applies before and after an operator renames the role.
+
+    :param template: a ``format()`` template with a single ``%I``
+    :returns: a DO block that resolves the role and executes the statement
+    """
+    literal = template.replace("'", "''")
+    return (
+        f"DO $authz$ DECLARE authz text := {authz_role_expression()}; "
+        f"BEGIN EXECUTE format('{literal}', authz); END $authz$"
+    )
+
+
 """Owner of the helper functions. NOLOGIN, BYPASSRLS, owns nothing else."""
 
-_EXECUTOR_ROLES = ("rif_app", "rif", "rif_probe")
+_EXECUTOR_ROLES = (
+    "reef_app",
+    "reef",
+    "reef_probe",
+    "rif_app",
+    "rif",
+    "rif_probe",
+)
 """Roles granted EXECUTE: production's constrained app role, the role that owns
 the database in local dev and test, and the non-owner stand-in the test suite
 uses for privilege assertions (``tests/conftest.py``; absent in production).
 
+Both spellings are listed because renaming a login role means renaming it in
+the connection string in the same breath -- an operator step with a
+maintenance window, not something a deploy can do. Listing both means the
+application does not care which side of that window it is running on.
+
 A fixed allowlist -- never a value from a caller -- because it is interpolated
 into ``GRANT``, which rejects bind parameters. Each is granted only if it
-exists in the cluster, so naming a test-only role here costs production
-nothing."""
+exists in the cluster, so naming a role no cluster has costs nothing."""
 
 _MEMBER_PREDICATE = "space_id IN (SELECT reef_space_ids())"
 
@@ -168,12 +229,12 @@ def _function_ddl(
             f"LANGUAGE {language} {volatility} SECURITY DEFINER "
             f"SET search_path = public, pg_catalog AS $reef${body}$reef$"
         ),
-        f"ALTER FUNCTION {name} OWNER TO {AUTHZ_ROLE}",
+        _for_authz(f"ALTER FUNCTION {name} OWNER TO %I"),
         f"REVOKE ALL ON FUNCTION {name} FROM PUBLIC",
     ]
-    statements += [f"GRANT SELECT ON {table} TO {AUTHZ_ROLE}" for table in reads]
+    statements += [_for_authz(f"GRANT SELECT ON {table} TO %I") for table in reads]
     statements += [
-        f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {AUTHZ_ROLE}"
+        _for_authz(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO %I")
         for table in writes
     ]
     # A cluster has either rif_app (production) or rif (dev/test), not both.
@@ -691,7 +752,7 @@ def mutation_statements() -> list[str]:
         # this, ``reef_admit_member``'s INSERT into ``memberships`` fails with
         # "permission denied for sequence" -- which reads as a policy
         # refusal and is not one.
-        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {AUTHZ_ROLE}",
+        _for_authz("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I"),
         # The three-argument reef_admit_member predates the role parameter.
         # CREATE OR REPLACE cannot change a signature, and leaving the old
         # function standing would make every call ambiguous -- so it is
