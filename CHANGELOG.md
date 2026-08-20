@@ -1,3 +1,31 @@
+## [1.0.0](https://github.com/diepzee/reef/compare/v0.6.0...v1.0.0) (2026-08-20)
+
+### ⚠ BREAKING CHANGES
+
+* list_spaces, create_space, delete_space and leave_space are
+now list_coves, create_cove, delete_cove and leave_cove, and every tool that
+took a `space` argument takes `cove`. Assistants re-read the tool list and
+follow on their own; saved prompts and CLI scripts naming the old spellings
+need updating.
+
+
+Claude-Session: https://claude.ai/code/session_011TM36bcfT9x9CitXZPk34p
+
+Co-authored-by: Claude Opus 5 <noreply@anthropic.com>
+
+### Features
+
+* **site:** add a searchable documentation page at /docs ([#107](https://github.com/diepzee/reef/issues/107)) ([1b173d8](https://github.com/diepzee/reef/commit/1b173d88d58356e16664b53c0db392a89151a3f9))
+* **site:** say free is not a forever promise, before anyone signs in ([#105](https://github.com/diepzee/reef/issues/105)) ([3561f42](https://github.com/diepzee/reef/commit/3561f425c1df9c01ad06a151f869af2a67db4c18))
+
+### Refactoring
+
+* a shared memory is a cove everywhere, not a space ([#111](https://github.com/diepzee/reef/issues/111)) ([efcbedf](https://github.com/diepzee/reef/commit/efcbedf572f6743b41b89b59e0412ef424ee9b52))
+
+### Chores
+
+* create reef_authz on new clusters, and rename it on old ones ([#110](https://github.com/diepzee/reef/issues/110)) ([da7ac39](https://github.com/diepzee/reef/commit/da7ac399ed4503132eddd55eedb21afca74482c7))
+
 ## [0.6.0](https://github.com/diepzee/reef/compare/v0.5.0...v0.6.0) (2026-08-19)
 
 ### Features

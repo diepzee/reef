@@ -1,6 +1,6 @@
 [project]
 name = "reef-cli"
-version = "0.6.0"
+version = "1.0.0"
 description = "Command-line client for reef — shared, living memory for people and their AI assistants"
 readme = "README.md"
 authors = [
