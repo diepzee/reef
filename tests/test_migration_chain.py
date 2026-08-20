@@ -44,7 +44,7 @@ DRILL_DATABASE = "rif_migration_drill"
 #: create for itself.
 _PROVISION = (
     "ALTER SCHEMA public OWNER TO rif",
-    "GRANT CREATE ON SCHEMA public TO rif_authz",
+    "GRANT CREATE ON SCHEMA public TO reef_authz",
     "GRANT USAGE ON SCHEMA public TO rif_probe",
     "CREATE EXTENSION IF NOT EXISTS pgcrypto",
 )

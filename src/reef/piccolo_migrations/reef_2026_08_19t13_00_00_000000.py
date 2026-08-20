@@ -75,7 +75,7 @@ async def forwards() -> MigrationManager:
     mean a moment with no policy predicate, which is exactly the failure this
     schema exists to prevent. Renaming in place avoids that entirely.
 
-    Roles (``rif``, ``rif_authz``, ``rif_probe``) and the migration app name
+    Roles (``rif``, ``reef_authz``, ``rif_probe``) and the migration app name
     are deliberately untouched here. Those are separate changes with separate
     rollbacks.
 

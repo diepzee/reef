@@ -36,10 +36,10 @@ CREATE DATABASE rif_test OWNER rif;
 --
 -- NOLOGIN, no password: nothing ever connects as it. The grant lets "rif"
 -- (which runs migrations here, as it owns the databases) execute
--- ALTER FUNCTION ... OWNER TO rif_authz -- Postgres requires the executing
+-- ALTER FUNCTION ... OWNER TO reef_authz -- Postgres requires the executing
 -- role to be a member of the role it hands ownership to.
-CREATE ROLE rif_authz NOLOGIN BYPASSRLS;
-GRANT rif_authz TO rif;
+CREATE ROLE reef_authz NOLOGIN BYPASSRLS;
+GRANT reef_authz TO rif;
 
 -- CREATE on the schema is required of the *new* owner when a function's
 -- ownership is reassigned, so without this every ALTER FUNCTION ... OWNER TO
@@ -48,9 +48,9 @@ GRANT rif_authz TO rif;
 -- as is not the widening it looks like: the privilege is exercisable only
 -- through a SECURITY DEFINER function this repo wrote and owns.
 \c rif
-GRANT CREATE ON SCHEMA public TO rif_authz;
+GRANT CREATE ON SCHEMA public TO reef_authz;
 \c rif_test
-GRANT CREATE ON SCHEMA public TO rif_authz;
+GRANT CREATE ON SCHEMA public TO reef_authz;
 
 -- A stand-in for production's rif_app, and the only way the test suite can
 -- tell the truth about privileges.
