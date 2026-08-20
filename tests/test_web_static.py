@@ -480,3 +480,41 @@ def test_the_spa_shell_asks_not_to_be_indexed():
     """Every /app route renders one empty shell: a blank page in the index."""
     shell = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
     assert '<meta name="robots" content="noindex, follow" />' in shell
+
+
+def test_the_landing_page_says_free_is_not_a_forever_promise():
+    """A product trusted with household memory cannot spring a price later.
+
+    Said before anyone signs in, not discovered afterwards. Deliberately a
+    statement of intent rather than a promise about what anybody keeps: the
+    surprise is what costs trust, and preventing it costs nothing.
+
+    Removing this copy would break nothing a user could see, which is exactly
+    why it is asserted here.
+    """
+    page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
+    assert "Free while" in page
+    assert "hear it from us first" in page
+
+
+def test_the_terms_say_what_it_costs():
+    """Free now, no card on file, and warning before that ever changes."""
+    terms = (Path(__file__).parents[1] / "site" / "terms.html").read_text()
+    assert "What it costs" in terms
+    assert "free while it is" in terms
+    assert "no card on file" in terms
+    assert "hear it from us first" in terms
+
+
+def test_the_site_promises_nobody_a_permanent_free_tier():
+    """The grandfathering promise was considered and deliberately left out.
+
+    It would have bound reef publicly and permanently to its earliest cohort.
+    Keeping the anti-surprise half without the liability was the whole point
+    of the trim, so a later edit that quietly reintroduces it should fail here
+    rather than in a terms dispute.
+    """
+    for name in ("index.html", "terms.html"):
+        text = (Path(__file__).parents[1] / "site" / name).read_text()
+        assert "keeps what they are using" not in text, name
+        assert "never have to pay" not in text, name
