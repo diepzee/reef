@@ -165,6 +165,50 @@ $policies$
 """
 
 
+#: Drop the helpers whose *parameter* names changed, so the refresh can
+#: recreate them.
+#:
+#: ``CREATE OR REPLACE FUNCTION`` cannot rename an input parameter -- it
+#: fails with "cannot change name of input parameter" and points you at
+#: ``DROP FUNCTION``. The function rename above only moves names containing
+#: "space", so a helper like ``reef_roster`` keeps its name and arrives here
+#: still declaring ``p_space`` while the new body declares ``p_cove``.
+#:
+#: Only functions no policy depends on. Dropping one a policy calls would
+#: need CASCADE, which takes the policy with it, and this migration
+#: deliberately never recreates policies -- a table left without its
+#: predicate is the outage this whole transaction exists to avoid.
+#: ``reef_owns_cove`` is the one policies do call, and it keeps its old
+#: parameter name for exactly that reason; see reef.rls.
+#:
+#: Safe inside this transaction: the drop and the recreation commit together,
+#: so no other session ever sees the gap.
+DROP_STALE_SIGNATURES = """
+DO $stale$
+DECLARE
+    stale record;
+BEGIN
+    FOR stale IN
+        SELECT function.oid::regprocedure AS signature
+        FROM pg_proc AS function
+        JOIN pg_namespace AS schema ON schema.oid = function.pronamespace
+        WHERE schema.nspname = 'public'
+          AND function.proname LIKE 'reef\\_%'
+          AND pg_get_function_arguments(function.oid) LIKE '%p_space%'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM pg_depend AS dependency
+              JOIN pg_policy AS policy ON policy.oid = dependency.objid
+              WHERE dependency.refobjid = function.oid
+          )
+    LOOP
+        EXECUTE format('DROP FUNCTION %s', stale.signature);
+    END LOOP;
+END
+$stale$
+"""
+
+
 def _refresh() -> list[str]:
     """Return the DDL that gives every helper a body naming the new schema.
 
@@ -207,6 +251,7 @@ async def forwards() -> MigrationManager:
                 RENAME_TABLES,
                 RENAME_COLUMNS,
                 RENAME_POLICIES,
+                DROP_STALE_SIGNATURES,
                 *_refresh(),
             ]
         )
