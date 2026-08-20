@@ -26,7 +26,7 @@ from reef.config import get_settings
 LOCK_KEY = 0x5249_4620
 
 
-#: The app name Piccolo files migrations under. It was "rif" until the module
+#: The app name Piccolo files migrations under. It was "reef" until the module
 #: was renamed; see :func:`adopt_app_name` for why both names appear here.
 APP_NAME = "reef"
 FORMER_APP_NAME = "rif"

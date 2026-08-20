@@ -23,7 +23,7 @@ async def _post(client, path: str, body: dict):
     :param body: the JSON body
     :returns: the response
     """
-    return await client.post(path, json=body, headers={"x-rif-csrf": "1"})
+    return await client.post(path, json=body, headers={"x-reef-csrf": "1"})
 
 
 async def test_unauthenticated_index_is_401(api):
@@ -243,7 +243,7 @@ async def test_logout_revokes_a_stolen_cookie(api, world):
     stolen = api.cookies["rif_session"]
     assert (await api.get("/api/me")).status_code == 200
 
-    out = await api.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
+    out = await api.post("/api/auth/logout", headers={"x-reef-csrf": "1"})
     assert out.status_code == 200
 
     api.cookies.set("rif_session", stolen)

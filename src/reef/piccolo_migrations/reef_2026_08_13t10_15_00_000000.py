@@ -9,7 +9,7 @@ ID = "2026-08-13T10:15:00:000000"
 VERSION = "1.36.0"
 DESCRIPTION = "per-person cove appearance"
 
-_EXECUTOR_ROLES = ("rif_app", "rif", "rif_probe")
+_EXECUTOR_ROLES = ("reef_app", "reef", "reef_probe")
 
 
 async def forwards() -> MigrationManager:

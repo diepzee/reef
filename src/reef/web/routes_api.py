@@ -81,7 +81,7 @@ from reef.web.routes_auth import WORKOS_LOGOUT_URL
 _registered: set[int] = set()
 # Private response marker consumed by :func:`api`: an erased account must
 # clear its session rather than receive the wrapper's usual sliding renewal.
-_ACCOUNT_DELETED_HEADER = "x-rif-account-deleted"
+_ACCOUNT_DELETED_HEADER = "x-reef-account-deleted"
 
 
 class BadRequest(Exception):

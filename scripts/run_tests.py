@@ -1,7 +1,7 @@
 """Run pytest, one worktree at a time.
 
 Every checkout of this repository points at the same Postgres and the same
-``rif_test`` database, and ``tests/conftest.py``'s session-scoped ``schema``
+``reef_test`` database, and ``tests/conftest.py``'s session-scoped ``schema``
 fixture drops and recreates the RLS helper functions *globally*. Two suites
 running at once therefore rebuild the schema under each other, and the second
 one reports failures that have nothing to do with the code under test:
@@ -36,7 +36,7 @@ from pathlib import Path
 #: than the repository, because each worktree has its own checkout and a
 #: repository-local path would give each of them a private lock -- which is
 #: exactly the thing that does not work.
-LOCK_PATH = Path(tempfile.gettempdir()) / "rif-test-suite.lock"
+LOCK_PATH = Path(tempfile.gettempdir()) / "reef-test-suite.lock"
 
 
 def main() -> int:

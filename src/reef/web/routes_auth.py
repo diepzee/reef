@@ -50,7 +50,7 @@ from reef.web.requests import (
 )
 
 # WorkOS's session-logout endpoint: ends the AuthKit session named by the
-# sid claim, then redirects the browser to ``return_to``. Ending only rif's
+# sid claim, then redirects the browser to ``return_to``. Ending only reef's
 # own cookie is not enough — the SPA bounces any unauthenticated visit
 # straight back into /api/auth/login, where a live AuthKit session silently
 # re-issues a code and signs the user right back in.

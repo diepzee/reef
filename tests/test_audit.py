@@ -65,7 +65,7 @@ def recorded(monkeypatch):
 
     sink = _Capture()
     logfire.configure(
-        service_name="rif-test",
+        service_name="reef-test",
         send_to_logfire=False,
         console=False,
         scrubbing=logfire.ScrubbingOptions(extra_patterns=telemetry.SCRUB_PATTERNS),

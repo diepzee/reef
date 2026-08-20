@@ -99,7 +99,7 @@ def _page_references(body: str, source_alias: str) -> list[dict[str, str]]:
         prose = _INLINE_CODE_RE.sub("", line)
         for match in _WIKI_LINK_RE.finditer(prose):
             # A pipe is a conventional optional display label. It isn't part
-            # of rif's documented form, but accepting it here is harmless and
+            # of reef's documented form, but accepting it here is harmless and
             # avoids treating the label as part of a page path.
             target = match.group(1).split("|", 1)[0].strip()
             if ":" in target:

@@ -18,7 +18,7 @@ async def static_client(monkeypatch, tmp_path):
     """
     from reef.config import get_settings
 
-    (tmp_path / "index.html").write_text("<!doctype html><title>rif</title>")
+    (tmp_path / "index.html").write_text("<!doctype html><title>reef</title>")
     (tmp_path / "app.js").write_text("console.log(1)")
     monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))
     # Point site_dir away from the repo's real site/ so root-route tests
@@ -165,14 +165,14 @@ async def test_spa_fallback(static_client):
     """A client-side route with no matching file falls back to index.html."""
     response = await static_client.get("/app/coves/team/pages/notes.md")
     assert response.status_code == 200
-    assert "<title>rif</title>" in response.text
+    assert "<title>reef</title>" in response.text
 
 
 async def test_traversal_blocked(static_client):
     """A traversal attempt never escapes ``static_dir``; it falls back to index."""
     response = await static_client.get("/app/..%2F..%2Fetc%2Fpasswd")
     assert response.status_code == 200  # falls back to index, never the file
-    assert "<title>rif</title>" in response.text
+    assert "<title>reef</title>" in response.text
 
 
 async def test_embedded_nul_falls_back(static_client):
@@ -184,7 +184,7 @@ async def test_embedded_nul_falls_back(static_client):
     """
     response = await static_client.get("/app/foo%00.txt")
     assert response.status_code == 200
-    assert "<title>rif</title>" in response.text
+    assert "<title>reef</title>" in response.text
 
 
 @pytest_asyncio.fixture
@@ -196,7 +196,7 @@ async def static_client_with_icons(monkeypatch, tmp_path):
     """
     from reef.config import get_settings
 
-    (tmp_path / "index.html").write_text("<!doctype html><title>rif</title>")
+    (tmp_path / "index.html").write_text("<!doctype html><title>reef</title>")
     (tmp_path / "reef-icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake-png-bytes")
     (tmp_path / "reef.svg").write_text("<svg><!-- reef --></svg>")
     monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))

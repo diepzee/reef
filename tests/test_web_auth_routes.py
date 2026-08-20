@@ -302,7 +302,7 @@ async def test_logout_clears_session(web):
     """A logout POST with the CSRF header succeeds and deletes the cookie."""
     client, _fake, _ = web
     client.cookies.set("rif_session", "some-token")
-    response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
+    response = await client.post("/api/auth/logout", headers={"x-reef-csrf": "1"})
     assert response.status_code == 200
     assert response.json() == {"ok": True}
     set_cookie_headers = response.headers.get_list("set-cookie")
@@ -317,7 +317,7 @@ async def test_logout_returns_upstream_logout_url_when_sid_known(web):
     client, _fake, person = web
     token = seal(person.id, "member@example.com", secret="test-secret", sid="ses_abc")
     client.cookies.set("rif_session", token)
-    response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
+    response = await client.post("/api/auth/logout", headers={"x-reef-csrf": "1"})
     assert response.status_code == 200
     body = response.json()
     assert body["ok"] is True
@@ -339,6 +339,6 @@ async def test_logout_without_sid_has_no_logout_url(web):
     client, _fake, person = web
     token = seal(person.id, "member@example.com", secret="test-secret")
     client.cookies.set("rif_session", token)
-    response = await client.post("/api/auth/logout", headers={"x-rif-csrf": "1"})
+    response = await client.post("/api/auth/logout", headers={"x-reef-csrf": "1"})
     assert response.status_code == 200
     assert "logout_url" not in response.json()

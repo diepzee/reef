@@ -57,7 +57,7 @@ def test_csrf_required_on_mutation():
     """CSRF header required for mutations; not for reads."""
     with pytest.raises(CsrfRejected):
         require_csrf(_request(method="PUT"))
-    require_csrf(_request({"x-rif-csrf": "1"}, method="PUT"))  # no raise
+    require_csrf(_request({"x-reef-csrf": "1"}, method="PUT"))  # no raise
     require_csrf(_request(method="GET"))  # reads never need it
 
 

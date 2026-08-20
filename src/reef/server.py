@@ -158,7 +158,7 @@ def _brand_icons() -> list[Icon] | None:
     """Return the icons a client shows for this server, if the origin is known.
 
     Without these a connector list has nothing to draw and falls back to a
-    letter avatar taken from the server's name -- an "R" for ``rif``, which
+    letter avatar taken from the server's name -- an "R" for ``reef``, which
     is what every client showed until this existed. The site's own favicon is
     not consulted by MCP clients: the protocol carries icons in the server's
     metadata, so they have to be advertised here.
@@ -187,7 +187,7 @@ def _brand_icons() -> list[Icon] | None:
 
 
 mcp = FastMCP(
-    "rif",
+    "reef",
     auth=_build_auth(),
     icons=_brand_icons(),
     website_url=env("BASE_URL") or None,
@@ -1258,7 +1258,7 @@ async def tool_update_meta_page(
     while the context loader still ranks ``meta/`` first and would put
     instruction-shaped text at the top of every other member's loaded
     context. The operating protocol is not writable at all: it ships with
-    rif itself, so product improvements reach everyone instead of freezing
+    reef itself, so product improvements reach everyone instead of freezing
     per person at whatever a seed template once said.
 
     :param principal: the authenticated person
@@ -1283,7 +1283,7 @@ async def tool_update_meta_page(
         return {
             "error": "not_persona",
             "detail": (
-                "the operating protocol is part of rif and cannot be edited "
+                "the operating protocol is part of reef and cannot be edited "
                 "as a page; only meta/persona.md is writable"
             ),
         }
@@ -1305,7 +1305,7 @@ async def update_meta_page(
     """Update your persona page. It steers how the assistant works with you.
 
     The persona is per-person and lives in your personal cove only; a
-    shared cove is refused, and the operating protocol is part of rif
+    shared cove is refused, and the operating protocol is part of reef
     itself and cannot be edited. Only call after telling the user exactly
     what will change and receiving their agreement in this conversation;
     pass confirm=True to proceed.

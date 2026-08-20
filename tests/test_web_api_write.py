@@ -392,7 +392,7 @@ async def test_renaming_a_cove_over_http_moves_only_my_own_name(api, world, grap
     _login(api, alice)
 
     renamed = await api.post(
-        "/api/coves/team/name", json={"name": "squad"}, headers={"x-rif-csrf": "1"}
+        "/api/coves/team/name", json={"name": "squad"}, headers={"x-reef-csrf": "1"}
     )
     assert renamed.status_code == 200
     assert renamed.json() == {"was": "team", "now": "squad"}
@@ -412,7 +412,7 @@ async def test_renaming_to_a_name_i_already_use_is_refused(api, world, graph):
     _login(api, alice)
 
     clash = await api.post(
-        "/api/coves/team/name", json={"name": "boat"}, headers={"x-rif-csrf": "1"}
+        "/api/coves/team/name", json={"name": "boat"}, headers={"x-reef-csrf": "1"}
     )
     assert clash.status_code == 400
     assert "already have a cove" in clash.json()["detail"]

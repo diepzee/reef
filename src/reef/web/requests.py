@@ -8,7 +8,14 @@ from reef.config import env, get_settings
 from reef.web.session import SESSION_TTL_SECONDS, SessionData, seal, unseal
 
 SESSION_COOKIE = "rif_session"
-CSRF_HEADER = "x-rif-csrf"
+CSRF_HEADER = "x-reef-csrf"
+
+#: What the header was called before the rename. Still accepted, because a
+#: browser holding the previous build of the app keeps sending it: the header
+#: is a contract between two things that deploy at different moments, and
+#: rejecting the old name would turn every write into a 403 until the person
+#: happened to reload. Removable once no client sends it.
+FORMER_CSRF_HEADER = "x-rif-csrf"
 _MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -68,9 +75,12 @@ def require_csrf(request: Request) -> None:
     """Reject mutating requests that lack the CSRF header.
 
     :param request: the incoming request
-    :raises CsrfRejected: for a mutation without ``X-Rif-Csrf: 1``
+    :raises CsrfRejected: for a mutation without ``X-Reef-Csrf: 1``
     """
-    if request.method in _MUTATING and request.headers.get(CSRF_HEADER) != "1":
+    if request.method not in _MUTATING:
+        return
+    sent = request.headers.get(CSRF_HEADER) or request.headers.get(FORMER_CSRF_HEADER)
+    if sent != "1":
         raise CsrfRejected
 
 

@@ -1,6 +1,6 @@
 -- Runs once, at first cluster bootstrap, as the image's default bootstrap
 -- superuser ("postgres" -- see docker-compose.yml, which deliberately does
--- NOT set POSTGRES_USER to "rif").
+-- NOT set POSTGRES_USER to "reef").
 --
 -- The official postgres image always makes POSTGRES_USER a superuser with
 -- BYPASSRLS, whatever its name, and Postgres refuses to ever strip that
@@ -20,26 +20,26 @@
 -- honest -- they ran against this constrained role -- but they were proving
 -- a shape production did not have.
 --
--- Production now runs as `rif_app`, created by scripts/provision_app_role.py,
+-- Production now runs as `reef_app`, created by scripts/provision_app_role.py,
 -- with the admin credential kept for migrations only. Keep this file and that
 -- script in agreement: this is the shape both dev and production must have.
-CREATE ROLE rif WITH LOGIN PASSWORD 'rif';
-CREATE DATABASE rif OWNER rif;
-CREATE DATABASE rif_test OWNER rif;
+CREATE ROLE reef WITH LOGIN PASSWORD 'reef';
+CREATE DATABASE reef OWNER reef;
+CREATE DATABASE reef_test OWNER reef;
 
--- The owner of rif.rls's helper functions, and of nothing else. BYPASSRLS is
+-- The owner of reef.rls's helper functions, and of nothing else. BYPASSRLS is
 -- the point: FORCE ROW LEVEL SECURITY subjects even the table owner to
 -- policies, so a policy on memberships whose predicate reads memberships
 -- recurses until the stack is exhausted. A SECURITY DEFINER function owned by
 -- a BYPASSRLS role breaks that cycle, and because this role cannot log in,
 -- the bypass is reachable only by calling one of those functions.
 --
--- NOLOGIN, no password: nothing ever connects as it. The grant lets "rif"
+-- NOLOGIN, no password: nothing ever connects as it. The grant lets "reef"
 -- (which runs migrations here, as it owns the databases) execute
 -- ALTER FUNCTION ... OWNER TO reef_authz -- Postgres requires the executing
 -- role to be a member of the role it hands ownership to.
 CREATE ROLE reef_authz NOLOGIN BYPASSRLS;
-GRANT reef_authz TO rif;
+GRANT reef_authz TO reef;
 
 -- CREATE on the schema is required of the *new* owner when a function's
 -- ownership is reassigned, so without this every ALTER FUNCTION ... OWNER TO
@@ -47,18 +47,18 @@ GRANT reef_authz TO rif;
 -- database, hence the reconnects. Handing CREATE to a role nothing can log in
 -- as is not the widening it looks like: the privilege is exercisable only
 -- through a SECURITY DEFINER function this repo wrote and owns.
-\c rif
+\c reef
 GRANT CREATE ON SCHEMA public TO reef_authz;
-\c rif_test
+\c reef_test
 GRANT CREATE ON SCHEMA public TO reef_authz;
 
--- A stand-in for production's rif_app, and the only way the test suite can
+-- A stand-in for production's reef_app, and the only way the test suite can
 -- tell the truth about privileges.
 --
--- "rif" OWNS the tables here, and an owner's privileges are implicit: REVOKE
+-- "reef" OWNS the tables here, and an owner's privileges are implicit: REVOKE
 -- UPDATE followed by GRANT UPDATE (version) does not bite an owner the way it
--- bites rif_app in production. A test asserting "a member cannot rewrite a
--- cove's slug" would therefore pass against "rif" for entirely the wrong
+-- bites reef_app in production. A test asserting "a member cannot rewrite a
+-- cove's slug" would therefore pass against "reef" for entirely the wrong
 -- reason, and the policy could ship broken.
 --
 -- This repo has already paid for that mistake once: production ran as the
@@ -66,11 +66,11 @@ GRANT CREATE ON SCHEMA public TO reef_authz;
 -- but run against a constrained role -- proved a shape production did not
 -- have. See the header of this file.
 --
--- Ordinary, non-owner, no DDL, granted exactly what rif_app is granted. It
+-- Ordinary, non-owner, no DDL, granted exactly what reef_app is granted. It
 -- exists only in dev and test clusters; production has no equivalent and
 -- needs none.
-CREATE ROLE rif_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
+CREATE ROLE reef_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
   NOCREATEDB NOCREATEROLE NOREPLICATION;
-GRANT CONNECT ON DATABASE rif_test TO rif_probe;
-GRANT USAGE ON SCHEMA public TO rif_probe;
-REVOKE CREATE ON SCHEMA public FROM rif_probe;
+GRANT CONNECT ON DATABASE reef_test TO reef_probe;
+GRANT USAGE ON SCHEMA public TO reef_probe;
+REVOKE CREATE ON SCHEMA public FROM reef_probe;

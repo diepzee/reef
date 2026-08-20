@@ -27,7 +27,7 @@ import sys
 
 import asyncpg
 
-ROLE = "rif_app"
+ROLE = "reef_app"
 
 # Owner of reef.rls's helper functions, and of nothing else. See that module's
 # docstring for why the bypass is unavoidable; the short version is that
