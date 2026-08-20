@@ -270,6 +270,111 @@ async def tool_load_index(principal: Principal) -> dict:
     return asdict(await build_index(principal))
 
 
+#: How a connector id names one thing in reef. Opaque to the caller, and
+#: deliberately not a capability: :func:`tool_fetch` re-resolves it under the
+#: caller's own principal, so guessing an id gets the same refusal as asking
+#: for the page by name.
+_ID_KINDS = ("page", "file")
+
+
+def _connector_id(kind: str, space: str, locator: str) -> str:
+    """Build the id `search` hands out and `fetch` takes back."""
+    return f"{kind}:{space}/{locator}"
+
+
+def _split_connector_id(identifier: str) -> tuple[str, str, str] | None:
+    """Take an id apart, or return None if it is not one.
+
+    Split on the first ``/`` only: page paths contain slashes, space names
+    do not.
+
+    :param identifier: an id previously produced by :func:`_connector_id`
+    :returns: kind, space, locator -- or None when the id is malformed
+    """
+    kind, _, remainder = identifier.partition(":")
+    if kind not in _ID_KINDS or not remainder:
+        return None
+    space, separator, locator = remainder.partition("/")
+    if not separator or not space or not locator:
+        return None
+    return kind, space, locator
+
+
+def _page_url(space: str, path: str) -> str:
+    """Return where a person would read this page in the browser app."""
+    base = (env("BASE_URL") or "").rstrip("/")
+    return f"{base}/app/s/{space}/p/{path}"
+
+
+async def tool_search(principal: Principal, query: str) -> dict:
+    """Search everything the caller can see, in the two-tool connector shape.
+
+    A thin reshaping of :func:`reef.search.search_pages`, which is already
+    scoped to what the caller could open anyway. Nothing here widens that:
+    the query runs as the same principal, so a connector restricted to this
+    pair sees exactly what the full tool surface would show.
+
+    :param principal: the authenticated person
+    :param query: words to search for
+    :returns: ``{"results": [...]}``, each with id, title and url
+    """
+    hits = await run_search(principal, query)
+    results = []
+    for hit in hits:
+        if hit["kind"] == "file":
+            identifier = _connector_id("file", hit["space"], hit["key"])
+            title = hit["filename"]
+            url = _page_url(hit["space"], "")
+        else:
+            identifier = _connector_id("page", hit["space"], hit["path"])
+            title = hit["title"] or hit["path"]
+            url = _page_url(hit["space"], hit["path"])
+        results.append({"id": identifier, "title": title, "url": url})
+    return {"results": results}
+
+
+async def tool_fetch(principal: Principal, id: str) -> dict:
+    """Return one page or file by the id :func:`tool_search` handed out.
+
+    The id is re-resolved under the caller's principal rather than trusted.
+    An id names a thing; it does not grant access to it, so fetching one the
+    caller cannot read is the same not_found a direct read would give -- and
+    deliberately not a different error, which would confirm the page exists.
+
+    :param principal: the authenticated person
+    :param id: an id from :func:`tool_search`
+    :returns: the connector payload, or an error marker
+    """
+    parts = _split_connector_id(id)
+    if parts is None:
+        return {"error": "bad_id", "detail": "not an id returned by search"}
+    kind, space, locator = parts
+    if kind == "file":
+        attachment = await get_attachment(principal, space, locator)
+        if attachment is None:
+            return {"error": "not_found"}
+        # The description, not the bytes: `fetch` is a text contract, and a
+        # connector asking for a PDF wants something it can read, not base64
+        # it will spend the context window on.
+        return {
+            "id": id,
+            "title": attachment.filename or locator,
+            "text": attachment.description or "",
+            "url": _page_url(space, ""),
+            "metadata": {"space": space, "kind": "file", "mime": attachment.mime},
+        }
+    page = await tool_read_page(principal, space, locator)
+    if page.get("error"):
+        return {"error": "not_found"}
+    return {
+        "id": id,
+        "title": page.get("title") or locator,
+        "text": page.get("body", ""),
+        "url": _page_url(space, locator),
+        "metadata": {"space": space, "path": locator, "kind": "page"},
+    }
+
+
 async def tool_read_pages(
     principal: Principal, space: str, paths: list[str]
 ) -> list[dict]:
@@ -611,6 +716,31 @@ async def read_page(space: str, path: str, as_of: str | None = None) -> dict:
     async with transaction_scope():
         principal = await current_principal()
         return await tool_read_page(principal, space, path, as_of=as_of)
+
+
+@_read_only("Search")
+async def search(query: str) -> dict:
+    """Search everything you can see. Returns ids for `fetch`.
+
+    The two-tool shape some connectors are limited to. Prefer search_pages
+    and read_pages when they are available -- they carry more per result.
+
+    :param query: words to search for
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_search(principal, query)
+
+
+@_read_only("Fetch")
+async def fetch(id: str) -> dict:
+    """Retrieve one page or file by an id that `search` returned.
+
+    :param id: an id from a `search` result
+    """
+    async with transaction_scope():
+        principal = await current_principal()
+        return await tool_fetch(principal, id)
 
 
 @_read_only("Search memory")

@@ -259,6 +259,13 @@ def build_parser() -> argparse.ArgumentParser:
     search.add_argument("query")
     search.add_argument("--space", help="restrict to one space")
     search.add_argument("--limit", type=int, default=10)
+    # The two-tool connector shape, carried here for parity with the MCP
+    # surface. A person at a terminal wants search-pages and read-page --
+    # these exist because some clients can only ever call two tools.
+    connector_search = _tool_parser(sub, "search", "search, in the connector shape")
+    connector_search.add_argument("query")
+    connector_fetch = _tool_parser(sub, "fetch", "fetch one result from search")
+    connector_fetch.add_argument("id")
     _tool_parser(sub, "load_all_context", "load all page bodies for maintenance")
     _tool_parser(sub, "get_operating_protocol", "load the protocol and persona")
     read_page = _tool_parser(sub, "read_page", "read one page")
