@@ -480,3 +480,26 @@ def test_the_spa_shell_asks_not_to_be_indexed():
     """Every /app route renders one empty shell: a blank page in the index."""
     shell = (Path(__file__).parents[1] / "frontend" / "index.html").read_text()
     assert '<meta name="robots" content="noindex, follow" />' in shell
+
+
+def test_the_landing_page_says_a_price_is_coming():
+    """A product trusted with household memory cannot spring a price later.
+
+    The promise is made before anyone signs in, not discovered afterwards.
+    Removing it would not break anything a user could see, which is exactly
+    why it is asserted here.
+    """
+    page = (Path(__file__).parents[1] / "site" / "index.html").read_text()
+    assert "Free while" in page
+    assert "paid household" in page
+    assert "keeps what they are using" in page
+
+
+def test_the_terms_say_what_it_costs_and_what_happens_next():
+    """Free now, paid later, and the people already here keep what they have."""
+    terms = (Path(__file__).parents[1] / "site" / "terms.html").read_text()
+    assert "What it costs" in terms
+    assert "free while it is" in terms
+    assert "paid household plan" in terms
+    assert "not billed by surprise" in terms
+    assert "keeps what they are using today" in terms
