@@ -20,15 +20,15 @@ Run `reef <command> --help` for exact flags. Use `reef call <tool_name>
 
    ```bash
    reef read-pages personal profile.md preferences.md
-   reef read-pages household house.md calendar.md
+   reef read-pages family recipes.md calendar.md
    ```
 
 4. Fetch more pages when new topics arise. When the index does not settle
    which pages matter, search bodies directly and then read the hits:
 
    ```bash
-   reef search-pages 'vaillant boiler' --limit 5
-   reef search-pages 'insurance' --cove household
+   reef search-pages 'dishwasher warranty' --limit 5
+   reef search-pages 'insurance' --cove family
    ```
 
    Hits cover pages and stored files (matched on filename and description;

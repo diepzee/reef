@@ -671,7 +671,7 @@ async def read_pages(cove: str, paths: list[str]) -> list[dict]:
     """Read several pages in one call.
 
     :param cove: ``personal`` or a cove name from list_coves
-    :param paths: page paths from the index, for example ["house.md", "money.md"]
+    :param paths: page paths from the index, for example ["recipes.md", "journal.md"]
     """
     async with transaction_scope():
         principal = await current_principal()
@@ -710,7 +710,7 @@ async def read_page(cove: str, path: str, as_of: str | None = None) -> dict:
     did we know in March" — reconstructed from its revision history.
 
     :param cove: ``personal`` or a cove name from list_coves
-    :param path: page path, for example ``house.md``
+    :param path: page path, for example ``recipes.md``
     :param as_of: optional ISO-8601 moment to read the page as of
     """
     async with transaction_scope():
