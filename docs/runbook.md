@@ -267,27 +267,27 @@ signed in; an authenticated stranger nobody invited is denied by
 bypassed.
 
 **Already done.** The seed migrations create one person — Wouter — his personal
-space, and the `household` shared space he owns (slug `school` until the 9 Aug 2026 cleanup renamed it). You can deploy and use the system
+cove, and the `household` shared cove he owns (slug `school` until the 9 Aug 2026 cleanup renamed it). You can deploy and use the system
 solo today.
 
 ### Bringing anyone else in
 
-As the space's owner, from any connected assistant:
+As the cove's owner, from any connected assistant:
 
 ```
-invite(space="household", email="<their-email>", display_name="<their-name>")
+invite(cove="household", email="<their-email>", display_name="<their-name>")
 ```
 
 Then the person signs in to AuthKit with that exact address. On that first
-sign-in `rif` binds their provider subject, creates their own personal space,
+sign-in `rif` binds their provider subject, creates their own personal cove,
 and seeds `meta/persona.md` there for them. Nothing else is needed — no
 migration, no restart. (The operating protocol is not seeded: since 9 Aug
 2026 it ships with the product in `src/reef/protocol.md`, versioned with the
 code so improvements reach every member on deploy. `update_meta_page`
 accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
-Wouter's personal space and the shared space were deleted, and the shared
-space's stale `school` slug was renamed to `household` — backup first, via
+Wouter's personal cove and the shared cove were deleted, and the shared
+cove's stale `school` slug was renamed to `household` — backup first, via
 `REEF_MIGRATION_DATABASE_URL`.)
 
 Two things to get right:
@@ -297,7 +297,7 @@ Two things to get right:
   provider's subject on first login, so changing their account afterwards means
   clearing their `subject` column by hand.
 - **Say out loud what an invite grants** before you call it. The invitee will
-  permanently see everything in that space, past and future; the tool returns a
+  permanently see everything in that cove, past and future; the tool returns a
   disclosure line with today's page count for exactly this reason. Removal
   (`remove_member`) stops future access — it cannot unshare what was read.
 
@@ -310,9 +310,9 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 
 > **Done, 6 Aug 2026.** The real service runs at
 > `rif-app-production.up.railway.app` — since 11 Aug 2026 also, and by
-> preference, at `reefwith.me` — and step 3's check passes: `list_spaces`
-> returned exactly `personal` and the shared space (then aliased `household`,
-> briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal space identifiers
+> preference, at `reefwith.me` — and step 3's check passes: `list_coves`
+> returned exactly `personal` and the shared cove (then aliased `household`,
+> briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal cove identifiers
 > and nothing belonging to anyone else.
 
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
@@ -344,14 +344,14 @@ spike service and for recovering when a bad commit is already on `main`.
    ```
    The Dockerfile runs `scripts/migrate.py` on boot (advisory-locked), which
    applies the schema, RLS policies, and your Phase 2 seed.
-2. **Verify the shared-space owner the multi-user-spaces migration backfilled**
-   (`rif_2026_08_08t10_00_00_000000`). For a space that predates ownership it
+2. **Verify the shared-cove owner the multi-user-coves migration backfilled**
+   (`rif_2026_08_08t10_00_00_000000`). For a cove that predates ownership it
    assigns `owner_person_id` to the member with the lowest person id — an
    arbitrary pick, not necessarily the right one. Check it:
 
    ```sql
    SELECT s.slug, p.email
-   FROM spaces s JOIN persons p ON p.id = s.owner_person_id
+   FROM coves s JOIN persons p ON p.id = s.owner_person_id
    WHERE s.kind = 'shared';
    ```
 
@@ -359,15 +359,15 @@ spike service and for recovering when a bad commit is already on `main`.
    owner-only tools (`invite`, `remove_member`):
 
    ```sql
-   UPDATE spaces SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
-   WHERE slug = '<the-space>';
+   UPDATE coves SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
+   WHERE slug = '<the-cove>';
    ```
 3. **Swap the connector** on both accounts from the spike URL to the real
    `/mcp` URL (same domain if you reused the service — then nothing to swap).
-4. **Verify, on each phone:** `list_spaces` returns that person's `personal`
-   space plus every shared space they belong to, with each space's member list
-   — never a space they were never invited to, never anyone else's `personal`
-   space (addressing is `personal` or a slug, and membership decides the rest;
+4. **Verify, on each phone:** `list_coves` returns that person's `personal`
+   cove plus every shared cove they belong to, with each cove's member list
+   — never a cove they were never invited to, never anyone else's `personal`
+   cove (addressing is `personal` or a slug, and membership decides the rest;
    that's a tested invariant, but see it once with your own eyes).
 5. **Verify the lock:** `curl -i https://<domain>/mcp` from anywhere →
    rejected, not a tool listing.
@@ -480,7 +480,7 @@ cannot rewrite — so erasing them takes a second and different kind of access.
 
 There is now a **third** role, and it is not a credential — nothing can log in
 as it. `rif_authz` owns the `SECURITY DEFINER` helper functions that every RLS
-policy calls (`rif_space_ids()`, `rif_member_space_ids()`), and it holds
+policy calls (`rif_cove_ids()`, `rif_member_cove_ids()`), and it holds
 `BYPASSRLS` because nothing else can.
 
 The reason is worth keeping, because it is not obvious and it killed two
@@ -573,7 +573,7 @@ of which alone meant no backup:**
    | pages | 22 | 22 |
    | revisions | 26 | 26 |
    | **memberships** | **2** | **2** |
-   | persons / spaces | 1 / 2 | 1 / 2 |
+   | persons / coves | 1 / 2 | 1 / 2 |
 
    RLS survived the restore: connecting as `rif_app` with no principal
    returned zero pages, and `FORCE` was still set on `pages`, `revisions`,
@@ -588,14 +588,14 @@ of which alone meant no backup:**
 ## Phase 5 — Content: the import
 
 > **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared
-> space (now slugged `household`; called `school` at the time).
+> cove (now slugged `household`; called `school` at the time).
  The final disposition differs from the sketch in step 2 below: the
 > shared layer came out as `house.md`, `future-home.md` and `travel.md`
 > rather than the `money.md` / `family-film.md` split proposed here, and
 > `health.md` and `finances.md` both stayed personal.
 >
 > **Step 4's cross-check has not happened** — verifying from her phone that
-> the shared space's pages are visible and personal ones are not needs an
+> the shared cove's pages are visible and personal ones are not needs an
 > invited second person first.
 > That check is the moment the privacy design faces reality, and it is still
 > outstanding.
@@ -611,7 +611,7 @@ nothing moves by inference.
      deserves an actual decision (a shared summary is possible without moving
      the investigation notes).
    - `finances.md` — the proposed split sends joint account/2034 plan/family
-     loan to the shared space and keeps pension+insurance private (it
+     loan to the shared cove and keeps pension+insurance private (it
      references the
      cardiac story).
 2. **Prepare the split files** by hand in a scratch directory: `money.md`,
@@ -626,7 +626,7 @@ nothing moves by inference.
    ```
 
 4. **Verify from both sides:** your phone — `load_all_context` shows
-   everything; her phone — the shared space's pages visible, none of yours.
+   everything; her phone — the shared cove's pages visible, none of yours.
    This is the
    moment the privacy design faces reality; look at it directly.
 
@@ -634,33 +634,33 @@ nothing moves by inference.
 
 ## Phase 6 — Protocol and personas
 
-> **Step 1 done, 6 Aug 2026** — but written in the shared space, which no
-> longer works: `update_meta_page` now refuses any space but `personal`, and
+> **Step 1 done, 6 Aug 2026** — but written in the shared cove, which no
+> longer works: `update_meta_page` now refuses any cove but `personal`, and
 > `get_operating_protocol` never read the shared copy in the first place.
-> **Rewrite it in your personal space.** **Step 2 is not done either:**
+> **Rewrite it in your personal cove.** **Step 2 is not done either:**
 > `meta/persona.md` is still the 157-byte placeholder from the first end-to-end
 > test, while every other page got real content. It is the page that steers the
-> assistant's voice, and `mark.md` in the personal space already holds much of
+> assistant's voice, and `mark.md` in the personal cove already holds much of
 > what belongs in it. Step 3 waits on Phase 2.
 
 The code ships a built-in fallback protocol, but the real thing is content:
 
-1. **The protocol lives in each person's own personal space, not a shared one.**
+1. **The protocol lives in each person's own personal cove, not a shared one.**
    `get_operating_protocol` reads `meta/protocol.md` only from the personal
-   space it is called for, never from `household` or any other shared space — the
+   cove it is called for, never from `household` or any other shared cove — the
    protocol and the persona are per-person. Anyone invited after go-live gets
    both pages created for them at first sign-in, seeded from the built-in
    template. You were seeded by migration rather than by invite, so write your
-   own: `update_meta_page` in your **personal** space (or ask any connected
+   own: `update_meta_page` in your **personal** cove (or ask any connected
    assistant) with the operating rules — load context first, compile don't
    dump, private-by-default routing, promote-only-with-consent — plus the
-   **onboarding behavior**: an assistant meeting an empty personal space
+   **onboarding behavior**: an assistant meeting an empty personal cove
    introduces itself, asks what to call itself, and interviews gently to seed
    the persona.
-2. Write your own `meta/persona.md`, also in your **personal** space (Mark's
+2. Write your own `meta/persona.md`, also in your **personal** cove (Mark's
    tone lives in `mark/wiki/mark.md` today — port it).
 3. **Hers is not yours to write.** Her first conversation, via the onboarding
-   behavior, fills in the `meta/persona.md` waiting in her own personal space.
+   behavior, fills in the `meta/persona.md` waiting in her own personal cove.
    She names her own assistant.
 
 ---
@@ -694,7 +694,7 @@ budget must come from measurement on the real device, not arithmetic.
 
 A browser UI ships in the same Docker image, served at `/app` by the same
 service. Members can browse and edit pages; owners can create and manage
-spaces. Built with React and Bun, compiled to `frontend/dist` during the
+coves. Built with React and Bun, compiled to `frontend/dist` during the
 image build. The frontend redirects unauthenticated requests to
 `/api/auth/login`, which requires two environment variables and a redirect
 URI configuration.
@@ -1044,7 +1044,7 @@ and is bound by the same ceiling.
   in `spike/NOTES.md` (needs a Google Cloud OAuth app).
 - Connectors unusable on her tier/mobile → surface decision reopens (PWA);
   store and tools unaffected.
-- rif dies someday → `python -m rif.export` renders every space back to
+- rif dies someday → `python -m rif.export` renders every cove back to
   portable markdown; plus the R2 dumps; plus Railway managed backups.
 
 **Where things live:** code+plan on `diepzee/reef`, `main` (the `build-v1` and

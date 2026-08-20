@@ -1,8 +1,8 @@
 """Seed a scratch page for manual context-limit measurement.
 
-One-shot, run by hand against the personal space (via
+One-shot, run by hand against the personal cove (via
 ``REEF_DEV_PRINCIPAL_EMAIL`` over stdio config). Grows or shrinks a single
-scratch page so the personal space's total body size lands at the requested
+scratch page so the personal cove's total body size lands at the requested
 target, then reports the resulting total and page count.
 
 The measurement itself is a human step this script does not perform: after
@@ -26,13 +26,13 @@ SCRATCH_PATH = "scratch-measurement.md"
 
 
 async def main(target_kib: int, email: str) -> None:
-    """Grow the scratch page so the personal space totals ``target_kib`` KiB.
+    """Grow the scratch page so the personal cove totals ``target_kib`` KiB.
 
-    Sizes every other page already in the space and fills the remainder
+    Sizes every other page already in the cove and fills the remainder
     with the scratch page, so repeated runs with increasing targets build
     up the corpus without disturbing real content.
 
-    :param target_kib: desired total corpus size for the personal space, in
+    :param target_kib: desired total corpus size for the personal cove, in
         kibibytes (1024 bytes); ``0`` empties the scratch page
     :param email: the principal's email, to resolve them for save_page
     """
@@ -53,7 +53,7 @@ async def main(target_kib: int, email: str) -> None:
         pages = await list_pages(principal, "personal")
         total = sum(len(page.body) for page in pages)
         print(
-            f"personal space now totals {total} bytes (~{total / 1024:.1f} KiB) "
+            f"personal cove now totals {total} bytes (~{total / 1024:.1f} KiB) "
             f"across {len(pages)} page(s); scratch page {SCRATCH_PATH} is "
             f"{filler_bytes} bytes"
         )

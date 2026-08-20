@@ -1,12 +1,12 @@
 /**
- * Procedural reef organisms — every space grows a unique individual.
+ * Procedural reef organisms — every cove grows a unique individual.
  *
  * The pipeline is pure and deterministic: alias → `fnv1a` seed →
  * `mulberry32` PRNG → per-family parameters → SVG path data. Each family
  * (spec: docs/superpowers/specs/2026-08-10-procedural-reef-organisms-design.md)
  * is a small generator drawing its parameters *in a fixed order* from the
  * PRNG stream — reordering draws is a breaking change to every existing
- * space's organism.
+ * cove's organism.
  *
  * Geometry lives in a 64-box: grounded families stand on the y=54
  * baseline, radial families center on (32, 32). Filled silhouettes use
@@ -140,7 +140,7 @@ function slot(x: number, y: number, len: number, hw: number, ang: number): strin
   );
 }
 
-/** The body plans a non-personal space can hash to. */
+/** The body plans a non-personal cove can hash to. */
 export const FAMILIES = [
   "sunAnemone",
   "tubes",
@@ -166,9 +166,9 @@ export type Family = (typeof FAMILIES)[number];
  * would have to grow wider than the box; rendered to fit the box they read as a fraction of
  * their neighbours' size. Either way they break the even footing the glyphs want.
  *
- * They stay in the hash space rather than being deleted from `FAMILIES`, because the family
- * is chosen by `seed % FAMILIES.length`: shortening that list would deal every space a new
- * organism. Remapping instead moves only the spaces that actually grew a retired plan.
+ * They stay in the hash cove rather than being deleted from `FAMILIES`, because the family
+ * is chosen by `seed % FAMILIES.length`: shortening that list would deal every cove a new
+ * organism. Remapping instead moves only the coves that actually grew a retired plan.
  * The generators remain, so the gallery can still draw them.
  */
 const RETIRED: Partial<Record<Family, Family>> = {
@@ -289,7 +289,7 @@ function seagrass(rng: Rng): OrganismPath[] {
  * Filled discs read as a bunch of grapes rather than as bubbles. Walls plus a short
  * highlight arc up and to the left, struck at a lighter weight than the wall, is what
  * makes them read as air rather than mass. The parameters are drawn from the PRNG in the
- * same order as when the bubbles were solid, so existing spaces keep their arrangement.
+ * same order as when the bubbles were solid, so existing coves keep their arrangement.
  */
 function bubbles(rng: Rng): OrganismPath[] {
   const rows: Array<[number, number]> = [
@@ -468,11 +468,11 @@ export function generateFamily(family: Family, seed: number): Organism {
 }
 
 /**
- * Deterministic organism for a space's alias — the reef's genome function.
+ * Deterministic organism for a cove's alias — the reef's genome function.
  *
  * Every alias hashes, `personal` included (it lands on its own staghorn):
  * the brand's traced brain coral is a logo (`ReefMark.tsx`), never a cove
- * glyph. Personal's distinction is its pinned seafoam hue (`spaceColor`).
+ * glyph. Personal's distinction is its pinned seafoam hue (`coveColor`).
  *
  * A hashed family may be one of the `RETIRED` plans, in which case its
  * survivor grows instead — from the same seed, so the individual is still
@@ -482,7 +482,7 @@ export function generateFamily(family: Family, seed: number): Organism {
  * never the seed. The individual stays this alias's own — the same cove,
  * still recognisably itself, wearing a different body.
  *
- * :param alias: the space's alias
+ * :param alias: the cove's alias
  * :param chosen: a family the viewer picked, if any; ignored when it is not
  *     a living family, so an unknown stored value falls back to the hash
  * :returns: the grown organism

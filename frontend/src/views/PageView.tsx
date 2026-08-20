@@ -6,9 +6,9 @@
  * shows a note instead of an Edit link for them.
  *
  * The page bar's avatar stack reuses the same `useMembers` +
- * `useMembersSheet` mechanism as `SpaceView`'s whobar and `Sidebar`'s
- * active-space stack, so clicking it opens the one shared `MembersSheet`
- * (owned by `AppShell`) for this page's space. The personal space has no
+ * `useMembersSheet` mechanism as `CoveView`'s whobar and `Sidebar`'s
+ * active-cove stack, so clicking it opens the one shared `MembersSheet`
+ * (owned by `AppShell`) for this page's cove. The personal cove has no
  * membership to administer — `useMembers` already returns `null` for it —
  * so the stack simply doesn't render there, per the brief's "the user's
  * own avatar or none" allowance.
@@ -25,7 +25,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, apiGet, apiSend } from "../api";
 import { AvatarStack } from "../components/Avatar";
 import { pageMetaSentence } from "../components/pageMeta";
-import { SpaceGlyph } from "../components/spaceGlyph";
+import { CoveGlyph } from "../components/coveGlyph";
 import { useCoveLook } from "../useAppearance";
 import { renderMarkdown } from "../markdown";
 import { useIndex } from "../IndexProvider";
@@ -37,20 +37,20 @@ import { useMembersSheet } from "../useMembersSheet";
 const PROTECTED_PREFIX = "meta/";
 
 export default function PageView() {
-  const { space = "", "*": path = "" } = useParams<{ space: string; "*": string }>();
-  const isPersonal = space === "personal";
+  const { cove = "", "*": path = "" } = useParams<{ cove: string; "*": string }>();
+  const isPersonal = cove === "personal";
 
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { members } = useMembers(space);
+  const { members } = useMembers(cove);
   const { openMembers } = useMembersSheet();
   const { refresh } = useIndex();
   const navigate = useNavigate();
   // Above the early returns below: this is a hook, so calling it after a
   // conditional `return` would change the hook order between the loading
   // and loaded renders.
-  const { hue, family } = useCoveLook()(space);
+  const { hue, family } = useCoveLook()(cove);
 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -60,9 +60,9 @@ export default function PageView() {
     setDeleting(true);
     setDeleteError(null);
     try {
-      await apiSend("DELETE", `/api/pages/${space}/${pagePath}`);
+      await apiSend("DELETE", `/api/pages/${cove}/${pagePath}`);
       await refresh();
-      navigate(`/s/${space}`);
+      navigate(`/s/${cove}`);
     } catch (failure) {
       setDeleting(false);
       setDeleteError(
@@ -77,7 +77,7 @@ export default function PageView() {
     let cancelled = false;
     setPage(null);
     setError(null);
-    apiGet<Page>(`/api/pages/${space}/${path}`)
+    apiGet<Page>(`/api/pages/${cove}/${path}`)
       .then((loaded) => {
         if (!cancelled) setPage(loaded);
       })
@@ -88,7 +88,7 @@ export default function PageView() {
     return () => {
       cancelled = true;
     };
-  }, [space, path]);
+  }, [cove, path]);
 
   if (error) {
     return <div className="notice">{error}</div>;
@@ -103,24 +103,24 @@ export default function PageView() {
     <div>
       <div className="page-bar">
         <span className="page-bar-glyph" aria-hidden="true">
-          <SpaceGlyph alias={space} color={hue.base} size={18} family={family} />
+          <CoveGlyph alias={cove} color={hue.base} size={18} family={family} />
         </span>
-        <Link to={`/s/${space}`} className="page-bar-crumb">
-          ‹ <b>{isPersonal ? "Personal" : space}</b>
+        <Link to={`/s/${cove}`} className="page-bar-crumb">
+          ‹ <b>{isPersonal ? "Personal" : cove}</b>
         </Link>
-        <span className="page-bar-spacer" />
+        <span className="page-bar-cover" />
         {!isPersonal && members && (
           <AvatarStack
             people={members.members.map((member) => ({
               name: member.display_name,
               src: member.avatar,
             }))}
-            onClick={() => openMembers(space)}
-            ariaLabel={`Members of ${space}`}
+            onClick={() => openMembers(cove)}
+            ariaLabel={`Members of ${cove}`}
           />
         )}
         {!isProtected && (
-          <Link to={`/s/${space}/e/${page.path}`} className="page-bar-edit">
+          <Link to={`/s/${cove}/e/${page.path}`} className="page-bar-edit">
             Edit
           </Link>
         )}
@@ -130,7 +130,7 @@ export default function PageView() {
         <h1 className="reading-title">{page.title || page.path}</h1>
         <p className="reading-meta">
           {pageMetaSentence({
-            space,
+            cove,
             personal: isPersonal,
             lastEditor: page.last_editor,
             updated: page.updated,
@@ -146,7 +146,7 @@ export default function PageView() {
         <div
           className="page-body reading-body"
           // Safe: renderMarkdown always runs its output through DOMPurify.
-          dangerouslySetInnerHTML={{ __html: renderMarkdown(page.body, space) }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(page.body, cove) }}
         />
         {page.tags.length > 0 && (
           <div className="reading-tags">
@@ -160,7 +160,7 @@ export default function PageView() {
       </div>
 
       {/* At the foot, behind a confirm, and absent for meta/ — the same
-          shape SpaceView gives leaving or destroying a cove. */}
+          shape CoveView gives leaving or destroying a cove. */}
       {!isProtected && (
         <section className="page-danger">
           {deleteError && <div className="notice">{deleteError}</div>}

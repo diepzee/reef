@@ -18,9 +18,9 @@ from opentelemetry.sdk.trace.export import (
 
 from reef import audit, telemetry
 from reef.access import Principal
+from reef.coves import create_cove, delete_cove, invite, remove_member
 from reef.db import DB
 from reef.invitations import allowlist
-from reef.spaces import create_space, delete_space, invite, remove_member
 
 
 def principal_for(person) -> Principal:
@@ -140,7 +140,7 @@ async def test_erasing_an_account_is_recorded(graph, recorded):
     from reef.account import delete_account_rows
 
     alice = await graph.person("erased@example.test", "Alice")
-    await graph.personal_space(alice)
+    await graph.personal_cove(alice)
     async with DB.transaction():
         await delete_account_rows(principal_for(alice))
 
@@ -157,17 +157,17 @@ async def test_destroying_a_cove_is_recorded(tx, household, recorded):
     """The one act that leaves nothing behind to read afterwards.
 
     Unlike the acts above this stays inside the policies -- an owner deleting
-    their own cove is exactly what ``spaces_owner_delete`` permits. It is
+    their own cove is exactly what ``coves_owner_delete`` permits. It is
     recorded because the rows are gone: without an entry made at the time,
     nothing can say the cove existed or who ended it.
     """
     me = principal_for(household["wouter"])
-    space_id = household["shared"].id
+    cove_id = household["shared"].id
     await remove_member(me, "household", "partner@example.test")
-    await delete_space(me, "household")
+    await delete_cove(me, "household")
 
     assert audit.COVE_DELETED in _actions(recorded)
-    assert str(space_id) in _blob(recorded)
+    assert str(cove_id) in _blob(recorded)
 
 
 async def test_the_trail_never_carries_a_cove_name(tx, household, recorded):
@@ -178,8 +178,8 @@ async def test_the_trail_never_carries_a_cove_name(tx, household, recorded):
     no longer exists, which is precisely the trade the trail makes.
     """
     me = principal_for(household["wouter"])
-    await create_space(me, "sailing-holiday")
-    await delete_space(me, "sailing-holiday")
+    await create_cove(me, "sailing-holiday")
+    await delete_cove(me, "sailing-holiday")
 
     assert audit.COVE_DELETED in _actions(recorded)
     assert "sailing-holiday" not in _blob(recorded)

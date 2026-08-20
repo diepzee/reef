@@ -10,7 +10,7 @@ means the guarantee those operations carry is *accountability*, not
 *prevention*.
 
 The others are the irreversible ones: erasing an account, destroying a cove.
-Both stay inside the policies -- ``spaces_owner_delete`` restricts a cove's
+Both stay inside the policies -- ``coves_owner_delete`` restricts a cove's
 deletion to its owner, and Postgres enforces that whether or not anything is
 logged. They are here because of what they leave behind, which is nothing.
 Every other question about a cove can be answered by reading it; once it is

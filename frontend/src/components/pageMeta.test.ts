@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { pageMetaSentence } from "./pageMeta";
 
-test("shared space, editor, version", () => {
+test("shared cove, editor, version", () => {
   const s = pageMetaSentence({
-    space: "reef",
+    cove: "reef",
     personal: false,
     lastEditor: "Wouter",
     updated: new Date(Date.now() - 7200_000).toISOString(),
@@ -14,9 +14,9 @@ test("shared space, editor, version", () => {
   expect(s).toContain("v2");
 });
 
-test("personal space says only you; null editor omitted", () => {
+test("personal cove says only you; null editor omitted", () => {
   const s = pageMetaSentence({
-    space: "personal",
+    cove: "personal",
     personal: true,
     lastEditor: null,
     updated: new Date().toISOString(),

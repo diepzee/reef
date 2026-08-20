@@ -11,6 +11,7 @@ from datetime import timedelta
 import pytest
 
 from reef.access import Principal
+from reef.coves import invite
 from reef.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
@@ -22,7 +23,6 @@ from reef.invitations import (
     next_invite_at,
 )
 from reef.models import Membership, Person
-from reef.spaces import invite
 
 
 def principal_for(person) -> Principal:

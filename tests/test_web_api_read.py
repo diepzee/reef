@@ -51,12 +51,12 @@ async def test_orphaned_session_is_401(api):
 
 
 async def test_index_is_sliced_per_person(api, world):
-    """The index only lists spaces the logged-in person is a member of."""
+    """The index only lists coves the logged-in person is a member of."""
     _alice, bob, _ = world
     _login(api, bob)
     response = await api.get("/api/index")
     assert response.status_code == 200
-    aliases = {space["alias"] for space in response.json()["spaces"]}
+    aliases = {cove["alias"] for cove in response.json()["coves"]}
     assert aliases == {"personal", "team"}
 
 
@@ -84,7 +84,7 @@ async def test_sliding_renewal_preserves_sid(api, world):
 
 
 async def test_get_page_and_404(api, world):
-    """A page fetch returns the body; missing paths and foreign spaces 404."""
+    """A page fetch returns the body; missing paths and foreign coves 404."""
     from reef.access import Principal
 
     alice, bob, _ = world
@@ -103,7 +103,7 @@ async def test_get_page_and_404(api, world):
     assert page["last_editor"] == "Alice"
     missing = await api.get("/api/pages/team/notes/absent.md")
     assert missing.status_code == 404
-    foreign = await api.get("/api/pages/other-space/notes/plan.md")
+    foreign = await api.get("/api/pages/other-cove/notes/plan.md")
     assert foreign.status_code == 404
 
 

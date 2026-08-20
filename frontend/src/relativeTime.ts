@@ -1,7 +1,7 @@
 /**
  * Format an ISO timestamp as a short relative age, e.g. "3 h ago".
  *
- * Space and page lists show "updated" times far more often than exact
+ * Cove and page lists show "updated" times far more often than exact
  * dates matter, so a compact relative form (matching the brief's "3 h
  * ago" style) reads faster than a full date at a glance; it falls back
  * to a plain date once the age is old enough that "N d ago" stops being

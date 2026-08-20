@@ -1,20 +1,20 @@
 /**
- * A space's member roster, shared across every mounted consumer.
+ * A cove's member roster, shared across every mounted consumer.
  *
- * `Sidebar` (the active space's avatar stack) and `SpaceView` (the members
- * panel) both need the same `GET /api/spaces/{space}/members` response when
- * a shared space is open — without coordination that's two identical
- * requests per navigation. A module-scope cache keyed by space alias plus
+ * `Sidebar` (the active cove's avatar stack) and `CoveView` (the members
+ * panel) both need the same `GET /api/coves/{cove}/members` response when
+ * a shared cove is open — without coordination that's two identical
+ * requests per navigation. A module-scope cache keyed by cove alias plus
  * an in-flight-promise map fix that: concurrent calls for the same key
  * share one network request, and a resolved roster is available
  * synchronously to any hook instance that mounts afterward.
  *
  * A listener set per key rebroadcasts a fresh roster to every mounted
- * consumer of that space, so an invite/removal in `SpaceView` is reflected
+ * consumer of that cove, so an invite/removal in `CoveView` is reflected
  * in `Sidebar`'s avatar stack (and vice versa) without either needing to
  * remount. The cancelled-flag + generation-counter guard mirrors
  * `IndexProvider`: a generation captured before an await is only applied if
- * it is still current, so a slow response for a space the hook has since
+ * it is still current, so a slow response for a cove the hook has since
  * moved on from can never clobber newer state.
  */
 
@@ -38,7 +38,7 @@ function fetchMembers(key: string): Promise<Members> {
   const pending = inFlight.get(key);
   if (pending) return pending;
 
-  const promise = apiGet<Members>(`/api/spaces/${key}/members`).finally(() => {
+  const promise = apiGet<Members>(`/api/coves/${key}/members`).finally(() => {
     if (inFlight.get(key) === promise) inFlight.delete(key);
   });
   inFlight.set(key, promise);
@@ -53,15 +53,15 @@ interface UseMembersResult {
 }
 
 /**
- * The member roster for `space`, or `null` for no space (or the personal
- * space, which has no membership to administer — the same rule `SpaceView`
+ * The member roster for `cove`, or `null` for no cove (or the personal
+ * cove, which has no membership to administer — the same rule `CoveView`
  * applied inline before this hook existed).
  *
- * :param space: a space alias, or `null` when no space is in scope
+ * :param cove: a cove alias, or `null` when no cove is in scope
  * :returns: the roster, a load error if any, and a `refresh()` to re-fetch
  */
-export function useMembers(space: string | null): UseMembersResult {
-  const key = space && space !== "personal" ? space : null;
+export function useMembers(cove: string | null): UseMembersResult {
+  const key = cove && cove !== "personal" ? cove : null;
   const [members, setMembers] = useState<Members | null>(key ? (cache.get(key) ?? null) : null);
   const [error, setError] = useState<string | null>(null);
 

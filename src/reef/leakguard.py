@@ -1,7 +1,7 @@
 """Make the share ceremony the only route for personal content into a cove.
 
 ``prepare_to_share``/``confirm_share`` exists so that moving something out of
-the personal space is a deliberate, disclosed act. Nothing enforced it. A
+the personal cove is a deliberate, disclosed act. Nothing enforced it. A
 plain ``write_page`` to a shared cove carrying a body just read out of
 ``personal`` did the same thing in one call, with no nonce, no disclosure and
 no user confirmation — which made the ceremony a convention the assistant was
@@ -30,7 +30,7 @@ leaves consent as the only wide one.
 
 The comparison is deliberately against **new** text only. Re-saving a page
 that already carries shared content must not start failing because the same
-words also exist somewhere in the personal space, so the shingles already
+words also exist somewhere in the personal cove, so the shingles already
 present in the stored page are subtracted before anything is judged. Only
 text this write introduces can trip the guard.
 """

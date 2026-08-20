@@ -8,7 +8,7 @@ have read anyway, and a forgotten filter returns nothing rather than
 somebody else's memories.
 """
 
-from reef.access import Principal, alias_map, resolve_space
+from reef.access import Principal, alias_map, resolve_cove
 from reef.models import AttachmentStatus, Page
 
 #: Snippets bold their matches as Markdown, the format every reader here speaks.
@@ -29,7 +29,7 @@ _FILE_VECTOR = (
 _PAGES_SQL = f"""
     SELECT
         'page' AS kind,
-        space_id,
+        cove_id,
         path,
         title,
         NULL AS key,
@@ -47,7 +47,7 @@ _PAGES_SQL = f"""
 _FILES_SQL = f"""
     SELECT
         'file' AS kind,
-        space_id,
+        cove_id,
         NULL AS path,
         NULL AS title,
         object_key AS key,
@@ -65,7 +65,7 @@ _FILES_SQL = f"""
 
 _ORDER_SQL = " ORDER BY rank DESC, at DESC LIMIT {}"
 
-_SPACE_FILTER = " AND space_id = {}"
+_COVE_FILTER = " AND cove_id = {}"
 
 _MAX_RESULTS = 50
 
@@ -74,11 +74,11 @@ def _row_payload(row: dict, aliases: dict) -> dict:
     """Shape one result row for the tool payload.
 
     :param row: a row from the union query
-    :param aliases: the caller's space-id-to-alias map
+    :param aliases: the caller's cove-id-to-alias map
     :returns: the fields a reader needs, keyed by kind
     """
     common = {
-        "space": aliases[row["space_id"]],
+        "cove": aliases[row["cove_id"]],
         "kind": row["kind"],
         "snippet": row["snippet"],
     }
@@ -90,7 +90,7 @@ def _row_payload(row: dict, aliases: dict) -> dict:
 async def search_pages(
     principal: Principal,
     query: str,
-    space: str | None = None,
+    cove: str | None = None,
     limit: int = 10,
 ) -> list[dict]:
     """Search every page and described file the caller can see, best match first.
@@ -103,11 +103,11 @@ async def search_pages(
 
     :param principal: the authenticated person
     :param query: words to search for
-    :param space: restrict to one space by its alias; all spaces when None
+    :param cove: restrict to one cove by its alias; all coves when None
     :param limit: maximum results, clamped to a sane ceiling
     :returns: one dict per hit — pages carry path and title, files key and
-        filename; both carry the space alias, kind, and a snippet
-    :raises AccessDenied: when ``space`` names no space of the caller's
+        filename; both carry the cove alias, kind, and a snippet
+    :raises AccessDenied: when ``cove`` names no cove of the caller's
     """
     query = query.strip()
     if not query:
@@ -115,14 +115,14 @@ async def search_pages(
     limit = max(1, min(limit, _MAX_RESULTS))
     aliases = await alias_map(principal)
     ready = AttachmentStatus.READY.value
-    if space is not None:
-        target = await resolve_space(principal, space)
+    if cove is not None:
+        target = await resolve_cove(principal, cove)
         sql = (
             _PAGES_SQL
-            + _SPACE_FILTER
+            + _COVE_FILTER
             + " UNION ALL "
             + _FILES_SQL
-            + _SPACE_FILTER
+            + _COVE_FILTER
             + _ORDER_SQL
         )
         rows = await Page.raw(

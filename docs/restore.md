@@ -114,7 +114,7 @@ docker compose exec db psql -U postgres -d rif_restore -c \
 Expected: counts matching the source database. **If `memberships` is zero
 the restore is useless** — the access model, not the content, is the part
 that must survive. A restore with pages but no memberships silently drops
-the entire privacy boundary: every space would resolve to "no unique space
+the entire privacy boundary: every cove would resolve to "no unique cove
 for this principal" and every read/write would deny, or worse, a bug
 downstream could reintroduce access to everyone.
 
@@ -153,7 +153,7 @@ question in the previous section, and is a human step: Phase 4 of
 real backup was taken (`backups/rif-20260807T140148Z.dump`, 195,004 bytes),
 downloaded from R2, and restored into a scratch `postgres:18` container.
 Counts matched production exactly: 22 pages, 26 revisions, **2 memberships**,
-1 person, 2 spaces. RLS survived — as `rif_app` with no principal the restore
+1 person, 2 coves. RLS survived — as `rif_app` with no principal the restore
 returned zero pages, and `FORCE` was still set on all four protected tables.
 
 The exit hatch is therefore real, not theoretical. What remains is the
@@ -168,7 +168,7 @@ repo's `docker-compose.yml` will refuse it outright.
 ## Bucket locks cover attachment bytes — R2 has no versioning
 
 Image bytes live in R2 as opaque-keyed objects (`attachments.object_key`,
-never derived from `space_id` — see `src/reef/attachments.py`), outside
+never derived from `cove_id` — see `src/reef/attachments.py`), outside
 Postgres entirely. `pg_dump`/`pg_restore` only ever covers the metadata row
 (`attachments` table: key, mime, size, description, status) — never the
 bytes themselves.

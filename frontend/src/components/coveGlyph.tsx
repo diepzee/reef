@@ -1,5 +1,5 @@
 /**
- * A space's own reef organism, procedurally grown from its alias — the
+ * A cove's own reef organism, procedurally grown from its alias — the
  * rendering half of `organisms.ts` (which owns the deterministic
  * alias → family → parameters pipeline; spec:
  * docs/superpowers/specs/2026-08-10-procedural-reef-organisms-design.md).
@@ -66,10 +66,10 @@ function frame(group: SVGGElement, strokePad: number): string {
   return `${cx - side / 2} ${cy - side / 2} ${side} ${side}`;
 }
 
-interface SpaceGlyphProps {
-  /** The space's alias — decides which organism grows. */
+interface CoveGlyphProps {
+  /** The cove's alias — decides which organism grows. */
   alias: string;
-  /** Glyph color — typically the space's hue (`spaceColor(alias)`). */
+  /** Glyph color — typically the cove's hue (`coveColor(alias)`). */
   color: string;
   /** Rendered width AND height in px — the organism box is square. Default 20. */
   size?: number;
@@ -77,13 +77,13 @@ interface SpaceGlyphProps {
   family?: string | null;
 }
 
-/** A space's own procedurally grown reef organism, single-colored. */
-export function SpaceGlyph({
+/** A cove's own procedurally grown reef organism, single-colored. */
+export function CoveGlyph({
   alias,
   color,
   size = 20,
   family,
-}: SpaceGlyphProps) {
+}: CoveGlyphProps) {
   const organism = organismFor(alias, family);
   const group = useRef<SVGGElement>(null);
   const [viewBox, setViewBox] = useState(UNMEASURED);

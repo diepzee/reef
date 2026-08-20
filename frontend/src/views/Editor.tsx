@@ -16,7 +16,7 @@ import { indexDescription } from "../summary";
 import type { Page } from "../types";
 
 export default function Editor() {
-  const { space = "", "*": path = "" } = useParams<{ space: string; "*": string }>();
+  const { cove = "", "*": path = "" } = useParams<{ cove: string; "*": string }>();
 
   const [page, setPage] = useState<Page | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export default function Editor() {
     let cancelled = false;
     setPage(null);
     setError(null);
-    apiGet<Page>(`/api/pages/${space}/${path}`)
+    apiGet<Page>(`/api/pages/${cove}/${path}`)
       .then((loaded) => {
         if (!cancelled) setPage(loaded);
       })
@@ -36,7 +36,7 @@ export default function Editor() {
     return () => {
       cancelled = true;
     };
-  }, [space, path]);
+  }, [cove, path]);
 
   if (error) {
     return <div className="notice">{error}</div>;
@@ -47,7 +47,7 @@ export default function Editor() {
 
   return (
     <PageEditor
-      space={space}
+      cove={cove}
       path={path}
       mode="edit"
       initialTitle={page.title}
@@ -67,7 +67,7 @@ function autoGrow(el: HTMLTextAreaElement | null) {
 
 /** Props for {@link PageEditor}. */
 interface PageEditorProps {
-  space: string;
+  cove: string;
   path: string;
   mode: "edit" | "create";
   initialTitle: string;
@@ -93,7 +93,7 @@ interface Conflict {
  * author has manually reconciled the two.
  */
 export function PageEditor({
-  space,
+  cove,
   path,
   mode,
   initialTitle,
@@ -129,7 +129,7 @@ export function PageEditor({
         .split(",")
         .map((tag) => tag.trim())
         .filter((tag) => tag.length > 0);
-      await apiSend<Page>("PUT", `/api/pages/${space}/${path}`, {
+      await apiSend<Page>("PUT", `/api/pages/${cove}/${path}`, {
         body,
         title,
         tags,
@@ -137,11 +137,11 @@ export function PageEditor({
         expected_version: expectedVersion,
       });
       await refresh();
-      navigate(`/s/${space}/p/${path}`);
+      navigate(`/s/${cove}/p/${path}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         try {
-          const latest = await apiGet<Page>(`/api/pages/${space}/${path}`);
+          const latest = await apiGet<Page>(`/api/pages/${cove}/${path}`);
           setConflict({ version: latest.version, body: latest.body });
           setExpectedVersion(latest.version);
         } catch (fetchErr: unknown) {
@@ -219,7 +219,7 @@ export function PageEditor({
             <div
               className="page-body ed-input editor-preview"
               // Safe: renderMarkdown always runs its output through DOMPurify.
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(body, space) }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(body, cove) }}
             />
           ) : (
             <textarea

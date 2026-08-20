@@ -35,7 +35,7 @@ async def forwards() -> MigrationManager:
     but the cove's owner: the members who most need to address a co-member
     had nothing to address them by.
 
-    One transaction. Apart, there is a window where ``_space_members`` reads
+    One transaction. Apart, there is a window where ``_cove_members`` reads
     a ``person_id`` column the recreated function does not return yet, and
     every members panel 500s.
 

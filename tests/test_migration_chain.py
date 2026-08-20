@@ -179,7 +179,7 @@ async def _shape(dsn: str) -> dict[str, set]:
     """Return the parts of a schema two builds of it must agree on.
 
     Grants are included, not just structure: the column-level narrowing on
-    ``persons`` and ``spaces`` is a security boundary, and a build that
+    ``persons`` and ``coves`` is a security boundary, and a build that
     reproduced every table and forgot every ``REVOKE`` would look identical
     without it.
 

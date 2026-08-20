@@ -363,16 +363,16 @@ railway up   # again, so the vars take</code></pre></li>
   signed in; anyone nobody invited is denied by
   <code>principal_from_claims</code>.</p>
   <ol class="steps">
-    <li>As the space's owner, from any connected assistant:
-      <pre><code>invite(space="school", email="&lt;her-email&gt;",
+    <li>As the cove's owner, from any connected assistant:
+      <pre><code>invite(cove="school", email="&lt;her-email&gt;",
        display_name="&lt;her-name&gt;")</code></pre>
       Say out loud what it grants first: permanent access to everything in that
-      space, past and future.</li>
+      cove, past and future.</li>
     <li>She signs in to AuthKit with that exact address, verified. Her personal
-      space and its two starter pages appear on that first sign-in. The email
+      cove and its two starter pages appear on that first sign-in. The email
       must match exactly — it is what her first login binds to.
-      <p class="done">she calls <code>list_spaces</code> and sees her own
-      <code>personal</code> space plus <code>school</code>.</p></li>
+      <p class="done">she calls <code>list_coves</code> and sees her own
+      <code>personal</code> cove plus <code>school</code>.</p></li>
   </ol>
 </section>
 
@@ -387,21 +387,21 @@ railway up   # again, so the vars take</code></pre></li>
 railway up</code></pre>
       Boot runs <code>scripts/migrate.py</code> (advisory-locked): schema,
       RLS policies, the seed.</li>
-    <li><strong>Check the owner the multi-user-spaces migration backfilled.</strong>
-      It picks each pre-existing shared space's lowest-person-id member —
+    <li><strong>Check the owner the multi-user-coves migration backfilled.</strong>
+      It picks each pre-existing shared cove's lowest-person-id member —
       deterministic, but arbitrary.
-      <pre><code>SELECT s.slug, p.email FROM spaces s
+      <pre><code>SELECT s.slug, p.email FROM coves s
   JOIN persons p ON p.id = s.owner_person_id
  WHERE s.kind = 'shared';</code></pre>
       Reassign with one <code>UPDATE</code> if it came out wrong, before anyone
       relies on <code>invite</code> or <code>remove_member</code>.</li>
     <li>Swap the connector on both accounts to the real <code>/mcp</code> URL
       (nothing to swap if you reused the service).</li>
-    <li>On each phone: <code>list_spaces</code>.
-      <p class="done">each person sees their own <code>personal</code> space
-      plus every shared space they belong to, with its member list — never a
-      space they were not invited to, never anyone else's <code>personal</code>
-      space. It's a tested invariant; see it once with your own eyes anyway.</p></li>
+    <li>On each phone: <code>list_coves</code>.
+      <p class="done">each person sees their own <code>personal</code> cove
+      plus every shared cove they belong to, with its member list — never a
+      cove they were not invited to, never anyone else's <code>personal</code>
+      cove. It's a tested invariant; see it once with your own eyes anyway.</p></li>
     <li><code>curl -i https://&lt;domain&gt;/mcp</code> from anywhere →
       rejected, not a tool listing.</li>
     <li>Commit ticking Task 6's deploy checkboxes — the code commit
@@ -464,7 +464,7 @@ railway up</code></pre></li>
       <strong>health.md</strong> — private by default, but this page deserves a
       conscious decision (a shared summary is possible without moving the
       investigation notes); <strong>finances.md</strong> — proposed split
-      sends joint account / 2034 plan / family loan to the shared space, keeps
+      sends joint account / 2034 plan / family loan to the shared cove, keeps
       pension + insurance private.</li>
     <li>Prepare the split files by hand in a scratch dir
       (<code>money.md</code>, <code>family-film.md</code>, trimmed originals).
@@ -474,7 +474,7 @@ railway up</code></pre></li>
     <li><pre><code>railway run uv run python scripts/import_mark.py \
   &lt;scratch-dir&gt; wouter@rugvin.be</code></pre></li>
     <li>Verify from both sides — your phone: <code>load_all_context</code>
-      shows everything; her phone: the shared space's pages visible, none of
+      shows everything; her phone: the shared cove's pages visible, none of
       yours.
       <p class="done">the privacy design has faced reality and held. Look at
       it directly.</p></li>
@@ -488,21 +488,21 @@ railway up</code></pre></li>
   content, editable like any page and versioned like any page.</p>
   <ol class="steps">
     <li>Write <code>meta/protocol.md</code> <strong>in your personal
-      space</strong> (via <code>update_meta_page</code>, or just ask a
+      cove</strong> (via <code>update_meta_page</code>, or just ask a
       connected assistant): load context first · compile, don't dump ·
       private-by-default routing · promote only with consent — plus the
       <strong>onboarding behavior</strong>: an assistant meeting an empty
-      personal space introduces itself, asks what to call itself, and
+      personal cove introduces itself, asks what to call itself, and
       interviews gently to seed the persona.
       The protocol and the persona are per-person:
-      <code>update_meta_page</code> refuses any space but
+      <code>update_meta_page</code> refuses any cove but
       <code>personal</code>, and <code>get_operating_protocol</code> never
-      reads a shared space's copy.</li>
+      reads a shared cove's copy.</li>
     <li>Write your own <code>meta/persona.md</code>, also in your personal
-      space — Mark's tone lives in <code>mark/wiki/mark.md</code> today; port
+      cove — Mark's tone lives in <code>mark/wiki/mark.md</code> today; port
       it.</li>
     <li><strong>Hers is not yours to write.</strong> Anyone invited gets both
-      pages seeded in their own personal space at first sign-in; her first
+      pages seeded in their own personal cove at first sign-in; her first
       conversation fills the persona in. She names her own assistant.</li>
   </ol>
 </section>
@@ -556,7 +556,7 @@ railway up</code></pre></li>
     <li>Connectors unusable on her tier/mobile → surface decision reopens
       (PWA); store and tools unaffected.</li>
     <li>rif dies someday → <code>python -m rif.export</code> renders every
-      space back to portable markdown; plus the R2 dumps; plus Railway managed
+      cove back to portable markdown; plus the R2 dumps; plus Railway managed
       backups.</li>
   </ul>
 
@@ -569,7 +569,7 @@ railway up</code></pre></li>
 </section>
 
 <footer>
-  rif — a remote MCP memory shared through named spaces. Store: Postgres + RLS. Surface:
+  rif — a remote MCP memory shared through named coves. Store: Postgres + RLS. Surface:
   the Claude app. Exit: always markdown.
 </footer>
 

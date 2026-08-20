@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 
 import { coveConnections } from "./coveGraph";
-import type { SpaceIndex } from "./types";
+import type { CoveIndex } from "./types";
 
-function space(
+function cove(
   alias: string,
-  pages: Array<{ path: string; references: Array<{ space: string; path: string }> }>,
-): SpaceIndex {
+  pages: Array<{ path: string; references: Array<{ cove: string; path: string }> }>,
+): CoveIndex {
   return {
     alias,
     version: 1,
@@ -26,24 +26,24 @@ function space(
 
 test("aggregates cross-cove references by direction and source page", () => {
   const graph = coveConnections([
-    space("personal", [
+    cove("personal", [
       {
         path: "a.md",
         references: [
-          { space: "personal", path: "b.md" },
-          { space: "household", path: "home.md" },
-          { space: "household", path: "chores.md" },
+          { cove: "personal", path: "b.md" },
+          { cove: "household", path: "home.md" },
+          { cove: "household", path: "chores.md" },
         ],
       },
       {
         path: "b.md",
-        references: [{ space: "household", path: "home.md" }],
+        references: [{ cove: "household", path: "home.md" }],
       },
     ]),
-    space("household", [
+    cove("household", [
       {
         path: "home.md",
-        references: [{ space: "personal", path: "a.md" }],
+        references: [{ cove: "personal", path: "a.md" }],
       },
     ]),
   ]);
@@ -67,8 +67,8 @@ test("aggregates cross-cove references by direction and source page", () => {
 test("ignores references to a cove outside the supplied index", () => {
   expect(
     coveConnections([
-      space("personal", [
-        { path: "a.md", references: [{ space: "hidden", path: "x.md" }] },
+      cove("personal", [
+        { path: "a.md", references: [{ cove: "hidden", path: "x.md" }] },
       ]),
     ]),
   ).toEqual([]);

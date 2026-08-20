@@ -224,7 +224,7 @@ async def test_a_pending_attachment_is_not_readable(household):
     async with transaction_scope():
         await arm(me)
         await Attachment(
-            space_id=household["w_personal"].id,
+            cove_id=household["w_personal"].id,
             object_key="attachments/never-uploaded",
             filename="ghost.pdf",
             mime="application/pdf",
@@ -274,7 +274,7 @@ async def test_a_failed_upload_marks_the_row_failed_rather_than_leaking_pending(
     async with transaction_scope():
         await arm(me)
         rows = await Attachment.objects().where(
-            Attachment.space_id == household["w_personal"].id
+            Attachment.cove_id == household["w_personal"].id
         )
     assert [row.status for row in rows] == [AttachmentStatus.FAILED.value]
     # And it stays unreadable, exactly as the pending row was.

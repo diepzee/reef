@@ -22,22 +22,22 @@ VERSION = "1.36.0"
 DESCRIPTION = "composite constraints and row-level security policies"
 
 _MEMBER_PREDICATE = (
-    "space_id IN (SELECT space_id FROM memberships "
+    "cove_id IN (SELECT cove_id FROM memberships "
     "WHERE person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"
 )
 
 _REVISION_PREDICATE = (
     "page_id IN (SELECT p.id FROM pages p "
-    "JOIN memberships m ON m.space_id = p.space_id "
+    "JOIN memberships m ON m.cove_id = p.cove_id "
     "WHERE m.person_id = NULLIF(current_setting('app.person_id', true), '')::uuid)"
 )
 
 STATEMENTS = [
     (
-        "ALTER TABLE memberships ADD CONSTRAINT memberships_person_space "
-        "UNIQUE (person_id, space_id)"
+        "ALTER TABLE memberships ADD CONSTRAINT memberships_person_cove "
+        "UNIQUE (person_id, cove_id)"
     ),
-    "ALTER TABLE pages ADD CONSTRAINT pages_space_path UNIQUE (space_id, path)",
+    "ALTER TABLE pages ADD CONSTRAINT pages_cove_path UNIQUE (cove_id, path)",
     "ALTER TABLE pages ENABLE ROW LEVEL SECURITY",
     "ALTER TABLE pages FORCE ROW LEVEL SECURITY",
     (

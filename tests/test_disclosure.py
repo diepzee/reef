@@ -11,10 +11,10 @@ with everything else. Hence functions with the check inside.
 """
 
 from reef.access import Principal, arm
+from reef.coves import cove_owner, display_names, member_names, member_roster
 from reef.db import DB
 from reef.models import Person
 from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE
-from reef.spaces import display_names, member_names, member_roster, space_owner
 
 
 async def _arm(person) -> None:
@@ -30,7 +30,7 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
     rows = await DB._run_in_new_connection(
         "SELECT p.proname, pg_get_userbyid(p.proowner) AS owner, p.prosecdef, "
         "p.proconfig FROM pg_proc p WHERE p.proname IN "
-        "('reef_roster', 'reef_space_owner', 'reef_display_names', "
+        "('reef_roster', 'reef_cove_owner', 'reef_display_names', "
         "'reef_person_id_by_email', 'reef_invites_minted', 'reef_oldest_invite', "
         "'reef_member_faces', 'reef_member_avatar')"
     )
@@ -46,7 +46,7 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
 
 async def test_an_owner_sees_member_emails(tx, household):
     """The owner administers the cove, so removal needs addresses."""
-    await _arm(household["wouter"])  # owns the shared space
+    await _arm(household["wouter"])  # owns the shared cove
     roster = await member_roster(household["shared"].id)
 
     assert sorted(m["display_name"] for m in roster) == ["Partner", "Wouter"]
@@ -79,7 +79,7 @@ async def test_an_unarmed_caller_sees_no_roster(tx, household):
 async def test_every_member_sees_the_owners_address(tx, household):
     """Deliberately kept: the owner is the cove's accountable contact."""
     await _arm(household["partner"])
-    owner = await space_owner(household["shared"].id)
+    owner = await cove_owner(household["shared"].id)
 
     assert owner == {"display_name": "Wouter", "email": "wouter@example.test"}
 
@@ -88,7 +88,7 @@ async def test_a_non_member_cannot_see_the_owner(tx, household, graph):
     """That contract stops at the cove's edge."""
     stranger = await graph.person("outsider@example.test", "Outsider")
     await _arm(stranger)
-    assert await space_owner(household["shared"].id) is None
+    assert await cove_owner(household["shared"].id) is None
 
 
 async def test_display_names_resolve_without_exposing_addresses(tx, household):

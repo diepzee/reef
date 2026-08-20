@@ -4,7 +4,7 @@ reef is invitation-only (see :mod:`reef.auth`), and a ``persons`` row *is* the
 allowlist entry — it is what lets an unknown subject bind on first sign-in.
 Two flows create one: inviting someone into a cove, and inviting someone to
 reef itself. Both go through :func:`allowlist` so the budget cannot be walked
-around by creating a junk space and inviting into that instead.
+around by creating a junk cove and inviting into that instead.
 
 The budget protects the resource, not an endpoint: it counts *new* rows, so
 inviting an address reef already knows costs nothing.
@@ -195,8 +195,8 @@ async def invite_to_reef(
 ) -> dict:
     """Invite someone to reef itself, without sharing any cove.
 
-    They arrive in their own personal space, seeded on first sign-in by
-    ``ensure_personal_space``. Nothing is disclosed, so unlike a cove invite
+    They arrive in their own personal cove, seeded on first sign-in by
+    ``ensure_personal_cove``. Nothing is disclosed, so unlike a cove invite
     there is nothing here to regret.
 
     reef sends no mail, so the return value carries the words the inviter

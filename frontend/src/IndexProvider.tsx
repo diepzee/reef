@@ -3,10 +3,10 @@
  * longer each issue their own `apiGet` on mount.
  *
  * Fetches once when the provider mounts (the cancelled-flag pattern from
- * `SpaceView`'s effects, so an unmounted provider never calls `setState`).
- * Mutating views (`NewSpace`, `Editor`, `NewPage`) call `refresh()` after a
+ * `CoveView`'s effects, so an unmounted provider never calls `setState`).
+ * Mutating views (`NewCove`, `Editor`, `NewPage`) call `refresh()` after a
  * successful create/save so the index — and anything rendered from it,
- * like `Home`'s space list or `SpaceView`'s page list — is current before
+ * like `Home`'s cove list or `CoveView`'s page list — is current before
  * the caller navigates away.
  *
  * A 401 during either fetch means `apiGet` is already redirecting to the
@@ -71,12 +71,12 @@ export function IndexProvider({ children }: { children: ReactNode }) {
       if (isCancelled() || gen !== genRef.current) return;
       setRawIndex(payload);
       // meta/* pages steer the assistant (persona); they're not content,
-      // so they don't belong in space listings or page counts.
+      // so they don't belong in cove listings or page counts.
       setIndex({
         ...payload,
-        spaces: payload.spaces.map((space) => ({
-          ...space,
-          pages: space.pages.filter((page) => !page.path.startsWith("meta/")),
+        coves: payload.coves.map((cove) => ({
+          ...cove,
+          pages: cove.pages.filter((page) => !page.path.startsWith("meta/")),
         })),
       });
       setError(null);
@@ -85,7 +85,7 @@ export function IndexProvider({ children }: { children: ReactNode }) {
       // A 401 is already being handled by apiGet's redirect to the login
       // route — don't render an error while that navigation is in flight.
       if (err instanceof ApiError && err.status === 401) return;
-      setError(err instanceof ApiError ? err.message : "could not load spaces");
+      setError(err instanceof ApiError ? err.message : "could not load coves");
     }
   }, []);
 

@@ -1,7 +1,7 @@
 """Page reads and versioned writes.
 
 Every function here assumes it runs inside :func:`reef.db.transaction_scope`
-and arms RLS through :func:`reef.access.resolve_space` before touching
+and arms RLS through :func:`reef.access.resolve_cove` before touching
 content. There is no session parameter to thread: Piccolo binds queries to
 the ambient transaction, and an unarmed one returns nothing.
 """
@@ -10,10 +10,10 @@ import re
 from datetime import datetime
 
 from reef import audit
-from reef.access import AccessDenied, Principal, resolve_space, resolve_writable_space
+from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
 from reef.leakguard import overlaps
-from reef.models import Attachment, Page, Revision, Space, SpaceKind
+from reef.models import Attachment, Cove, CoveKind, Page, Revision
 
 PROTECTED_PREFIX = "meta/"
 
@@ -45,7 +45,7 @@ class InvalidPath(Exception):
 
 
 class PrivateContentLeak(Exception):
-    """Raised when a cove write carries text copied from the personal space."""
+    """Raised when a cove write carries text copied from the personal cove."""
 
 
 async def _refuse_private_copy(
@@ -75,26 +75,26 @@ async def _refuse_private_copy(
     :raises PrivateContentLeak: when the write introduces private text
     """
     try:
-        personal = await resolve_space(principal, "personal")
+        personal = await resolve_cove(principal, "personal")
     except AccessDenied:
-        # No personal space, so nothing private to copy out of. Onboarding
+        # No personal cove, so nothing private to copy out of. Onboarding
         # creates one for everybody, but a principal without one must still
         # be able to write to a cove -- a guard that refuses the write it
         # cannot evaluate would turn a missing row into a lockout.
         return
     private = (
         await Page.select(Page.body)
-        .where(Page.space_id == personal.id, Page.path != PERSONA_PATH)
+        .where(Page.cove_id == personal.id, Page.path != PERSONA_PATH)
         .output(as_list=True)
     )
-    # Re-arm: resolve_space above bound the principal for the personal
+    # Re-arm: resolve_cove above bound the principal for the personal
     # lookup, and the caller's next statement expects the same principal.
     # It is the same value, so this is belt and braces rather than a fix.
-    await resolve_space(principal, alias)
+    await resolve_cove(principal, alias)
     if not overlaps(body, existing.body if existing else "", private):
         return
     raise PrivateContentLeak(
-        f"this would copy text from your personal space into {alias!r} "
+        f"this would copy text from your personal cove into {alias!r} "
         f"({path!r}). Sharing is permanent, so it goes through "
         "prepare_to_share: it shows the user the exact text and who will be "
         "able to read it, and confirm_share performs the move after they "
@@ -193,27 +193,27 @@ def _refuse_protected(path: str, allow_protected: bool) -> None:
 
 
 async def list_pages(principal: Principal, alias: str) -> list[Page]:
-    """List every page in one of the principal's spaces.
+    """List every page in one of the principal's coves.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :returns: pages ordered by path
     """
-    space = await resolve_space(principal, alias)
-    return await Page.objects().where(Page.space_id == space.id).order_by(Page.path)
+    cove = await resolve_cove(principal, alias)
+    return await Page.objects().where(Page.cove_id == cove.id).order_by(Page.path)
 
 
 async def get_page(principal: Principal, alias: str, path: str) -> Page | None:
     """Fetch a single page by path.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param path: page path, for example ``house.md``
-    :returns: the page, or None if absent from that space
+    :returns: the page, or None if absent from that cove
     """
-    space = await resolve_space(principal, alias)
+    cove = await resolve_cove(principal, alias)
     return (
-        await Page.objects().where(Page.space_id == space.id, Page.path == path).first()
+        await Page.objects().where(Page.cove_id == cove.id, Page.path == path).first()
     )
 
 
@@ -228,7 +228,7 @@ async def get_page_as_of(
     exactly as private as the page it belongs to.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param path: page path, for example ``house.md``
     :param as_of: the moment to reconstruct; aware datetimes are converted
         to the naive local time the revision timestamps are stored in
@@ -269,10 +269,10 @@ async def save_page(
     allow_protected: bool = False,
     allow_private_copy: bool = False,
 ) -> Page:
-    """Create or overwrite a page: snapshot a revision, bump page and space versions.
+    """Create or overwrite a page: snapshot a revision, bump page and cove versions.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param path: page path
     :param body: full markdown body
     :param message: why this write happened, stored on the revision
@@ -281,7 +281,7 @@ async def save_page(
     :param expected_version: optimistic lock; mismatch raises VersionConflict
     :param allow_protected: permit writes under ``meta/`` (dedicated tools only)
     :param allow_private_copy: permit shared text copied from the personal
-        space. Only the share ceremony passes this -- it *is* the sanctioned
+        cove. Only the share ceremony passes this -- it *is* the sanctioned
         copy, having already shown the user the exact disclosure.
     :raises PrivateContentLeak: for personal text written into a cove
     :raises ProtectedPath: for meta/ paths without allow_protected
@@ -292,7 +292,7 @@ async def save_page(
     """
     validate_body(path, body)
     _refuse_protected(path, allow_protected)
-    space = await resolve_writable_space(principal, alias)
+    cove = await resolve_writable_cove(principal, alias)
     # An existing page is addressed by exactly the name it already carries.
     # reef stored arbitrary paths before normalize_path existed, and
     # normalizing unconditionally would not *rename* such a page -- it would
@@ -301,7 +301,7 @@ async def save_page(
     # the mess stops growing without anything already stored breaking.
     page = (
         await Page.objects()
-        .where(Page.space_id == space.id, Page.path == path)
+        .where(Page.cove_id == cove.id, Page.path == path)
         .lock_rows()
         .first()
     )
@@ -310,17 +310,17 @@ async def save_page(
         _refuse_protected(path, allow_protected)
         page = (
             await Page.objects()
-            .where(Page.space_id == space.id, Page.path == path)
+            .where(Page.cove_id == cove.id, Page.path == path)
             .lock_rows()
             .first()
         )
-    if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
+    if not allow_private_copy and cove.kind == CoveKind.SHARED.value:
         await _refuse_private_copy(principal, alias, path, body, page)
     if page is None:
         if expected_version not in (None, 0):
             raise VersionConflict(f"{path!r} does not exist yet")
         page = Page(
-            space_id=space.id,
+            cove_id=cove.id,
             path=path,
             title=title or path.removesuffix(".md"),
             tags=tags or [],
@@ -350,7 +350,7 @@ async def save_page(
         message=message,
         author_id=principal.person_id,
     ).save()
-    await Space.update({Space.version: Space.version + 1}).where(Space.id == space.id)
+    await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
     return page
 
 
@@ -369,7 +369,7 @@ async def edit_section(
     """Replace an exact, unique span of a page, leaving the rest untouched.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param path: page path
     :param old_text: exact text to replace; must occur exactly once
     :param new_text: replacement text
@@ -401,7 +401,7 @@ async def edit_section(
 
 
 class PageNotFound(Exception):
-    """Raised when a page to be deleted is not in that space."""
+    """Raised when a page to be deleted is not in that cove."""
 
 
 async def delete_page(principal: Principal, alias: str, path: str) -> dict:
@@ -427,17 +427,17 @@ async def delete_page(principal: Principal, alias: str, path: str) -> dict:
     database can say it existed or who ended it.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
+    :param alias: ``personal`` or a shared-cove slug
     :param path: the exact path of the page to delete
     :raises ProtectedPath: for a page under ``meta/``
-    :raises PageNotFound: if that space has no page at that path
+    :raises PageNotFound: if that cove has no page at that path
     :returns: the deleted path and how many revisions went with it
     """
     _refuse_protected(path, allow_protected=False)
-    space = await resolve_writable_space(principal, alias)
+    cove = await resolve_writable_cove(principal, alias)
     page = (
         await Page.objects()
-        .where(Page.space_id == space.id, Page.path == path)
+        .where(Page.cove_id == cove.id, Page.path == path)
         .lock_rows()
         .first()
     )
@@ -453,11 +453,11 @@ async def delete_page(principal: Principal, alias: str, path: str) -> dict:
         Attachment.page_id == page.id
     )
     await Page.delete().where(Page.id == page.id)
-    await Space.update({Space.version: Space.version + 1}).where(Space.id == space.id)
+    await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
     audit.record(
         audit.PAGE_DELETED,
         actor=principal.person_id,
-        space_id=space.id,
+        cove_id=cove.id,
         revisions=revisions,
     )
     return {"deleted": True, "path": path, "revisions": revisions}

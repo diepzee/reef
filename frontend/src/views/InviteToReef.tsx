@@ -2,8 +2,8 @@
  * The "invite someone to reef" form: an address, and nothing shared.
  *
  * Distinct from the cove invite in `MembersSheet`, which grants permanent
- * sight of a space's contents. This one only puts an address on the
- * allowlist, so the invitee arrives in their own private personal space —
+ * sight of a cove's contents. This one only puts an address on the
+ * allowlist, so the invitee arrives in their own private personal cove —
  * which is what makes it safe to send to someone merely curious.
  *
  * reef sends no invitation email, so the success state's job is to hand the inviter

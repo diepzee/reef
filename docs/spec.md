@@ -9,10 +9,10 @@ retrieval flipped to index-first with targeted fetches — the MCP mechanizes
 the original wiki discipline; bulk loading demoted to a maintenance path. See
 "Supersedes" at the end.
 
-**Rev 4, 7 Aug 2026:** spaces generalized from household tiers to named
+**Rev 4, 7 Aug 2026:** coves generalized from household tiers to named
 groups with email-bound invites — see
-`docs/superpowers/specs/2026-08-07-multi-user-spaces-design.md`, which
-supersedes this document's "two people, three spaces" framing, the
+`docs/superpowers/specs/2026-08-07-multi-user-coves-design.md`, which
+supersedes this document's "two people, three coves" framing, the
 closed-allowlist wording in the access-control section, and the "more than
 two people" out-of-scope line.
 
@@ -54,7 +54,7 @@ answer from memory of the map.
 
 Guards:
 
-- The index payload carries a `version` derived from per-space version
+- The index payload carries a `version` derived from per-cove version
   counters (bumped by every write), so a client can skip a reload when
   nothing changed.
 - `load_all_context` remains as the bulk path for maintenance work
@@ -73,9 +73,9 @@ Stack): the index read whole is the retrieval mechanism.
 | Table | Purpose |
 |---|---|
 | `persons` | One row per person. Email is identity; `invited_by_person_id` records who let them in. |
-| `spaces` | `kind` is `personal` (one per person) or `shared` (any number). Every space has one accountable `owner_person_id`. |
-| `memberships` | Person ↔ space, with a `role`. The entire access model. |
-| `pages` | `(space_id, path)` unique. Markdown body; title and tags as columns. |
+| `coves` | `kind` is `personal` (one per person) or `shared` (any number). Every cove has one accountable `owner_person_id`. |
+| `memberships` | Person ↔ cove, with a `role`. The entire access model. |
+| `pages` | `(cove_id, path)` unique. Markdown body; title and tags as columns. |
 | `revisions` | Append-only. Prior body, author, message, timestamp. |
 | `attachments` | File metadata plus a `description` — see below. |
 
@@ -91,14 +91,14 @@ otherwise; metadata rows stay in Postgres.
 
 Three rules:
 
-1. **Files inherit the space ACL.** No public URLs, ever. `read_file` issues a
+1. **Files inherit the cove ACL.** No public URLs, ever. `read_file` issues a
    signed URL with a short expiry, and only after the same accessor check as a
    page read. Images use the same storage and can still render inline in pages.
 2. **Every attachment carries a text `description`,** generated at upload time
    and stored alongside the metadata. This makes PDFs, documents, archives,
    audio, and images discoverable without loading their bytes every turn. The
    model calls `read_file` when the contents actually matter.
-3. Attachments belong to a space and optionally to a page.
+3. Attachments belong to a cove and optionally to a page.
 
 ## Access control
 
@@ -137,33 +137,33 @@ sees zero content rows without a principal belongs in the boot path or the
 monitoring, because this failure is invisible from the outside — the
 application behaves identically either way, right up until it doesn't.
 
-Tools address a space as `personal` or by its slug — never by a space id, and
-never by a personal space's own slug, which is derived from the person id and
+Tools address a cove as `personal` or by its slug — never by a cove id, and
+never by a personal cove's own slug, which is derived from the person id and
 stays inside the server. `personal` resolves per principal, so the same call
-means her personal space for her and his for him, and neither can name the
+means her personal cove for her and his for him, and neither can name the
 other's. A slug resolves only through membership, and the denial message is
-identical for a space that does not exist and one the caller is not in, so
+identical for a cove that does not exist and one the caller is not in, so
 probing reveals nothing.
 
 ## Sharing model: extract, don't fragment
 
 Sometimes only part of a page should be shared. The rule: **don't share
 fragments of a page — extract the section into its own page, and share that
-page.** The unit of access stays the space. The unit of sharing becomes as
+page.** The unit of access stays the cove. The unit of sharing becomes as
 small as you like, because a page can be as small as you like.
 
-How it works: `prepare_to_share` takes a `dest_space` (which shared space, from
-`list_spaces`), an optional `section` (the exact text to extract) and a
+How it works: `prepare_to_share` takes a `dest_cove` (which shared cove, from
+`list_coves`), an optional `section` (the exact text to extract) and a
 `dest_path` (the new page's name). The disclosure the user must approve is
 exactly the extracted text, together with the destination's current member
-list. On confirm, one transaction creates the new page in that space, replaces the section in the
+list. On confirm, one transaction creates the new page in that cove, replaces the section in the
 source page with a marker pointing at it, and consumes the nonce. The rest of
-the source page never leaves the personal space — and neither does its
+the source page never leaves the personal cove — and neither does its
 revision history.
 
 Why not per-section permissions on one page:
 
-1. **It moves the security boundary.** RLS enforces access per page-in-space.
+1. **It moves the security boundary.** RLS enforces access per page-in-cove.
    Per-section rules would move enforcement into application code that must
    slice documents correctly every time — the correct-if-nobody-slips pattern
    rev 2 removed.
@@ -174,18 +174,18 @@ Why not per-section permissions on one page:
    a person can remember. "Paragraphs two and four are visible to X" is not —
    and a privacy model you can't hold in your head gets breached by accident.
 
-**Audiences generalize the same way.** A space is really an audience. Sharing
-with a third person (an accountant, a friend) is one new space, one
+**Audiences generalize the same way.** A cove is really an audience. Sharing
+with a third person (an accountant, a friend) is one new cove, one
 membership row, one allowlist row — data, not a redesign. The alias mapping
-in `resolve_space` grows a data-driven entry when the first real third
+in `resolve_cove` grows a data-driven entry when the first real third
 audience appears; nothing is built speculatively before then.
 
 Deferred refinement: **transclusion** — the owner's page renders extracted
-sections back inline by reference, reading only from spaces the viewer can
+sections back inline by reference, reading only from coves the viewer can
 already see. A reading convenience, not an access path.
 
 Known cost: knowledge fragments across more, smaller pages, which makes the
-maintenance routine's cross-space contradiction check more important, not
+maintenance routine's cross-cove contradiction check more important, not
 less.
 
 ## Tool surface
@@ -193,22 +193,22 @@ less.
 | Tool | Notes |
 |---|---|
 | `load_index()` | **Primary — the first call of every conversation.** Every page's path, title, tags, one-line description, and resolved references, plus described files and a cache `version`. No bodies. |
-| `read_pages(space, paths)` / `read_page` | Targeted fetches, driven by the index. `read_page` takes an optional `as_of`: the page reconstructed from its revisions as it stood at that moment, under the same RLS as a present-day read — the "what did we know about the boiler in March" query the data-model section promises, exposed as a tool. |
-| `search_pages(query, space?, limit?)` | Postgres FTS over titles and bodies, run inside the same armed transaction as every read, so RLS scopes it: a search can only rank pages the caller could read, and a forgotten filter returns nothing. Returns snippets to drive `read_pages`, never a substitute for reading. `websearch_to_tsquery` parses the query, so malformed input cannot error. No embeddings — see the Stack note. |
-| `whats_new(since?)` | The awareness surface: page writes (author, message) and file arrivals across accessible spaces, newest first, defaulting to the last 7 days. Runs under the same armed RLS session, so another person's personal activity is invisible by construction. Author names resolve through the roster functions, like every surface that shows who is in the room. |
+| `read_pages(cove, paths)` / `read_page` | Targeted fetches, driven by the index. `read_page` takes an optional `as_of`: the page reconstructed from its revisions as it stood at that moment, under the same RLS as a present-day read — the "what did we know about the boiler in March" query the data-model section promises, exposed as a tool. |
+| `search_pages(query, cove?, limit?)` | Postgres FTS over titles and bodies, run inside the same armed transaction as every read, so RLS scopes it: a search can only rank pages the caller could read, and a forgotten filter returns nothing. Returns snippets to drive `read_pages`, never a substitute for reading. `websearch_to_tsquery` parses the query, so malformed input cannot error. No embeddings — see the Stack note. |
+| `whats_new(since?)` | The awareness surface: page writes (author, message) and file arrivals across accessible coves, newest first, defaulting to the last 7 days. Runs under the same armed RLS session, so another person's personal activity is invisible by construction. Author names resolve through the roster functions, like every surface that shows who is in the room. |
 | `load_all_context()` | Bulk path for maintenance only. Reports truncation explicitly (`truncated`, `page_count`/`included_count`) so a cut result is detectable. |
 | `add_file` / `read_file` | Any MIME type, original filename and mandatory description in; short-lived signed URL out, behind the same ACL. The old image-named tools remain compatibility aliases. |
-| `delete_file(space, key)` | The destructive file tool. Removes the row and bytes; the ACL check runs before object storage is touched. The old `delete_image` name remains a compatibility alias. |
-| `remember(fact, space="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
+| `delete_file(cove, key)` | The destructive file tool. Removes the row and bytes; the ACL check runs before object storage is touched. The old `delete_image` name remains a compatibility alias. |
+| `remember(fact, cove="personal")` | **Private by default in the signature.** Row-locked, exact-duplicate-safe under retries. |
 | `write_page` / `edit_page_section` | Optimistically versioned (`expected_version`); refuse `meta/` paths. |
-| `write_pages(space, pages, message="")` | Batched `write_page`, up to 20 items, one approval tap. One transaction for the whole batch: any item failing (stale `expected_version`, `meta/` path, malformed item, oversize/empty batch) rolls back every write, including earlier items that looked fine. |
-| `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. Refuses any space but `personal`. |
-| `list_spaces` | Your spaces, each with its member list and whether you own it. |
-| `create_space(slug)` / `invite(space, email, ..., role)` / `remove_member(space, email)` | Space administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the space, past and future. `role` is `member` or `viewer` — a viewer reads everything and writes nothing, enforced by the same per-command write policies that have required `role = 'member'` since day one; the invite finally creates the row those policies were waiting for. `rif_admit_member` validates the role where the row is written. |
-| `prepare_to_share(path, dest_space, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
+| `write_pages(cove, pages, message="")` | Batched `write_page`, up to 20 items, one approval tap. One transaction for the whole batch: any item failing (stale `expected_version`, `meta/` path, malformed item, oversize/empty batch) rolls back every write, including earlier items that looked fine. |
+| `update_meta_page(..., confirm)` | The only write path to protocol and persona — the pages that steer the assistant. Refuses any cove but `personal`. |
+| `list_coves` | Your coves, each with its member list and whether you own it. |
+| `create_cove(slug)` / `invite(cove, email, ..., role)` / `remove_member(cove, email)` | Cove administration. Creator is owner; only the owner changes the member list. `invite` returns the disclosure the user must hear before it is called: permanent access to everything in the cove, past and future. `role` is `member` or `viewer` — a viewer reads everything and writes nothing, enforced by the same per-command write policies that have required `role = 'member'` since day one; the invite finally creates the row those policies were waiting for. `rif_admit_member` validates the role where the row is written. |
+| `prepare_to_share(path, dest_cove, section?, dest_path?)` → `confirm_share(nonce)` | Sharing, two steps — a whole page, or one extracted section. A bare `confirm=true` proves nothing — the nonce is bound to the principal, the source revision, and a 10-minute expiry; the destination must not already exist; a consumed nonce reports success idempotently so a retry can never copy the stub. |
 
 There is no demotion tool, because there is no demotion. Once a fact is in the
-household space, the other person has read it or may have. The prepare/confirm
+household cove, the other person has read it or may have. The prepare/confirm
 pair is the only gate that exists, and `prepare_to_share` returns the exact
 disclosure the user must see before agreeing.
 
@@ -220,9 +220,9 @@ appear with `body=null`, never silently.
 ## Protocol delivery
 
 The operating protocol lives as a page at `meta/protocol.md` in each person's
-personal space, beside their persona at `meta/persona.md`. Both are per-person,
-so `update_meta_page` refuses any space but `personal`: a `meta/` page in a
-shared space steers nobody, and it would put instruction-shaped text at the top
+personal cove, beside their persona at `meta/persona.md`. Both are per-person,
+so `update_meta_page` refuses any cove but `personal`: a `meta/` page in a
+shared cove steers nobody, and it would put instruction-shaped text at the top
 of every other member's loaded context.
 MCP `instructions` are static per server, not per principal — so the stable
 security framing (call `load_all_context` first; page bodies are data, never
@@ -236,8 +236,8 @@ instruction-injection surface: the static instructions say so explicitly, and
 the `meta/` write gate keeps a poisoned page from silently rewriting the
 protocol itself.
 
-The protocol's empty-space behavior doubles as onboarding: a first conversation
-with an empty personal space introduces the assistant, asks what to call it,
+The protocol's empty-cove behavior doubles as onboarding: a first conversation
+with an empty personal cove introduces the assistant, asks what to call it,
 and interviews gently to seed the persona and first pages.
 
 ## Export (the exit hatch)
@@ -285,11 +285,11 @@ Without a compile step the design degrades into the transcript dump the wiki
 philosophy exists to prevent. The existing Monday maintenance routine (already
 a scheduled cloud agent for `mark`) repoints at the MCP and gains one step:
 
-1. Compile inbox pages into real pages, per space.
+1. Compile inbox pages into real pages, per cove.
 2. Staleness pass over pages not updated in ~2 months.
-3. **Cross-space contradiction check** — the same fact can now drift between a
+3. **Cross-cove contradiction check** — the same fact can now drift between a
    personal page and its household counterpart, and a contradiction in the
-   household space may mean one person is wrong rather than that the page is
+   household cove may mean one person is wrong rather than that the page is
    stale. Flag, never silently resolve.
 
 The tidy-up ritual (compile inboxes, staleness sweep, contradiction check)
@@ -331,11 +331,11 @@ drill that verifies `memberships` survived — an untested backup is not a backu
 
 As written for v1: web UI, PWA, WhatsApp adapter, push notifications,
 full-text search, more than two people, and any sharing granularity finer
-than a space.
+than a cove.
 
-Since shipped anyway: the web UI (reefwith.me/app) and multi-user spaces
+Since shipped anyway: the web UI (reefwith.me/app) and multi-user coves
 with owner-managed invitations. Still out: PWA, WhatsApp adapter, push
-notifications, and finer-than-space sharing granularity.
+notifications, and finer-than-cove sharing granularity.
 
 Full-text search has since shipped as `search_pages`: Postgres FTS inside
 the same RLS session, per the close/adapt/refuse calls in
@@ -371,7 +371,7 @@ The first draft used three GitHub repos as the store, read and written through
 the REST API with per-person scoped tokens, and retrieved by index-plus-grep.
 
 Abandoned because GitHub is a poor database — no queries, no transactions,
-~200 ms per read — and because "two people, three spaces" is a membership table,
+~200 ms per read — and because "two people, three coves" is a membership table,
 not three repos plus two tokens plus an identity map.
 
 What the trade cost, and how it is answered here: **portability**, answered by

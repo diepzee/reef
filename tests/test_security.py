@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from reef.access import Principal, arm, resolve_space
+from reef.access import Principal, arm, resolve_cove
 from reef.db import transaction_scope
 from reef.models import (
     Attachment,
@@ -33,7 +33,7 @@ def principal_for(person) -> Principal:
 
 
 async def _seed_private_page(household) -> Page:
-    """Write one page into Wouter's personal space, as Wouter.
+    """Write one page into Wouter's personal cove, as Wouter.
 
     FORCE ROW LEVEL SECURITY applies to the table owner too, so there is no
     unarmed path to seed through -- the row has to be written by its owner.
@@ -42,9 +42,9 @@ async def _seed_private_page(household) -> Page:
     :returns: the page that was written
     """
     principal = principal_for(household["wouter"])
-    await resolve_space(principal, "personal")
+    await resolve_cove(principal, "personal")
     page = Page(
-        space_id=household["w_personal"].id,
+        cove_id=household["w_personal"].id,
         path="health.md",
         title="Health",
         tags=[],
@@ -64,14 +64,14 @@ async def _seed_private_page(household) -> Page:
 
 
 async def _seed_shared_page(household) -> Page:
-    """Write one page into the shared space, as Wouter (a MEMBER).
+    """Write one page into the shared cove, as Wouter (a MEMBER).
 
     :param household: the seeded household fixture
     :returns: the page that was written
     """
-    await resolve_space(principal_for(household["wouter"]), "personal")  # arms RLS
+    await resolve_cove(principal_for(household["wouter"]), "personal")  # arms RLS
     page = Page(
-        space_id=household["shared"].id,
+        cove_id=household["shared"].id,
         path="joint.md",
         title="Joint",
         tags=[],
@@ -82,7 +82,7 @@ async def _seed_shared_page(household) -> Page:
 
 
 async def _seed_shared_content(household) -> tuple[Page, Revision, Attachment]:
-    """Seed one page, one revision, and one attachment in the shared space.
+    """Seed one page, one revision, and one attachment in the shared cove.
 
     :param household: the seeded household fixture
     :returns: the seeded page, revision, and attachment
@@ -99,7 +99,7 @@ async def _seed_shared_content(household) -> tuple[Page, Revision, Attachment]:
     )
     await revision.save()
     attachment = Attachment(
-        space_id=household["shared"].id,
+        cove_id=household["shared"].id,
         page_id=page.id,
         object_key="shared/joint.png",
         mime="image/png",
@@ -112,7 +112,7 @@ async def _seed_shared_content(household) -> tuple[Page, Revision, Attachment]:
 
 
 async def _admit_viewer(household, graph) -> Person:
-    """Hand-insert a VIEWER membership into the shared space.
+    """Hand-insert a VIEWER membership into the shared cove.
 
     Nothing in the application creates viewers yet, so the row is written
     directly -- the point is to prove Postgres already enforces the role.
@@ -122,7 +122,7 @@ async def _admit_viewer(household, graph) -> Person:
     :returns: the viewer person
     """
     anna = await graph.person("anna@example.test", "Anna")
-    await graph.personal_space(anna)
+    await graph.personal_cove(anna)
     # Seeded: memberships now carries policies, and admitting somebody to a
     # cove is an owner-only act. This test is about what a viewer may do once
     # they are in, not about how they got there.
@@ -159,13 +159,13 @@ async def test_raw_select_on_revisions_is_also_denied(household):
         assert await Revision.objects() == []
 
 
-async def test_forged_insert_into_foreign_space_is_rejected(household):
-    """WITH CHECK must refuse a write aimed at a space you cannot see."""
+async def test_forged_insert_into_foreign_cove_is_rejected(household):
+    """WITH CHECK must refuse a write aimed at a cove you cannot see."""
     with pytest.raises(Exception) as exc:
         async with transaction_scope():
             await arm(principal_for(household["partner"]))
             await Page(
-                space_id=household["w_personal"].id,
+                cove_id=household["w_personal"].id,
                 path="planted.md",
                 title="x",
                 tags=[],
@@ -185,7 +185,7 @@ async def _stage_promotion(household) -> Promotion:
         person_id=household["wouter"].id,
         source_page_id=page.id,
         source_version=page.version,
-        dest_space_id=household["shared"].id,
+        dest_cove_id=household["shared"].id,
         dest_path="shared.md",
         section_text="private medical detail",
     )
@@ -232,7 +232,7 @@ async def test_forged_promotion_for_another_person_is_rejected(household):
                 person_id=household["wouter"].id,
                 source_page_id=page.id,
                 source_version=page.version,
-                dest_space_id=household["shared"].id,
+                dest_cove_id=household["shared"].id,
                 dest_path="forged.md",
                 section_text="x",
             ).save()
@@ -274,7 +274,7 @@ async def test_principal_does_not_leak_between_concurrent_transactions(household
         partner = principal_for(household["partner"])
         await arm(partner)
         await Page(
-            space_id=household["p_personal"].id,
+            cove_id=household["p_personal"].id,
             path="hers.md",
             title="Hers",
             tags=[],
@@ -303,7 +303,7 @@ async def test_principal_does_not_leak_between_concurrent_transactions(household
 
 
 async def test_viewer_row_can_read_but_never_write(household, graph):
-    """A hand-inserted VIEWER membership reads the space but cannot write it.
+    """A hand-inserted VIEWER membership reads the cove but cannot write it.
 
     Nothing creates viewers yet; this pins the RLS split so enabling
     read-only roles later is app-level work, not a policy migration.
@@ -321,7 +321,7 @@ async def test_viewer_row_can_read_but_never_write(household, graph):
         async with transaction_scope():
             await arm(principal_for(anna))
             await Page(
-                space_id=household["shared"].id,
+                cove_id=household["shared"].id,
                 path="planted.md",
                 title="x",
                 tags=[],

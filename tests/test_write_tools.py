@@ -1,6 +1,6 @@
 import pytest
 
-from reef.access import Principal, resolve_space
+from reef.access import Principal, resolve_cove
 from reef.db import transaction_scope
 from reef.pages import get_page, save_page
 from reef.server import tool_remember, write_pages
@@ -37,7 +37,7 @@ async def test_remember_retry_does_not_duplicate(tx, household):
 
 async def test_remember_can_target_household_explicitly(tx, household):
     me = principal_for(household["wouter"])
-    await tool_remember(me, "school run swaps to me on Fridays", space="household")
+    await tool_remember(me, "school run swaps to me on Fridays", cove="household")
     assert "Fridays" in (await get_page(me, "household", "inbox.md")).body
 
 
@@ -50,15 +50,15 @@ async def test_remember_can_target_household_explicitly(tx, household):
 # reading the database back afterwards.
 
 
-async def _space_version(principal: Principal, space: str) -> int:
-    """Read a space's version counter in its own fresh transaction.
+async def _cove_version(principal: Principal, cove: str) -> int:
+    """Read a cove's version counter in its own fresh transaction.
 
     :param principal: the authenticated person
-    :param space: ``personal`` or a space name from list_spaces
-    :returns: the space's current version
+    :param cove: ``personal`` or a cove name from list_coves
+    :returns: the cove's current version
     """
     async with transaction_scope():
-        resolved = await resolve_space(principal, space)
+        resolved = await resolve_cove(principal, cove)
         return resolved.version
 
 
@@ -66,7 +66,7 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
     """Two creates and one update in a single call all land; versions bump.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household space
+    :param household: two people sharing a household cove
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -74,7 +74,7 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
 
     async with transaction_scope():
         await save_page(me, "household", "existing.md", "old body", message="setup")
-    before = await _space_version(me, "household")
+    before = await _cove_version(me, "household")
 
     result = await write_pages(
         "household",
@@ -92,7 +92,7 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
         {"path": "new2.md", "version": 1},
         {"path": "existing.md", "version": 2},
     ]
-    assert await _space_version(me, "household") == before + 3
+    assert await _cove_version(me, "household") == before + 3
 
     async with transaction_scope():
         assert (await get_page(me, "household", "new1.md")).body == "one"
@@ -106,7 +106,7 @@ async def test_write_pages_stale_version_rolls_back_the_whole_batch(
     """A stale expected_version anywhere aborts the batch; earlier items never land.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household space
+    :param household: two people sharing a household cove
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -140,7 +140,7 @@ async def test_write_pages_meta_path_is_protected_and_writes_nothing(
     """A meta/ item anywhere in the batch is refused; nothing lands, not even earlier items.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household space
+    :param household: two people sharing a household cove
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -180,7 +180,7 @@ async def test_write_pages_malformed_item_names_it_and_writes_nothing(
     """A malformed item (missing body) is named in the error; nothing lands.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household space
+    :param household: two people sharing a household cove
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -209,7 +209,7 @@ async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, house
     version number.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household space
+    :param household: two people sharing a household cove
     """
     wouter = household["wouter"]
     me = principal_for(wouter)

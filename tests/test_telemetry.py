@@ -110,7 +110,7 @@ def test_shape_still_survives_scrubbing(captured):
     """Redaction has to leave enough behind to answer an operational question."""
     import logfire
 
-    with logfire.span("probe", space_alias="household", page_count=3, status=200):
+    with logfire.span("probe", cove_alias="household", page_count=3, status=200):
         pass
 
     blob = _attribute_blob(captured)

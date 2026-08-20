@@ -10,10 +10,10 @@ zero-row update, and rosters that say who can only read.
 import pytest
 
 from reef.access import Principal, ReadOnlyMembership
+from reef.coves import CoveError, invite
 from reef.pages import delete_page, edit_section, save_page
 from reef.search import search_pages
-from reef.server import tool_list_spaces, tool_read_page, tool_remember
-from reef.spaces import SpaceError, invite
+from reef.server import tool_list_coves, tool_read_page, tool_remember
 
 
 def principal_for(person) -> Principal:
@@ -22,9 +22,9 @@ def principal_for(person) -> Principal:
 
 @pytest.fixture
 async def viewer(household, graph):
-    """A third person holding a viewer membership in the shared space."""
+    """A third person holding a viewer membership in the shared cove."""
     person = await graph.person("viewer@example.test", "Viewer")
-    await graph.personal_space(person, slug="viewer")
+    await graph.personal_cove(person, slug="viewer")
     await graph.add_membership(person, household["shared"], "viewer", alias="household")
     return person
 
@@ -45,7 +45,7 @@ async def test_invite_defaults_to_full_membership(tx, household):
 
 async def test_invite_refuses_an_unknown_role(tx, household):
     me = principal_for(household["wouter"])
-    with pytest.raises(SpaceError):
+    with pytest.raises(CoveError):
         await invite(me, "household", "x@example.test", role="admin")
 
 
@@ -86,15 +86,15 @@ async def test_a_viewer_cannot_remember_into_the_cove(tx, household, viewer):
         await tool_remember(them, "the boiler is new", "household")
 
 
-async def test_a_viewer_still_writes_their_own_personal_space(tx, household, viewer):
+async def test_a_viewer_still_writes_their_own_personal_cove(tx, household, viewer):
     them = principal_for(viewer)
     page = await save_page(them, "personal", "mine.md", "My note.", message="x")
     assert page.body == "My note."
 
 
-async def test_list_spaces_says_who_can_only_read(tx, household, viewer):
+async def test_list_coves_says_who_can_only_read(tx, household, viewer):
     me = principal_for(household["wouter"])
-    rows = {row["name"]: row for row in await tool_list_spaces(me)}
+    rows = {row["name"]: row for row in await tool_list_coves(me)}
     assert rows["household"]["viewers"] == ["Viewer"]
     assert rows["personal"]["viewers"] == []
     assert "Viewer" in rows["household"]["members"]

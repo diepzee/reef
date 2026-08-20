@@ -8,7 +8,7 @@ copies a private page into the cove. Being persuaded used to be sufficient.
 
 import pytest
 
-from reef.access import Principal, resolve_space
+from reef.access import Principal, resolve_cove
 from reef.db import transaction_scope
 from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
 from reef.pages import PrivateContentLeak, edit_section, get_page, save_page
@@ -32,7 +32,7 @@ def principal_for(person) -> Principal:
 
 
 async def _seed_private(principal: Principal, body: str = DIARY) -> None:
-    """Write a private page into the principal's personal space.
+    """Write a private page into the principal's personal cove.
 
     :param principal: the authenticated person
     :param body: the private text
@@ -115,7 +115,7 @@ async def test_remember_cannot_smuggle_a_private_page_into_a_cove(household):
 
     async with transaction_scope():
         with pytest.raises(PrivateContentLeak):
-            await tool_remember(wouter, DIARY, space="household")
+            await tool_remember(wouter, DIARY, cove="household")
 
 
 async def test_the_share_ceremony_still_works(household):
@@ -168,7 +168,7 @@ async def test_ordinary_cove_writing_is_unaffected(household):
 async def test_re_saving_an_already_shared_page_does_not_start_failing(household):
     """The false positive that would make the guard unusable.
 
-    Content legitimately shared, then re-added to the personal space, must
+    Content legitimately shared, then re-added to the personal cove, must
     not make every later edit of the shared page fail -- so only the text a
     write *introduces* is judged.
     """
@@ -190,7 +190,7 @@ async def test_re_saving_an_already_shared_page_does_not_start_failing(household
 
 
 async def test_a_co_member_can_still_write_their_own_words(household):
-    """The guard is per-caller: it reads the writer's personal space, never
+    """The guard is per-caller: it reads the writer's personal cove, never
     anybody else's, so it cannot leak whether a stranger wrote something."""
     wouter = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
@@ -212,7 +212,7 @@ async def test_the_persona_is_exempt(household):
     assert persona is None or persona.body
 
     async with transaction_scope():
-        await resolve_space(wouter, "personal")
+        await resolve_cove(wouter, "personal")
         stub = (
             "Not yet written. This is a first meeting: introduce yourself, ask "
             "what the user would like to call you, and interview gently to fill "

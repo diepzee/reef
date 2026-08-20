@@ -59,19 +59,19 @@ def constraint_statements() -> list[str]:
     multi-column uniqueness, and none for a partial index, so three
     constraints this schema genuinely depends on have to be stated here:
     ``memberships`` is keyed by the pair it stores, a page path is unique
-    within its space, and a person owns at most one *personal* space while
+    within its cove, and a person owns at most one *personal* cove while
     owning any number of shared ones. Losing any of them would let duplicates
     through that the application logic assumes cannot exist -- the last one
-    most sharply, since a second personal space makes
-    ``resolve_space(principal, "personal")`` ambiguous, which locks the person
+    most sharply, since a second personal cove makes
+    ``resolve_cove(principal, "personal")`` ambiguous, which locks the person
     out of every tool call.
 
     :returns: SQL statements to execute in order
     """
     return [
         (
-            "ALTER TABLE memberships ADD CONSTRAINT memberships_person_space "
-            "UNIQUE (person_id, space_id)"
+            "ALTER TABLE memberships ADD CONSTRAINT memberships_person_cove "
+            "UNIQUE (person_id, cove_id)"
         ),
         # The rule the tool surface actually depends on: whatever a person
         # types resolves to exactly one cove. Stated as a property of the
@@ -82,9 +82,9 @@ def constraint_statements() -> list[str]:
             "ALTER TABLE memberships ADD CONSTRAINT memberships_person_alias "
             "UNIQUE (person_id, alias)"
         ),
-        ("ALTER TABLE pages ADD CONSTRAINT pages_space_path UNIQUE (space_id, path)"),
+        ("ALTER TABLE pages ADD CONSTRAINT pages_cove_path UNIQUE (cove_id, path)"),
         (
-            "CREATE UNIQUE INDEX uq_personal_owner_person ON spaces "
+            "CREATE UNIQUE INDEX uq_personal_owner_person ON coves "
             "(owner_person_id) WHERE kind = 'personal'"
         ),
     ]
@@ -167,24 +167,23 @@ A fixed allowlist -- never a value from a caller -- because it is interpolated
 into ``GRANT``, which rejects bind parameters. Each is granted only if it
 exists in the cluster, so naming a role no cluster has costs nothing."""
 
-_MEMBER_PREDICATE = "space_id IN (SELECT reef_space_ids())"
+_MEMBER_PREDICATE = "cove_id IN (SELECT reef_cove_ids())"
 
-_WRITE_PREDICATE = "space_id IN (SELECT reef_member_space_ids())"
+_WRITE_PREDICATE = "cove_id IN (SELECT reef_member_cove_ids())"
 
-# Revisions reach their space through their page. The subquery is filtered by
+# Revisions reach their cove through their page. The subquery is filtered by
 # ``pages``' own SELECT policy, which is this same membership test, so the
 # composition is exactly the previous behaviour -- and it touches
 # ``memberships`` only inside the bypassing function, never in a predicate.
 _REVISION_PREDICATE = (
-    "page_id IN (SELECT id FROM pages WHERE space_id IN (SELECT reef_space_ids()))"
+    "page_id IN (SELECT id FROM pages WHERE cove_id IN (SELECT reef_cove_ids()))"
 )
 
 _REVISION_WRITE_PREDICATE = (
-    "page_id IN (SELECT id FROM pages "
-    "WHERE space_id IN (SELECT reef_member_space_ids()))"
+    "page_id IN (SELECT id FROM pages WHERE cove_id IN (SELECT reef_member_cove_ids()))"
 )
 
-# Promotions belong to the person who staged them, not to a space: the row is
+# Promotions belong to the person who staged them, not to a cove: the row is
 # a nonce, and ``section_text`` holds the exact extracted span from a personal
 # page. A leaked promotion row is a leaked private paragraph, so the predicate
 # is ownership rather than membership.
@@ -213,7 +212,7 @@ def _function_ddl(
     *privileges*. Without these grants the function raises "permission denied
     for table" -- confirmed against a live server, not assumed.
 
-    :param name: the function signature, e.g. ``reef_space_ids()``
+    :param name: the function signature, e.g. ``reef_cove_ids()``
     :param body: the SQL body, without the enclosing dollar quotes
     :param returns: the ``RETURNS`` clause
     :param reads: tables the body reads, which the owner needs granted
@@ -274,7 +273,7 @@ def create_authz_role_statements() -> list[str]:
 def authz_statements() -> list[str]:
     """Return DDL for the helper functions every policy is built on.
 
-    Two functions, both answering "which spaces does the armed principal
+    Two functions, both answering "which coves does the armed principal
     reach": any membership for reads, ``role = 'member'`` for writes. Policies
     call these instead of subquerying ``memberships`` directly, which is what
     keeps them non-recursive once ``memberships`` itself carries RLS -- a
@@ -288,23 +287,23 @@ def authz_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     return _function_ddl(
-        "reef_space_ids()",
-        f"SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL}",
+        "reef_cove_ids()",
+        f"SELECT cove_id FROM memberships WHERE person_id = {PRINCIPAL}",
         reads=("memberships",),
     ) + _function_ddl(
-        "reef_member_space_ids()",
-        f"SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL} "
+        "reef_member_cove_ids()",
+        f"SELECT cove_id FROM memberships WHERE person_id = {PRINCIPAL} "
         f"AND role = 'member'",
         reads=("memberships",),
     )
 
 
 _CALLER_IS_MEMBER = (
-    f"p_space IN (SELECT space_id FROM memberships WHERE person_id = {PRINCIPAL})"
+    f"p_cove IN (SELECT cove_id FROM memberships WHERE person_id = {PRINCIPAL})"
 )
 
 _CALLER_IS_OWNER = (
-    "EXISTS (SELECT 1 FROM spaces s WHERE s.id = p_space "
+    "EXISTS (SELECT 1 FROM coves s WHERE s.id = p_cove "
     f"AND s.owner_person_id = {PRINCIPAL})"
 )
 
@@ -337,22 +336,22 @@ def disclosure_statements() -> list[str]:
     """
     return [
         *_function_ddl(
-            "reef_roster(p_space uuid)",
+            "reef_roster(p_cove uuid)",
             "SELECT p.id, p.display_name, "
             f"CASE WHEN {_CALLER_IS_OWNER} THEN p.email ELSE '' END "
             "FROM persons p WHERE p.id IN "
-            "(SELECT person_id FROM memberships WHERE space_id = p_space) "
+            "(SELECT person_id FROM memberships WHERE cove_id = p_cove) "
             f"AND {_CALLER_IS_MEMBER} ORDER BY p.display_name",
             returns="TABLE(person_id uuid, member_name text, member_email text)",
-            reads=("persons", "memberships", "spaces"),
+            reads=("persons", "memberships", "coves"),
         ),
         *_function_ddl(
-            "reef_space_owner(p_space uuid)",
-            "SELECT p.display_name, p.email FROM persons p JOIN spaces s "
-            "ON s.owner_person_id = p.id WHERE s.id = p_space "
+            "reef_cove_owner(p_cove uuid)",
+            "SELECT p.display_name, p.email FROM persons p JOIN coves s "
+            "ON s.owner_person_id = p.id WHERE s.id = p_cove "
             f"AND {_CALLER_IS_MEMBER}",
             returns="TABLE(owner_name text, owner_email text)",
-            reads=("persons", "spaces", "memberships"),
+            reads=("persons", "coves", "memberships"),
         ),
         *_function_ddl(
             "reef_display_names(p_ids uuid[])",
@@ -385,11 +384,11 @@ def disclosure_statements() -> list[str]:
     ]
 
 
-_IDENTITY_TABLES = ("persons", "spaces", "memberships")
+_IDENTITY_TABLES = ("persons", "coves", "memberships")
 
 
 def identity_policy_statements() -> list[str]:
-    """Return the DDL putting ``persons``, ``spaces`` and ``memberships`` under RLS.
+    """Return the DDL putting ``persons``, ``coves`` and ``memberships`` under RLS.
 
     ``persons`` is **self only**. Not "anyone who shares a cove with me": row
     security filters rows, not columns, so any policy letting a co-member read
@@ -399,14 +398,14 @@ def identity_policy_statements() -> list[str]:
     where the owner-only rule is a ``CASE`` rather than a caller's good
     intentions.
 
-    ``spaces_owner_select`` looks redundant beside ``spaces_member_select``
+    ``coves_owner_select`` looks redundant beside ``coves_member_select``
     and is not: at creation a cove exists for an instant before its first
     membership does, and without it the membership insert below cannot see the
-    space it is about to join -- so a new person's onboarding fails and they
+    cove it is about to join -- so a new person's onboarding fails and they
     are locked out.
 
-    ``spaces_member_update`` is deliberately member-scoped rather than
-    owner-scoped, because ``reef.pages`` bumps ``spaces.version`` on every page
+    ``coves_member_update`` is deliberately member-scoped rather than
+    owner-scoped, because ``reef.pages`` bumps ``coves.version`` on every page
     write by any member. Row scope alone would then let a member rewrite
     ``slug``, ``kind`` or ``owner_person_id`` by direct SQL, so
     :func:`identity_grant_statements` narrows the privilege to one column.
@@ -443,24 +442,24 @@ def identity_policy_statements() -> list[str]:
             f"WITH CHECK (invited_by_person_id = {PRINCIPAL})"
         ),
         (
-            "CREATE POLICY spaces_member_select ON spaces FOR SELECT "
-            "USING (id IN (SELECT reef_space_ids()))"
+            "CREATE POLICY coves_member_select ON coves FOR SELECT "
+            "USING (id IN (SELECT reef_cove_ids()))"
         ),
         (
-            f"CREATE POLICY spaces_owner_select ON spaces FOR SELECT "
+            f"CREATE POLICY coves_owner_select ON coves FOR SELECT "
             f"USING ({owner_is_principal})"
         ),
         (
-            f"CREATE POLICY spaces_owner_insert ON spaces FOR INSERT "
+            f"CREATE POLICY coves_owner_insert ON coves FOR INSERT "
             f"WITH CHECK ({owner_is_principal})"
         ),
         (
-            "CREATE POLICY spaces_member_update ON spaces FOR UPDATE "
-            "USING (id IN (SELECT reef_member_space_ids())) "
-            "WITH CHECK (id IN (SELECT reef_member_space_ids()))"
+            "CREATE POLICY coves_member_update ON coves FOR UPDATE "
+            "USING (id IN (SELECT reef_member_cove_ids())) "
+            "WITH CHECK (id IN (SELECT reef_member_cove_ids()))"
         ),
         (
-            f"CREATE POLICY spaces_owner_delete ON spaces FOR DELETE "
+            f"CREATE POLICY coves_owner_delete ON coves FOR DELETE "
             f"USING ({owner_is_principal})"
         ),
         (
@@ -471,7 +470,7 @@ def identity_policy_statements() -> list[str]:
         # membership exists yet to satisfy the member arm.
         (
             "CREATE POLICY memberships_covis_select ON memberships FOR SELECT "
-            "USING (space_id IN (SELECT reef_space_ids()))"
+            "USING (cove_id IN (SELECT reef_cove_ids()))"
         ),
         # Owner only. Membership is administration, and the rule is
         # creator-admin: whoever made a cove decides who is in it. An earlier
@@ -483,7 +482,7 @@ def identity_policy_statements() -> list[str]:
         # whoever just created it.
         (
             "CREATE POLICY memberships_insert ON memberships FOR INSERT "
-            "WITH CHECK (reef_owns_space(space_id))"
+            "WITH CHECK (reef_owns_cove(cove_id))"
         ),
         (
             f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
@@ -502,10 +501,10 @@ def identity_policy_statements() -> list[str]:
 
 
 def identity_grant_statements() -> list[str]:
-    """Return the column-level narrowing of ``spaces`` updates.
+    """Return the column-level narrowing of ``coves`` updates.
 
     The row policy has to admit every member, because a page write bumps
-    ``spaces.version``. Row security cannot say *which column*, so without
+    ``coves.version``. Row security cannot say *which column*, so without
     this a member could rewrite a cove's ``slug`` or hand themselves
     ``owner_person_id`` with one statement.
 
@@ -522,8 +521,8 @@ def identity_grant_statements() -> list[str]:
     for role in _EXECUTOR_ROLES:
         statements.append(
             f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
-            f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON spaces FROM {role}'; "
-            f"EXECUTE 'GRANT UPDATE (version) ON spaces TO {role}'; "
+            f"'{role}') THEN EXECUTE 'REVOKE UPDATE ON coves FROM {role}'; "
+            f"EXECUTE 'GRANT UPDATE (version) ON coves TO {role}'; "
             f"END IF; END $do$"
         )
     return statements
@@ -557,14 +556,14 @@ def alias_statements() -> list[str]:
     ]
     statements += list(
         _function_ddl(
-            "reef_admit_member(p_space uuid, p_person uuid, p_alias text, p_role text)",
+            "reef_admit_member(p_cove uuid, p_person uuid, p_alias text, p_role text)",
             f"""
 DECLARE
   candidate text;
   suffix int := 1;
 BEGIN
   -- Only the cove's owner admits anybody, matching memberships_insert.
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+  IF NOT EXISTS (SELECT 1 FROM coves WHERE id = p_cove
                  AND owner_person_id = {PRINCIPAL}) THEN
     RETURN NULL;
   END IF;
@@ -573,7 +572,7 @@ BEGIN
   IF p_role NOT IN ('member', 'viewer') THEN
     RETURN NULL;
   END IF;
-  IF EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
+  IF EXISTS (SELECT 1 FROM memberships WHERE cove_id = p_cove
              AND person_id = p_person) THEN
     RETURN NULL;
   END IF;
@@ -586,7 +585,7 @@ BEGIN
   --
   -- 'personal' is refused outright rather than suffixed. It is the one
   -- alias whose meaning is fixed for everybody, and a cove admitted under
-  -- it would shadow the private space in every later call.
+  -- it would shadow the private cove in every later call.
   candidate := p_alias;
   IF candidate = 'personal' OR candidate IS NULL OR candidate = '' THEN
     candidate := 'cove';
@@ -600,20 +599,20 @@ BEGIN
       RETURN NULL;
     END IF;
   END LOOP;
-  INSERT INTO memberships (person_id, space_id, role, alias)
-  VALUES (p_person, p_space, p_role, candidate);
+  INSERT INTO memberships (person_id, cove_id, role, alias)
+  VALUES (p_person, p_cove, p_role, candidate);
   RETURN candidate;
 END
 """,
             returns="text",
             writes=("memberships",),
-            reads=("spaces",),
+            reads=("coves",),
             volatility="VOLATILE",
             language="plpgsql",
         )
     )
     # memberships_self_update admits the whole row; only the alias may
-    # actually move. role and space_id stay out of reach of the app role, so a
+    # actually move. role and cove_id stay out of reach of the app role, so a
     # member cannot promote themselves or graft their membership onto another
     # cove. Ownership transfer changes role from inside a definer function,
     # which a grant on the caller does not constrain.
@@ -677,7 +676,7 @@ def drop_identity_policy_statements() -> list[str]:
     """
     policies = {
         "persons": ("self_select", "self_update", "self_delete", "invite_insert"),
-        "spaces": (
+        "coves": (
             "member_select",
             "owner_select",
             "owner_insert",
@@ -700,7 +699,7 @@ def drop_identity_policy_statements() -> list[str]:
     for role in _EXECUTOR_ROLES:
         statements.append(
             f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
-            f"'{role}') THEN EXECUTE 'GRANT UPDATE ON spaces TO {role}'; "
+            f"'{role}') THEN EXECUTE 'GRANT UPDATE ON coves TO {role}'; "
             f"EXECUTE 'GRANT UPDATE ON memberships TO {role}'; "
             f"END IF; END $do$"
         )
@@ -760,11 +759,11 @@ def mutation_statements() -> list[str]:
         # and the drop is a no-op there.
         "DROP FUNCTION IF EXISTS reef_admit_member(uuid, uuid, text)",
         *_function_ddl(
-            "reef_owns_space(p_space uuid)",
-            "SELECT EXISTS (SELECT 1 FROM spaces WHERE id = p_space "
+            "reef_owns_cove(p_cove uuid)",
+            "SELECT EXISTS (SELECT 1 FROM coves WHERE id = p_cove "
             f"AND owner_person_id = {PRINCIPAL})",
             returns="boolean",
-            reads=("spaces",),
+            reads=("coves",),
         ),
         *_function_ddl(
             "reef_allowlist_person(p_email text, p_display_name text, "
@@ -811,7 +810,7 @@ END
             language="plpgsql",
         ),
         *_function_ddl(
-            "reef_remove_member(p_space uuid, p_person uuid, "
+            "reef_remove_member(p_cove uuid, p_person uuid, "
             "OUT removed boolean, OUT person_erased boolean)",
             f"""
 DECLARE
@@ -821,14 +820,14 @@ BEGIN
   person_erased := false;
   -- Only the cove's owner, and never on themselves: an owner removing
   -- themselves would leave the cove with no accountable person.
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+  IF NOT EXISTS (SELECT 1 FROM coves WHERE id = p_cove
                  AND owner_person_id = {PRINCIPAL}) THEN
     RETURN;
   END IF;
   IF p_person = {PRINCIPAL} THEN
     RETURN;
   END IF;
-  DELETE FROM memberships WHERE space_id = p_space AND person_id = p_person;
+  DELETE FROM memberships WHERE cove_id = p_cove AND person_id = p_person;
   GET DIAGNOSTICS affected = ROW_COUNT;
   IF affected = 0 THEN
     RETURN;
@@ -845,33 +844,33 @@ END
 """,
             returns="record",
             writes=("memberships", "persons"),
-            reads=("spaces",),
+            reads=("coves",),
             volatility="VOLATILE",
             language="plpgsql",
         ),
         *_function_ddl(
-            "reef_transfer_space_ownership(p_space uuid, p_successor uuid)",
+            "reef_transfer_cove_ownership(p_cove uuid, p_successor uuid)",
             f"""
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+  IF NOT EXISTS (SELECT 1 FROM coves WHERE id = p_cove
                  AND owner_person_id = {PRINCIPAL}) THEN
     RETURN false;
   END IF;
   -- The successor must already belong to the cove. Without this an owner
   -- could hand a cove to any uuid that satisfies the foreign key, including
   -- somebody who has never seen it.
-  IF NOT EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
+  IF NOT EXISTS (SELECT 1 FROM memberships WHERE cove_id = p_cove
                  AND person_id = p_successor) THEN
     RETURN false;
   END IF;
   UPDATE memberships SET role = 'member'
-   WHERE space_id = p_space AND person_id = p_successor AND role <> 'member';
-  UPDATE spaces SET owner_person_id = p_successor WHERE id = p_space;
+   WHERE cove_id = p_cove AND person_id = p_successor AND role <> 'member';
+  UPDATE coves SET owner_person_id = p_successor WHERE id = p_cove;
   RETURN true;
 END
 """,
             returns="boolean",
-            writes=("memberships", "spaces"),
+            writes=("memberships", "coves"),
             volatility="VOLATILE",
             language="plpgsql",
         ),
@@ -884,14 +883,14 @@ def drop_mutation_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     return [
-        "DROP FUNCTION IF EXISTS reef_owns_space(uuid)",
+        "DROP FUNCTION IF EXISTS reef_owns_cove(uuid)",
         "DROP FUNCTION IF EXISTS reef_allowlist_person(text, text, int, int)",
         "DROP FUNCTION IF EXISTS reef_allowlist_person(text, text, timestamp)",
         "DROP FUNCTION IF EXISTS reef_allowlist_person(text, text)",
         "DROP FUNCTION IF EXISTS reef_admit_member(uuid, uuid, text)",
         "DROP FUNCTION IF EXISTS reef_admit_member(uuid, uuid, text, text)",
         "DROP FUNCTION IF EXISTS reef_remove_member(uuid, uuid)",
-        "DROP FUNCTION IF EXISTS reef_transfer_space_ownership(uuid, uuid)",
+        "DROP FUNCTION IF EXISTS reef_transfer_cove_ownership(uuid, uuid)",
     ]
 
 
@@ -902,7 +901,7 @@ def drop_disclosure_statements() -> list[str]:
     """
     return [
         "DROP FUNCTION IF EXISTS reef_roster(uuid)",
-        "DROP FUNCTION IF EXISTS reef_space_owner(uuid)",
+        "DROP FUNCTION IF EXISTS reef_cove_owner(uuid)",
         "DROP FUNCTION IF EXISTS reef_display_names(uuid[])",
         "DROP FUNCTION IF EXISTS reef_person_id_by_email(text)",
         "DROP FUNCTION IF EXISTS reef_invites_minted(int)",
@@ -946,7 +945,7 @@ def identity_statements() -> list[str]:
     subject instead.
 
     ``lower(p_email)`` matches the application's own normalisation
-    (``spaces.invite`` and ``invitations.allowlist`` both lowercase before
+    (``coves.invite`` and ``invitations.allowlist`` both lowercase before
     storing), so a provider that varies the case of a verified address still
     binds to the invited row.
 
@@ -1039,8 +1038,8 @@ def drop_authz_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     return [
-        "DROP FUNCTION IF EXISTS reef_space_ids()",
-        "DROP FUNCTION IF EXISTS reef_member_space_ids()",
+        "DROP FUNCTION IF EXISTS reef_cove_ids()",
+        "DROP FUNCTION IF EXISTS reef_member_cove_ids()",
     ]
 
 
@@ -1087,15 +1086,15 @@ def _table_policies(table: str) -> list[str]:
 
 
 def appearance_statements() -> list[str]:
-    """Return idempotent DDL arming RLS on ``space_appearances``.
+    """Return idempotent DDL arming RLS on ``cove_appearances``.
 
     Deliberately **not** called from :func:`enable_statements`, unlike every
     other group here. Two historical migrations (``2026-08-08T10:00:00`` and
     ``2026-08-12T09:00:00``) call ``enable_statements`` to re-apply the
-    policies of their day, and they run long before ``space_appearances``
+    policies of their day, and they run long before ``cove_appearances``
     exists. Putting this in there breaks the chain on any database built from
     scratch -- a fresh deploy, or the restore drill in ``docs/restore.md`` --
-    with ``relation "space_appearances" does not exist``. Production would
+    with ``relation "cove_appearances" does not exist``. Production would
     never have noticed, having those migrations already behind it.
 
     So the two callers name it explicitly: the migration that creates the
@@ -1118,11 +1117,11 @@ def appearance_statements() -> list[str]:
     """
     predicate = f"person_id = {PRINCIPAL}"
     return [
-        "ALTER TABLE space_appearances ENABLE ROW LEVEL SECURITY",
-        "ALTER TABLE space_appearances FORCE ROW LEVEL SECURITY",
-        "DROP POLICY IF EXISTS space_appearances_self ON space_appearances",
+        "ALTER TABLE cove_appearances ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cove_appearances FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS cove_appearances_self ON cove_appearances",
         (
-            f"CREATE POLICY space_appearances_self ON space_appearances "
+            f"CREATE POLICY cove_appearances_self ON cove_appearances "
             f"USING ({predicate}) WITH CHECK ({predicate})"
         ),
     ]
@@ -1237,7 +1236,7 @@ def avatar_statements() -> list[str]:
     with you may see your face", and it is expressed here, in SQL, against
     the armed principal, rather than in a handler that has to remember.
 
-    Both functions demand the caller is a member of ``p_space`` **and** that
+    Both functions demand the caller is a member of ``p_cove`` **and** that
     the person asked about is one too. The second half is not redundant:
     without it a member of any cove could name any person id and pull their
     picture, turning a cove membership into a lookup oracle over every
@@ -1252,11 +1251,11 @@ def avatar_statements() -> list[str]:
     :returns: SQL statements to execute in order
     """
     target_is_member = (
-        "p.id IN (SELECT person_id FROM memberships WHERE space_id = p_space)"
+        "p.id IN (SELECT person_id FROM memberships WHERE cove_id = p_cove)"
     )
     return [
         *_function_ddl(
-            "reef_member_faces(p_space uuid)",
+            "reef_member_faces(p_cove uuid)",
             "SELECT p.id, octet_length(p.avatar_bytes)::int FROM persons p "
             f"WHERE {target_is_member} AND p.avatar_bytes IS NOT NULL "
             f"AND {_CALLER_IS_MEMBER}",
@@ -1264,7 +1263,7 @@ def avatar_statements() -> list[str]:
             reads=("persons", "memberships"),
         ),
         *_function_ddl(
-            "reef_member_avatar(p_space uuid, p_person uuid)",
+            "reef_member_avatar(p_cove uuid, p_person uuid)",
             "SELECT p.avatar_mime, p.avatar_bytes FROM persons p "
             f"WHERE p.id = p_person AND {target_is_member} "
             f"AND p.avatar_bytes IS NOT NULL AND {_CALLER_IS_MEMBER}",
@@ -1320,7 +1319,7 @@ def enable_statements() -> list[str]:
     """Return the DDL that turns on and enforces RLS on the content tables.
 
     Covers ``pages`` and ``attachments`` (membership via their own
-    ``space_id``) and ``revisions`` (membership via their page's space), each
+    ``cove_id``) and ``revisions`` (membership via their page's cove), each
     with one policy per SQL command, and then ``promotions`` (ownership).
     ``FORCE ROW LEVEL SECURITY`` extends the policies to the table owner, not
     just other roles.

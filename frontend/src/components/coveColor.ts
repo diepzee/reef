@@ -1,6 +1,6 @@
 /**
- * Per-space hue pairs for the identity pass — a `{base, light}` gradient
- * pair used for the home-card stripe/chip, the sidebar space dot, and the
+ * Per-cove hue pairs for the identity pass — a `{base, light}` gradient
+ * pair used for the home-card stripe/chip, the sidebar cove dot, and the
  * page bar's hue dot (see spec "Identity pass (rev 2)").
  *
  * The hue is derived from the alias so every cove has one from the moment it
@@ -10,8 +10,8 @@
  * fallback, so an unset or unrecognised name simply behaves as before.
  */
 
-/** A space's hue: a deep `base` and a lighter `light` for gradients/tints. */
-export interface SpaceHue {
+/** A cove's hue: a deep `base` and a lighter `light` for gradients/tints. */
+export interface CoveHue {
   base: string;
   light: string;
 }
@@ -29,7 +29,7 @@ export const HUES = {
   lime: { base: "#84cc16", light: "#bef264" },
   violet: { base: "#8b5cf6", light: "#c4b5fd" },
   orange: { base: "#f97316", light: "#fdba74" },
-} as const satisfies Record<string, SpaceHue>;
+} as const satisfies Record<string, CoveHue>;
 
 /** A hue's name, as stored when somebody picks one. */
 export type HueName = keyof typeof HUES;
@@ -37,17 +37,17 @@ export type HueName = keyof typeof HUES;
 /** The names, in the order a picker should offer them. */
 export const HUE_NAMES = Object.keys(HUES) as HueName[];
 
-/** `personal` is always seafoam, never hashed — it's the one space every principal shares. */
-const PERSONAL: SpaceHue = HUES.seafoam;
+/** `personal` is always seafoam, never hashed — it's the one cove every principal shares. */
+const PERSONAL: CoveHue = HUES.seafoam;
 
 /**
- * The seven-pair sea palette shared spaces hash across.
+ * The seven-pair sea palette shared coves hash across.
  *
  * Order is load-bearing — the hash indexes into it — so entries may be
  * re-pointed but never reordered or removed without dealing every existing
  * cove a different colour.
  */
-const palette: readonly SpaceHue[] = [
+const palette: readonly CoveHue[] = [
   HUES.amber,
   HUES.indigo,
   HUES.pink,
@@ -58,7 +58,7 @@ const palette: readonly SpaceHue[] = [
 ];
 
 /**
- * Deterministic `{base, light}` hue pair for a space's alias, unless the
+ * Deterministic `{base, light}` hue pair for a cove's alias, unless the
  * viewer has chosen one.
  *
  * `"personal"` always returns the fixed seafoam pair. Every other alias
@@ -66,11 +66,11 @@ const palette: readonly SpaceHue[] = [
  * the same char-code-sum discipline `avatarColor` uses for names — so a
  * given alias always resolves to the same pair.
  *
- * :param alias: the space's alias, e.g. "personal" or "roadtrip"
+ * :param alias: the cove's alias, e.g. "personal" or "roadtrip"
  * :param chosen: a name from `HUES` the viewer picked, if any
- * :returns: the space's `{base, light}` hue pair
+ * :returns: the cove's `{base, light}` hue pair
  */
-export function spaceColor(alias: string, chosen?: string | null): SpaceHue {
+export function coveColor(alias: string, chosen?: string | null): CoveHue {
   if (chosen && chosen in HUES) return HUES[chosen as HueName];
   if (alias === "personal") return PERSONAL;
   let sum = 0;

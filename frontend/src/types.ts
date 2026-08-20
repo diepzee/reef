@@ -2,20 +2,20 @@
  * Wire types for the `/api/*` JSON surface.
  *
  * Mirrors the dataclasses in `src/reef/context.py` (`IndexPayload`,
- * `SpaceIndex`, and the per-page/per-attachment dicts built in
+ * `CoveIndex`, and the per-page/per-attachment dicts built in
  * `build_index`) and the handler return shapes in
  * `src/reef/web/routes_api.py` (`_get_page`, `_put_page`, `_me`,
- * `_space_members`, `_invite`). Keep this file in lockstep with those —
+ * `_cove_members`, `_invite`). Keep this file in lockstep with those —
  * it is the single source of truth every later task's fetch call trusts.
  */
 
 /** A resolved wiki reference from one indexed page to another visible page. */
 export interface PageReference {
-  space: string;
+  cove: string;
   path: string;
 }
 
-/** One page's metadata within a space's index — no body. */
+/** One page's metadata within a cove's index — no body. */
 export interface PageMeta {
   path: string;
   title: string;
@@ -28,7 +28,7 @@ export interface PageMeta {
   references: PageReference[];
 }
 
-/** One stored file's metadata within a space's index. */
+/** One stored file's metadata within a cove's index. */
 export interface AttachmentMeta {
   key: string;
   filename: string;
@@ -38,23 +38,23 @@ export interface AttachmentMeta {
   page_path: string | null;
 }
 
-/** The map of one space: page metadata and described files, no bodies. */
-export interface SpaceIndex {
+/** The map of one cove: page metadata and described files, no bodies. */
+export interface CoveIndex {
   alias: string;
   version: number;
   pages: PageMeta[];
   attachments: AttachmentMeta[];
 }
 
-/** `GET /api/index` — the index of every space the principal may see. */
+/** `GET /api/index` — the index of every cove the principal may see. */
 export interface IndexPayload {
   version: string;
-  spaces: SpaceIndex[];
+  coves: CoveIndex[];
 }
 
-/** A full page, with its body — `GET`/`PUT /api/pages/{space}/{path}`. */
+/** A full page, with its body — `GET`/`PUT /api/pages/{cove}/{path}`. */
 export interface Page {
-  space: string;
+  cove: string;
   path: string;
   title: string;
   tags: string[];
@@ -78,7 +78,7 @@ export interface Me {
 }
 
 /**
- * One member of a shared space's roster.
+ * One member of a shared cove's roster.
  *
  * `email` is blanked to `""` for every viewer but the cove's owner, so it is
  * not a key the UI can rely on — `person_id` is. `avatar` is a URL to fetch
@@ -92,16 +92,16 @@ export interface Member {
   avatar: string | null;
 }
 
-/** `GET /api/spaces/{space}/members` — a shared space's roster. */
+/** `GET /api/coves/{cove}/members` — a shared cove's roster. */
 export interface Members {
   members: Member[];
   owner_email: string;
   is_owner: boolean;
 }
 
-/** `POST /api/spaces/{space}/invites` — the outcome of inviting an email. */
+/** `POST /api/coves/{cove}/invites` — the outcome of inviting an email. */
 export interface InviteResult {
-  space: string;
+  cove: string;
   email: string;
   already_member: boolean;
   disclosure: string;
@@ -110,7 +110,7 @@ export interface InviteResult {
 /**
  * `POST /api/invites` — the outcome of inviting someone to reef itself.
  *
- * No `space` and no `disclosure`, unlike `InviteResult`: this grants sight
+ * No `cove` and no `disclosure`, unlike `InviteResult`: this grants sight
  * of nothing, so there is nothing to disclose. `next_step` carries the words
  * the inviter relays, since reef sends no invitation email.
  */

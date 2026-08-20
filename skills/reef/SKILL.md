@@ -1,6 +1,6 @@
 ---
 name: reef
-description: Read and maintain a person's private and shared long-term Reef memory through the `reef` CLI. Use when an agent needs remembered context, pages, spaces/coves, files, invitations, persona settings, or carefully confirmed sharing in Reef; also use when the user asks to remember something for later.
+description: Read and maintain a person's private and shared long-term Reef memory through the `reef` CLI. Use when an agent needs remembered context, pages, coves/coves, files, invitations, persona settings, or carefully confirmed sharing in Reef; also use when the user asks to remember something for later.
 ---
 
 # Reef
@@ -28,7 +28,7 @@ Run `reef <command> --help` for exact flags. Use `reef call <tool_name>
 
    ```bash
    reef search-pages 'vaillant boiler' --limit 5
-   reef search-pages 'insurance' --space household
+   reef search-pages 'insurance' --cove household
    ```
 
    Hits cover pages and stored files (matched on filename and description;
@@ -48,20 +48,20 @@ the user; never print, commit, or persist that environment value yourself.
 
 ## Read and remember
 
-- Inspect membership before using a shared space: `reef list-spaces`.
+- Inspect membership before using a shared cove: `reef list-coves`.
 - See what changed while the user was away: `reef whats-new`, optionally
   `--since 2026-08-01T00:00:00`. Surface notable changes by other members
-  unprompted — that is what keeps a shared space alive.
-- Read one page with `reef read-page <space> <path>` or several with
-  `reef read-pages <space> <path>...`.
+  unprompted — that is what keeps a shared cove alive.
+- Read one page with `reef read-page <cove> <path>` or several with
+  `reef read-pages <cove> <path>...`.
 - Read a page as it stood at a past moment with
-  `reef read-page <space> <path> --as-of 2026-03-01T12:00:00` — use it when
+  `reef read-page <cove> <path> --as-of 2026-03-01T12:00:00` — use it when
   the user asks what was known or planned before something changed.
 - Record a durable fact with `reef remember '<fact>'`. This defaults to the
-  private `personal` space. Add `--space <name>` only when the fact clearly
+  private `personal` cove. Add `--cove <name>` only when the fact clearly
   belongs to that group: jointly owned information, a joint decision, or a
   shared obligation. Keep ambiguous information personal.
-- `remember` stages: it appends a dated line to that space's `inbox.md`, it
+- `remember` stages: it appends a dated line to that cove's `inbox.md`, it
   does not file anything. Before the conversation ends, tell the user what
   you are about to remember — one line per fact — and let them strike
   entries before you write. Never end a conversation having silently
@@ -110,11 +110,11 @@ reef update-meta-page --body-file /tmp/persona.md \
 Only `personal/meta/persona.md` is editable. The operating protocol is product
 code, not a page.
 
-## Share and administer spaces
+## Share and administer coves
 
 Sharing personal content is a two-step, irreversible-in-effect operation:
 
-1. Stage it with `reef prepare-to-share <path> <dest-space>`. To share one
+1. Stage it with `reef prepare-to-share <path> <dest-cove>`. To share one
    section, add `--section-file <path> --dest-path <new-page.md>`.
 2. Show the returned disclosure, members, and warning to the user.
 3. Only after explicit agreement in the current conversation, run
@@ -123,16 +123,16 @@ Sharing personal content is a two-step, irreversible-in-effect operation:
 Never treat a previously expressed general preference as confirmation for a
 specific share.
 
-Create a group with `reef create-space <slug>`. Before `reef invite <space>
+Create a group with `reef create-cove <slug>`. Before `reef invite <cove>
 <email>`, tell the user that the invitee will permanently be able to see all
-past and future content in that space and confirm the exact email. Add
+past and future content in that cove and confirm the exact email. Add
 `--role viewer` for someone who should read everything but write nothing
 (an accountant, a helper) — and say that difference to the user too. Use `reef
 invite-to-reef <email>` when the person should receive their own private Reef
-without access to any existing space, and relay the returned `next_step`
+without access to any existing cove, and relay the returned `next_step`
 because Reef sends no email.
 
-Before `reef remove-member <space> <email>`, explain that removal stops future
+Before `reef remove-member <cove> <email>`, explain that removal stops future
 access but cannot retract anything already read.
 
 ## Files
@@ -145,8 +145,8 @@ reef add-file personal ./document.pdf \
 ```
 
 Write a concrete description because future retrieval sees it in the index.
-Use `reef read-file <space> <key>` to receive metadata and a short-lived URL.
-Before `reef delete-file <space> <key>`, obtain explicit confirmation: deletion
+Use `reef read-file <cove> <key>` to receive metadata and a short-lived URL.
+Before `reef delete-file <cove> <key>`, obtain explicit confirmation: deletion
 cannot be undone. The `add-image`, `read-image`, and `delete-image` commands are
 compatibility aliases; prefer the general file commands.
 
@@ -197,9 +197,9 @@ exact or newly added server call, pass a JSON object inline, from a file, or on
 stdin:
 
 ```bash
-reef call read_pages '{"space":"personal","paths":["profile.md"]}'
+reef call read_pages '{"cove":"personal","paths":["profile.md"]}'
 reef call write_pages @/tmp/call.json
-printf '%s' '{"space":"personal","path":"profile.md"}' | reef call read_page -
+printf '%s' '{"cove":"personal","path":"profile.md"}' | reef call read_page -
 ```
 
 Use the named file and text commands when possible: they handle UTF-8 files,

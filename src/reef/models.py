@@ -3,8 +3,8 @@
 Three schema facts Piccolo cannot express in a table definition, and which
 ``reef.rls.constraint_statements`` therefore emits as raw DDL: the composite
 key on ``memberships`` (Piccolo gives every table one surrogate primary key),
-the ``(space_id, path)`` uniqueness of a page, and the one-personal-space-per
--person invariant (a *partial* unique index on ``spaces.owner_person_id``,
+the ``(cove_id, path)`` uniqueness of a page, and the one-personal-cove-per
+-person invariant (a *partial* unique index on ``coves.owner_person_id``,
 which Piccolo has no syntax for). All three are constraints the database must
 hold whatever the ORM believes, so they live next to the RLS policy DDL
 rather than being dropped.
@@ -48,8 +48,8 @@ def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-class SpaceKind(StrEnum):
-    """The two kinds of space: one private per person, any number shared."""
+class CoveKind(StrEnum):
+    """The two kinds of cove: one private per person, any number shared."""
 
     PERSONAL = "personal"
     SHARED = "shared"
@@ -111,8 +111,8 @@ class Person(Table, tablename="persons", db=DB):
     last_seen_release = Varchar(null=True, default=None)
 
 
-class Space(Table, tablename="spaces", db=DB):
-    """A group of people. Every space has one accountable owner.
+class Cove(Table, tablename="coves", db=DB):
+    """A group of people. Every cove has one accountable owner.
 
     ``slug`` is the name its creator chose, kept for provenance and as the
     alias offered to each new member. It is deliberately **not** unique: a
@@ -124,7 +124,7 @@ class Space(Table, tablename="spaces", db=DB):
 
     id = UUID(primary_key=True, default=uuid4)
     slug = Varchar()
-    kind = Varchar(choices=SpaceKind)
+    kind = Varchar(choices=CoveKind)
     # null=False because the migrations made this column NOT NULL and
     # Piccolo's ForeignKey defaults to nullable. Unstated, the schema the
     # tests build is *laxer* than the one production runs, and this repo has
@@ -136,15 +136,15 @@ class Space(Table, tablename="spaces", db=DB):
 
 
 class Membership(Table, tablename="memberships", db=DB):
-    """Who may see which space, what it grants, and what they call it.
+    """Who may see which cove, what it grants, and what they call it.
 
-    The real key is ``(person_id, space_id)``; Piccolo's surrogate ``id`` is
+    The real key is ``(person_id, cove_id)``; Piccolo's surrogate ``id`` is
     an artefact, and the composite uniqueness is enforced by a raw
     constraint rather than by this definition.
 
     ``alias`` is the name this person addresses this cove by, and it is the
     only name the tool surface accepts. It lives here rather than on
-    ``spaces`` because the constraint that actually has to hold is "the
+    ``coves`` because the constraint that actually has to hold is "the
     aliases *one person* can reach are unique" -- which is
     ``UNIQUE (person_id, alias)``, an ordinary index, and is not expressible
     as a property of the cove. Two people may each have a cove called
@@ -152,16 +152,16 @@ class Membership(Table, tablename="memberships", db=DB):
     """
 
     person_id = ForeignKey(Person)
-    space_id = ForeignKey(Space)
+    cove_id = ForeignKey(Cove)
     role = Varchar(choices=MemberRole, default=MemberRole.MEMBER.value)
     alias = Varchar()
 
 
 class Page(Table, tablename="pages", db=DB):
-    """A markdown page within a space, optimistically versioned."""
+    """A markdown page within a cove, optimistically versioned."""
 
     id = UUID(primary_key=True, default=uuid4)
-    space_id = ForeignKey(Space, index=True)
+    cove_id = ForeignKey(Cove, index=True)
     path = Varchar()
     title = Varchar()
     tags = Array(base_column=Varchar(), default=list)
@@ -189,7 +189,7 @@ class Attachment(Table, tablename="attachments", db=DB):
     """A file in object storage, described in text for context loading."""
 
     id = UUID(primary_key=True, default=uuid4)
-    space_id = ForeignKey(Space, index=True)
+    cove_id = ForeignKey(Cove, index=True)
     page_id = ForeignKey(Page, null=True, default=None, on_delete=OnDelete.set_null)
     object_key = Varchar(unique=True)
     filename = Varchar(length=512, default="")
@@ -212,24 +212,24 @@ class Promotion(Table, tablename="promotions", db=DB):
     person_id = ForeignKey(Person)
     source_page_id = ForeignKey(Page)
     source_version = Integer()
-    # NOT NULL in the migrated schema; see Space.owner_person_id.
-    dest_space_id = ForeignKey(Space, null=False)
+    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    dest_cove_id = ForeignKey(Cove, null=False)
     dest_path = Varchar()
     section_text = Varchar(length=None, null=True, default=None)
     created_at = Timestamp(default=utc_now)
     consumed_at = Timestamp(null=True, default=None)
 
 
-class SpaceAppearance(Table, tablename="space_appearances", db=DB):
+class CoveAppearance(Table, tablename="cove_appearances", db=DB):
     """How one person has chosen to see one cove.
 
     A cove's colour and creature are derived from its alias, and this
     overrides that derivation *for one viewer only* -- two members of the
     same cove can see it differently, and neither can restyle it for the
     other. That is why this is its own table rather than columns on
-    ``spaces`` or ``memberships``.
+    ``coves`` or ``memberships``.
 
-    On ``spaces`` it would be shared, so changing it would be an act of
+    On ``coves`` it would be shared, so changing it would be an act of
     administration and would mean widening the deliberately narrow
     column grant that today lets a member update nothing but ``version``.
     On ``memberships`` it would need a self-update policy on a table that
@@ -239,25 +239,25 @@ class SpaceAppearance(Table, tablename="space_appearances", db=DB):
     "your own rows" policy is safe.
 
     Null means "not chosen": the alias-derived value stands. The composite
-    uniqueness of ``(person_id, space_id)`` is a raw constraint, as on
+    uniqueness of ``(person_id, cove_id)`` is a raw constraint, as on
     ``memberships``.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
+    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
     person_id = ForeignKey(Person, null=False)
-    space_id = ForeignKey(Space, null=False)
+    cove_id = ForeignKey(Cove, null=False)
     color = Varchar(null=True, default=None)
     glyph = Varchar(null=True, default=None)
 
 
 TABLES = [
     Person,
-    Space,
+    Cove,
     Membership,
     Page,
     Revision,
     Attachment,
     Promotion,
-    SpaceAppearance,
+    CoveAppearance,
 ]

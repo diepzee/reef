@@ -1,4 +1,4 @@
-"""The accessor: binds the RLS principal and resolves space aliases.
+"""The accessor: binds the RLS principal and resolves cove aliases.
 
 This is the review-critical surface. Everything that reads or writes content
 goes through :func:`arm` first, inside a :func:`reef.db.transaction_scope`,
@@ -8,15 +8,15 @@ and Postgres does the rest.
 from dataclasses import dataclass
 from uuid import UUID
 
-from reef.models import MemberRole, Membership, Space, SpaceKind
+from reef.models import Cove, CoveKind, MemberRole, Membership
 
 
 class AccessDenied(Exception):
-    """Raised whenever a principal may not reach the requested space."""
+    """Raised whenever a principal may not reach the requested cove."""
 
 
 class ReadOnlyMembership(AccessDenied):
-    """Raised when a viewer membership tries to change a space's content.
+    """Raised when a viewer membership tries to change a cove's content.
 
     Postgres already refuses the write — the ``role = 'member'`` predicate
     has guarded every content table since day one — but its refusal is a
@@ -44,7 +44,7 @@ async def arm(principal: Principal) -> None:
 
     :param principal: the authenticated person
     """
-    await Space.raw(
+    await Cove.raw(
         "SELECT set_config('app.person_id', {}, true)", str(principal.person_id)
     )
 
@@ -52,8 +52,8 @@ async def arm(principal: Principal) -> None:
 PERSONAL_ALIAS = "personal"
 """The one alias whose meaning is fixed for everybody.
 
-Reserved per person rather than globally: it names *your* private space, and
-:func:`resolve_space` resolves it through ownership so no membership row,
+Reserved per person rather than globally: it names *your* private cove, and
+:func:`resolve_cove` resolves it through ownership so no membership row,
 however malformed, can point it somewhere else.
 """
 
@@ -65,20 +65,20 @@ async def alias_map(principal: Principal) -> dict[UUID, str]:
     may call the same cove different things, and two people may each have a
     cove called ``family`` with no relation between them. Everything that
     renders a cove name therefore needs the reader's own mapping rather than
-    a property of the row -- which is why the old ``space_alias(space)``,
-    a pure function of the space, no longer exists.
+    a property of the row -- which is why the old ``cove_alias(cove)``,
+    a pure function of the cove, no longer exists.
 
     :param principal: the authenticated person
-    :returns: space id to the alias this principal uses for it
+    :returns: cove id to the alias this principal uses for it
     """
     await arm(principal)
-    rows = await Membership.select(Membership.space_id, Membership.alias).where(
+    rows = await Membership.select(Membership.cove_id, Membership.alias).where(
         Membership.person_id == principal.person_id
     )
-    return {row["space_id"]: row["alias"] for row in rows}
+    return {row["cove_id"]: row["alias"] for row in rows}
 
 
-async def resolve_space(principal: Principal, alias: str) -> Space:
+async def resolve_cove(principal: Principal, alias: str) -> Cove:
     """Resolve a cove name for a principal, arming RLS as a side effect.
 
     Every name is looked up on the principal's *own* membership rows, so a
@@ -86,9 +86,9 @@ async def resolve_space(principal: Principal, alias: str) -> Space:
     their memberships is reachable by guessing.
 
     ``personal`` is checked twice over: the membership must carry that alias
-    *and* the space must be a personal one this principal owns. Alias
+    *and* the cove must be a personal one this principal owns. Alias
     uniqueness is per person, so a cove admitted under that name would
-    otherwise shadow the private space in every later call -- the admit path
+    otherwise shadow the private cove in every later call -- the admit path
     refuses it, and this refuses it again on the read side.
 
     The denial message is identical for a name nobody uses and a name that
@@ -96,11 +96,11 @@ async def resolve_space(principal: Principal, alias: str) -> Space:
 
     :param principal: the authenticated person
     :param alias: ``personal`` or one of this principal's cove names
-    :raises AccessDenied: if no such space is reachable by this principal
-    :returns: the resolved space
+    :raises AccessDenied: if no such cove is reachable by this principal
+    :returns: the resolved cove
     """
     await arm(principal)
-    denied = AccessDenied(f"no space {alias!r} for {principal.email}")
+    denied = AccessDenied(f"no cove {alias!r} for {principal.email}")
     membership = (
         await Membership.objects()
         .where(
@@ -111,20 +111,20 @@ async def resolve_space(principal: Principal, alias: str) -> Space:
     )
     if membership is None:
         raise denied
-    query = Space.objects().where(Space.id == membership.space_id)
+    query = Cove.objects().where(Cove.id == membership.cove_id)
     if alias == PERSONAL_ALIAS:
         query = query.where(
-            Space.kind == SpaceKind.PERSONAL.value,
-            Space.owner_person_id == principal.person_id,
+            Cove.kind == CoveKind.PERSONAL.value,
+            Cove.owner_person_id == principal.person_id,
         )
-    space = await query.first()
-    if space is None:
+    cove = await query.first()
+    if cove is None:
         raise denied
-    return space
+    return cove
 
 
-async def resolve_writable_space(principal: Principal, alias: str) -> Space:
-    """Resolve a space for writing: the same lookup, plus the role gate.
+async def resolve_writable_cove(principal: Principal, alias: str) -> Cove:
+    """Resolve a cove for writing: the same lookup, plus the role gate.
 
     Every content-write path resolves through here so a viewer gets a
     refusal that names the reason, before any statement runs. The database
@@ -132,16 +132,16 @@ async def resolve_writable_space(principal: Principal, alias: str) -> Space:
 
     :param principal: the authenticated person
     :param alias: ``personal`` or one of this principal's cove names
-    :raises AccessDenied: if no such space is reachable by this principal
+    :raises AccessDenied: if no such cove is reachable by this principal
     :raises ReadOnlyMembership: if the membership may read but not write
-    :returns: the resolved space
+    :returns: the resolved cove
     """
-    space = await resolve_space(principal, alias)
+    cove = await resolve_cove(principal, alias)
     membership = (
         await Membership.objects()
         .where(
             Membership.person_id == principal.person_id,
-            Membership.space_id == space.id,
+            Membership.cove_id == cove.id,
         )
         .first()
     )
@@ -150,28 +150,28 @@ async def resolve_writable_space(principal: Principal, alias: str) -> Space:
             f"you are a read-only member of {alias!r}: reading is welcome, "
             "but changing its content is reserved for full members"
         )
-    return space
+    return cove
 
 
-async def accessible_spaces(principal: Principal) -> list[Space]:
-    """Return every space the principal is a member of, arming RLS.
+async def accessible_coves(principal: Principal) -> list[Cove]:
+    """Return every cove the principal is a member of, arming RLS.
 
-    Ordered by ``Space.kind``, which Piccolo stores as text: ``'personal'``
-    sorts before ``'shared'`` lexically, so the personal space always comes
+    Ordered by ``Cove.kind``, which Piccolo stores as text: ``'personal'``
+    sorts before ``'shared'`` lexically, so the personal cove always comes
     first.
 
     :param principal: the authenticated person
-    :returns: spaces, personal first
+    :returns: coves, personal first
     """
     await arm(principal)
     return (
-        await Space.objects()
+        await Cove.objects()
         .where(
-            Space.id.is_in(
-                Membership.select(Membership.space_id).where(
+            Cove.id.is_in(
+                Membership.select(Membership.cove_id).where(
                     Membership.person_id == principal.person_id
                 )
             )
         )
-        .order_by(Space.kind)
+        .order_by(Cove.kind)
     )

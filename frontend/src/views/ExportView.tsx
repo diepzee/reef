@@ -90,9 +90,9 @@ export default function ExportView() {
             Coves
             <select value={scope} onChange={(event) => setScope(event.target.value)}>
               <option value="all">All coves</option>
-              {index?.spaces.map((space) => (
-                <option key={space.alias} value={space.alias}>
-                  {space.alias}
+              {index?.coves.map((cove) => (
+                <option key={cove.alias} value={cove.alias}>
+                  {cove.alias}
                 </option>
               ))}
             </select>

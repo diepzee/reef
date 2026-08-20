@@ -77,7 +77,7 @@ test("choosing a colour records it and saves it", async () => {
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "PUT",
-    path: "/api/spaces/trip/appearance",
+    path: "/api/coves/trip/appearance",
   });
   // Applied before the round trip, not after it.
   expect(recorded.length).toBeGreaterThan(0);

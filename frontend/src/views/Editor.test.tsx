@@ -74,7 +74,7 @@ function renderEditor(version: number | null = 3) {
   render(
     <MemoryRouter>
       <PageEditor
-        space="trip"
+        cove="trip"
         path="packing.md"
         mode="edit"
         initialTitle="Packing"

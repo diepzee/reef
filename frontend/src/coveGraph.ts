@@ -1,6 +1,6 @@
 /** Pure graph projection from the index, kept separate for focused tests. */
 
-import type { SpaceIndex } from "./types";
+import type { CoveIndex } from "./types";
 
 /** One directed, aggregated set of page references between two coves. */
 export interface CoveConnection {
@@ -11,23 +11,23 @@ export interface CoveConnection {
 }
 
 /** Aggregate page-level wiki references into directed cove-to-cove links. */
-export function coveConnections(spaces: SpaceIndex[]): CoveConnection[] {
-  const aliases = new Set(spaces.map((space) => space.alias));
+export function coveConnections(coves: CoveIndex[]): CoveConnection[] {
+  const aliases = new Set(coves.map((cove) => cove.alias));
   const connections = new Map<
     string,
     { source: string; target: string; references: number; pages: Set<string> }
   >();
 
-  for (const space of spaces) {
-    for (const page of space.pages) {
+  for (const cove of coves) {
+    for (const page of cove.pages) {
       for (const reference of page.references) {
-        if (reference.space === space.alias || !aliases.has(reference.space)) continue;
-        const key = `${space.alias}\u0000${reference.space}`;
+        if (reference.cove === cove.alias || !aliases.has(reference.cove)) continue;
+        const key = `${cove.alias}\u0000${reference.cove}`;
         let connection = connections.get(key);
         if (!connection) {
           connection = {
-            source: space.alias,
-            target: reference.space,
+            source: cove.alias,
+            target: reference.cove,
             references: 0,
             pages: new Set(),
           };

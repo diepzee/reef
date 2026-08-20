@@ -2,7 +2,7 @@ import pytest
 
 from reef.access import Principal
 from reef.config import get_settings
-from reef.models import Revision, Space
+from reef.models import Cove, Revision
 from reef.pages import (
     PageTooLarge,
     ProtectedPath,
@@ -44,8 +44,8 @@ async def test_each_write_snapshots_full_state_and_bumps_versions(tx, household)
     assert revisions[1].title == "A" and revisions[1].tags == ["t"]
     page = await get_page(me, "personal", "a.md")
     assert page.version == 2
-    space = await Space.objects().where(Space.id == household["w_personal"].id).first()
-    assert space.version == 2
+    cove = await Cove.objects().where(Cove.id == household["w_personal"].id).first()
+    assert cove.version == 2
 
 
 async def test_stale_expected_version_conflicts(tx, household):

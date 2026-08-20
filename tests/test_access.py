@@ -1,31 +1,31 @@
 import pytest
 
-from reef.access import AccessDenied, Principal, accessible_spaces, resolve_space
+from reef.access import AccessDenied, Principal, accessible_coves, resolve_cove
 
 
 def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def test_personal_alias_resolves_to_own_space(tx, household):
-    space = await resolve_space(principal_for(household["wouter"]), "personal")
-    assert space.id == household["w_personal"].id
+async def test_personal_alias_resolves_to_own_cove(tx, household):
+    cove = await resolve_cove(principal_for(household["wouter"]), "personal")
+    assert cove.id == household["w_personal"].id
 
 
-async def test_personal_alias_never_resolves_to_the_other_persons_space(tx, household):
-    space = await resolve_space(principal_for(household["partner"]), "personal")
-    assert space.id == household["p_personal"].id
+async def test_personal_alias_never_resolves_to_the_other_persons_cove(tx, household):
+    cove = await resolve_cove(principal_for(household["partner"]), "personal")
+    assert cove.id == household["p_personal"].id
 
 
 async def test_household_alias_resolves_shared_for_both(tx, household):
     for key in ("wouter", "partner"):
-        space = await resolve_space(principal_for(household[key]), "household")
-        assert space.id == household["shared"].id
+        cove = await resolve_cove(principal_for(household[key]), "household")
+        assert cove.id == household["shared"].id
 
 
 async def test_unknown_alias_is_denied(tx, household):
     with pytest.raises(AccessDenied):
-        await resolve_space(principal_for(household["wouter"]), "theirs")
+        await resolve_cove(principal_for(household["wouter"]), "theirs")
 
 
 async def test_stranger_is_denied(tx, household):
@@ -33,39 +33,37 @@ async def test_stranger_is_denied(tx, household):
 
     stranger = Principal(person_id=uuid4(), email="stranger@example.test")
     with pytest.raises(AccessDenied):
-        await resolve_space(stranger, "household")
+        await resolve_cove(stranger, "household")
 
 
-async def test_accessible_spaces_excludes_the_other_personal_space(tx, household):
-    spaces = await accessible_spaces(principal_for(household["wouter"]))
-    assert {s.id for s in spaces} == {
+async def test_accessible_coves_excludes_the_other_personal_cove(tx, household):
+    coves = await accessible_coves(principal_for(household["wouter"]))
+    assert {s.id for s in coves} == {
         household["w_personal"].id,
         household["shared"].id,
     }
 
 
-async def test_shared_space_resolves_by_slug(tx, household):
-    space = await resolve_space(principal_for(household["wouter"]), "household")
-    assert space.id == household["shared"].id
+async def test_shared_cove_resolves_by_slug(tx, household):
+    cove = await resolve_cove(principal_for(household["wouter"]), "household")
+    assert cove.id == household["shared"].id
 
 
 async def test_unknown_slug_and_foreign_slug_deny_identically(tx, household, graph):
     stranger = await graph.person("carla@example.test", "Carla")
-    await graph.personal_space(stranger)
+    await graph.personal_cove(stranger)
     with pytest.raises(AccessDenied) as missing:
-        await resolve_space(principal_for(stranger), "no-such-space")
+        await resolve_cove(principal_for(stranger), "no-such-cove")
     with pytest.raises(AccessDenied) as foreign:
-        await resolve_space(principal_for(stranger), "household")
+        await resolve_cove(principal_for(stranger), "household")
     # same message shape: a slug probe cannot distinguish "absent" from "not yours"
-    assert str(missing.value).replace("no-such-space", "household") == str(
-        foreign.value
-    )
+    assert str(missing.value).replace("no-such-cove", "household") == str(foreign.value)
 
 
-async def test_one_person_in_two_shared_spaces(tx, household, graph):
-    trip = await graph.shared_space("trip", household["wouter"])
-    a = await resolve_space(principal_for(household["wouter"]), "household")
-    b = await resolve_space(principal_for(household["wouter"]), "trip")
+async def test_one_person_in_two_shared_coves(tx, household, graph):
+    trip = await graph.shared_cove("trip", household["wouter"])
+    a = await resolve_cove(principal_for(household["wouter"]), "household")
+    b = await resolve_cove(principal_for(household["wouter"]), "trip")
     assert {a.id, b.id} == {household["shared"].id, trip.id}
 
 
@@ -85,30 +83,30 @@ async def test_two_people_can_each_have_a_cove_called_family(tx, graph):
     everybody -- and the collision surfaced as a raw driver error that
     doubled as a cross-tenant existence oracle."""
     from reef.access import alias_map
-    from reef.spaces import create_space
+    from reef.coves import create_cove
 
     ann = await graph.person("ann@x.test", "Ann")
     bo = await graph.person("bo@x.test", "Bo")
-    await graph.personal_space(ann)
-    await graph.personal_space(bo)
+    await graph.personal_cove(ann)
+    await graph.personal_cove(bo)
 
-    hers = await create_space(principal_for(ann), "family")
-    his = await create_space(principal_for(bo), "family")
+    hers = await create_cove(principal_for(ann), "family")
+    his = await create_cove(principal_for(bo), "family")
 
     assert hers.id != his.id
     assert (await alias_map(principal_for(ann)))[hers.id] == "family"
     assert (await alias_map(principal_for(bo)))[his.id] == "family"
     # And each resolves only their own.
-    assert (await resolve_space(principal_for(ann), "family")).id == hers.id
-    assert (await resolve_space(principal_for(bo), "family")).id == his.id
+    assert (await resolve_cove(principal_for(ann), "family")).id == hers.id
+    assert (await resolve_cove(principal_for(bo), "family")).id == his.id
 
 
 async def test_one_person_cannot_reuse_their_own_cove_name(tx, graph):
     """The constraint that does hold: unique per person, not per cluster."""
-    from reef.spaces import SpaceError, create_space
+    from reef.coves import CoveError, create_cove
 
     ann = await graph.person("ann2@x.test", "Ann")
-    await graph.personal_space(ann)
-    await create_space(principal_for(ann), "family")
-    with pytest.raises(SpaceError, match="already have a cove"):
-        await create_space(principal_for(ann), "family")
+    await graph.personal_cove(ann)
+    await create_cove(principal_for(ann), "family")
+    with pytest.raises(CoveError, match="already have a cove"):
+        await create_cove(principal_for(ann), "family")

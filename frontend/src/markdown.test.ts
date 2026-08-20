@@ -25,7 +25,7 @@ test("a markdown table is wrapped in its own keyboard-scrollable region", () => 
   expect(html).toContain("</table></div>");
 });
 
-test("a plain relative image src is rewritten under the space's image endpoint", () => {
+test("a plain relative image src is rewritten under the cove's image endpoint", () => {
   const html = renderMarkdown("![roof](attachments/xyz-123)", "reef");
   expect(html).toContain('src="/api/images/reef/attachments/xyz-123"');
 });
@@ -38,7 +38,7 @@ test("a relative image src with characters needing escaping is percent-encoded p
   expect(html).toContain('src="/api/images/reef/attachments/report%23draft.png"');
 });
 
-test("a single-.. traversal segment is neutralized, not resolved outside the space", () => {
+test("a single-.. traversal segment is neutralized, not resolved outside the cove", () => {
   const html = renderMarkdown("![x](../secret)", "reef");
   expect(html).toContain('src="/api/images/reef/invalid"');
   expect(html).not.toContain("..");
@@ -53,7 +53,7 @@ test("a multi-segment .. traversal is neutralized the same way", () => {
 test("a leading absolute-path src (no scheme) is neutralized, not passed through raw", () => {
   // An empty leading segment from a bare "/etc/passwd"-style src is exactly
   // as dangerous as "../..": it also escapes the intended
-  // "/api/images/<space>/" prefix once the browser resolves the URL.
+  // "/api/images/<cove>/" prefix once the browser resolves the URL.
   const html = renderMarkdown("![x](/etc/passwd)", "reef");
   expect(html).toContain('src="/api/images/reef/invalid"');
 });

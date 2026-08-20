@@ -22,12 +22,12 @@ describe("organismFor", () => {
     // The three flattest plans are withdrawn: at a common height they would outgrow the box.
     const retired = new Set(["brain", "shell", "nudibranch"]);
     for (let i = 0; i < 500; i++) {
-      expect(retired.has(organismFor("space-" + i).family)).toBeFalse();
+      expect(retired.has(organismFor("cove-" + i).family)).toBeFalse();
     }
   });
 
-  test("retiring a plan leaves every other space's organism untouched", () => {
-    // Retired plans stay in the hash space precisely so that `seed % FAMILIES.length` keeps
+  test("retiring a plan leaves every other cove's organism untouched", () => {
+    // Retired plans stay in the hash cove precisely so that `seed % FAMILIES.length` keeps
     // dealing every other alias the family it already had.
     expect(FAMILIES.length).toEqual(11);
     expect(organismFor("personal").family).toEqual("staghorn");

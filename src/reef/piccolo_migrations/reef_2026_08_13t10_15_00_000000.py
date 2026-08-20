@@ -13,7 +13,7 @@ _EXECUTOR_ROLES = ("rif_app", "rif", "rif_probe")
 
 
 async def forwards() -> MigrationManager:
-    """Create ``space_appearances`` with its policy and grants.
+    """Create ``cove_appearances`` with its policy and grants.
 
     Both foreign keys cascade. A deleted cove takes every viewer's private
     preference for it with it, and a deleted person takes all of theirs --
@@ -28,10 +28,10 @@ async def forwards() -> MigrationManager:
 
     async def run() -> None:
         await DB._run_in_new_connection(
-            "CREATE TABLE IF NOT EXISTS space_appearances ("
+            "CREATE TABLE IF NOT EXISTS cove_appearances ("
             "  id UUID PRIMARY KEY,"
             "  person_id UUID NOT NULL REFERENCES persons(id) ON DELETE CASCADE,"
-            "  space_id UUID NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,"
+            "  cove_id UUID NOT NULL REFERENCES coves(id) ON DELETE CASCADE,"
             "  color VARCHAR(255) DEFAULT NULL,"
             "  glyph VARCHAR(255) DEFAULT NULL"
             ")"
@@ -39,14 +39,14 @@ async def forwards() -> MigrationManager:
         # One row per person per cove: the API upserts against this pair, and
         # without the constraint a retried write would quietly stack rows.
         await DB._run_in_new_connection(
-            "CREATE UNIQUE INDEX IF NOT EXISTS space_appearances_person_space "
-            "ON space_appearances (person_id, space_id)"
+            "CREATE UNIQUE INDEX IF NOT EXISTS cove_appearances_person_cove "
+            "ON cove_appearances (person_id, cove_id)"
         )
         for role in _EXECUTOR_ROLES:
             await DB._run_in_new_connection(
                 f"DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
                 f"'{role}') THEN EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE "
-                f"ON space_appearances TO {role}'; END IF; END $$"
+                f"ON cove_appearances TO {role}'; END IF; END $$"
             )
         for statement in appearance_statements():
             await DB._run_in_new_connection(statement)

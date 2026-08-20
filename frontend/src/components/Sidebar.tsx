@@ -1,20 +1,20 @@
 /**
- * The desktop shell's persistent left pane: brand, every space the
- * principal can see, the active space's pages nested under it, "new page"
- * / "new space" actions, and an account row with sign-out.
+ * The desktop shell's persistent left pane: brand, every cove the
+ * principal can see, the active cove's pages nested under it, "new page"
+ * / "new cove" actions, and an account row with sign-out.
  *
  * Active state comes from the route rather than local state — `useParams`
  * only works inside a matched `<Route>`, and `Sidebar` renders alongside
  * `<Routes>` in `AppShell`, not inside one — so this parses the current
  * location's `/s/<alias>` (and `/s/<alias>/p/<path>`) prefixes instead.
  *
- * Per the brief's documented narrowing: showing every space row's member
- * stack would be an N+1 fetch (one `useMembers` call per space). Only the
- * *active* space's stack is fetched and shown; every other space row (and
- * the personal space, which has no membership to administer) shows its
+ * Per the brief's documented narrowing: showing every cove row's member
+ * stack would be an N+1 fetch (one `useMembers` call per cove). Only the
+ * *active* cove's stack is fetched and shown; every other cove row (and
+ * the personal cove, which has no membership to administer) shows its
  * page count instead.
  *
- * Each space row wears that space's own organism in its own hue, the same
+ * Each cove row wears that cove's own organism in its own hue, the same
  * mark `Home`'s cards and `PageView`'s page bar carry — so a cove is
  * recognized by its creature everywhere it appears, not just on the landing
  * screen. It replaced a plain tinted dot, which carried the hue but threw
@@ -33,15 +33,15 @@ import type { Me } from "../types";
 import { AccountMenu } from "./AccountMenu";
 import { AvatarStack } from "./Avatar";
 import { FrondGlyph } from "./ReefMark";
-import { SpaceGlyph } from "./spaceGlyph";
+import { CoveGlyph } from "./coveGlyph";
 
-/** Parse the active space alias and (if on a page route) active page path from a pathname. */
-function parseLocation(pathname: string): { space: string | null; page: string | null } {
+/** Parse the active cove alias and (if on a page route) active page path from a pathname. */
+function parseLocation(pathname: string): { cove: string | null; page: string | null } {
   const decoded = decodeURIComponent(pathname);
-  const spaceMatch = decoded.match(/^\/s\/([^/]+)/);
+  const coveMatch = decoded.match(/^\/s\/([^/]+)/);
   const pageMatch = decoded.match(/^\/s\/[^/]+\/p\/(.*)$/);
   return {
-    space: spaceMatch?.[1] ?? null,
+    cove: coveMatch?.[1] ?? null,
     page: pageMatch?.[1] ?? null,
   };
 }
@@ -50,9 +50,9 @@ function parseLocation(pathname: string): { space: string | null; page: string |
 export function Sidebar({ me }: { me: Me | null }) {
   const { index } = useIndex();
   const location = useLocation();
-  const { space: activeSpace, page: activePage } = parseLocation(location.pathname);
+  const { cove: activeCove, page: activePage } = parseLocation(location.pathname);
 
-  const { members } = useMembers(activeSpace);
+  const { members } = useMembers(activeCove);
   const { openMembers } = useMembersSheet();
   const [folds, setFolds] = useState(getCoveFolds);
   const look = useCoveLook();
@@ -83,15 +83,15 @@ export function Sidebar({ me }: { me: Me | null }) {
           brand is set anywhere else. */}
       <div className="side-label">Coves</div>
 
-      {index?.spaces.map((space) => {
-        const isActive = space.alias === activeSpace;
-        const isPersonal = space.alias === "personal";
-        const { hue, family } = look(space.alias);
-        const hasPages = space.pages.length > 0;
-        const isOpen = isCoveOpen(folds, space.alias, isActive, hasPages);
+      {index?.coves.map((cove) => {
+        const isActive = cove.alias === activeCove;
+        const isPersonal = cove.alias === "personal";
+        const { hue, family } = look(cove.alias);
+        const hasPages = cove.pages.length > 0;
+        const isOpen = isCoveOpen(folds, cove.alias, isActive, hasPages);
 
         return (
-          <div key={space.alias}>
+          <div key={cove.alias}>
             {/*
               The twisty is a sibling of the row's link, not a child of it:
               a <button> inside an <a> is invalid, and the nested-interactive
@@ -106,8 +106,8 @@ export function Sidebar({ me }: { me: Me | null }) {
                   type="button"
                   className="side-twist"
                   aria-expanded={isOpen}
-                  aria-label={`${isOpen ? "Collapse" : "Expand"} ${space.alias}`}
-                  onClick={() => toggleFold(space.alias, !isOpen)}
+                  aria-label={`${isOpen ? "Collapse" : "Expand"} ${cove.alias}`}
+                  onClick={() => toggleFold(cove.alias, !isOpen)}
                 >
                   <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
                     <path d="M4.5 2.5 8 6l-3.5 3.5" />
@@ -118,19 +118,19 @@ export function Sidebar({ me }: { me: Me | null }) {
                 // line up with the ones that do.
                 <span className="side-twist side-twist-blank" aria-hidden="true" />
               )}
-              <Link to={`/s/${space.alias}`} className="side-item">
+              <Link to={`/s/${cove.alias}`} className="side-item">
                 <span className="side-glyph" aria-hidden="true">
-                  <SpaceGlyph
-                    alias={space.alias}
+                  <CoveGlyph
+                    alias={cove.alias}
                     color={hue.base}
                     size={16}
                     family={family}
                   />
                 </span>
-                <span>{space.alias}</span>
+                <span>{cove.alias}</span>
                 {isActive && !isPersonal ? (
                   members && (
-                  // This sits inside the space's own <Link>, and opening
+                  // This sits inside the cove's own <Link>, and opening
                   // the sheet should not also navigate. preventDefault is
                   // required alongside stopPropagation: stopPropagation
                   // alone stops the event from ever reaching the Link's
@@ -155,29 +155,29 @@ export function Sidebar({ me }: { me: Me | null }) {
                           src: member.avatar,
                         }))}
                         size="sm"
-                        onClick={() => openMembers(space.alias)}
-                        ariaLabel={`Members of ${space.alias}`}
+                        onClick={() => openMembers(cove.alias)}
+                        ariaLabel={`Members of ${cove.alias}`}
                       />
                     </span>
                   )
                 ) : (
-                  <span className="side-count">{space.pages.length}</span>
+                  <span className="side-count">{cove.pages.length}</span>
                 )}
               </Link>
             </div>
 
             {isOpen && (
               <>
-                {space.pages.map((page) => (
+                {cove.pages.map((page) => (
                   <Link
                     key={page.path}
-                    to={`/s/${space.alias}/p/${page.path}`}
+                    to={`/s/${cove.alias}/p/${page.path}`}
                     className={`side-page ${activePage === page.path ? "active" : ""}`}
                   >
                     {page.title || page.path}
                   </Link>
                 ))}
-                <Link to={`/s/${space.alias}/new`} className="side-newpage">
+                <Link to={`/s/${cove.alias}/new`} className="side-newpage">
                   ＋ New page
                 </Link>
               </>
@@ -195,7 +195,7 @@ export function Sidebar({ me }: { me: Me | null }) {
         someone to reef adds a person to the product rather than to any cove,
         so it goes below with the account, behind a rule.
       */}
-      <Link to="/spaces/new" className="side-newcove">
+      <Link to="/coves/new" className="side-newcove">
         ＋ New cove
       </Link>
 

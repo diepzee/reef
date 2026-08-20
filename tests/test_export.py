@@ -7,7 +7,7 @@ from reef.export import (
     build_full_dump,
     build_json_export,
     build_markdown_archive,
-    export_space,
+    export_cove,
     render_page,
 )
 from reef.models import Attachment, AttachmentStatus, Page
@@ -40,7 +40,7 @@ async def test_export_writes_one_file_per_page(tx, household, tmp_path):
     me = principal_for(household["wouter"])
     await save_page(me, "household", "house.md", "boiler", message="x")
     await save_page(me, "household", "money.md", "loan", message="x")
-    assert await export_space(me, "household", tmp_path) == 2
+    assert await export_cove(me, "household", tmp_path) == 2
     assert "loan" in (tmp_path / "money.md").read_text()
 
 
@@ -98,7 +98,7 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
         expected_version=1,
     )
     await Attachment(
-        space_id=household["shared"].id,
+        cove_id=household["shared"].id,
         page_id=page.id,
         object_key="attachments/report-key",
         filename="quarterly report.pdf",

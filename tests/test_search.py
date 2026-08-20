@@ -17,10 +17,10 @@ def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def _add_file(principal, space, key, filename, description, status=None):
+async def _add_file(principal, cove, key, filename, description, status=None):
     await arm(principal)
     await Attachment(
-        space_id=space.id,
+        cove_id=cove.id,
         object_key=key,
         filename=filename,
         mime="application/pdf",
@@ -42,7 +42,7 @@ async def test_finds_a_page_by_words_in_its_body(tx, household):
     )
     results = await search_pages(me, "vaillant boiler")
     assert [r["path"] for r in results] == ["house.md"]
-    assert results[0]["space"] == "personal"
+    assert results[0]["cove"] == "personal"
     assert results[0]["title"] == "House"
 
 
@@ -60,12 +60,12 @@ async def test_snippet_bolds_the_matched_words(tx, household):
     assert "**boiler**" in results[0]["snippet"]
 
 
-async def test_searches_every_accessible_space_and_labels_by_alias(tx, household):
+async def test_searches_every_accessible_cove_and_labels_by_alias(tx, household):
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "notes.md", "The boiler manual.", message="x")
     await save_page(me, "household", "house.md", "The boiler is new.", message="x")
     results = await search_pages(me, "boiler")
-    assert {(r["space"], r["path"]) for r in results} == {
+    assert {(r["cove"], r["path"]) for r in results} == {
         ("personal", "notes.md"),
         ("household", "house.md"),
     }
@@ -92,12 +92,12 @@ async def test_title_match_outranks_body_match(tx, household):
     assert [r["path"] for r in results] == ["boiler.md", "mentions.md"]
 
 
-async def test_scoping_to_one_space_excludes_the_others(tx, household):
+async def test_scoping_to_one_cove_excludes_the_others(tx, household):
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "notes.md", "The boiler manual.", message="x")
     await save_page(me, "household", "house.md", "The boiler is new.", message="x")
-    results = await search_pages(me, "boiler", space="household")
-    assert [(r["space"], r["path"]) for r in results] == [("household", "house.md")]
+    results = await search_pages(me, "boiler", cove="household")
+    assert [(r["cove"], r["path"]) for r in results] == [("household", "house.md")]
 
 
 async def test_no_match_returns_an_empty_list(tx, household):
@@ -112,10 +112,10 @@ async def test_blank_query_returns_an_empty_list(tx, household):
     assert await search_pages(me, "   ") == []
 
 
-async def test_unknown_space_is_denied_like_any_read(tx, household):
+async def test_unknown_cove_is_denied_like_any_read(tx, household):
     me = principal_for(household["wouter"])
     with pytest.raises(AccessDenied):
-        await search_pages(me, "boiler", space="not-mine")
+        await search_pages(me, "boiler", cove="not-mine")
 
 
 async def test_search_cannot_see_another_persons_personal_pages(tx, household):
@@ -133,14 +133,14 @@ async def test_search_cannot_see_another_persons_personal_pages(tx, household):
     assert await search_pages(me, "xylophone") == []
 
 
-async def test_shared_space_matches_reach_both_members(tx, household):
+async def test_shared_cove_matches_reach_both_members(tx, household):
     partner = principal_for(household["partner"])
     await save_page(
         partner, "household", "house.md", "The xylophone lives here.", message="x"
     )
     me = principal_for(household["wouter"])
     results = await search_pages(me, "xylophone")
-    assert [(r["space"], r["path"]) for r in results] == [("household", "house.md")]
+    assert [(r["cove"], r["path"]) for r in results] == [("household", "house.md")]
 
 
 async def test_finds_a_file_by_its_description(tx, household):
@@ -156,7 +156,7 @@ async def test_finds_a_file_by_its_description(tx, household):
     assert len(results) == 1
     hit = results[0]
     assert hit["kind"] == "file"
-    assert hit["space"] == "personal"
+    assert hit["cove"] == "personal"
     assert hit["key"] == "attachments/lease"
     assert hit["filename"] == "lease.pdf"
     assert "**rental**" in hit["snippet"]

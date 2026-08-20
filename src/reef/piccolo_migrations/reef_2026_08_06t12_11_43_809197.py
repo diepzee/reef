@@ -46,7 +46,7 @@ class Person(Table, tablename="persons", schema=None):
     )
 
 
-class Space(Table, tablename="spaces", schema=None):
+class Cove(Table, tablename="coves", schema=None):
     id = UUID(
         default=UUID4(),
         null=False,
@@ -96,7 +96,7 @@ async def forwards():
         class_name="Promotion", tablename="promotions", schema=None, columns=None
     )
 
-    manager.add_table(class_name="Space", tablename="spaces", schema=None, columns=None)
+    manager.add_table(class_name="Cove", tablename="coves", schema=None, columns=None)
 
     manager.add_table(class_name="Page", tablename="pages", schema=None, columns=None)
 
@@ -124,12 +124,12 @@ async def forwards():
     manager.add_column(
         table_class_name="Attachment",
         tablename="attachments",
-        column_name="space_id",
-        db_column_name="space_id",
+        column_name="cove_id",
+        db_column_name="cove_id",
         column_class_name="ForeignKey",
         column_class=ForeignKey,
         params={
-            "references": Space,
+            "references": Cove,
             "on_delete": OnDelete.cascade,
             "on_update": OnUpdate.cascade,
             "target_column": None,
@@ -329,12 +329,12 @@ async def forwards():
     manager.add_column(
         table_class_name="Membership",
         tablename="memberships",
-        column_name="space_id",
-        db_column_name="space_id",
+        column_name="cove_id",
+        db_column_name="cove_id",
         column_class_name="ForeignKey",
         column_class=ForeignKey,
         params={
-            "references": Space,
+            "references": Cove,
             "on_delete": OnDelete.cascade,
             "on_update": OnUpdate.cascade,
             "target_column": None,
@@ -825,8 +825,8 @@ async def forwards():
     )
 
     manager.add_column(
-        table_class_name="Space",
-        tablename="spaces",
+        table_class_name="Cove",
+        tablename="coves",
         column_name="id",
         db_column_name="id",
         column_class_name="UUID",
@@ -846,8 +846,8 @@ async def forwards():
     )
 
     manager.add_column(
-        table_class_name="Space",
-        tablename="spaces",
+        table_class_name="Cove",
+        tablename="coves",
         column_name="slug",
         db_column_name="slug",
         column_class_name="Varchar",
@@ -868,8 +868,8 @@ async def forwards():
     )
 
     manager.add_column(
-        table_class_name="Space",
-        tablename="spaces",
+        table_class_name="Cove",
+        tablename="coves",
         column_name="kind",
         db_column_name="kind",
         column_class_name="Varchar",
@@ -883,7 +883,7 @@ async def forwards():
             "index": False,
             "index_method": IndexMethod.btree,
             "choices": Enum(
-                "SpaceKind", {"PERSONAL": "personal", "HOUSEHOLD": "household"}
+                "CoveKind", {"PERSONAL": "personal", "HOUSEHOLD": "household"}
             ),
             "db_column_name": None,
             "secret": False,
@@ -892,8 +892,8 @@ async def forwards():
     )
 
     manager.add_column(
-        table_class_name="Space",
-        tablename="spaces",
+        table_class_name="Cove",
+        tablename="coves",
         column_name="owner_person_id",
         db_column_name="owner_person_id",
         column_class_name="ForeignKey",
@@ -916,8 +916,8 @@ async def forwards():
     )
 
     manager.add_column(
-        table_class_name="Space",
-        tablename="spaces",
+        table_class_name="Cove",
+        tablename="coves",
         column_name="version",
         db_column_name="version",
         column_class_name="Integer",
@@ -960,12 +960,12 @@ async def forwards():
     manager.add_column(
         table_class_name="Page",
         tablename="pages",
-        column_name="space_id",
-        db_column_name="space_id",
+        column_name="cove_id",
+        db_column_name="cove_id",
         column_class_name="ForeignKey",
         column_class=ForeignKey,
         params={
-            "references": Space,
+            "references": Cove,
             "on_delete": OnDelete.cascade,
             "on_update": OnUpdate.cascade,
             "target_column": None,

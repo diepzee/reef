@@ -3,16 +3,16 @@
 from dataclasses import dataclass
 
 from reef import audit
-from reef.access import Principal, accessible_spaces, alias_map
+from reef.access import Principal, accessible_coves, alias_map
 from reef.models import (
     Attachment,
+    Cove,
+    CoveKind,
     MemberRole,
     Membership,
     Page,
     Person,
     Revision,
-    Space,
-    SpaceKind,
 )
 
 
@@ -42,32 +42,32 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
     :param principal: authenticated person to erase
     :returns: deleted/transferred cove aliases and post-commit file keys
     """
-    # accessible_spaces arms the principal; the person lookup has to come
+    # accessible_coves arms the principal; the person lookup has to come
     # after it, not before. Read first and the query runs unarmed, which once
     # persons carries a policy returns nothing -- and this function would
     # report that it deleted an account it had not touched.
-    spaces = await accessible_spaces(principal)
+    coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if person is None:
         return AccountDeletion([], [], [])
 
-    deleted_spaces = []
+    deleted_coves = []
     transferred_coves = []
 
-    for space in spaces:
-        if space.kind == SpaceKind.PERSONAL.value:
-            deleted_spaces.append(space)
+    for cove in coves:
+        if cove.kind == CoveKind.PERSONAL.value:
+            deleted_coves.append(cove)
             continue
-        if space.owner_person_id != principal.person_id:
+        if cove.owner_person_id != principal.person_id:
             continue
 
         remaining = await Membership.objects().where(
-            Membership.space_id == space.id,
+            Membership.cove_id == cove.id,
             Membership.person_id != principal.person_id,
         )
         if not remaining:
-            deleted_spaces.append(space)
+            deleted_coves.append(cove)
             continue
 
         # Prefer a full member, then the lowest id, so the choice is stable
@@ -84,9 +84,9 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
         # owner away from the caller -- neither is expressible as a row policy
         # without permitting a great deal more, so the authority check lives
         # one line above the writes instead.
-        handed_over = await Space.raw(
-            "SELECT reef_transfer_space_ownership({}, {}) AS ok",
-            space.id,
+        handed_over = await Cove.raw(
+            "SELECT reef_transfer_cove_ownership({}, {}) AS ok",
+            cove.id,
             successor.person_id,
         )
         if not handed_over or not handed_over[0]["ok"]:
@@ -94,29 +94,29 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
         audit.record(
             audit.OWNERSHIP_TRANSFERRED,
             actor=principal.person_id,
-            space_id=space.id,
+            cove_id=cove.id,
             successor_id=successor.person_id,
         )
-        transferred_coves.append(aliases[space.id])
+        transferred_coves.append(aliases[cove.id])
 
-    deleted_ids = [space.id for space in deleted_spaces]
+    deleted_ids = [cove.id for cove in deleted_coves]
     file_keys = (
         await Attachment.select(Attachment.object_key)
-        .where(Attachment.space_id.is_in(deleted_ids))
+        .where(Attachment.cove_id.is_in(deleted_ids))
         .output(as_list=True)
         if deleted_ids
         else []
     )
-    deleted_coves = [aliases[space.id] for space in deleted_spaces]
+    deleted_coves = [aliases[cove.id] for cove in deleted_coves]
 
     # Delete cove content explicitly while the principal's membership still
     # arms every write policy. Relying on simultaneous cascades from Person ->
-    # Space -> Page and Person -> Revision author can make Postgres run the
+    # Cove -> Page and Person -> Revision author can make Postgres run the
     # SET NULL author trigger against a revision whose page cascade is already
     # in flight, violating the revision's page FK.
     page_ids = (
         await Page.select(Page.id)
-        .where(Page.space_id.is_in(deleted_ids))
+        .where(Page.cove_id.is_in(deleted_ids))
         .output(as_list=True)
         if deleted_ids
         else []
@@ -124,9 +124,9 @@ async def delete_account_rows(principal: Principal) -> AccountDeletion:
     if page_ids:
         await Revision.delete().where(Revision.page_id.is_in(page_ids))
     if deleted_ids:
-        await Attachment.delete().where(Attachment.space_id.is_in(deleted_ids))
-        await Page.delete().where(Page.space_id.is_in(deleted_ids))
-        await Space.delete().where(Space.id.is_in(deleted_ids))
+        await Attachment.delete().where(Attachment.cove_id.is_in(deleted_ids))
+        await Page.delete().where(Page.cove_id.is_in(deleted_ids))
+        await Cove.delete().where(Cove.id.is_in(deleted_ids))
 
     # Foreign-key actions now do the rest: surviving shared revisions
     # anonymize, invites retain their invitees, and memberships/promotions

@@ -54,10 +54,10 @@ async def test_only_a_boolean_true_counts_as_a_verified_email(tx, household):
         assert await person_by_subject(value) is None
 
 
-async def test_first_bind_onboards_a_personal_space(tx, household):
+async def test_first_bind_onboards_a_personal_cove(tx, household):
     from reef.access import Principal
+    from reef.coves import invite
     from reef.pages import get_page
-    from reef.spaces import invite
 
     owner = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
     await invite(owner, "household", "anna@example.test", display_name="Anna")

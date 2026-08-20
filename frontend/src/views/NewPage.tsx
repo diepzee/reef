@@ -12,7 +12,7 @@ import { normalizePagePath, pagePathProblem } from "../pagePath";
 import { PageEditor } from "./Editor";
 
 export default function NewPage() {
-  const { space = "" } = useParams<{ space: string }>();
+  const { cove = "" } = useParams<{ cove: string }>();
 
   const [path, setPath] = useState("");
   const [confirmedPath, setConfirmedPath] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export default function NewPage() {
   if (confirmedPath) {
     return (
       <PageEditor
-        space={space}
+        cove={cove}
         path={confirmedPath}
         mode="create"
         initialTitle=""

@@ -2,14 +2,14 @@
 
 import { Link } from "react-router-dom";
 
-import { SpaceGlyph } from "../components/spaceGlyph";
+import { CoveGlyph } from "../components/coveGlyph";
 import { useIndex } from "../IndexProvider";
 import { useCoveLook } from "../useAppearance";
 
 export default function IndexView() {
   const { rawIndex: index, error } = useIndex();
   const look = useCoveLook();
-  const pageCount = index?.spaces.reduce((total, space) => total + space.pages.length, 0) ?? 0;
+  const pageCount = index?.coves.reduce((total, cove) => total + cove.pages.length, 0) ?? 0;
 
   return (
     <div>
@@ -18,7 +18,7 @@ export default function IndexView() {
           <h1>Index</h1>
           {index && (
             <p className="muted">
-              {index.spaces.length} {index.spaces.length === 1 ? "cove" : "coves"} ·{" "}
+              {index.coves.length} {index.coves.length === 1 ? "cove" : "coves"} ·{" "}
               {pageCount} {pageCount === 1 ? "page" : "pages"} · page bodies omitted
             </p>
           )}
@@ -31,33 +31,33 @@ export default function IndexView() {
       {error && <div className="notice">{error}</div>}
       {!error && index === null && <p className="muted">Loading…</p>}
 
-      {index?.spaces.map((space) => (
-        <section key={space.alias} className="index-cove">
+      {index?.coves.map((cove) => (
+        <section key={cove.alias} className="index-cove">
           <div className="index-cove-head">
             <span className="index-cove-glyph" aria-hidden="true">
-              <SpaceGlyph
-                alias={space.alias}
-                color={look(space.alias).hue.base}
+              <CoveGlyph
+                alias={cove.alias}
+                color={look(cove.alias).hue.base}
                 size={18}
-                family={look(space.alias).family}
+                family={look(cove.alias).family}
               />
             </span>
             <h2>
-              <Link to={`/s/${space.alias}`}>{space.alias}</Link>
+              <Link to={`/s/${cove.alias}`}>{cove.alias}</Link>
             </h2>
             <span className="muted">
-              v{space.version} · {space.pages.length} {space.pages.length === 1 ? "page" : "pages"}
+              v{cove.version} · {cove.pages.length} {cove.pages.length === 1 ? "page" : "pages"}
             </span>
           </div>
 
-          {space.pages.length === 0 ? (
+          {cove.pages.length === 0 ? (
             <p className="muted index-empty">No pages.</p>
           ) : (
             <ul className="index-pages">
-              {space.pages.map((page) => (
+              {cove.pages.map((page) => (
                 <li key={page.path} className="index-page">
                   <div className="index-page-titleline">
-                    <Link to={`/s/${space.alias}/p/${page.path}`} className="index-page-title">
+                    <Link to={`/s/${cove.alias}/p/${page.path}`} className="index-page-title">
                       {page.title || page.path}
                     </Link>
                     <code>{page.path}</code>
@@ -77,12 +77,12 @@ export default function IndexView() {
                       <span className="muted">References</span>
                       {page.references.map((reference) => (
                         <Link
-                          key={`${reference.space}:${reference.path}`}
-                          to={`/s/${reference.space}/p/${reference.path}`}
+                          key={`${reference.cove}:${reference.path}`}
+                          to={`/s/${reference.cove}/p/${reference.path}`}
                         >
-                          {reference.space === space.alias
+                          {reference.cove === cove.alias
                             ? reference.path
-                            : `${reference.space}:${reference.path}`}
+                            : `${reference.cove}:${reference.path}`}
                         </Link>
                       ))}
                     </div>
@@ -92,17 +92,17 @@ export default function IndexView() {
             </ul>
           )}
 
-          {space.attachments.length > 0 && (
+          {cove.attachments.length > 0 && (
             <details className="index-attachments">
               <summary>
-                {space.attachments.length}{" "}
-                {space.attachments.length === 1 ? "file" : "files"}
+                {cove.attachments.length}{" "}
+                {cove.attachments.length === 1 ? "file" : "files"}
               </summary>
               <ul>
-                {space.attachments.map((attachment) => (
+                {cove.attachments.map((attachment) => (
                   <li key={attachment.key}>
                     <a
-                      href={`/api/files/${encodeURIComponent(space.alias)}/${attachment.key
+                      href={`/api/files/${encodeURIComponent(cove.alias)}/${attachment.key
                         .split("/")
                         .map(encodeURIComponent)
                         .join("/")}`}

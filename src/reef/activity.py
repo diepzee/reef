@@ -1,17 +1,17 @@
-"""What changed across the caller's spaces: the awareness surface.
+"""What changed across the caller's coves: the awareness surface.
 
-A shared space only works if its members can see what the others'
+A shared cove only works if its members can see what the others'
 assistants wrote — otherwise the cove drifts while everyone assumes it
 stands still. Everything here reads under the same armed RLS session as
-any other read, so activity in somebody else's personal space simply does
+any other read, so activity in somebody else's personal cove simply does
 not come back.
 """
 
 from datetime import UTC, datetime, timedelta
 
 from reef.access import Principal, alias_map
+from reef.coves import member_roster
 from reef.models import Attachment, AttachmentStatus, Revision
-from reef.spaces import member_roster
 
 _DEFAULT_WINDOW = timedelta(days=7)
 
@@ -56,10 +56,10 @@ async def whats_new(
         Revision.message,
         Revision.created_at,
         Revision.author_id,
-        Revision.page_id.space_id,
+        Revision.page_id.cove_id,
     ).where(Revision.created_at > cutoff)
     files = await Attachment.select(
-        Attachment.space_id,
+        Attachment.cove_id,
         Attachment.object_key,
         Attachment.filename,
         Attachment.created_at,
@@ -68,16 +68,16 @@ async def whats_new(
         Attachment.status == AttachmentStatus.READY.value,
     )
     # Direct person reads are RLS-scoped to the caller's own row; co-member
-    # names come from the roster functions, per space, like every other
+    # names come from the roster functions, per cove, like every other
     # surface that shows who is in the room.
     names: dict = {}
-    for space_id in {r["page_id.space_id"] for r in revisions}:
-        for member in await member_roster(space_id):
+    for cove_id in {r["page_id.cove_id"] for r in revisions}:
+        for member in await member_roster(cove_id):
             names[member["person_id"]] = member["display_name"]
     events = [
         {
             "kind": "page",
-            "space": aliases[r["page_id.space_id"]],
+            "cove": aliases[r["page_id.cove_id"]],
             "path": r["path"],
             "title": r["title"],
             "message": r["message"],
@@ -88,7 +88,7 @@ async def whats_new(
     ] + [
         {
             "kind": "file",
-            "space": aliases[f["space_id"]],
+            "cove": aliases[f["cove_id"]],
             "key": f["object_key"],
             "filename": f["filename"],
             "author": None,

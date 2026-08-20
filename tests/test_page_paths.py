@@ -75,7 +75,7 @@ async def test_a_legacy_path_stays_writable_under_its_own_name(tx, household):
     assert updated.path == "notes/UPPER.MD"
     assert updated.version == 2
     assert await get_page(me, "personal", "notes/upper.md") is None
-    assert len(await Page.objects().where(Page.space_id == created.space_id)) == 1
+    assert len(await Page.objects().where(Page.cove_id == created.cove_id)) == 1
 
 
 async def test_writing_an_unrepairable_path_raises(tx, household):
@@ -123,7 +123,7 @@ async def test_the_persona_page_cannot_be_deleted(tx, household):
     assert await get_page(me, "personal", "meta/persona.md") is not None
 
 
-async def test_delete_is_scoped_to_the_space_you_named(tx, household):
+async def test_delete_is_scoped_to_the_cove_you_named(tx, household):
     """A page of the same name elsewhere is untouched."""
     me = principal_for(household["wouter"])
     await save_page(me, "personal", "same.md", "mine", message="x")
@@ -139,9 +139,9 @@ async def test_a_deleted_page_leaves_the_cove_version_bumped(tx, household):
     """Deleting changes the corpus, so a cached index must be invalidated."""
     me = principal_for(household["wouter"])
     page = await save_page(me, "personal", "gone.md", "x", message="x")
-    from reef.models import Space
+    from reef.models import Cove
 
-    before = (await Space.objects().where(Space.id == page.space_id).first()).version
+    before = (await Cove.objects().where(Cove.id == page.cove_id).first()).version
     await delete_page(me, "personal", "gone.md")
-    after = (await Space.objects().where(Space.id == page.space_id).first()).version
+    after = (await Cove.objects().where(Cove.id == page.cove_id).first()).version
     assert after > before

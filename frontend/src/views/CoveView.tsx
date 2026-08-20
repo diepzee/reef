@@ -1,5 +1,5 @@
 /**
- * A single space: its pages, and — for a shared space — a "whobar" summarizing
+ * A single cove: its pages, and — for a shared cove — a "whobar" summarizing
  * who can see it, whose avatar stack and "Manage" link open the shared
  * `MembersSheet` (owned by `AppShell`, reached via `useMembersSheet`).
  *
@@ -11,9 +11,9 @@
  * nothing for anybody else, and they belong together rather than one being
  * stranded in the page body between "New page" and the delete zone.
  *
- * The personal space has no membership to administer, so the members
+ * The personal cove has no membership to administer, so the members
  * fetch is skipped entirely for it (`useMembers` already treats "personal"
- * as no-space) and the whobar shows a plain "only you" instead.
+ * as no-cove) and the whobar shows a plain "only you" instead.
  *
  * The way out of a cove is no longer here. Leaving and deleting live in
  * `MembersSheet`'s danger zone, with the rest of what one does *to* a cove
@@ -27,23 +27,23 @@ import { Link, useParams } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
 import { LookPicker } from "../components/LookPicker";
-import { SpaceGlyph } from "../components/spaceGlyph";
+import { CoveGlyph } from "../components/coveGlyph";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
 import { useCoveLook } from "../useAppearance";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 
-export default function SpaceView() {
-  const { space = "" } = useParams<{ space: string }>();
-  const isPersonal = space === "personal";
+export default function CoveView() {
+  const { cove = "" } = useParams<{ cove: string }>();
+  const isPersonal = cove === "personal";
 
   const { index, error: indexError } = useIndex();
-  const { members, error: membersError } = useMembers(space);
+  const { members, error: membersError } = useMembers(cove);
   const { openMembers } = useMembersSheet();
-  const { hue, family } = useCoveLook()(space);
+  const { hue, family } = useCoveLook()(cove);
 
-  const thisSpace = index?.spaces.find((entry) => entry.alias === space);
+  const thisCove = index?.coves.find((entry) => entry.alias === cove);
 
   return (
     <div>
@@ -52,9 +52,9 @@ export default function SpaceView() {
         style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
       >
         <span className="hero-chip" aria-hidden="true">
-          <SpaceGlyph alias={space} color={hue.base} size={26} family={family} />
+          <CoveGlyph alias={cove} color={hue.base} size={26} family={family} />
         </span>
-        <h1 className="hero-title">{space}</h1>
+        <h1 className="hero-title">{cove}</h1>
       </div>
 
       {indexError && <div className="notice">{indexError}</div>}
@@ -77,8 +77,8 @@ export default function SpaceView() {
                   name: member.display_name,
                   src: member.avatar,
                 }))}
-                onClick={() => openMembers(space)}
-                ariaLabel={`Members of ${space}`}
+                onClick={() => openMembers(cove)}
+                ariaLabel={`Members of ${cove}`}
               />
               <span className="whobar-lbl">
                 {members.members.length}{" "}
@@ -90,7 +90,7 @@ export default function SpaceView() {
                 <button
                   type="button"
                   className="whobar-manage"
-                  onClick={() => openMembers(space)}
+                  onClick={() => openMembers(cove)}
                 >
                   Manage
                 </button>
@@ -100,16 +100,16 @@ export default function SpaceView() {
         </div>
       )}
 
-      {thisSpace && (
+      {thisCove && (
         <>
           <div className="section-label">Pages</div>
           <ul className="page-rows">
-            {thisSpace.pages.length === 0 && (
+            {thisCove.pages.length === 0 && (
               <li className="muted page-rows-empty">No pages yet.</li>
             )}
-            {thisSpace.pages.map((page) => (
+            {thisCove.pages.map((page) => (
               <li key={page.path} className="page-row">
-                <Link to={`/s/${space}/p/${page.path}`} className="page-row-link">
+                <Link to={`/s/${cove}/p/${page.path}`} className="page-row-link">
                   <span className="page-row-icon" aria-hidden="true">
                     ☰
                   </span>
@@ -127,7 +127,7 @@ export default function SpaceView() {
               </li>
             ))}
           </ul>
-          <Link to={`/s/${space}/new`} className="page-new">
+          <Link to={`/s/${cove}/new`} className="page-new">
             ＋ New page
           </Link>
           {/*
@@ -143,7 +143,7 @@ export default function SpaceView() {
               <p className="muted look-note">
                 Only you. Nobody else can see this cove at all.
               </p>
-              <LookPicker alias={space} />
+              <LookPicker alias={cove} />
             </>
           )}
         </>
