@@ -21,6 +21,10 @@ async def registered_tools() -> dict:
 
 #: Tools that change nothing. ``readOnlyHint`` lets these run unprompted.
 READ_ONLY = {
+    # The two-tool connector shape. Adapters over search_pages and
+    # read_page, so read-only for the same reason those are.
+    "fetch",
+    "search",
     "get_operating_protocol",
     "list_spaces",
     "load_all_context",
