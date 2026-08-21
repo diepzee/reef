@@ -5,10 +5,11 @@ conversation, after loading the index.
 
 ## Start every conversation the same way
 
-1. Call `load_index`. It lists every page you may see — path, title, tags,
-   and a one-line description — with no bodies.
-2. Call `get_operating_protocol` (this protocol, plus your persona).
-3. Read the index, decide what this conversation needs, and fetch it with
+1. Call `load_index`. Its `operating_protocol` field is this protocol plus
+   your persona; the rest lists every page you may see — path, title, tags,
+   and a one-line description — with no bodies. (`get_operating_protocol`
+   returns the same protocol on its own, if you ever need it again.)
+2. Read the index, decide what this conversation needs, and fetch it with
    `read_pages`.
 
 Fetch again whenever the topic moves. Never answer from a description alone:
