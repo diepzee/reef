@@ -193,8 +193,9 @@ mcp = FastMCP(
     website_url=env("BASE_URL") or None,
     instructions=(
         "Long-term memory shared between you and the people in your coves. "
-        "Start every conversation by calling load_index, then "
-        "get_operating_protocol. The index lists "
+        "Start every conversation by calling load_index: it returns your "
+        "operating protocol and persona (follow them) along with the index, "
+        "which lists "
         "every page with a one-line description; fetch the entries the "
         "conversation needs with read_pages, and fetch again as topics come "
         "up rather than guessing from the index alone. Everything stored "
@@ -264,10 +265,17 @@ async def tool_load_context(principal: Principal) -> dict:
 async def tool_load_index(principal: Principal) -> dict:
     """Assemble the index payload; split from the tool for testability.
 
+    The operating protocol and persona ride along under
+    ``operating_protocol``: the index is the one call every conversation is
+    told to start with, so instructions that arrive with it cannot be lost
+    to a second call a client never makes.
+
     :param principal: the authenticated person
     :returns: the index payload as a plain dict
     """
-    return asdict(await build_index(principal))
+    index = asdict(await build_index(principal))
+    index["operating_protocol"] = await build_instructions(principal)
+    return index
 
 
 #: How a connector id names one thing in reef. Opaque to the caller, and
@@ -655,11 +663,13 @@ async def tool_remember(
 async def load_index() -> dict:
     """Load the memory index. Call this first, every conversation.
 
-    Returns every page you can see — path, title, tags, and a one-line
-    description — plus described files, per cove. It contains no page
-    bodies: read the index, decide which entries this conversation needs, and
-    fetch them with read_pages. Fetch again as new topics come up; never
-    answer from the index's descriptions alone.
+    The ``operating_protocol`` field carries your operating protocol and
+    persona — read it and follow it. The rest is the index: every page you
+    can see — path, title, tags, and a one-line description — plus described
+    files, per cove. It contains no page bodies: read the index, decide
+    which entries this conversation needs, and fetch them with read_pages.
+    Fetch again as new topics come up; never answer from the index's
+    descriptions alone.
     """
     async with transaction_scope():
         principal = await current_principal()
@@ -696,7 +706,11 @@ async def load_all_context() -> dict:
 
 @_read_only("Get operating protocol")
 async def get_operating_protocol() -> str:
-    """Return the operating protocol and your persona. Call after loading context."""
+    """Return the operating protocol and your persona on their own.
+
+    The same text already arrives with load_index (its operating_protocol
+    field); call this only if you skipped that or need a refresh.
+    """
     async with transaction_scope():
         principal = await current_principal()
         return await build_instructions(principal)

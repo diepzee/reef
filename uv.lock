@@ -1476,7 +1476,7 @@ wheels = [
 
 [[package]]
 name = "reef"
-version = "0.6.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
@@ -1519,7 +1519,7 @@ dev = [
 
 [[package]]
 name = "reef-cli"
-version = "0.6.0"
+version = "1.0.0"
 source = { editable = "clients/python" }
 dependencies = [
     { name = "fastmcp" },
