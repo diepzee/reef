@@ -5,6 +5,8 @@ import os
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as metadata_version
 from typing import TYPE_CHECKING
 
 from fastmcp import FastMCP
@@ -154,6 +156,16 @@ def _build_auth() -> "AuthProvider | None":
     )
 
 
+#: The version this server reports, read from the installed distribution so
+#: there is one number rather than a second one to keep in step -- ``just
+#: release`` stamps ``pyproject.toml`` and this follows it. Unknown only when
+#: reef is run from a source tree it was never installed into.
+try:
+    APP_VERSION = metadata_version("reef")
+except PackageNotFoundError:  # pragma: no cover - installed in every real run
+    APP_VERSION = "0"
+
+
 def _brand_icons() -> list[Icon] | None:
     """Return the icons a client shows for this server, if the origin is known.
 
@@ -170,6 +182,13 @@ def _brand_icons() -> list[Icon] | None:
     Both formats are offered because clients differ: SVG scales to any
     surface, and the PNG is there for the ones that will not render SVG.
 
+    Each src carries the version, because an icon reaches a client as a URL
+    and a client that has fetched one may keep it for as long as it likes.
+    At a fixed address a new mark has no way to announce itself: the client
+    asks for ``/favicon.svg`` again and its old copy is still a correct
+    answer. Changing the URL is the only lever we have over a cache we do
+    not own. The cost is one refetch per release, of one small file.
+
     :returns: the icon list, or None when the public origin is unknown
     """
     base_url = env("BASE_URL")
@@ -177,9 +196,13 @@ def _brand_icons() -> list[Icon] | None:
         return None
     origin = base_url.rstrip("/")
     return [
-        Icon(src=f"{origin}/favicon.svg", mimeType="image/svg+xml", sizes=["any"]),
         Icon(
-            src=f"{origin}/apple-touch-icon.png",
+            src=f"{origin}/favicon.svg?v={APP_VERSION}",
+            mimeType="image/svg+xml",
+            sizes=["any"],
+        ),
+        Icon(
+            src=f"{origin}/apple-touch-icon.png?v={APP_VERSION}",
             mimeType="image/png",
             sizes=["180x180"],
         ),
