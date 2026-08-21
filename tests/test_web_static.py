@@ -226,6 +226,25 @@ async def test_favicon_svg_served(static_client_with_icons):
     assert response.headers["content-type"] == "image/svg+xml"
 
 
+async def test_every_advertised_icon_url_resolves(
+    static_client_with_icons, monkeypatch
+):
+    """The two halves must agree: what we advertise, we must be able to serve.
+
+    ``_brand_icons`` names these paths and hangs a version on each. Nothing
+    forces the route table to know about that, so an advertised URL that
+    404s is a live possibility -- and worse than a stale icon, because a
+    connector list then has nothing at all to draw.
+    """
+    from reef.server import _brand_icons
+
+    monkeypatch.setenv("REEF_BASE_URL", "http://test")
+    for icon in _brand_icons():
+        response = await static_client_with_icons.get(icon.src)
+        assert response.status_code == 200, icon.src
+        assert response.headers["content-type"] == icon.mimeType
+
+
 async def test_favicon_404_when_frontend_not_built(static_client):
     """With no icon files on disk, favicon routes 404 rather than 500.
 
