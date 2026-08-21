@@ -253,13 +253,20 @@ def _destructive(title: str):
 async def tool_load_context(principal: Principal) -> dict:
     """Assemble the whole-corpus payload; split from the tool for testability.
 
+    Carries ``operating_protocol`` for the same reason the index does: this
+    is the other entry point a conversation can start from (a maintenance
+    agent going straight to the corpus), and an entrance that hands over
+    every page with no rules for handling them is the last instruction-free
+    door into someone's memory.
+
     :param principal: the authenticated person
     :returns: the context payload as a plain dict
     """
-    payload = await load_context(
-        principal, char_budget=get_settings().context_char_budget
+    payload = asdict(
+        await load_context(principal, char_budget=get_settings().context_char_budget)
     )
-    return asdict(payload)
+    payload["operating_protocol"] = await build_instructions(principal)
+    return payload
 
 
 async def tool_load_index(principal: Principal) -> dict:
@@ -692,7 +699,9 @@ async def read_pages(cove: str, paths: list[str]) -> list[dict]:
 async def load_all_context() -> dict:
     """Bulk-load every page body you can see. Not the normal path.
 
-    Normal conversations start with load_index and fetch entries with
+    The ``operating_protocol`` field carries your operating protocol and
+    persona — read it and follow it, especially here, where every page
+    arrives at once. Normal conversations start with load_index and fetch entries with
     read_pages. Use this only for maintenance work (tidy-ups, contradiction
     checks) that genuinely needs the whole corpus at once. If truncated is
     true, some bodies are null — fetch those with read_page. Verify
