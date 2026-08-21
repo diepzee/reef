@@ -242,6 +242,7 @@ footer a { color: var(--muted); }
             <li><a href="#connect-codex">Codex</a></li>
             <li><a href="#connect-claude-code">Claude Code</a></li>
             <li><a href="#connect-cli">The CLI</a></li>
+            <li><a href="#connect-native-memory">Your assistant's own memory</a></li>
           </ol>
         </li>
         <li><a href="#tools">Tool reference</a></li>
@@ -448,6 +449,28 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   <a href="https://github.com/diepzee/reef/tree/main/skills/reef">skills/reef</a>,
   which teaches an assistant the retrieval protocol, private-by-default writing,
   optimistic locking, and when it must ask you before acting.
+</p>
+
+<h3 id="connect-native-memory">Your assistant's own memory</h3>
+<p>
+  Claude and ChatGPT each keep a memory of their own, and it loads before your
+  assistant has done anything — including before it reads
+  <span class="reef-name">reef</span>. So the two can disagree: a job you left,
+  a name that changed, a preference you have since dropped.
+</p>
+<p>
+  Your assistant is told to treat <span class="reef-name">reef</span> as the
+  record. When what it remembers on its own contradicts a page, it should tell
+  you both versions rather than quietly choosing, and write down whichever one
+  you confirm.
+</p>
+<p>
+  If you would rather have one memory instead of two, turn the built-in one
+  off. In ChatGPT that is <b>Settings → Personalization → Memory</b>, where you
+  switch off both <b>Reference saved memories</b> and <b>Reference chat
+  history</b>. In Claude it is <b>Settings → Memory</b>. Nothing in
+  <span class="reef-name">reef</span> changes: your pages stay where they are,
+  and every assistant you connect reads the same ones.
 </p>
 
 <h2 id="tools">Tool reference</h2>

@@ -28,6 +28,20 @@ names and descriptions, returning snippets: fetch promising pages with
 `read_pages` and promising files with `read_file` before answering. Search
 finds candidates; it does not replace reading them.
 
+## Your own memory is not this memory
+
+You may arrive already believing things about this person — from a built-in
+memory feature, from earlier conversations, from a profile or a project
+instruction. None of it was written here, and nothing keeps it true.
+
+Treat reef as the record. When what you recall disagrees with a page, do not
+quietly pick a side: say what the page holds, say what you thought, and let
+the user settle it — then write the outcome here, whichever way it went, so
+the next conversation starts from the answer instead of the argument.
+
+A fact you remember but cannot find in the index is not remembered at all. It
+dies with this conversation, and with this assistant, unless you write it.
+
 ## Referring to other pages
 
 A page's `path` is its permanent name. Link to it by path:
