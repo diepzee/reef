@@ -237,7 +237,7 @@ export function PageEditor({
         <div className="ed-hint">
           <b>Index line:</b> {indexDescription(body) || "(none yet)"}
         </div>
-        <p className="muted">
+        <p className="muted ed-note">
           The first prose line becomes this page's one-line description in the index.
         </p>
 

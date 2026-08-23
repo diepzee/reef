@@ -1,10 +1,13 @@
 /* Design tokens for reef */
 
 :root {
-  --ground: #fbfcfd;
-  --panel: #f2f7f8;
-  --hairline: #e5edf0;
-  --hairline-soft: #eef3f5;
+  /* Paper, not white. Raised surfaces are lighter than the page in both
+     themes now — light mode used to have it backwards, which left --lift's
+     rim and shadow with nothing to sit against. */
+  --ground: #eef2f4;
+  --panel: #ffffff;
+  --hairline: #dfe8ec;
+  --hairline-soft: #e9eff1;
   --ink: #1c2b33;
   --muted: #7b8a92;
   --faint: #b3bec4;
@@ -24,11 +27,19 @@
   --text-lg: 1.05rem;
   --text-xl: 1.7rem;
   --text-2xl: 1.95rem;
+  /* Page titles. The scale used to stop at --text-2xl, which left an h1
+     barely larger than a card heading. */
+  --text-3xl: 2.6rem;
+  /* The data voice's size — small, because tracking and case carry it. */
+  --text-data: 0.66rem;
   --warn-bg: #fff7ed;
   --warn-border: #fed7aa;
   --warn-ink: #7c4a12;
-  /* Input/textarea fill — distinct from --panel so form fields stay
-     legible against panel-colored surroundings (e.g. the editor). */
+  /* The white surface: inputs, the raised segment of a segmented control,
+     graph nodes. It equals --panel in both themes now (dark already had
+     them identical); the two stay separate names because they answer
+     different questions, and an input is told apart from the card behind
+     it by its --hairline border rather than by its fill. */
   --field: #ffffff;
   /* Error banners/buttons (.notice, button.danger, member-removal
      confirm) — same bg/border/ink triad shape as --warn-*. */
@@ -45,6 +56,43 @@
      swap it for the "night-dive" radial gradient, so this token is the
      one place `body` needs to read regardless of theme. */
   --night-ground: var(--ground);
+
+  /* Radius scale — the only radii app.css may use. Eight ad-hoc values used
+     to sit in that file; anything not on this scale is a bug. */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+
+  /* Elevation. Two tiers, each carrying its own hairline rim as the first
+     shadow layer — a raised surface therefore needs no `border` of its own,
+     and never gains a doubled edge from having both. */
+  --lift:
+    0 0 0 1px rgb(28 43 51 / 0.05), 0 1px 2px rgb(28 43 51 / 0.04),
+    0 6px 16px -8px rgb(28 43 51 / 0.12);
+  --lift-hi:
+    0 0 0 1px rgb(28 43 51 / 0.07), 0 2px 6px rgb(28 43 51 / 0.06),
+    0 18px 34px -14px rgb(28 43 51 / 0.2);
+
+  /* Motion. One curve, two durations — app.css had seven rules across four
+     durations, all on the browser's default easing. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 160ms;
+  --t-base: 260ms;
+
+  /* Data voice. Reef sets everything in Nunito, so counts, timestamps and
+     organism families get their own register through case, tracking and
+     weight rather than a second family. Applied via `.data-voice`. */
+  --data-tracking: 0.14em;
+  --data-weight: 600;
+
+  /* Ink for anything sitting on --accent. This has to flip with the theme,
+     not just be light: --accent is a dark teal in light mode but a bright
+     cyan in dark, where light ink computes to about 2.2:1. Several rules
+     used --ground for this because it happened to flip the right way; now
+     they say what they mean, and light mode gets true white instead of the
+     page tone. */
+  --on-accent: #ffffff;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -76,6 +124,14 @@
       #0a1b23 45%,
       #081217
     );
+
+    --lift:
+      0 0 0 1px rgb(226 241 245 / 0.07),
+      0 6px 16px -8px rgb(0 0 0 / 0.5);
+    --lift-hi:
+      0 0 0 1px rgb(226 241 245 / 0.12),
+      0 18px 34px -14px rgb(0 0 0 / 0.6);
+    --on-accent: #0d1a20;
   }
 }
 
@@ -107,4 +163,12 @@
     #0a1b23 45%,
     #081217
   );
+
+  --lift:
+    0 0 0 1px rgb(226 241 245 / 0.07),
+    0 6px 16px -8px rgb(0 0 0 / 0.5);
+  --lift-hi:
+    0 0 0 1px rgb(226 241 245 / 0.12),
+    0 18px 34px -14px rgb(0 0 0 / 0.6);
+  --on-accent: #0d1a20;
 }
