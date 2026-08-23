@@ -52,7 +52,7 @@ export default function CoveView() {
         style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
       >
         <span className="hero-chip" aria-hidden="true">
-          <CoveGlyph alias={cove} color={hue.base} size={26} family={family} />
+          <CoveGlyph alias={cove} color={hue.base} size={34} family={family} />
         </span>
         <h1 className="hero-title">{cove}</h1>
       </div>

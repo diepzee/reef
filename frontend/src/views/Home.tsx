@@ -21,11 +21,30 @@ import { Link } from "react-router-dom";
 import { AvatarStack } from "../components/Avatar";
 import { CoveGraph } from "../components/CoveGraph";
 import { CoveGlyph } from "../components/coveGlyph";
+import { organismFor } from "../components/organisms";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
 import { getCovesView, setCovesView, type CovesView } from "../covesView";
 import type { CoveIndex } from "../types";
 import { useCoveLook } from "../useAppearance";
+
+/**
+ * The organism family a cove actually grew, in words.
+ *
+ * `useCoveLook` hands back the family the viewer *chose*, which is usually
+ * null; the grown one comes from the same alias-seeded pipeline the glyph
+ * draws, so this asks `organismFor` rather than trusting the override.
+ * Case is left to `.data-voice`, which upper-cases it.
+ *
+ * :param alias: the cove's alias, which seeds the individual
+ * :param chosen: a body plan the viewer picked, if any
+ * :returns: the family in lower case, camelCase split into words
+ */
+function familyLabel(alias: string, chosen: string | null): string {
+  return organismFor(alias, chosen)
+    .family.replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase();
+}
 
 /** One cove's card: hue stripe, tinted frond chip, alias, subline, and (shared coves) its member stack. */
 function CoveCard({ cove }: { cove: CoveIndex }) {
@@ -43,7 +62,7 @@ function CoveCard({ cove }: { cove: CoveIndex }) {
       <span className="cove-card-stripe" aria-hidden="true" />
       <span className="cove-card-row">
         <span className="cove-card-chip" aria-hidden="true">
-          <CoveGlyph alias={cove.alias} color={hue.base} family={family} />
+          <CoveGlyph alias={cove.alias} color={hue.base} size={32} family={family} />
         </span>
         <span className="cove-card-text">
           <span className="cove-card-alias">
@@ -83,12 +102,15 @@ function CoveTile({ cove }: { cove: CoveIndex }) {
       style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
     >
       <span className="cove-tile-pool" aria-hidden="true">
-        <CoveGlyph alias={cove.alias} color={hue.base} size={24} family={family} />
+        <CoveGlyph alias={cove.alias} color={hue.base} size={44} family={family} />
       </span>
       <span className="cove-card-alias">{isPersonal ? "Personal" : cove.alias}</span>
       <span className="cove-card-sub muted">
         {pageCount} page{pageCount === 1 ? "" : "s"}
         {isPersonal ? " · only you" : ""}
+      </span>
+      <span className="cove-card-taxon data-voice">
+        {familyLabel(cove.alias, family)}
       </span>
       {!isPersonal && members && (
         <AvatarStack
@@ -117,7 +139,7 @@ export default function Home() {
   return (
     <div>
       <div className="coves-head">
-        <h1>Your <span className="reef-name">reef</span>&rsquo;s coves</h1>
+        <h1>Coves</h1>
         <Link to="/index" className="index-shortcut">
           Index
         </Link>

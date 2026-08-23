@@ -130,40 +130,44 @@ export default function Profile() {
         </div>
       </div>
 
-      <h2 className="profile-section">Picture</h2>
-      <p className="muted">
-        Shown next to your name, and to the people you share a cove with. It
-        is resized to a {MAX_EDGE}px square before it is stored.
-      </p>
-      {error && <div className="notice">{error}</div>}
-      <input
-        ref={picker}
-        type="file"
-        accept={ACCEPT}
-        className="profile-file"
-        onChange={(event) => choose(event.target.files?.[0])}
-      />
-      <div className="ed-toolbar">
-        <button
-          type="button"
-          className="ed-save"
-          disabled={busy}
-          onClick={() => picker.current?.click()}
-        >
-          {me?.avatar ? "Change picture" : "Choose a picture"}
-        </button>
-        {me?.avatar && (
-          <button type="button" disabled={busy} onClick={remove}>
-            Remove
+      <section className="profile-block">
+        <h2 className="profile-section">Picture</h2>
+        <p className="muted profile-note">
+          Shown next to your name, and to the people you share a cove with. It
+          is resized to a {MAX_EDGE}px square before it is stored.
+        </p>
+        {error && <div className="notice">{error}</div>}
+        <input
+          ref={picker}
+          type="file"
+          accept={ACCEPT}
+          className="profile-file"
+          onChange={(event) => choose(event.target.files?.[0])}
+        />
+        <div className="ed-toolbar">
+          <button
+            type="button"
+            className="ed-save"
+            disabled={busy}
+            onClick={() => picker.current?.click()}
+          >
+            {me?.avatar ? "Change picture" : "Choose a picture"}
           </button>
-        )}
-      </div>
+          {me?.avatar && (
+            <button type="button" disabled={busy} onClick={remove}>
+              Remove
+            </button>
+          )}
+        </div>
+      </section>
 
-      <h2 className="profile-section">Name and address</h2>
-      <p className="muted">
-        reef knows you by the address your invitation was sent to, and by the
-        name whoever invited you gave. Neither can be changed here yet.
-      </p>
+      <section className="profile-block">
+        <h2 className="profile-section">Name and address</h2>
+        <p className="muted profile-note">
+          reef knows you by the address your invitation was sent to, and by the
+          name whoever invited you gave. Neither can be changed here yet.
+        </p>
+      </section>
     </div>
   );
 }
