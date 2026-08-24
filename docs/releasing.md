@@ -41,6 +41,28 @@ A PR that changes nothing worth a version bump — say, a comment fix folded
 into another PR — still needs a type; there's no "none" option. Pick the
 type that best describes what you touched.
 
+### A missing prefix strands the release, silently
+
+The prefix is load-bearing. semantic-release reads only commits whose subject
+parses as `type: subject`; a squash commit without one is invisible to it.
+A merge titled like plain prose therefore ships no release — no bump, no
+release PR, no fold of any new `changes/*.md` fragment — while the `Release
+PR` workflow reports success, because "nothing to release" *is* a successful
+run. This is not hypothetical: PRs #113 through #119 merged with unprefixed
+titles over 2026-08-21..24, and no release came out until noticed by hand.
+Their fragments waited in `changes/` for the next prefixed merge to carry
+them out.
+
+Symptom: pushes to `main` keep succeeding but `gh pr list --head
+bot/release` stays empty. First move: read the titles since the last tag —
+
+```bash
+git log --format=%s "$(git describe --tags --match 'v[0-9]*' --abbrev=0)"..main
+```
+
+Any merge without a prefix must be followed by one that has it, or the
+stranded fragments stay stranded.
+
 This table only governs the *second* release onward. semantic-release bumps
 from the most recent tag; with none, it doesn't bump at all — it starts the
 repo at `1.0.0` regardless of commit type. reef already has tags on `main`
