@@ -1,6 +1,6 @@
 [project]
 name = "reef"
-version = "1.0.0"
+version = "1.0.1"
 description = "Shared, living memory for people and their AI assistants"
 readme = "README.md"
 authors = [
