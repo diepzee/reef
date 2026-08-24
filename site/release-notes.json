@@ -1,6 +1,36 @@
 {
   "entries": [
     {
+      "version": "1.0.1",
+      "date": "2026-08-24",
+      "changes": [
+        {
+          "kind": "changed",
+          "text": "The app looks quieter and easier to scan. Each cove's creature is now drawn large enough to recognise, pages and settings sit on their own cards, and headings no longer compete with the text beneath them."
+        },
+        {
+          "kind": "changed",
+          "text": "The operating protocol and tool descriptions now illustrate themselves with plainly fictional examples instead of page names borrowed from one real reef."
+        },
+        {
+          "kind": "changed",
+          "text": "Your assistant now receives the operating protocol and your persona the moment it loads the memory index, instead of needing a second call it could forget to make."
+        },
+        {
+          "kind": "changed",
+          "text": "Bulk-loading the whole corpus for maintenance now also hands your assistant the operating protocol and persona, so no entry point delivers your memory without its rules."
+        },
+        {
+          "kind": "changed",
+          "text": "Your assistant now treats reef as the record when its own built-in memory disagrees — it tells you both sides instead of quietly picking one, and writes down whichever answer you settle on. Assistants limited to search and fetch, like ChatGPT connectors outside developer mode, are now offered the operating protocol as the first search result, so they arrive knowing how to read and write your memory too."
+        },
+        {
+          "kind": "fixed",
+          "text": "A new reef mark now actually reaches your assistant. The icon was advertised at a fixed address, so a client that had already fetched one was entitled to keep showing it; each release now points at a fresh address instead."
+        }
+      ]
+    },
+    {
       "version": "1.0.0",
       "date": "2026-08-20",
       "changes": [

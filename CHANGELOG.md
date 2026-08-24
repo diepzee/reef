@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/diepzee/reef/compare/v1.0.0...v1.0.1) (2026-08-24)
+
+### Documentation
+
+* **releasing:** a title without a prefix strands the release, silently ([#120](https://github.com/diepzee/reef/issues/120)) ([3eca12c](https://github.com/diepzee/reef/commit/3eca12ce0be7f8cfd7e0a66ef40f066c8c3b35b9))
+
 ## [1.0.0](https://github.com/diepzee/reef/compare/v0.6.0...v1.0.0) (2026-08-20)
 
 ### ⚠ BREAKING CHANGES
