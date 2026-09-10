@@ -9,9 +9,9 @@ to stand the service up again.
 | Phase | State |
 |---|---|
 | 1 — Prove the connection works | **Done** on desktop, 6 Aug 2026. Phones untested |
-| 2 — Who is allowed in | **Partly done** — one person seeded; nobody invited yet |
+| 2 — Who is allowed in | **Partly done** — one person seeded; invitation completion remains unverified |
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
-| 4 — Storage and safety nets | **Mostly done**, 7 Aug 2026 — R2 live, images working, one verified backup and a passed restore drill. The *schedule* is missing |
+| 4 — Storage and safety nets | **Partly verified** — daily R2 dumps observed through 10 Sep; the separate 7 Aug restore drill passed; managed backups and R2 policies remain unverified |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
 | 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/reef/protocol.md`), no longer a page; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
@@ -36,24 +36,21 @@ determines when it can happen — not by priority.
 **Waiting on a dashboard** (Railway's CLI cannot do these — verified, not
 assumed: it has no command for cron schedules or start commands)
 
-- [ ] **Backup cron service — deferred, 17 Aug 2026, deliberately.** With
-      one person on reef, the managed Postgres backups (below) cover the
-      likely failures, and one verified off-platform dump exists
-      (`backups/rif-20260807T140148Z.dump`, drill passed). The cron becomes
-      due the moment other people's memory is at stake: **set it up before
-      the first invite goes out.** Phase 4, step 3 has the exact settings;
-      it is three dashboard fields.
-- [ ] **Railway managed Postgres backups.** Agreed 17 Aug 2026 to enable
-      now — one click, first line of defense. Phase 4, step 2.
-- [ ] **R2 bucket locks** — `attachments/` indefinite, `backups/` ~30 days.
-      Phase 4, step 1. Do not create a prefix-less rule; the warning there
-      explains why it is close to irreversible.
+- [x] **Daily backup job observed.** Archived notes date setup to 24 Aug 2026.
+      Logs show one successful upload and byte-count check near 03:00 UTC each
+      day through 10 Sep 2026; this is not a restore drill. The exact command
+      and schedule below are prescribed settings, not reverified live state.
+- [ ] **Railway managed Postgres backups.** PITR state, volume-backup cadence,
+      retention, and latest success remain unverified. Phase 4, step 2.
+- [ ] **R2 bucket locks.** The intended rules are `attachments/` indefinitely
+      and `backups/` for about 30 days, but their live state remains unverified.
+      Phase 4, step 1.
 
 **Waiting on information or a decision**
 
-- [ ] **Nathalie's invite.** rif is single-user until it goes out, and it is
-      the deadline on everything privacy-related. Needs her exact email, then
-      one `invite` call — no longer a migration. Phase 2.
+- [ ] **Nathalie's invite.** Completion remains unverified. Check both the
+      membership and first-sign-in subject binding; Phase 2 describes both
+      states without recording the email.
 - [ ] **`meta/persona.md`.** Still the 157-byte placeholder from the first
       smoke test, while every other page got real content. `mark.md` already
       holds much of what belongs in it. Phase 6, step 2.
@@ -62,8 +59,8 @@ assumed: it has no command for cron schedules or start commands)
 
 - [ ] **Connector on a phone**, then on her account and tier. Phase 1,
       steps 5–6. The mobile app is the whole reason for the remote-MCP design.
-- [ ] **Context ceiling measurement.** Phase 7. Run it *after* the backup
-      cron exists — step 1 pads the real corpus.
+- [ ] **Context ceiling measurement.** Phase 7. The daily-dump prerequisite is
+      closed; step 1 still pads the real corpus, so keep the cleanup step.
 
 - [x] **`reefwith.me` cutover.** Done 2026-08-11. Domain live behind
       Cloudflare, WorkOS callback registered, `REEF_BASE_URL` flipped, and
@@ -80,18 +77,20 @@ assumed: it has no command for cron schedules or start commands)
       re-run the first migration and fails on `relation "persons" already
       exists`. Tests are unaffected — `conftest` builds `rif_test` directly.
 - [ ] **R2 lifecycle rule for `backups/`.** Dumps accumulate forever
-      otherwise. Must expire *later* than that prefix's bucket lock or the
-      delete will not happen. See `docs/restore.md`.
+      otherwise. The archived 24 Aug notes claim a 45-day rule, but its live
+      state remains unverified. It must expire later than that prefix's bucket
+      lock or the delete will not happen. See `docs/restore.md`.
 - [ ] **Re-check the `postgresql-client-18` pin** whenever Railway upgrades
       its Postgres. `pg_dump` aborts against a newer server, so a server
       upgrade silently breaks every backup until the image catches up.
 
 ---
 
-**Where the risk sits now.** The two that could lose data or leak it are
-closed: RLS is enforced in production as of 7 Aug, and a backup has been
-proven to restore with `memberships` intact. What remains is mostly
-scheduling and content.
+**Where the risk sits now.** RLS is enforced in production as of 7 Aug, and
+the separate 7 Aug dump restored with `memberships` intact. Daily off-platform
+dumps were observed through 10 Sep, with uploaded size checks only. Railway
+managed backups and R2 lock, retention, and lifecycle settings remain
+unverified.
 
 ---
 
@@ -378,24 +377,13 @@ spike service and for recovering when a bad commit is already on `main`.
 
 ## Phase 4 — Storage and safety nets
 
-> **Open — and now the priority. Nothing in this phase has been done**
-> (confirmed 7 Aug 2026): no R2 bucket, no backup cron. Three consequences,
-> all live right now:
->
-> 1. **The only copy of the corpus is Railway's managed Postgres backup.**
->    Phases 3 and 5 put real, expensive-to-reconstruct content into
->    production — a health page compiled from a full dossier, a character
->    portrait, work and finance pages — and none of it is in git.
-> 2. **`scripts/backup.py` cannot run at all.** It streams `pg_dump` straight
->    to R2, so the independent copy does not exist even in principle until
->    the bucket does. Do the R2 half first; the backup half depends on it.
-> 3. **`add_image` and `read_image` are broken in production.** Both build an
->    `S3ObjectStore` per call (`src/reef/server.py:441`, `:462`), and with the
->    S3 settings empty that constructor raises `ValueError: Invalid
->    endpoint:` from boto3. The server boots regardless — unlike auth, which
->    deliberately refuses to boot when misconfigured, storage fails only when
->    a tool is called, and does so with an error that does not name its
->    cause. Worth a clearer failure message when this phase is done.
+> **Partly verified, 10 Sep 2026.** Logs attributed to `reef-backup` show its
+> first manual execution on 24 Aug uploaded and size-verified
+> `backups/reef-20260824T150406Z.dump` (1,055,181 bytes), and logs show one
+> successful size-checked upload near 03:00 UTC each day through 10 Sep. The
+> separate `backups/rif-20260807T140148Z.dump` remains the only dump in this
+> record to have passed a restore drill. Railway PITR and volume backups, R2
+> locks, retention, and lifecycle settings remain unverified.
 
 **R2 (images):**
 
@@ -407,11 +395,12 @@ spike service and for recovering when a bad commit is already on `main`.
    to find. The feature R2 does have is **bucket locks**, which prevent
    deletion and overwriting for a fixed period or indefinitely.
 
-   Set two rules, scoped by prefix — they need opposite policies:
+   The intended configuration has two prefix-scoped rules with opposite
+   policies. Its live state was not verified as of 10 Sep 2026:
 
    | Prefix | Rule | Why |
    |---|---|---|
-   | `attachments/` | lock indefinitely | Image bytes are never in `pg_dump`, and rif itself never deletes or overwrites an object — every upload takes a fresh key and no tool deletes. The lock guards against a stray CLI delete or a leaked token, which is the only way they can go. |
+   | `attachments/` | lock indefinitely | Image bytes are never in `pg_dump`. Reef does delete objects, so an indefinite lock can block deletion and leave an unreachable object after its database row is removed; confirm that tradeoff before enabling it. |
    | `backups/` | lock ~30 days | Protects recent dumps from the same threats while still letting old ones age out. |
 
    **Do not set a rule without a prefix.** Cloudflare's docs are explicit
@@ -440,11 +429,13 @@ run as the app role fails outright** (`query would be affected by row-level
 security policy`); it does not silently dump zero rows. Reproduced locally,
 not theorized. The backup connection needs a role with `BYPASSRLS`.
 
-**The credential already exists.** Since 7 Aug 2026 the roles are split:
-`DATABASE_URL` is the constrained `rif_app`, and `REEF_MIGRATION_DATABASE_URL`
-is the admin role. Give the backup cron the latter. Before that date the app
-itself ran as the superuser, so this trap could not fire — and neither could
-RLS.
+**The repository prescribes a split credential.** Since 7 Aug 2026,
+`DATABASE_URL` is the constrained app role and the backup code requires
+`REEF_BACKUP_DATABASE_URL` or `REEF_MIGRATION_DATABASE_URL`. Successful dumps
+show a suitable credential was present during the observed runs, but the
+10 September review did not inspect the live variable names or inventory.
+Before 7 August the app itself ran as the superuser, so this trap could not
+fire — and neither could RLS.
 
 ### The privileged-act trail (12 Aug 2026)
 
@@ -546,23 +537,34 @@ of which alone meant no backup:**
   `REEF_BACKUP_DATABASE_URL` or `REEF_MIGRATION_DATABASE_URL` and refuses to
   start without one.
 
-**Status: a real backup exists and the drill has passed.**
+**Status: the daily dump runs, and the separate 7 Aug drill passed.**
 
-1. ✅ The backup credential is `REEF_MIGRATION_DATABASE_URL`, already set on
-   the service and distinct from the app's `DATABASE_URL`.
-2. Enable Railway's **managed Postgres backups** in the dashboard (belt).
-   Still to do.
-3. **Schedule the cron service** (braces). Still to do — Railway's CLI cannot
-   set a cron schedule, and a root `railway.json` must **not** be used, since
-   `rif-app` would pick it up and turn the live server into a cron job. In the
-   dashboard: **New Service → deploy from this repo**, then Settings →
+1. The repository requires `REEF_BACKUP_DATABASE_URL` or
+   `REEF_MIGRATION_DATABASE_URL`, distinct from the app's `DATABASE_URL`.
+   The observed runs succeeded, but the live variable inventory remains
+   unverified.
+2. Railway's **managed Postgres backups** are intended as the belt. Their
+   current PITR state, volume-backup cadence, retention, and latest success
+   remain unverified; check the Postgres service's Backups view.
+3. ✅ **The daily job was observed running.** Archived notes identify it as
+   `reef-backup` and date setup to 24 Aug 2026. Its first manual run uploaded
+   and size-verified
+   `backups/reef-20260824T150406Z.dump` (1,055,181 bytes); daily logs through
+   10 Sep show the same upload-size check succeeding. This proves execution
+   and stored byte count, not restorability.
+
+   The exact live command and schedule were not reverified. To recreate the
+   prescribed configuration, do not use a root `railway.json`: `rif-app`
+   would pick it up and turn the live server into a cron job. In the dashboard
+   choose **New Service → deploy from this repo**, then Settings →
    - Start command: `uv run python scripts/backup.py`
    - Cron schedule: `0 3 * * *`
    - Variables: `REEF_MIGRATION_DATABASE_URL`, `REEF_S3_ENDPOINT`,
      `REEF_S3_BUCKET`, `REEF_S3_ACCESS_KEY`, `REEF_S3_SECRET_KEY`
 
    It needs no `PORT` — and must not have one, or `rif.server` would boot a
-   second instance.
+   second instance. The current variable inventory was not verified in the
+   10 Sep review.
 4. ✅ **The drill — passed 7 Aug 2026.** One real backup taken
    (`backups/rif-20260807T140148Z.dump`, 195,004 bytes), downloaded from R2,
    restored into a scratch `postgres:18` container, counts compared against
@@ -1160,4 +1162,3 @@ should match the release. That version is stamped by
 0.1.0 while the server reached 0.6.0, because nothing stamped it, and the
 registry is precisely the listing that tells a stranger which version they
 are connecting to.
-

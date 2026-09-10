@@ -67,9 +67,11 @@ is diffed against your own private pages and a substantial verbatim run is
 refused, pointing at the two-step consent flow instead. That check stops
 copying and not paraphrasing; the module says so out loud about itself.
 
-Honest gaps: backups run by hand (one real dump, one passing restore drill,
-no cron yet), very few people are on it, and I have not measured the context
-ceiling on a phone.
+Honest gaps: very few people are on it, I have not measured the context
+ceiling on a phone, and the managed-backup and R2 retention settings still
+need verification. The independent daily job uploaded and size-checked its R2
+dump on every observed run from 24 August through 10 September 2026. A
+separate 7 August production dump passed a restore drill.
 
 The server is AGPL — if you would rather not be a guest in my database,
 `docker compose up` and it is yours. The clients are MIT.
