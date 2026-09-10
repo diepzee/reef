@@ -1,3 +1,13 @@
+## [1.0.2](https://github.com/diepzee/reef/compare/v1.0.1...v1.0.2) (2026-09-10)
+
+### Bug fixes
+
+* **site:** credit rugvin in public footers ([#124](https://github.com/diepzee/reef/issues/124)) ([4cba886](https://github.com/diepzee/reef/commit/4cba8867e406fd8352c8783a5505e8d1a422b656))
+
+### Documentation
+
+* **backups:** separate upload checks from restore proof ([#122](https://github.com/diepzee/reef/issues/122)) ([b210679](https://github.com/diepzee/reef/commit/b210679a00b3c544cbb743d0a80667abf1bdaaeb))
+
 ## [1.0.1](https://github.com/diepzee/reef/compare/v1.0.0...v1.0.1) (2026-08-24)
 
 ### Documentation

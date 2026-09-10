@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "1.0.2",
+      "date": "2026-09-10",
+      "changes": [
+        {
+          "kind": "fixed",
+          "text": "Every public page now credits rugvin, with the fin mark visible on touchscreens as well as on hover or keyboard focus."
+        }
+      ]
+    },
+    {
       "version": "1.0.1",
       "date": "2026-08-24",
       "changes": [
