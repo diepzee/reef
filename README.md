@@ -181,10 +181,14 @@ Tests run against a real PostgreSQL, not a mock.
 
 Known gaps, honestly:
 
-- **Backups run by hand.** One real dump exists and a restore drill passed
-  against it, but the daily job is not set up yet.
 - **Few people are on it.** Growth is one invitation at a time, by design.
 - **The context ceiling has not been measured on a phone.**
+
+An independent scheduled job now writes a daily `pg_dump` to R2. Every run
+observed from 24 August through 10 September 2026 uploaded successfully and
+passed the script's byte-count check. Separately, a 7 August production dump
+passed a restore drill. Railway-managed backup status and R2 retention
+controls remain unverified.
 
 Everything outstanding is tracked in the "Open items" list at the top of
 [`docs/runbook.md`](docs/runbook.md).

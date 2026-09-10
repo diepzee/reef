@@ -1,33 +1,36 @@
 # Restore
 
-Durability for the Postgres store: two independent backup paths, and a
+Durability for the Postgres store: an observed off-platform dump path, a
+managed-backup path whose current state still needs verification, and a
 restore drill that proves the one thing that matters — the access model
 survives. An untested backup is not a backup.
 
 ## Where backups live
 
-**Railway's managed Postgres backups** — enable in the Railway dashboard
-(Postgres service → Backups). These are Railway's own snapshot mechanism,
-retained per Railway's plan-dependent policy (check the dashboard for the
-current retention window). This is the first line of defense and needs no
-code on our side.
+**Railway's managed Postgres backups** — intended as the first line of
+defense, with no code on our side. Their current PITR state, volume-backup
+schedule, retention, and latest success were not verified in the 10 September
+2026 review. Check the Railway dashboard (Postgres service → Backups) before
+relying on them.
 
-**Independent `pg_dump` to R2** — `scripts/backup.py`, scheduled as a daily
-Railway cron service running `uv run python scripts/backup.py`. This is a
-second, out-of-band copy that does not depend on Railway's backup
-infrastructure being correct, and that we can restore from without Railway
-support. Dumps land in the `backups/` prefix of the R2 bucket named by
-`REEF_S3_BUCKET`, as `backups/rif-<UTC timestamp>.dump`, in `pg_dump
---format=custom` form. R2 has no bucket-wide retention/lifecycle policy
-configured for this prefix yet — treat that as a follow-up (a lifecycle rule
-expiring objects after N days) once the backup has run unattended for a
-while and the timestamp naming is confirmed to sort/list the way we expect.
+**Independent `pg_dump` to R2** — `scripts/backup.py`, intended to run as a
+daily Railway cron service. The repository prescribes
+`uv run python scripts/backup.py`; the live start command and schedule were
+not reverified. This is a second, out-of-band copy that we can restore without
+Railway support. Dumps land in the `backups/` prefix of the R2 bucket named by
+`REEF_S3_BUCKET`, as `backups/reef-<UTC timestamp>.dump`, in `pg_dump
+--format=custom` form. Logs show one successful upload and byte-count check
+each day from 24 August through 10 September 2026. That proves the job ran and
+the stored size matched the dump; the review retained no restore-test evidence
+for dumps from this period. The current R2 lock, retention, and lifecycle
+settings remain unverified.
 
 ## Required: the backup connection must bypass RLS
 
-**This is not optional and not yet verified against Railway production —
-see Phase 4 of [`runbook.md`](runbook.md).** `pages`, `revisions`, and
-`attachments` all run
+**This is not optional.** Successful production dumps show that the scheduled
+path had a backup-capable credential during the observed runs; its current
+variable inventory was not inspected. See Phase 4 of
+[`runbook.md`](runbook.md). `pages`, `revisions`, and `attachments` all run
 `FORCE ROW LEVEL SECURITY`, which — deliberately, per `docs/spec.md` and the
 Task 2 migration — applies row security to the table *owner* too, not just
 other roles. `pg_dump` issues `COPY <table> TO stdout` internally, and
@@ -53,12 +56,13 @@ connection string the `rif.server` app service runs with. The app's
 connection is deliberately RLS-constrained — that is the entire point of
 Task 2's design.
 
-**Settled 7 Aug 2026.** The split now exists in production and the credential
-you need is already on the service: `REEF_MIGRATION_DATABASE_URL` holds the
-admin role, while `DATABASE_URL` holds the constrained `rif_app` role created
-by `scripts/provision_app_role.py`. Give the backup cron the former. Until
-that date the app itself ran as the superuser, so this whole section described
-a separation that did not exist — see the header comment in
+**Repository configuration since 7 Aug 2026.** `DATABASE_URL` is the
+constrained app role, and the backup job is prescribed
+`REEF_MIGRATION_DATABASE_URL` or a dedicated `REEF_BACKUP_DATABASE_URL`.
+Successful dumps show that a suitable production credential was available
+during the observed runs; the 10 September review did not inspect the live
+variable names or inventory. Before 7 August the app itself ran as the
+superuser, so this separation did not exist — see the header comment in
 `docker/initdb/01-create-app-role-and-databases.sql`.
 
 The alternative, if you ever rebuild this: a dedicated role created with
@@ -81,7 +85,7 @@ distinct from the app's.
 # 1. Dump — must run as a role that bypasses RLS (see above). Locally:
 docker compose exec db pg_dump --format=custom -U postgres -d rif > rif-<stamp>.dump
 # In production this is scripts/backup.py, whose upload lands in R2 at
-# backups/rif-<stamp>.dump — download that object first.
+# backups/reef-<stamp>.dump — download that object first.
 
 # 2. Target database, owned by rif — not created by rif. The rif role has
 #    no CREATEDB privilege (deliberately: it is the RLS-constrained app
@@ -144,10 +148,8 @@ returned zero rows, confirming FORCE RLS survived the restore.
 fixture to keep around.
 
 This proves the restore *mechanics* (the exact commands above) are correct.
-It does **not** prove the backup cron works against Railway's actual
-production role/credential setup — that depends on the still-unconfirmed
-question in the previous section, and is a human step: Phase 4 of
-[`runbook.md`](runbook.md).
+It does not add evidence about the production cron or newer dump contents;
+those are tracked separately in Phase 4 of [`runbook.md`](runbook.md).
 
 **Superseded 7 Aug 2026 — the drill has now run against production.** One
 real backup was taken (`backups/rif-20260807T140148Z.dump`, 195,004 bytes),
@@ -156,16 +158,20 @@ Counts matched production exactly: 22 pages, 26 revisions, **2 memberships**,
 1 person, 2 coves. RLS survived — as `rif_app` with no principal the restore
 returned zero pages, and `FORCE` was still set on all four protected tables.
 
-The exit hatch is therefore real, not theoretical. What remains is the
-*schedule*: the cron service is not yet created, so today's dump is a
-one-off. See Phase 4 of [`runbook.md`](runbook.md).
+This 7 August drill remains the restore proof. Separately, archived notes date
+the `reef-backup` setup to 24 August. Its first manual execution uploaded and
+size-verified
+`backups/reef-20260824T150406Z.dump` (1,055,181 bytes); logs show the same
+successful size check near 03:00 UTC daily through 10 September. Size
+verification is not a restore drill, and the review retained no evidence of a
+restore test for any 24 August or newer dump.
 
 **Version pinning matters in both directions.** The dump is v18 format:
 `pg_dump` must be ≥ the server's major version to produce it, and
 `pg_restore` must be ≥ that to read it. A Homebrew v14 or the v17 in this
 repo's `docker-compose.yml` will refuse it outright.
 
-## Bucket locks cover attachment bytes — R2 has no versioning
+## Attachment-byte retention — R2 has no versioning
 
 Image bytes live in R2 as opaque-keyed objects (`attachments.object_key`,
 never derived from `cove_id` — see `src/reef/attachments.py`), outside
@@ -178,14 +184,14 @@ R2 does not have it** — `GetBucketVersioning` and `PutBucketVersioning` are
 both unimplemented. The equivalent is a **bucket lock**, which prevents
 deletion and overwriting rather than letting you recover afterwards. See
 Phase 4 of [`runbook.md`](runbook.md) for the two prefix-scoped rules to
-set, and the warning about prefix-less rules being close to irreversible.
+consider. Their live state was not verified in the 10 September review.
 
-The gap this leaves is smaller than it looks. Versioning protects against
-overwrite and delete; rif does neither. Every upload writes a fresh
-`attachments/{uuid}-{hash}` key, and the MCP exposes no tool that deletes a
-page or an object at all. Bytes can only be lost by something outside the
-application — a hand-run CLI delete, or a leaked API token — and a lock
-blocks both outright, which versioning would not have.
+Reef writes each upload to a fresh `attachments/{uuid}-{hash}` key, but it
+also deletes stored objects when files, images, or coves are deleted. The
+database row is committed before object deletion. An indefinite lock can
+therefore make deletion fail after the metadata is gone, leaving an
+unreachable retained object. Verify the live rules and confirm that this
+tradeoff is intended before treating a lock as an active safety control.
 
 A restored Postgres database with attachment rows intact but a bucket with
 no lock configured still has working object keys. Locks protect against
