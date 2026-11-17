@@ -33,6 +33,7 @@ from reef.rls import (
     person_column_grant_statements,
     session_epoch_statements,
 )
+from reef.search import search_statements
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
@@ -216,6 +217,7 @@ async def schema():
     # columns each needs. See their docstrings.
     for statement in (
         constraint_statements()
+        + search_statements()
         + enable_statements()
         + appearance_statements()
         + session_epoch_statements()
