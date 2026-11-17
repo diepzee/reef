@@ -277,6 +277,7 @@ def _declared(pattern: str) -> set[str]:
         appearance_statements,
         enable_statements,
         job_statements,
+        link_statements,
         open_door_statements,
         person_column_grant_statements,
         session_epoch_statements,
@@ -286,6 +287,7 @@ def _declared(pattern: str) -> set[str]:
         enable_statements()
         + appearance_statements()
         + job_statements()
+        + link_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()

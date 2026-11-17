@@ -14,6 +14,7 @@ from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_
 from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
+from reef.links import Resolver, connect_waiting_links, sync_wiki_links
 from reef.models import Attachment, Cove, CoveKind, Page, Revision
 
 PROTECTED_PREFIX = "meta/"
@@ -317,6 +318,7 @@ async def save_page(
         )
     if not allow_private_copy and cove.kind == CoveKind.SHARED.value:
         await _refuse_private_copy(principal, alias, path, body, page)
+    created = False
     if page is None:
         if expected_version not in (None, 0):
             raise VersionConflict(f"{path!r} does not exist yet")
@@ -328,9 +330,11 @@ async def save_page(
             body=body,
             version=1,
             indexed_version=1,
+            linked_version=1,
             **index_fields(body),
         )
         await page.save()
+        created = True
     else:
         if expected_version is not None and page.version != expected_version:
             raise VersionConflict(
@@ -339,6 +343,7 @@ async def save_page(
         page.body = body
         page.version += 1
         page.indexed_version = page.version
+        page.linked_version = page.version
         for field, value in index_fields(body).items():
             setattr(page, field, value)
         if title is not None:
@@ -357,6 +362,12 @@ async def save_page(
         author_id=principal.person_id,
     ).save()
     await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
+    # After the page row is written: the links point at it, and retiring old
+    # ones reads the targets it now stores.
+    resolver = await Resolver.for_person(principal)
+    await sync_wiki_links(resolver, page.id, cove.id, page.reference_targets)
+    if created:
+        await connect_waiting_links(resolver, page.id, cove.id, page.path)
     return page
 
 

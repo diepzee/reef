@@ -30,6 +30,7 @@ from reef.rls import (
     drop_mutation_statements,
     enable_statements,
     job_statements,
+    link_statements,
     open_door_statements,
     person_column_grant_statements,
     session_epoch_statements,
@@ -184,6 +185,7 @@ async def schema():
         "persons",
         "cove_appearances",
         "jobs",
+        "links",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -213,7 +215,7 @@ async def schema():
         + drop_avatar_statements()
     ):
         await DB._run_in_new_connection(statement)
-    # appearance_statements, job_statements, avatar_statements and
+    # appearance_statements, job_statements, link_statements, avatar_statements and
     # open_door_statements are listed separately on purpose: none is part of
     # enable_statements, because historical migrations call that and predate
     # the table and the columns each needs. See their docstrings.
@@ -223,6 +225,7 @@ async def schema():
         + enable_statements()
         + appearance_statements()
         + job_statements()
+        + link_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
