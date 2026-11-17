@@ -186,6 +186,10 @@ dev email="wouter@example.test":
     PORT=8000 REEF_DEV_INSECURE=1 REEF_DEV_PRINCIPAL_EMAIL={{email}} \
       {{python}} -m reef.server
 
+# Run the background worker against the local database.
+worker:
+    {{python}} -m reef.worker
+
 # Run the frontend dev server against a local backend.
 dev-frontend:
     cd frontend && bun run dev

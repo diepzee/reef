@@ -10,7 +10,15 @@ from uuid import UUID
 from reef.access import Principal, accessible_coves, alias_map
 from reef.coves import display_names
 from reef.indexfields import index_fields, resolve_references
-from reef.models import Attachment, AttachmentStatus, Page, Revision
+from reef.jobs import BACKFILL_INDEX_FIELDS, enqueue
+from reef.models import (
+    Attachment,
+    AttachmentStatus,
+    MemberRole,
+    Membership,
+    Page,
+    Revision,
+)
 
 
 @dataclass
@@ -80,7 +88,7 @@ _INDEX_COLUMNS = (
 )
 
 
-async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
+async def _indexed_pages(cove_ids: list[UUID]) -> tuple[list[dict], set[UUID]]:
     """Return index rows for the pages in ``cove_ids``, without their bodies.
 
     A page whose stored fields are current costs nothing beyond its row. Any
@@ -90,10 +98,12 @@ async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
 
     :param cove_ids: the coves to read
     :returns: one dict per page, with current ``description``, ``size`` and
-        ``reference_targets``
+        ``reference_targets``; and the coves holding a page whose stored
+        fields were out of date
     """
     rows = await Page.select(*_INDEX_COLUMNS).where(Page.cove_id.is_in(cove_ids))
     stale = [row["id"] for row in rows if row["indexed_version"] != row["version"]]
+    stale_coves: set[UUID] = set()
     if stale:
         bodies = {
             row["id"]: row["body"]
@@ -102,7 +112,33 @@ async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
         for row in rows:
             if row["id"] in bodies:
                 row.update(index_fields(bodies[row["id"]]))
-    return rows
+                stale_coves.add(row["cove_id"])
+    return rows, stale_coves
+
+
+async def _queue_backfill(principal: Principal, stale_coves: set[UUID]) -> None:
+    """Queue a backfill for the principal, if they could carry one out.
+
+    This is how old pages get their stored fields without anything looking
+    across people: the person whose index had to derive them asks for them
+    to be stored. Asking again while a job waits adds nothing.
+
+    A viewer cannot write to a cove, so a backfill run as them would change
+    nothing there -- and the index would ask again on every load. Only
+    staleness in a cove the principal may write to counts.
+
+    :param principal: the person whose index was just built
+    :param stale_coves: coves holding a page with out-of-date fields
+    """
+    if not stale_coves:
+        return
+    writable = await Membership.select(Membership.cove_id).where(
+        Membership.person_id == principal.person_id,
+        Membership.role == MemberRole.MEMBER.value,
+        Membership.cove_id.is_in(list(stale_coves)),
+    )
+    if writable:
+        await enqueue(principal, BACKFILL_INDEX_FIELDS)
 
 
 async def backfill_index_fields(principal: Principal) -> int:
@@ -194,7 +230,8 @@ async def build_index(principal: Principal) -> IndexPayload:
     coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
     cove_ids = [cove.id for cove in coves]
-    pages = await _indexed_pages(cove_ids)
+    pages, stale_coves = await _indexed_pages(cove_ids)
+    await _queue_backfill(principal, stale_coves)
     attachments = await Attachment.objects().where(
         Attachment.cove_id.is_in(cove_ids),
         Attachment.status == AttachmentStatus.READY.value,

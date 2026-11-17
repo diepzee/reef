@@ -49,6 +49,7 @@ TABLES = (
     "attachments",
     "promotions",
     "cove_appearances",
+    "jobs",
 )
 
 # Tables carrying RLS policies (see reef.rls). Used only to verify enforcement.

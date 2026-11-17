@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     # why it fails closed on either one alone.
     open_seats: int = 0
     open_until: str = ""
+    # How long the worker waits before looking again when the queue is empty.
+    worker_poll_seconds: float = 5.0
 
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:

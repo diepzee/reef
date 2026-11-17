@@ -276,6 +276,7 @@ def _declared(pattern: str) -> set[str]:
         alias_statements,
         appearance_statements,
         enable_statements,
+        job_statements,
         open_door_statements,
         person_column_grant_statements,
         session_epoch_statements,
@@ -284,6 +285,7 @@ def _declared(pattern: str) -> set[str]:
     everything = " ".join(
         enable_statements()
         + appearance_statements()
+        + job_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
@@ -301,7 +303,7 @@ async def test_the_chain_creates_every_function_reef_rls_declares(drilled):
     to a group no migration calls and the tests stay green while the feature
     is a 500 in production.
     """
-    declared = _declared(r"CREATE OR REPLACE FUNCTION (rif_\w+)\(")
+    declared = _declared(r"CREATE OR REPLACE FUNCTION (reef_\w+)\(")
     connection = await asyncpg.connect(drilled)
     try:
         present = {

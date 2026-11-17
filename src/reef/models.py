@@ -265,6 +265,49 @@ class CoveAppearance(Table, tablename="cove_appearances", db=DB):
     glyph = Varchar(null=True, default=None)
 
 
+class JobStatus(StrEnum):
+    """Where a job is in its life."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class Job(Table, tablename="jobs", db=DB):
+    """One piece of background work, done on behalf of one person.
+
+    A row says *what* to do and for *whom*, by id only. It never carries
+    content: no titles, no text, no paths. ``error`` holds the name of an
+    exception class and nothing an exception might have said, because a
+    message can quote the thing that failed.
+
+    Under row security like every other table: a person sees and changes
+    their own jobs and nobody else's. The worker finds the next job through
+    ``reef_claim_job``, the one function allowed to look across people, and
+    then does everything else armed as the job's person. See
+    :func:`reef.rls.job_statements`.
+
+    ``subject_ids`` names what the job is about. Empty means "everything of
+    this person's", and a raw partial unique index keeps at most one such
+    job queued per person and kind.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    kind = Varchar()
+    subject_ids = Array(base_column=UUID(), default=list)
+    status = Varchar(choices=JobStatus, default=JobStatus.QUEUED)
+    attempts = Integer(default=0)
+    run_after = Timestamp(default=TimestampNow())
+    locked_by = Varchar(null=True, default=None)
+    locked_at = Timestamp(null=True, default=None)
+    error = Varchar(null=True, default=None)
+    created_at = Timestamp(default=TimestampNow())
+    finished_at = Timestamp(null=True, default=None)
+
+
 TABLES = [
     Person,
     Cove,
@@ -274,4 +317,5 @@ TABLES = [
     Attachment,
     Promotion,
     CoveAppearance,
+    Job,
 ]
