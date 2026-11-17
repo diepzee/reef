@@ -22,6 +22,7 @@ from reef.db import DB, transaction_scope
 from reef.jobs import (
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
+    REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
     complete,
@@ -29,6 +30,7 @@ from reef.jobs import (
     hold,
 )
 from reef.links import backfill_links
+from reef.usage import refresh_activation
 
 log = logging.getLogger("reef.worker")
 
@@ -61,6 +63,15 @@ async def _backfill_links(principal: Principal, job: ClaimedJob) -> None:
     await backfill_links(principal)
 
 
+async def _refresh_activation(principal: Principal, job: ClaimedJob) -> None:
+    """Recompute the person's activation from their usage log.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    await refresh_activation(principal)
+
+
 #: What this worker knows how to do, by job kind.
 #:
 #: A handler acts as the principal it is given and nobody else. It must never
@@ -69,6 +80,7 @@ async def _backfill_links(principal: Principal, job: ClaimedJob) -> None:
 HANDLERS: dict[str, Handler] = {
     BACKFILL_INDEX_FIELDS: _backfill_index_fields,
     BACKFILL_LINKS: _backfill_links,
+    REFRESH_ACTIVATION: _refresh_activation,
 }
 
 

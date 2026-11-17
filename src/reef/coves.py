@@ -590,5 +590,7 @@ async def ensure_personal_cove(person_id: UUID, email: str) -> None:
         PERSONA_STUB,
         message="seeded at first sign-in",
         title="Persona",
+        # Reef wrote this, not the person: it is not their use of the page.
+        via=None,
         allow_protected=True,
     )

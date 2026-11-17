@@ -51,6 +51,8 @@ TABLES = (
     "cove_appearances",
     "jobs",
     "links",
+    "page_access",
+    "page_heat",
 )
 
 # Tables carrying RLS policies (see reef.rls). Used only to verify enforcement.

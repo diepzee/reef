@@ -26,8 +26,11 @@ from reef.coves import display_names, member_names
 from reef.models import (
     Attachment,
     AttachmentStatus,
+    Link,
     Membership,
     Page,
+    PageAccess,
+    PageHeat,
     Person,
     Promotion,
     Revision,
@@ -271,7 +274,9 @@ async def build_full_dump(
 
     Includes current Markdown pages, the exact index, revision bodies and
     authors, stored file metadata and bytes, cove membership display names,
-    and the principal's sharing audit rows. Missing object-store bytes are
+    the principal's sharing audit rows, the links between the pages they can
+    read, and their own usage log and activation. Other members' usage is
+    never part of it: row security does not return it. Missing object-store bytes are
     recorded explicitly in ``data/file-errors.json`` rather than omitted
     silently.
 
@@ -412,7 +417,55 @@ async def build_full_dump(
                 )
             file_metadata.append(metadata)
 
+        def named(page_id: object) -> dict | None:
+            """Name a page the way the rest of the dump does, if it is in it."""
+            page = page_by_id.get(page_id)
+            if page is None:
+                return None
+            return {"cove": alias_by_cove[page.cove_id], "path": page.path}
+
+        link_payload = [
+            {
+                "from": named(row["from_page_id"]),
+                "to": named(row["to_page_id"]),
+                "kind": row["kind"],
+                "source": row["source"],
+                "status": row["status"],
+                "written_as": row["target_text"],
+                "recorded_at": row["recorded_at"],
+                "superseded_at": row["superseded_at"],
+            }
+            for row in await Link.select().order_by(Link.recorded_at)
+        ]
+        usage_payload = [
+            {
+                "page": named(row["page_id"]),
+                "via": row["via"],
+                "weight": row["weight"],
+                "session": row["session_id"],
+                "at": row["accessed_at"],
+            }
+            for row in await PageAccess.select()
+            .where(PageAccess.person_id == principal.person_id)
+            .order_by(PageAccess.accessed_at)
+        ]
+        activation_payload = [
+            {
+                "page": named(row["page_id"]),
+                "activation": row["activation"],
+                "uses": row["accesses"],
+                "last_use": row["last_access"],
+                "computed_at": row["updated_at"],
+            }
+            for row in await PageHeat.select()
+            .where(PageHeat.person_id == principal.person_id)
+            .order_by(PageHeat.activation, ascending=False)
+        ]
+
         archive.writestr("index.json", _json_bytes(asdict(index)))
+        archive.writestr("data/links.json", _json_bytes(link_payload))
+        archive.writestr("data/usage.json", _json_bytes(usage_payload))
+        archive.writestr("data/activation.json", _json_bytes(activation_payload))
         archive.writestr("data/current.json", await build_json_export(principal))
         archive.writestr("data/revisions.json", _json_bytes(revision_payload))
         archive.writestr("data/files.json", _json_bytes(file_metadata))
@@ -436,6 +489,9 @@ async def build_full_dump(
                         "files": len(file_metadata),
                         "file_errors": len(file_errors),
                         "sharing_audits": len(share_payload),
+                        "links": len(link_payload),
+                        "usage_log": len(usage_payload),
+                        "activation": len(activation_payload),
                     },
                 }
             ),

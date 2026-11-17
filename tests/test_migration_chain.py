@@ -281,6 +281,7 @@ def _declared(pattern: str) -> set[str]:
         open_door_statements,
         person_column_grant_statements,
         session_epoch_statements,
+        usage_statements,
     )
 
     everything = " ".join(
@@ -288,6 +289,7 @@ def _declared(pattern: str) -> set[str]:
         + appearance_statements()
         + job_statements()
         + link_statements()
+        + usage_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()

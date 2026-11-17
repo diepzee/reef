@@ -21,6 +21,7 @@ from starlette.background import BackgroundTask
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
+from reef import usage
 from reef.access import AccessDenied, Principal, arm, resolve_cove
 from reef.account import delete_account_rows
 from reef.appearance import AppearanceError, get_appearances, set_appearance
@@ -48,7 +49,7 @@ from reef.invitations import (
     invite_to_reef,
     invites_left,
 )
-from reef.models import Page, Person
+from reef.models import AccessKind, Page, Person
 from reef.pages import (
     InvalidPath,
     PageNotFound,
@@ -529,6 +530,7 @@ async def _get_page(request: Request, principal: Principal) -> Response | dict:
     page = await get_page(principal, cove, path)
     if page is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
+    await usage.record(principal, page.id, AccessKind.WEB)
     return await _page_payload(cove, page)
 
 

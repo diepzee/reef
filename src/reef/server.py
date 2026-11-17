@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
 
 from reef import coves as cove_admin
-from reef import invitations, telemetry
+from reef import invitations, telemetry, usage
 from reef.access import (
     AccessDenied,
     Principal,
@@ -40,7 +40,7 @@ from reef.coves import CoveError, member_names, member_roster
 from reef.db import transaction_scope
 from reef.invitations import InviteBudgetExceeded
 from reef.links import links_of
-from reef.models import MemberRole, Membership, Page
+from reef.models import AccessKind, MemberRole, Membership, Page
 from reef.pages import (
     InvalidPath,
     PageNotFound,
@@ -496,6 +496,7 @@ async def tool_read_page(
     page = await get_page(principal, cove, path)
     if page is None:
         return {"error": "not_found", "path": path}
+    await usage.record(principal, page.id, AccessKind.READ)
     return {
         "path": page.path,
         "title": page.title,
@@ -728,7 +729,13 @@ async def tool_remember(
     entry = f"- ({stamp}) {fact}"
     body = f"{inbox.body}\n{entry}" if inbox else f"# Inbox\n\n{entry}"
     await save_page(
-        principal, cove, _INBOX, body, message=f"remember: {fact[:60]}", title="Inbox"
+        principal,
+        cove,
+        _INBOX,
+        body,
+        message=f"remember: {fact[:60]}",
+        title="Inbox",
+        via=AccessKind.REMEMBER,
     )
     return {"cove": cove, "path": _INBOX, "appended": entry, "duplicate": False}
 
