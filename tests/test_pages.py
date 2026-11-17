@@ -103,8 +103,8 @@ async def test_meta_paths_are_protected_from_generic_writes(tx, household):
 
 async def test_a_body_over_the_ceiling_is_refused(tx, household):
     """Pages had no size limit while files were capped at 25 MB, so prose was
-    the cheapest way to bloat a cove -- and build_index reads every body on
-    every call, so one oversized page taxes every member's every turn."""
+    the cheapest way to bloat a cove -- and every body is parsed on save and
+    loaded whole on read, so one oversized page taxes everyone who opens it."""
     me = principal_for(household["wouter"])
     ceiling = get_settings().page_max_chars
     with pytest.raises(PageTooLarge):

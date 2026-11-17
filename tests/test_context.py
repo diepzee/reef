@@ -1,8 +1,8 @@
 from reef.access import Principal, arm
-from reef.context import build_index, load_context
+from reef.context import backfill_index_fields, build_index, load_context
 from reef.db import transaction_scope
-from reef.models import Revision
-from reef.pages import save_page
+from reef.models import Page, Revision
+from reef.pages import get_page, save_page
 
 
 def principal_for(person) -> Principal:
@@ -223,3 +223,133 @@ async def test_last_editor_none_when_author_erased(graph):
     personal = next(s for s in payload.coves if s.alias == "personal")
     row = next(p for p in personal.pages if p["path"] == "n.md")
     assert row["last_editor"] is None
+
+
+# --- stored index fields -------------------------------------------------------
+
+_BODY = (
+    "# House\n\nThe boiler is a Vaillant.\n\n"
+    "See [[garden.md]] and [[household:roof.md|the roof]].\n"
+)
+
+
+def _entry(index, alias: str, path: str) -> dict:
+    """Return one page's index entry.
+
+    :param index: an index payload
+    :param alias: the cove's alias for the reader
+    :param path: the page path
+    :returns: the entry's fields
+    """
+    cove = next(cove for cove in index.coves if cove.alias == alias)
+    return next(page for page in cove.pages if page["path"] == path)
+
+
+async def _forget_index_fields(path: str) -> None:
+    """Make a page look as it did before the index fields existed.
+
+    :param path: the page to strip
+    """
+    await Page.raw(
+        "UPDATE pages SET description = NULL, size = NULL, "
+        "reference_targets = NULL, indexed_version = NULL WHERE path = {}",
+        path,
+    )
+
+
+async def test_saving_a_page_stores_its_index_fields(tx, household):
+    me = principal_for(household["wouter"])
+    page = await save_page(me, "personal", "house.md", _BODY, message="x")
+    assert page.description == "The boiler is a Vaillant."
+    assert page.size == len(_BODY)
+    assert page.reference_targets == ["garden.md", "household:roof.md"]
+    assert page.indexed_version == page.version == 1
+
+
+async def test_saving_again_refreshes_the_index_fields(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "house.md", _BODY, message="x")
+    page = await save_page(me, "personal", "house.md", "Sold.", message="x")
+    assert page.description == "Sold."
+    assert page.size == 5
+    assert page.reference_targets == []
+    assert page.indexed_version == page.version == 2
+
+
+async def test_the_index_reads_stored_fields_rather_than_the_body(tx, household):
+    """Proof by contradiction: change the body behind the fields' back.
+
+    No writer does this. It shows which of the two the index trusts while
+    ``indexed_version`` still equals ``version``.
+    """
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "house.md", _BODY, message="x")
+    await Page.raw("UPDATE pages SET body = 'Rewritten.' WHERE path = 'house.md'")
+    entry = _entry(await build_index(me), "personal", "house.md")
+    assert entry["description"] == "The boiler is a Vaillant."
+    assert entry["size"] == len(_BODY)
+
+
+async def test_a_page_from_before_the_fields_existed_indexes_the_same(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "garden.md", "Roses.", message="x")
+    await save_page(me, "household", "roof.md", "Slate.", message="x")
+    await save_page(me, "personal", "house.md", _BODY, message="x")
+    stored = _entry(await build_index(me), "personal", "house.md")
+    await _forget_index_fields("house.md")
+    derived = _entry(await build_index(me), "personal", "house.md")
+    assert derived == stored
+    assert derived["references"] == [
+        {"cove": "personal", "path": "garden.md"},
+        {"cove": "household", "path": "roof.md"},
+    ]
+
+
+async def test_a_writer_that_forgets_the_fields_cannot_leave_them_stale(tx, household):
+    """The version check is the guard: fields for an older version are unused."""
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "house.md", _BODY, message="x")
+    await Page.raw(
+        "UPDATE pages SET body = 'Rewritten.', version = version + 1 "
+        "WHERE path = 'house.md'"
+    )
+    entry = _entry(await build_index(me), "personal", "house.md")
+    assert entry["description"] == "Rewritten."
+    assert entry["size"] == len("Rewritten.")
+
+
+async def test_backfill_stores_fields_on_older_pages_and_changes_nothing_else(
+    tx, household
+):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "house.md", _BODY, message="x")
+    await save_page(me, "personal", "garden.md", "Roses.", message="x")
+    before = await build_index(me)
+    await _forget_index_fields("house.md")
+
+    assert await backfill_index_fields(me) == 1
+    assert await backfill_index_fields(me) == 0
+
+    page = await get_page(me, "personal", "house.md")
+    assert page.description == "The boiler is a Vaillant."
+    assert page.indexed_version == page.version == 1
+    assert await build_index(me) == before
+    assert await Revision.count().where(Revision.page_id == page.id) == 1
+
+
+async def test_backfill_by_a_viewer_updates_nothing_and_does_not_fail(
+    tx, household, graph
+):
+    """Row security decides: an update to a read-only page matches no row."""
+    owner = principal_for(household["wouter"])
+    await save_page(owner, "household", "house.md", _BODY, message="x")
+    await _forget_index_fields("house.md")
+    person = await graph.person("viewer@example.test", "Viewer")
+    await graph.personal_cove(person, slug="viewer")
+    await graph.add_membership(person, household["shared"], "viewer", alias="household")
+    viewer = principal_for(person)
+
+    await arm(viewer)
+    assert await backfill_index_fields(viewer) == 0
+    entry = _entry(await build_index(viewer), "household", "house.md")
+    assert entry["description"] == "The boiler is a Vaillant."

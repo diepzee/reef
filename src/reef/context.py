@@ -4,12 +4,12 @@ Both entry points assume they run inside :func:`reef.db.transaction_scope`;
 :func:`reef.access.accessible_coves` arms RLS before either reads anything.
 """
 
-import re
 from dataclasses import dataclass
 from uuid import UUID
 
 from reef.access import Principal, accessible_coves, alias_map
 from reef.coves import display_names
+from reef.indexfields import index_fields, resolve_references
 from reef.models import Attachment, AttachmentStatus, Page, Revision
 
 
@@ -63,76 +63,87 @@ class IndexPayload:
     coves: list[CoveIndex]
 
 
-_WIKI_LINK_RE = re.compile(r"\[\[([^\[\]\n]+)\]\]")
-_INLINE_CODE_RE = re.compile(r"`+[^`]*`+")
+#: Everything the index needs from a page. ``body`` is absent on purpose:
+#: it is by far the largest column and the index shows none of it.
+_INDEX_COLUMNS = (
+    Page.id,
+    Page.cove_id,
+    Page.path,
+    Page.title,
+    Page.tags,
+    Page.updated_at,
+    Page.version,
+    Page.description,
+    Page.size,
+    Page.reference_targets,
+    Page.indexed_version,
+)
 
 
-def _page_references(body: str, source_alias: str) -> list[dict[str, str]]:
-    """Extract distinct wiki-link targets from prose in a page body.
+async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
+    """Return index rows for the pages in ``cove_ids``, without their bodies.
 
-    References use the operating protocol's ``[[page.md]]`` and
-    ``[[cove:page.md]]`` forms. Fenced and inline code are ignored: those
-    commonly contain examples of the syntax and must not turn into graph
-    edges. A target's existence and visibility are checked later, once the
-    complete accessible index is known.
+    A page whose stored fields are current costs nothing beyond its row. Any
+    other page -- written before the fields existed, or by a writer that did
+    not set them -- has its body fetched and the fields derived here, so the
+    result is the same either way.
 
-    :param body: markdown page body
-    :param source_alias: alias used to resolve same-cove references
-    :returns: ordered, de-duplicated ``cove`` / ``path`` target pairs
+    :param cove_ids: the coves to read
+    :returns: one dict per page, with current ``description``, ``size`` and
+        ``reference_targets``
     """
-    references: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    fence: str | None = None
-
-    for line in body.splitlines():
-        stripped = line.lstrip()
-        marker = stripped[:3]
-        if marker in {"```", "~~~"}:
-            if fence is None:
-                fence = marker
-            elif marker == fence:
-                fence = None
-            continue
-        if fence is not None:
-            continue
-
-        prose = _INLINE_CODE_RE.sub("", line)
-        for match in _WIKI_LINK_RE.finditer(prose):
-            # A pipe is a conventional optional display label. It isn't part
-            # of reef's documented form, but accepting it here is harmless and
-            # avoids treating the label as part of a page path.
-            target = match.group(1).split("|", 1)[0].strip()
-            if ":" in target:
-                alias, path = (part.strip() for part in target.split(":", 1))
-            else:
-                alias, path = source_alias, target
-            # Fragments identify a section of the same target page; the
-            # page-level index and cove graph intentionally stop at the page.
-            path = path.split("#", 1)[0]
-            key = (alias, path)
-            if not alias or not path or key in seen:
-                continue
-            seen.add(key)
-            references.append({"cove": alias, "path": path})
-    return references
+    rows = await Page.select(*_INDEX_COLUMNS).where(Page.cove_id.is_in(cove_ids))
+    stale = [row["id"] for row in rows if row["indexed_version"] != row["version"]]
+    if stale:
+        bodies = {
+            row["id"]: row["body"]
+            for row in await Page.select(Page.id, Page.body).where(Page.id.is_in(stale))
+        }
+        for row in rows:
+            if row["id"] in bodies:
+                row.update(index_fields(bodies[row["id"]]))
+    return rows
 
 
-def _summary(body: str) -> str:
-    """Return the page's one-line description: its first prose line.
+async def backfill_index_fields(principal: Principal) -> int:
+    """Store current index fields on every page the principal may write.
 
-    The page style mandates a short summary as the opening paragraph, so the
-    first non-heading line is the curated description, not an arbitrary
-    excerpt.
+    Pages saved since the fields were introduced already carry them. This is
+    for the ones saved before, which the index otherwise derives from their
+    bodies on every call. It changes nothing a reader can observe: no
+    version moves, no revision is written.
 
-    :param body: the page's markdown body
-    :returns: the first prose line, trimmed to 200 characters
+    Row security decides what "may write" means. An update to a page the
+    principal can only read matches no row, so a viewer backfills nothing
+    and gets no error.
+
+    :param principal: the person to act as
+    :returns: how many pages were updated
     """
-    for line in body.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        return stripped[:200]
-    return ""
+    coves = await accessible_coves(principal)
+    rows = await Page.select(Page.id, Page.body, Page.version).where(
+        Page.cove_id.is_in([cove.id for cove in coves]),
+        Page.indexed_version.is_null() | (Page.indexed_version != Page.version),
+    )
+    updated = 0
+    for row in rows:
+        fields = index_fields(row["body"])
+        changed = (
+            await Page.update(
+                {
+                    Page.description: fields["description"],
+                    Page.size: fields["size"],
+                    Page.reference_targets: fields["reference_targets"],
+                    Page.indexed_version: row["version"],
+                }
+            )
+            # The version guard makes this safe beside a concurrent save:
+            # if the page moved on, that save stored fresher fields itself.
+            .where(Page.id == row["id"], Page.version == row["version"])
+            .returning(Page.id)
+        )
+        updated += len(changed)
+    return updated
 
 
 async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
@@ -183,12 +194,12 @@ async def build_index(principal: Principal) -> IndexPayload:
     coves = await accessible_coves(principal)
     aliases = await alias_map(principal)
     cove_ids = [cove.id for cove in coves]
-    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids))
+    pages = await _indexed_pages(cove_ids)
     attachments = await Attachment.objects().where(
         Attachment.cove_id.is_in(cove_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
-    editors = await latest_editors([page.id for page in pages])
+    editors = await latest_editors([page["id"] for page in pages])
 
     # Keyed by cove id: Piccolo Table instances are unhashable, so the row
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
@@ -202,25 +213,27 @@ async def build_index(principal: Principal) -> IndexPayload:
         for cove in coves
     }
     alias_by_cove_id = aliases
-    visible_pages = {(alias_by_cove_id[page.cove_id], page.path) for page in pages}
-    page_path_by_id = {page.id: page.path for page in pages}
-    for page in sorted(pages, key=lambda p: p.path):
-        source_alias = alias_by_cove_id[page.cove_id]
+    visible_pages = {
+        (alias_by_cove_id[page["cove_id"]], page["path"]) for page in pages
+    }
+    page_path_by_id = {page["id"]: page["path"] for page in pages}
+    for page in sorted(pages, key=lambda p: p["path"]):
+        source_alias = alias_by_cove_id[page["cove_id"]]
         references = [
             reference
-            for reference in _page_references(page.body, source_alias)
+            for reference in resolve_references(page["reference_targets"], source_alias)
             if (reference["cove"], reference["path"]) in visible_pages
         ]
-        by_cove[page.cove_id].pages.append(
+        by_cove[page["cove_id"]].pages.append(
             {
-                "path": page.path,
-                "title": page.title,
-                "tags": list(page.tags),
-                "description": _summary(page.body),
-                "updated": page.updated_at.isoformat(),
-                "size": len(page.body),
-                "version": page.version,
-                "last_editor": editors.get(page.id),
+                "path": page["path"],
+                "title": page["title"],
+                "tags": list(page["tags"]),
+                "description": page["description"],
+                "updated": page["updated_at"].isoformat(),
+                "size": page["size"],
+                "version": page["version"],
+                "last_editor": editors.get(page["id"]),
                 "references": references,
             }
         )

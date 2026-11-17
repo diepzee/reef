@@ -12,6 +12,7 @@ from datetime import datetime
 from reef import audit
 from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
+from reef.indexfields import index_fields
 from reef.leakguard import overlaps
 from reef.models import Attachment, Cove, CoveKind, Page, Revision
 
@@ -112,9 +113,9 @@ def validate_body(path: str, body: str) -> None:
 
     Pages had no size limit at all while files were capped at 25 MB, so the
     cheapest way to bloat a cove was to write prose into it. The cost is not
-    storage: :func:`reef.context.build_index` reads every accessible body on
-    every call to compute descriptions and references, so one oversized page
-    is paid for by every member, in every conversation, forever.
+    storage: every body is parsed for search and for the index on each save,
+    and loaded whole by anything that reads the page, so one oversized page
+    is paid for by every member who opens it.
 
     The ceiling is deliberately above ``context_char_budget`` -- a page
     larger than the whole context budget cannot be loaded in one piece
@@ -326,6 +327,8 @@ async def save_page(
             tags=tags or [],
             body=body,
             version=1,
+            indexed_version=1,
+            **index_fields(body),
         )
         await page.save()
     else:
@@ -335,6 +338,9 @@ async def save_page(
             )
         page.body = body
         page.version += 1
+        page.indexed_version = page.version
+        for field, value in index_fields(body).items():
+            setattr(page, field, value)
         if title is not None:
             page.title = title
         if tags is not None:

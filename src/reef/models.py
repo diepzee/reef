@@ -169,6 +169,20 @@ class Page(Table, tablename="pages", db=DB):
     version = Integer(default=0)
     created_at = Timestamp(default=TimestampNow())
     updated_at = Timestamp(default=TimestampNow())
+    # What the index shows for this page, derived from ``body`` when the page
+    # is saved -- see ``reef.context.index_fields``. They exist so that
+    # building the index does not have to read every body.
+    #
+    # ``indexed_version`` is what makes them trustworthy. They describe the
+    # body as it was at that version, and are used only while it equals
+    # ``version``. A row written before these columns existed, or by any
+    # future writer that forgets them, simply does not match, and the index
+    # falls back to deriving the values from the body. Stale is impossible;
+    # the worst case is slow.
+    description = Varchar(length=None, null=True, default=None)
+    size = Integer(null=True, default=None)
+    reference_targets = Array(base_column=Varchar(length=None), null=True, default=None)
+    indexed_version = Integer(null=True, default=None)
 
 
 class Revision(Table, tablename="revisions", db=DB):
