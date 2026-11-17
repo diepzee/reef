@@ -22,6 +22,7 @@ from piccolo.columns import (
     ForeignKey,
     Integer,
     OnDelete,
+    Real,
     Timestamp,
     Varchar,
 )
@@ -183,6 +184,9 @@ class Page(Table, tablename="pages", db=DB):
     size = Integer(null=True, default=None)
     reference_targets = Array(base_column=Varchar(length=None), null=True, default=None)
     indexed_version = Integer(null=True, default=None)
+    # The version whose wiki links are in ``links``. Null on a page saved
+    # before links were stored; see reef.links.
+    linked_version = Integer(null=True, default=None)
 
 
 class Revision(Table, tablename="revisions", db=DB):
@@ -308,6 +312,79 @@ class Job(Table, tablename="jobs", db=DB):
     finished_at = Timestamp(null=True, default=None)
 
 
+class LinkKind(StrEnum):
+    """What a link says about its two ends. A closed set."""
+
+    REFERENCES = "references"
+    SUPERSEDES = "supersedes"
+    CONTRADICTS = "contradicts"
+    DERIVED_FROM = "derived_from"
+    ABOUT = "about"
+    PART_OF = "part_of"
+
+
+class LinkSource(StrEnum):
+    """How a link came to exist."""
+
+    AUTHOR = "author"
+    WIKILINK = "wikilink"
+    DREAM = "dream"
+    IMPORT = "import"
+
+
+class LinkStatus(StrEnum):
+    """Whether a link counts. Only ``active`` links are shown or followed."""
+
+    ACTIVE = "active"
+    PROPOSED = "proposed"
+    REJECTED = "rejected"
+    SUPERSEDED = "superseded"
+
+
+class Link(Table, tablename="links", db=DB):
+    """A connection somebody wrote from one page to another.
+
+    Every ``[[wiki link]]`` in a page body becomes one row when the page is
+    saved. A link that leaves the body is marked ``superseded`` and kept, so
+    the table also says what used to be connected and until when.
+
+    A link is visible only to a reader who can read **both** ends. To anyone
+    else it does not exist: not as a link, not as a backlink, not in a
+    count. Row security enforces that, and it also refuses a link from a
+    shared cove into a personal one. See :func:`reef.rls.link_statements`.
+
+    ``target_text`` is the target exactly as written, for a wiki link. It is
+    what decides when the link is retired: by whether those words are still
+    in the body, never by who happens to be saving.
+
+    ``author_id`` is the person whose save made the link exist. That is
+    usually whoever wrote the words. It is the creator of the *target*
+    instead when the words were written first and the page they name came
+    later. Treat it as "who caused this row", not "who wrote this link",
+    before showing it to anyone.
+
+    ``from_anchor`` and ``to_anchor`` are unused today. They leave room for
+    a link that points at a section rather than a whole page.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    from_page_id = ForeignKey(Page, null=False)
+    to_page_id = ForeignKey(Page, null=False)
+    from_anchor = Varchar(null=True, default=None)
+    to_anchor = Varchar(null=True, default=None)
+    kind = Varchar(choices=LinkKind, default=LinkKind.REFERENCES)
+    source = Varchar(choices=LinkSource, default=LinkSource.WIKILINK)
+    status = Varchar(choices=LinkStatus, default=LinkStatus.ACTIVE)
+    target_text = Varchar(length=None, null=True, default=None)
+    confidence = Real(null=True, default=None)
+    valid_from = Timestamp(null=True, default=None)
+    valid_to = Timestamp(null=True, default=None)
+    recorded_at = Timestamp(default=TimestampNow())
+    superseded_at = Timestamp(null=True, default=None)
+    author_id = ForeignKey(Person, null=True, default=None, on_delete=OnDelete.set_null)
+
+
 TABLES = [
     Person,
     Cove,
@@ -318,4 +395,5 @@ TABLES = [
     Promotion,
     CoveAppearance,
     Job,
+    Link,
 ]

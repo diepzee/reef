@@ -21,12 +21,14 @@ from reef.context import backfill_index_fields
 from reef.db import DB, transaction_scope
 from reef.jobs import (
     BACKFILL_INDEX_FIELDS,
+    BACKFILL_LINKS,
     ClaimedJob,
     claim,
     complete,
     fail,
     hold,
 )
+from reef.links import backfill_links
 
 log = logging.getLogger("reef.worker")
 
@@ -50,6 +52,15 @@ async def _backfill_index_fields(principal: Principal, job: ClaimedJob) -> None:
     await backfill_index_fields(principal)
 
 
+async def _backfill_links(principal: Principal, job: ClaimedJob) -> None:
+    """Store the wiki links of the person's pages.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    await backfill_links(principal)
+
+
 #: What this worker knows how to do, by job kind.
 #:
 #: A handler acts as the principal it is given and nobody else. It must never
@@ -57,6 +68,7 @@ async def _backfill_index_fields(principal: Principal, job: ClaimedJob) -> None:
 #: so the job would then be settled as the wrong person.
 HANDLERS: dict[str, Handler] = {
     BACKFILL_INDEX_FIELDS: _backfill_index_fields,
+    BACKFILL_LINKS: _backfill_links,
 }
 
 
