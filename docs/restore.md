@@ -98,7 +98,7 @@ docker compose exec db pg_dump --format=custom -U postgres -d rif > rif-<stamp>.
 docker compose exec db createdb -U postgres -O rif rif_restore
 
 # 3. Restore — run through the same Postgres major version as the server
-#    (here, via docker exec, so it uses postgres:17's own pg_restore). A
+#    (here, via docker exec, so it uses the container's own pg_restore). A
 #    host-installed pg_restore from a different major version will refuse
 #    the dump outright ("unsupported version ... in file header") — on a
 #    Mac with Homebrew's default (non-versioned) postgresql formula this is

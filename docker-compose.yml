@@ -1,6 +1,10 @@
 services:
   db:
-    image: postgres:17
+    # pgvector's image rather than plain postgres: embeddings are stored in
+    # the same database as the pages they describe, inside the same row
+    # security boundary. Major version 18 matches production. The extension
+    # itself is created by docker/initdb, as the superuser -- see there.
+    image: pgvector/pgvector:pg18
     environment:
       # Deliberately NOT POSTGRES_USER: "reef". The image always makes
       # POSTGRES_USER a superuser with BYPASSRLS, and that bit can never be

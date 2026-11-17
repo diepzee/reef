@@ -587,6 +587,44 @@ of which alone meant no backup:**
 
 ---
 
+### pgvector (17 Nov 2026)
+
+reef stores embeddings in the same Postgres as the pages they describe, so
+they sit inside the same row security boundary. That needs the `vector`
+extension.
+
+**Provisioning is a one-time manual step**, for the same reason as
+`rif_authz` above: the extension is not marked "trusted", so creating it
+needs superuser, and neither the app role nor the migration role is one.
+Migrations assume the extension exists and never try to create it.
+
+**Local and CI clusters** get it from `docker/initdb`, on the
+`pgvector/pgvector:pg18` image. A cluster created before 17 Nov 2026 runs
+plain `postgres:17` and cannot be upgraded in place:
+
+```bash
+just db-recreate     # deletes local development data
+just migrate
+```
+
+**Production**, as a superuser, before deploying the first migration that
+adds a vector column:
+
+```bash
+psql "$SUPERUSER_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f scripts/provision_pgvector.sql
+```
+
+The script first prints what the server offers. An empty result there means
+the running Postgres image ships no pgvector, and the `CREATE EXTENSION`
+after it fails without changing anything. Railway's
+`ghcr.io/railwayapp-templates/postgres-ssl:18` image ships pgvector 0.8.7 as
+of 17 Nov 2026, checked by inspecting the image. Whether the *running*
+container was started from a build that has it is not yet confirmed: it may
+predate that build, in which case redeploying the Postgres service picks it
+up. The database has no public address, so this has to be run from inside
+Railway's network.
+
 ## Phase 5 — Content: the import
 
 > **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared

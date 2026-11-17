@@ -47,6 +47,7 @@ _PROVISION = (
     "GRANT CREATE ON SCHEMA public TO reef_authz",
     "GRANT USAGE ON SCHEMA public TO reef_probe",
     "CREATE EXTENSION IF NOT EXISTS pgcrypto",
+    "CREATE EXTENSION IF NOT EXISTS vector",
 )
 
 

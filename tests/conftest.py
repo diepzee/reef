@@ -61,6 +61,17 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
       -c "GRANT USAGE ON SCHEMA public TO {PROBE_ROLE}"
 """
 
+_MISSING_VECTOR_EXTENSION = """
+The vector extension does not exist in the test database.
+
+It is created at cluster bootstrap by docker/initdb, as the superuser: the
+extension is not trusted, so the app role cannot create it for itself.
+
+On a cluster that predates it, `just db-roles` creates it. If that fails
+because the cluster still runs the plain postgres:17 image, `just
+db-recreate` replaces the cluster -- and deletes local development data.
+"""
+
 
 def probe_dsn() -> str:
     """Return the test database DSN with the probe role's credentials.
@@ -149,6 +160,10 @@ async def schema():
         f"SELECT 1 FROM pg_roles WHERE rolname = '{PROBE_ROLE}'"
     ):
         raise RuntimeError(_MISSING_PROBE_ROLE)
+    if not await DB._run_in_new_connection(
+        "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
+    ):
+        raise RuntimeError(_MISSING_VECTOR_EXTENSION)
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     # Granted here rather than in docker/initdb because the tables do not
