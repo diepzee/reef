@@ -670,6 +670,41 @@ any error. The worker's own log lines arrive there too, each with the file
 and line in reef's code that wrote it. No person, no error message and no
 traceback is sent.
 
+**Embeddings (18 Nov 2026).** The worker can embed each page's pieces
+for search by meaning. It is **off** until `REEF_EMBEDDING_URL` is set on
+both `reef-app` and `reef-worker`. While it has never been set, nothing is
+queued and the tables `page_embeddings` and `embedding_spend` are empty.
+
+- **The address must be ours.** Page text is sent there. Point it only at
+  a service this deployment runs itself, on Railway's private network.
+  Never at a hosted embedding API: the privacy page says reef sends pages
+  nowhere on its own.
+- **The protocol** is `POST /v1/embeddings`, as Ollama,
+  text-embeddings-inference, llama.cpp and vLLM answer it.
+- **The model** is `REEF_EMBEDDING_MODEL`, by default
+  `embeddinggemma:300m`. Set the same value on `reef-app` and
+  `reef-worker`: if they differ, the app keeps asking for a backfill that
+  the worker considers done. Every vector stores its model. Change the
+  model and each page is embedded again by the next backfill; a page's old
+  vectors are deleted when its new ones are stored.
+- **What limits the cost.** Unchanged text is never sent again. One job
+  waits per page and person. A save is embedded after
+  `REEF_EMBEDDING_DELAY_SECONDS` (120). At most `REEF_EMBEDDING_DAILY_CAP`
+  (2000) pieces are sent per person per day, and pieces the service failed
+  on count too. In a shared cove each member has their own cap, so a cove's
+  ceiling is the cap times its writing members.
+- **When the service fails** on a page, that page is tried again after 30
+  minutes, and each try counts against the cap. One page may take at most
+  five minutes. The worker logs the class of the error, never the text.
+- **Old pages** are embedded after an assistant of somebody who may write
+  to their cove next loads the index.
+- **A vector is as private as its page.** Do not copy `page_embeddings`
+  anywhere a page may not go: text can be recovered from vectors.
+- **Switching it off** stops new embedding. The vectors already stored
+  stay, also of text since edited out of a page. To remove them:
+  `TRUNCATE page_embeddings;` as a superuser. Pages are embedded again as
+  they are saved or backfilled once the address is set again.
+
 **The search log (18 Nov 2026).** reef can log each search: the query
 text, the pages returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
 is set on `reef-app`. Do not set it before people have been told: the

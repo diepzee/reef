@@ -19,6 +19,8 @@ from piccolo.columns import (
     Array,
     Boolean,
     Bytea,
+    Column,
+    Date,
     ForeignKey,
     Integer,
     OnDelete,
@@ -447,6 +449,64 @@ class SearchLog(Table, tablename="search_log", db=DB):
     searched_at = Timestamp(default=TimestampNow())
 
 
+class Vector(Column):
+    """A pgvector ``vector`` column of any length.
+
+    Only here so that Piccolo creates the column. Values are written and
+    compared in raw SQL, as text cast to ``vector``: see
+    :mod:`reef.embedding`.
+    """
+
+    value_type = str
+
+
+class PageEmbedding(Table, tablename="page_embeddings", db=DB):
+    """The vector of one piece of one page, from one model.
+
+    A page is cut into pieces by :func:`reef.sections.split`. Each piece is
+    embedded, and the vector is stored here. Sections have no rows of their
+    own: this is the only place they exist.
+
+    ``section_anchor`` names the piece within the page, and is null for the
+    page as a whole. ``content_hash`` is the digest of exactly the text that
+    was embedded, so an unchanged piece is never embedded again. ``model_id``
+    and ``dims`` say which model made the vector: vectors of two models
+    cannot be compared, and a query only ever reads its own model's rows.
+
+    Derived data. It is rebuilt from the pages and never restored. A piece
+    is visible exactly when its page is: see
+    :func:`reef.rls.embedding_statements`.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    page_id = ForeignKey(Page, null=False)
+    section_anchor = Varchar(length=None, null=True, default=None)
+    model_id = Varchar()
+    dims = Integer()
+    content_hash = Varchar()
+    embedding = Vector()
+    created_at = Timestamp(default=TimestampNow())
+
+
+class EmbeddingSpend(Table, tablename="embedding_spend", db=DB):
+    """How many pieces were embedded for one person on one day.
+
+    What the daily cap counts. It cannot be counted from
+    ``page_embeddings``: a page rewritten a thousand times leaves a handful
+    of rows there, and that rewriting is exactly what the cap is for.
+
+    ``(person_id, day)`` is unique, by a raw constraint. Private to the
+    person, like their jobs.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    day = Date()
+    pieces = Integer(default=0)
+
+
 class PageHeat(Table, tablename="page_heat", db=DB):
     """How readily one page comes to mind for one person: its activation.
 
@@ -481,4 +541,6 @@ TABLES = [
     PageAccess,
     PageHeat,
     SearchLog,
+    PageEmbedding,
+    EmbeddingSpend,
 ]

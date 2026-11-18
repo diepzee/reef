@@ -15,14 +15,16 @@ import socket
 import time
 from collections.abc import Awaitable, Callable
 
-from reef import searchlog, telemetry
+from reef import embedding, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
 from reef.db import DB, transaction_scope
 from reef.jobs import (
+    BACKFILL_EMBEDDINGS,
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
+    EMBED_PAGE,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -73,6 +75,43 @@ async def _refresh_activation(principal: Principal, job: ClaimedJob) -> None:
     await refresh_activation(principal)
 
 
+async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the changed pieces of the job's pages.
+
+    With no embedding service the job is done and nothing happened: the
+    service was switched off after the job was queued.
+
+    A page that does not fit in today's cap, or that the service failed
+    on, is queued again for later and the job ends normally. It must: the
+    pieces sent are charged in this transaction, and a job that raises is
+    rolled back. Only the class of a failure is logged.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    embedder = embedding.get_embedder()
+    if embedder is None:
+        return
+    for page_id in job.subject_ids:
+        try:
+            await embedding.embed_page(principal, page_id, embedder)
+        except embedding.CapReached:
+            await embedding.request(principal, page_id, delay=embedding.CAP_RETRY)
+        except embedding.ServiceFailed as failure:
+            log.warning("embedding: the service failed on a page (%s)", failure)
+            await embedding.request(principal, page_id, delay=embedding.FAILURE_RETRY)
+
+
+async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
+    """Queue a job for each of the person's pages that has no vectors.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    if embedding.get_embedder() is not None:
+        await embedding.backfill(principal)
+
+
 #: What this worker knows how to do, by job kind.
 #:
 #: A handler acts as the principal it is given and nobody else. It must never
@@ -82,6 +121,8 @@ HANDLERS: dict[str, Handler] = {
     BACKFILL_INDEX_FIELDS: _backfill_index_fields,
     BACKFILL_LINKS: _backfill_links,
     REFRESH_ACTIVATION: _refresh_activation,
+    EMBED_PAGE: _embed_page,
+    BACKFILL_EMBEDDINGS: _backfill_embeddings,
 }
 
 
@@ -233,6 +274,9 @@ async def _main() -> None:
 def main() -> None:
     """Run the worker until it is told to stop."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    # httpx logs every request with its full address at INFO. The embedding
+    # service's address is configuration and has no place in the log.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     telemetry.configure()
     telemetry.forward_logs(log)
     asyncio.run(_main())

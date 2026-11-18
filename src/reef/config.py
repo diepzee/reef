@@ -92,6 +92,19 @@ class Settings(BaseSettings):
     # promises that people are told before a change like this takes effect,
     # so the code ships dark and the operator turns it on afterwards.
     search_log: bool = False
+    # Where the embedding service is. Empty means there is none: nothing is
+    # embedded and nothing is queued. Page text is sent to this address, so
+    # it must be a service this deployment runs itself, on a private network.
+    embedding_url: str = ""
+    # Which model that service serves. Stored with every vector, so a change
+    # of model re-embeds everything rather than mixing two models' vectors.
+    embedding_model: str = "embeddinggemma:300m"
+    # The most pieces embedded for one person in one day. A runaway script
+    # that rewrites pages all day stops costing anything after this many.
+    embedding_daily_cap: int = 2000
+    # How long after a save the page is embedded. A page edited five times
+    # in a row is embedded once.
+    embedding_delay_seconds: float = 120.0
 
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:
