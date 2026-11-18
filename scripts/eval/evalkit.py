@@ -93,7 +93,7 @@ class NotLocal(Exception):
 
 
 def refuse_unless_local(*dsns: str) -> None:
-    """Stop unless every database named is on this machine.
+    """Stop unless every database or service named is on this machine.
 
     The benchmark must never be loaded into production: it would create a
     person nobody invited and thousands of pages of other people's chats.
@@ -110,7 +110,7 @@ def refuse_unless_local(*dsns: str) -> None:
         host = urlsplit(dsn).hostname
         if host not in _LOCAL_HOSTS:
             raise NotLocal(
-                f"the database host {host!r} is not this machine; "
+                f"the host {host!r} is not this machine; "
                 "the benchmark runs locally only"
             )
 
@@ -474,15 +474,21 @@ Searcher = Callable[[Principal, str], Awaitable[list[str]]]
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 
-async def _paths(principal: Principal, query: str) -> list[str]:
+async def _paths(
+    principal: Principal, query: str, *, semantic: bool = False
+) -> list[str]:
     """Search the eval person's pages and return the paths found, best first.
 
     :param principal: the eval person
     :param query: the search text
+    :param semantic: merge in the ranking by meaning, as the product does
+        when it has an embedding service
     :returns: page paths in rank order
     """
     async with transaction_scope():
-        hits = await search_pages(principal, query, cove=_COVE, limit=SEARCH_LIMIT)
+        hits = await search_pages(
+            principal, query, cove=_COVE, limit=SEARCH_LIMIT, semantic=semantic
+        )
     return [hit["path"] for hit in hits if hit["kind"] == "page"]
 
 
@@ -515,9 +521,27 @@ async def lexical_any(principal: Principal, question: str) -> list[str]:
     return await _paths(principal, " or ".join(w for w in words if w != "or"))
 
 
-#: Every way of searching the harness can measure, by name. Later modes
-#: (semantic, hybrid) are added here.
-MODES: dict[str, Searcher] = {"lexical": lexical, "lexical-any": lexical_any}
+async def hybrid(principal: Principal, question: str) -> list[str]:
+    """Search by words and by meaning together, as the product does.
+
+    Needs ``REEF_EMBEDDING_URL`` to point at an embedding service on this
+    machine, and the eval person's pages to have their vectors. Without
+    either it measures keyword search again, which is how the product
+    behaves: compare its score with :func:`lexical` to see which you got.
+
+    :param principal: the eval person
+    :param question: the question
+    :returns: page paths in rank order
+    """
+    return await _paths(principal, question, semantic=True)
+
+
+#: Every way of searching the harness can measure, by name.
+MODES: dict[str, Searcher] = {
+    "lexical": lexical,
+    "lexical-any": lexical_any,
+    "hybrid": hybrid,
+}
 
 
 # --- scoring -------------------------------------------------------------------

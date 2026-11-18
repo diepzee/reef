@@ -37,7 +37,9 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
 import asyncio
+import logging
 import math
+import time
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -66,6 +68,23 @@ PAGE_SECONDS = 300.0
 
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
+
+#: How long a search waits for its question's vector, in seconds. A search
+#: that waits longer than this is worse than a keyword search that answers.
+QUESTION_SECONDS = 2.0
+
+#: How much of a question is embedded, in characters.
+QUESTION_CHARS = 2000
+
+#: How long searches leave the service alone after it failed one, in
+#: seconds. Without it every search would wait out the full
+#: :data:`QUESTION_SECONDS` for as long as the service is down.
+REST_SECONDS = 60.0
+
+#: When searches may ask the service again, on the monotonic clock.
+_resting_until = 0.0
+
+log = logging.getLogger(__name__)
 
 #: How each model wants a passage and a question written, by the start of
 #: its name. These are the forms the experiment of 18 November 2026 was
@@ -212,6 +231,43 @@ def get_embedder() -> Embedder | None:
     return HttpEmbedder(settings.embedding_url, settings.embedding_model)
 
 
+async def embed_question(text: str) -> tuple[str, list[float]] | None:
+    """Embed a search question, quickly or not at all.
+
+    The question goes to the same service the pages go to, and nowhere
+    else. Any failure answers None, and the search carries on with keywords
+    alone. After a failure the service is left alone for
+    :data:`REST_SECONDS`.
+
+    Only the class of an error is logged, never the question.
+
+    :param text: the question as typed
+    :returns: the model's name and the question's vector, or None when
+        there is no service or it did not answer in time
+    """
+    global _resting_until
+    embedder = get_embedder()
+    if embedder is None or time.monotonic() < _resting_until:
+        return None
+    try:
+        async with asyncio.timeout(QUESTION_SECONDS):
+            vectors = _checked(
+                await embedder.embed(
+                    [question(embedder.model_id, text[:QUESTION_CHARS])]
+                ),
+                1,
+            )
+    except (httpx.HTTPError, BadEmbedding, TimeoutError) as error:
+        _resting_until = time.monotonic() + REST_SECONDS
+        log.warning(
+            "search falls back to keywords for %ds: %s",
+            REST_SECONDS,
+            type(error).__name__,
+        )
+        return None
+    return embedder.model_id, vectors[0]
+
+
 def _checked(vectors: list[list[float]], count: int) -> list[list[float]]:
     """Refuse an answer that is not one sound vector per piece.
 
@@ -234,7 +290,7 @@ def _checked(vectors: list[list[float]], count: int) -> list[list[float]]:
     return vectors
 
 
-def _literal(vector: list[float]) -> str:
+def literal(vector: list[float]) -> str:
     """Write a vector the way pgvector reads it.
 
     :param vector: the numbers
@@ -364,7 +420,7 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
             embedder.model_id,
             len(vector),
             piece.content_hash,
-            _literal(vector),
+            literal(vector),
         )
     await _charge(principal, len(missing))
     return len(missing)
