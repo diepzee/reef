@@ -9,6 +9,8 @@ Nothing here is part of the product. It embeds the pages of a test set with
 a local model served by Ollama, scores keyword search, embeddings alone and
 the two fused, and prints one table. Vectors are cached under
 ``scripts/eval/data/out/`` (ignored by git), so a second run is quick.
+Embedding is checkpointed every 2,000 chunks: run the same command again
+after an interruption and it picks up where it stopped.
 
 Text is sent to Ollama on this machine and nowhere else.
 """
@@ -89,31 +91,62 @@ def chunks(body: str) -> list[str]:
     return pieces
 
 
-def embed(model: str, texts: list[str], batch: int = 16) -> np.ndarray:
+#: How many chunks go into one checkpoint file.
+SHARD = 2000
+
+
+def embed(
+    model: str, texts: list[str], batch: int = 16, checkpoint: Path | None = None
+) -> np.ndarray:
     """Embed texts with a local Ollama model.
+
+    With ``checkpoint``, every :data:`SHARD` texts are written to a file in
+    that directory as soon as they are done. A run that was interrupted
+    picks up after the last file, so at most one shard of work is lost.
 
     :param model: the Ollama model name
     :param texts: what to embed
     :param batch: how many texts per request
+    :param checkpoint: a directory for the shard files, or None to keep
+        everything in memory
     :returns: one unit-length row per text
     """
-    rows: list[list[float]] = []
+    shards: list[np.ndarray] = []
+    if checkpoint is not None:
+        checkpoint.mkdir(parents=True, exist_ok=True)
+        for start in range(0, len(texts), SHARD):
+            part = checkpoint / f"part-{start:08d}.npy"
+            if not part.exists():
+                break
+            shards.append(np.load(part))
+    done = sum(len(shard) for shard in shards)
+    if done:
+        print(f"  resuming after {done}/{len(texts)} chunks", flush=True)
     started = time.monotonic()
-    for start in range(0, len(texts), batch):
-        payload = json.dumps(
-            {"model": model, "input": texts[start : start + batch], "truncate": True}
-        ).encode()
-        request = urllib.request.Request(
-            OLLAMA, data=payload, headers={"Content-Type": "application/json"}
-        )
-        with urllib.request.urlopen(request, timeout=600) as response:
-            rows.extend(json.loads(response.read())["embeddings"])
-        if start and start % (batch * 25) == 0:
-            rate = len(rows) / (time.monotonic() - started)
-            left = (len(texts) - len(rows)) / rate / 60
-            print(f"  {len(rows)}/{len(texts)} chunks, {left:.0f} min left", flush=True)
-    matrix = np.asarray(rows, dtype=np.float32)
-    return matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
+    for start in range(done, len(texts), SHARD):
+        rows: list[list[float]] = []
+        for at in range(start, min(start + SHARD, len(texts)), batch):
+            payload = json.dumps(
+                {"model": model, "input": texts[at : at + batch], "truncate": True}
+            ).encode()
+            request = urllib.request.Request(
+                OLLAMA, data=payload, headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(request, timeout=600) as response:
+                rows.extend(json.loads(response.read())["embeddings"])
+        matrix = np.asarray(rows, dtype=np.float32)
+        matrix /= np.linalg.norm(matrix, axis=1, keepdims=True)
+        shards.append(matrix)
+        if checkpoint is not None:
+            # Written under another name first, so a file that exists is whole.
+            temporary = checkpoint / f"part-{start:08d}.tmp.npy"
+            np.save(temporary, matrix)
+            temporary.rename(checkpoint / f"part-{start:08d}.npy")
+        finished = start + len(rows)
+        rate = (finished - done) / (time.monotonic() - started)
+        left = (len(texts) - finished) / rate / 60
+        print(f"  {finished}/{len(texts)} chunks, {left:.0f} min left", flush=True)
+    return np.concatenate(shards) if shards else np.zeros((0, 0), dtype=np.float32)
 
 
 def page_vectors(
@@ -140,7 +173,7 @@ def page_vectors(
     if cache.exists():
         return np.load(cache), np.asarray(owner)
     print(f"embedding {len(texts)} chunks of {len(pages)} pages", flush=True)
-    vectors = embed(model["name"], texts)
+    vectors = embed(model["name"], texts, checkpoint=OUT / f"emb-{tag}-{digest}")
     np.save(cache, vectors)
     return vectors, np.asarray(owner)
 
