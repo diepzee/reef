@@ -4,7 +4,8 @@ Run as::
 
     uv run --with numpy --with sentence-transformers python \
         scripts/eval/experiment_rerank.py --set benchmark|private \
-        [--sections] [--questions N] [--reranker NAME ...]
+        [--sections] [--questions N] [--reranker NAME ...] \
+        [--candidates N] [--passages N]
 
 Run ``experiment_embed.py`` for the same set first: this reads its cached
 vectors. Nothing here is part of the product.
@@ -50,7 +51,7 @@ RERANKERS = {
 
 
 def best_passages(
-    query: np.ndarray, vectors: np.ndarray, owner: np.ndarray, page: int
+    query: np.ndarray, vectors: np.ndarray, owner: np.ndarray, page: int, count: int
 ) -> list[int]:
     """Pick the passages of one page that are closest to the question.
 
@@ -58,11 +59,12 @@ def best_passages(
     :param vectors: every chunk vector
     :param owner: for each chunk the index of its page
     :param page: the page's index
-    :returns: the indexes of its :data:`PASSAGES` best chunks
+    :param count: how many passages to pick
+    :returns: the indexes of its best chunks
     """
     mine = np.flatnonzero(owner == page)
     scores = vectors[mine] @ query
-    return [int(i) for i in mine[np.argsort(-scores)[:PASSAGES]]]
+    return [int(i) for i in mine[np.argsort(-scores)[:count]]]
 
 
 def main() -> None:
@@ -76,8 +78,12 @@ def main() -> None:
         "--reranker", action="append", choices=sorted(RERANKERS), dest="rerankers"
     )
     parser.add_argument("--json", type=Path)
+    parser.add_argument("--candidates", type=int, default=CANDIDATES)
+    parser.add_argument("--passages", type=int, default=PASSAGES)
     args = parser.parse_args()
     evalkit.refuse_unless_local(get_settings().dsn)
+    global CANDIDATES, PASSAGES
+    CANDIDATES, PASSAGES = args.candidates, args.passages
 
     if args.set == "private":
         pages = evalkit.private_pages(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
@@ -109,7 +115,7 @@ def main() -> None:
     for i, question in enumerate(questions):
         semantic = base.semantic_ranking(queries[i], vectors, owner, paths)
         fused = base.fuse(lexical[question.id], semantic, WEIGHT)
-        candidates[question.id] = fused[:CANDIDATES]
+        candidates[question.id] = fused[: args.candidates]
 
     reports = [
         evalkit.score("keyword", questions, lexical),
@@ -118,7 +124,10 @@ def main() -> None:
     reach = sum(bool(set(q.expected) & set(candidates[q.id])) for q in questions) / len(
         questions
     )
-    print(f"a right page is among the {CANDIDATES} candidates for {reach:.1%}")
+    print(
+        f"a right page is among the {args.candidates} candidates for {reach:.1%}; "
+        f"{args.passages} passages each"
+    )
 
     from sentence_transformers import CrossEncoder
 
@@ -134,7 +143,9 @@ def main() -> None:
                 # embedded set only if the two sets differ. Skip it then.
                 if path not in index:
                     continue
-                for chunk in best_passages(queries[i], vectors, owner, index[path]):
+                for chunk in best_passages(
+                    queries[i], vectors, owner, index[path], args.passages
+                ):
                     pairs.append((question.text, texts[chunk]))
                     pair_page.append(path)
             scores = encoder.predict(pairs, batch_size=16, show_progress_bar=False)
