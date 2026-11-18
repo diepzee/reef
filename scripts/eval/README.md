@@ -97,8 +97,24 @@ Rebuild it with `python scripts/eval/seed.py --write-slice tests/fixtures/longme
 
 ## The private set
 
-`scripts/eval/private/` is ignored by git. It is for questions about your
-own pages, which are personal data and must not be committed.
+Questions about your own pages. It tests what the benchmark cannot: Dutch,
+real page style, and the questions you actually ask.
+
+`scripts/eval/private/` is ignored by git. Your pages and the questions
+about them are personal data and must not be committed.
+
+1. On the site, export your pages as JSON. Save the file as
+   `scripts/eval/private/export.json`.
+2. Load it: `just eval-private-seed`. The pages go to a second local person,
+   `private-eval@reef.local`, apart from the benchmark.
+3. Write `scripts/eval/private/questions.json`: a list of entries like
+   `{"id": "1", "kind": "dutch", "text": "...", "expected": ["personal/notes/x.md"]}`.
+   A path is the cove's alias, a slash, and the page's path.
+4. Run it: `just eval-private`.
+
+The export holds only what you can see yourself. Nothing is read from the
+production database, and nobody else's private pages come along. To load a
+newer export, recreate the local database first.
 
 ## Source and licence
 

@@ -2,11 +2,15 @@
 
 Run as: ``python scripts/eval/seed.py [--questions N] [--write-slice PATH]``
 
+With ``--private`` it loads your own export instead, as a second local
+person. See "The private set" in the README.
+
 Never in production: see :func:`evalkit.refuse_unless_local`.
 """
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -76,6 +80,35 @@ async def seed(count: int | None) -> None:
     )
 
 
+async def seed_private(export_path: Path) -> None:
+    """Load your own export as the private eval person's pages.
+
+    :param export_path: the JSON export downloaded from the site
+    :raises FileNotFoundError: if the export is not there
+    """
+    app_dsn = get_settings().dsn
+    seed_dsn = superuser_dsn(app_dsn)
+    evalkit.refuse_unless_local(app_dsn, seed_dsn)
+    if not export_path.exists():
+        raise FileNotFoundError(
+            f"{export_path} is missing. Export your pages as JSON on the site "
+            "and save the file there."
+        )
+    pages = evalkit.private_pages(json.loads(export_path.read_text()))
+    print(f"{len(pages)} pages in the export")
+    await DB.start_connection_pool()
+    try:
+        principal = await evalkit.ensure_eval_person(
+            seed_dsn, evalkit.PRIVATE_EMAIL, "Private eval"
+        )
+        written = await evalkit.seed_pages(
+            principal, pages, progress=_progress, tag="private"
+        )
+    finally:
+        await DB.close_connection_pool()
+    print(f"\nwrote {written} pages; {len(pages) - written} were there already")
+
+
 def _evidence_size(record: dict) -> int:
     """Count the characters in a question's evidence sessions.
 
@@ -128,14 +161,21 @@ def main() -> None:
     parser.add_argument(
         "--write-slice", type=Path, help="write the test slice and stop"
     )
+    parser.add_argument(
+        "--private",
+        nargs="?",
+        type=Path,
+        const=evalkit.PRIVATE_EXPORT,
+        help=f"load your own JSON export instead (default {evalkit.PRIVATE_EXPORT})",
+    )
     args = parser.parse_args()
     if args.write_slice:
         write_slice(args.write_slice)
         return
     count = None if args.questions == "all" else int(args.questions)
     try:
-        asyncio.run(seed(count))
-    except (evalkit.NotLocal, FileNotFoundError) as error:
+        asyncio.run(seed_private(args.private) if args.private else seed(count))
+    except (evalkit.NotLocal, FileNotFoundError, ValueError) as error:
         sys.exit(str(error))
 
 
