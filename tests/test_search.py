@@ -297,3 +297,87 @@ async def test_the_search_vector_is_stored(tx, table):
         table,
     )
     assert indexes == []
+
+
+# --- one missing word no longer rules a page out --------------------------------
+
+
+async def _two_boiler_pages(me) -> None:
+    """Save one page with every word of the query and one with only some.
+
+    :param me: the principal who owns the pages
+    """
+    await save_page(
+        me,
+        "personal",
+        "some.md",
+        "The boiler was serviced. The boiler is fine. Boiler, boiler, boiler.",
+        message="x",
+    )
+    await save_page(
+        me,
+        "personal",
+        "every.md",
+        "The boiler is a Vaillant and was serviced in March.",
+        message="x",
+    )
+
+
+async def test_a_page_missing_one_word_of_the_query_is_still_found(tx, household):
+    """A question in ordinary words used to find nothing."""
+    me = principal_for(household["wouter"])
+    await save_page(
+        me,
+        "personal",
+        "house.md",
+        "The boiler is a Vaillant ecoTEC and was serviced in March.",
+        message="x",
+    )
+    results = await search_pages(me, "which brand is our boiler")
+    assert [r["path"] for r in results] == ["house.md"]
+    assert "**boiler**" in results[0]["snippet"]
+
+
+async def test_a_page_with_every_word_ranks_above_one_with_some(tx, household):
+    me = principal_for(household["wouter"])
+    await _two_boiler_pages(me)
+    results = await search_pages(me, "boiler vaillant march")
+    assert [r["path"] for r in results] == ["every.md", "some.md"]
+
+
+async def test_an_excluded_word_keeps_the_query_strict(tx, household):
+    """``a or not b`` would match nearly every page, so it is never built."""
+    me = principal_for(household["wouter"])
+    await _two_boiler_pages(me)
+    await save_page(me, "personal", "other.md", "Nothing relevant here.", message="x")
+    results = await search_pages(me, "boiler -vaillant")
+    assert [r["path"] for r in results] == ["some.md"]
+
+
+async def test_a_quoted_phrase_stays_a_phrase(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(
+        me, "personal", "apart.md", "Serviced the car. The boiler waits.", message="x"
+    )
+    await save_page(
+        me, "personal", "together.md", "We serviced the boiler today.", message="x"
+    )
+    results = await search_pages(me, '"serviced the boiler"')
+    assert [r["path"] for r in results] == ["together.md"]
+
+
+async def test_a_long_page_does_not_win_by_length_alone(tx, household):
+    """Rank is scaled by length, so repeating a word in a long page is not enough."""
+    me = principal_for(household["wouter"])
+    filler = " ".join(f"word{n}" for n in range(3000))
+    await save_page(me, "personal", "long.md", f"boiler boiler {filler}", message="x")
+    await save_page(me, "personal", "short.md", "The boiler manual.", message="x")
+    results = await search_pages(me, "boiler manual warranty")
+    assert results[0]["path"] == "short.md"
+
+
+async def test_a_nul_byte_in_the_query_cannot_error(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "house.md", "The boiler manual.", message="x")
+    assert [r["path"] for r in await search_pages(me, "boi\x00ler")] == ["house.md"]
+    assert await search_pages(me, "\x00") == []

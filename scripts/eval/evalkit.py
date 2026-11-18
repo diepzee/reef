@@ -404,8 +404,9 @@ async def _paths(principal: Principal, query: str) -> list[str]:
 async def lexical(principal: Principal, question: str) -> list[str]:
     """Search with the question exactly as asked.
 
-    This is search as it ships. It finds a page only if the page holds every
-    word of the query that is not a stop word.
+    This is search as it ships. Since 18 November 2026 it matches pages
+    holding any word of the query and ranks those holding every word first.
+    Before that it required every word.
 
     :param principal: the eval person
     :param question: the question
@@ -417,9 +418,9 @@ async def lexical(principal: Principal, question: str) -> list[str]:
 async def lexical_any(principal: Principal, question: str) -> list[str]:
     """Search for pages holding any word of the question, best match first.
 
-    Still the shipped search, with the query rewritten as alternatives. It
-    shows what keyword ranking can do once a single missing word no longer
-    rules a page out.
+    The shipped search, with the query rewritten as alternatives. It drops
+    the "every word first" ordering, so the gap to :func:`lexical` shows
+    what that ordering is worth.
 
     :param principal: the eval person
     :param question: the question

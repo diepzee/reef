@@ -108,40 +108,77 @@ def _headline(text: str) -> str:
     """
     excerpt = f"left({text}, {INDEXED_CHARS})"
     return (
-        f"CASE WHEN to_tsvector('english', {excerpt}) @@ query.english "
-        f"OR NOT to_tsvector('dutch', {excerpt}) @@ query.dutch "
-        f"THEN ts_headline('english', {text}, query.english, '{_HEADLINE_OPTIONS}') "
-        f"ELSE ts_headline('dutch', {text}, query.dutch, '{_HEADLINE_OPTIONS}') END"
+        f"CASE WHEN to_tsvector('english', {excerpt}) @@ query.english_any "
+        f"OR NOT to_tsvector('dutch', {excerpt}) @@ query.dutch_any "
+        f"THEN ts_headline('english', {text}, query.english_any, '{_HEADLINE_OPTIONS}') "
+        f"ELSE ts_headline('dutch', {text}, query.dutch_any, '{_HEADLINE_OPTIONS}') END"
     )
 
 
-#: The query, parsed once under each configuration.
+#: How ``ts_rank`` weighs a page's length: 1 divides the rank by one plus
+#: the logarithm of the length. Without it a long page outranks a short one
+#: merely for repeating a common word. Chosen by measurement on the
+#: benchmark in ``scripts/eval``: 0 found the right page in the first five
+#: results for 50% of questions, 1 for 53%. Dividing by the length itself
+#: (2) dropped to 22%, and ``ts_rank_cd`` to 34%.
+_RANK_NORMALIZATION = 1
+
+#: The query, parsed once under each configuration, in two readings.
+#:
+#: ``english`` and ``dutch`` are the query as written: every word must be
+#: there. ``english_any`` and ``dutch_any`` are the same query with its
+#: words as alternatives, so a page holding some of them still matches.
+#: Search matches on the loose reading and ranks pages that satisfy the
+#: strict one first. Before this a single absent word ruled a page out,
+#: which is how a question in ordinary words found nothing.
+#:
+#: The loose reading is made by swapping the operator in the parsed query's
+#: text. That is safe because the text holds lexemes, which contain no
+#: spaces, so `` & `` can only be the operator. Quoted phrases keep their
+#: ``<->`` and stay phrases. A query with an exclusion is left strict:
+#: ``a | !b`` would match nearly every page.
 _QUERY_SQL = """
-    WITH query AS (
+    WITH strict AS (
         SELECT
             websearch_to_tsquery('english', {}) AS english,
             websearch_to_tsquery('dutch', {}) AS dutch
+    ),
+    query AS (
+        SELECT
+            english,
+            dutch,
+            CASE WHEN english::text LIKE '%!%' THEN english
+                ELSE replace(english::text, ' & ', ' | ')::tsquery
+            END AS english_any,
+            CASE WHEN dutch::text LIKE '%!%' THEN dutch
+                ELSE replace(dutch::text, ' & ', ' | ')::tsquery
+            END AS dutch_any
+        FROM strict
     ),
 """
 
 #: Rank first, excerpt second. ``ts_headline`` re-parses the whole text, so
 #: it runs only for the rows that survive the limit, not for every match.
-_HITS_SQL = """
+_HITS_SQL = f"""
     hits AS (
         SELECT 'page' AS kind, pages.id, pages.cove_id,
-            ts_rank(search_vector, query.english || query.dutch) AS rank,
+            search_vector @@ (query.english || query.dutch) AS every_word,
+            ts_rank(search_vector, query.english_any || query.dutch_any,
+                {_RANK_NORMALIZATION}) AS rank,
             updated_at AS at
         FROM pages, query
-        WHERE search_vector @@ (query.english || query.dutch){page_filter}
+        WHERE search_vector @@ (query.english_any || query.dutch_any){{page_filter}}
         UNION ALL
         SELECT 'file' AS kind, attachments.id, attachments.cove_id,
-            ts_rank(search_vector, query.english || query.dutch) AS rank,
+            search_vector @@ (query.english || query.dutch) AS every_word,
+            ts_rank(search_vector, query.english_any || query.dutch_any,
+                {_RANK_NORMALIZATION}) AS rank,
             created_at AS at
         FROM attachments, query
-        WHERE search_vector @@ (query.english || query.dutch)
-          AND status = {{}}{file_filter}
-        ORDER BY rank DESC, at DESC
-        LIMIT {{}}
+        WHERE search_vector @@ (query.english_any || query.dutch_any)
+          AND status = {{{{}}}}{{file_filter}}
+        ORDER BY every_word DESC, rank DESC, at DESC
+        LIMIT {{{{}}}}
     )
 """
 
@@ -161,7 +198,7 @@ _RESULTS_SQL = f"""
     CROSS JOIN query
     LEFT JOIN pages ON hits.kind = 'page' AND pages.id = hits.id
     LEFT JOIN attachments ON hits.kind = 'file' AND attachments.id = hits.id
-    ORDER BY hits.rank DESC, hits.at DESC
+    ORDER BY hits.every_word DESC, hits.rank DESC, hits.at DESC
 """
 
 _COVE_FILTER = " AND cove_id = {}"
@@ -196,6 +233,9 @@ async def search_pages(
 
     ``websearch_to_tsquery`` parses the query, so plain words, quoted
     phrases, and ``-exclusions`` all work and malformed input cannot raise.
+    A page need not hold every word: pages that do come first, then pages
+    holding some of them. A query with an exclusion is the exception and
+    stays strict. See :data:`_QUERY_SQL`.
     Files match on filename and description; only files whose bytes landed
     (status ``ready``) appear, because a hit the reader cannot open reads
     as reef losing their file.
@@ -208,7 +248,9 @@ async def search_pages(
         filename; both carry the cove alias, kind, and a snippet
     :raises AccessDenied: when ``cove`` names no cove of the caller's
     """
-    query = query.strip()
+    # Postgres text cannot hold a NUL byte, and one in a parameter fails the
+    # whole statement rather than matching nothing.
+    query = query.replace("\x00", "").strip()
     if not query:
         return []
     limit = max(1, min(limit, _MAX_RESULTS))

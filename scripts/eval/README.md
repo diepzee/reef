@@ -52,30 +52,37 @@ It does not ask a model to answer. It checks retrieval only.
 
 | Mode | What it does |
 |---|---|
-| `lexical` | Search as it ships: the question as typed. A page must hold every word |
-| `lexical-any` | The same search, with the question rewritten so any word may match |
+| `lexical` | Search as it ships: the question as typed |
+| `lexical-any` | The same search, with the question rewritten so its words are alternatives |
 
 New modes are added to `MODES` in `evalkit.py`.
 
-## Baseline
+## Results
 
-Measured on 18 November 2026, 100 questions, 4,546 pages, first five results.
+100 questions, 4,546 pages, first five results.
 
-| Mode | any@5 | all@5 | MRR |
-|---|---|---|---|
-| `lexical` | 24.0% | 10.0% | 0.195 |
-| `lexical-any` | 49.0% | 23.0% | 0.383 |
+| Date | Mode | any@5 | all@5 | MRR | What changed |
+|---|---|---|---|---|---|
+| 18 Nov 2026 | `lexical` | 24.0% | 10.0% | 0.195 | First measurement. A page had to hold every word |
+| 18 Nov 2026 | `lexical` | 53.0% | 24.0% | 0.437 | Any word may match, full matches first, rank scaled by page length |
 
-By question type, `any@5`:
+**53.0% is the line that embeddings have to beat.**
 
-| Type | Questions | `lexical` | `lexical-any` |
-|---|---|---|---|
-| knowledge-update | 15 | 66.7% | 86.7% |
-| multi-session | 26 | 7.7% | 46.2% |
-| single-session-assistant | 12 | 0.0% | 41.7% |
-| single-session-preference | 6 | 0.0% | 0.0% |
-| single-session-user | 14 | 42.9% | 50.0% |
-| temporal-reasoning | 27 | 22.2% | 44.4% |
+By question type, `any@5`, for the current search:
+
+| Type | Questions | `lexical` |
+|---|---|---|
+| knowledge-update | 15 | 73.3% |
+| multi-session | 26 | 50.0% |
+| single-session-assistant | 12 | 75.0% |
+| single-session-preference | 6 | 0.0% |
+| single-session-user | 14 | 42.9% |
+| temporal-reasoning | 27 | 51.8% |
+
+Preference questions share no words with the page that answers them. No
+keyword search finds them.
+
+Add a row to the table whenever a change to search moves the numbers.
 
 ## The slice in the test suite
 
