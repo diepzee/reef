@@ -10,6 +10,7 @@ the worker opens its own, and has to see committed rows.
 """
 
 import asyncio
+from contextlib import contextmanager
 from datetime import timedelta
 from uuid import uuid4
 
@@ -347,6 +348,38 @@ async def test_a_failure_records_the_error_class_and_never_its_message(
     assert _SECRET not in caplog.text
     assert household["wouter"].email not in caplog.text
     assert str(household["wouter"].id) not in caplog.text
+
+
+async def test_a_job_reports_its_outcome_and_error_class_to_telemetry(
+    household, handlers, monkeypatch
+):
+    """The span gets the kind, the outcome and the error's class. No content."""
+    reported = []
+
+    @contextmanager
+    def recording_span(job_id, kind, attempt):
+        result = {}
+        yield result
+        reported.append((kind, attempt, dict(result)))
+
+    monkeypatch.setattr(worker_module.telemetry, "job_span", recording_span)
+
+    async def fail_loudly(principal, job):
+        raise RuntimeError(_SECRET)
+
+    async def succeed(principal, job):
+        return None
+
+    handlers["flaky"] = fail_loudly
+    handlers["fine"] = succeed
+    await _queue(household["wouter"], kind="flaky")
+    await _queue(household["wouter"], kind="fine")
+    await drain(WORKER)
+    assert sorted(reported, key=lambda r: r[0]) == [
+        ("fine", 1, {"outcome": "done"}),
+        ("flaky", 1, {"outcome": "retry", "error_type": "RuntimeError"}),
+    ]
+    assert _SECRET not in str(reported)
 
 
 async def test_a_job_is_given_up_on_after_its_last_attempt(household, handlers, seed):

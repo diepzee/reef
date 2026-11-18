@@ -103,40 +103,46 @@ async def run_job(job: ClaimedJob, worker: str) -> str:
     marked done for work that was rolled back. A failure is recorded in a
     second transaction, after the first has rolled back.
 
-    Logs carry the job's id, kind and outcome, and the *class* of any
-    error. Never the error's message, and never the person.
+    Logs and the telemetry span carry the job's id, kind and outcome, and
+    the *class* of any error. Never the error's message, and never the
+    person.
 
     :param job: the job this worker claimed
     :param worker: the name the job was claimed under
     :returns: ``done``, ``retry``, ``failed``, or ``dropped`` when the job
         was no longer this worker's to do
     """
-    try:
-        async with transaction_scope():
-            principal = await hold(job, worker)
-            if principal is None:
-                log.info("job %s (%s) dropped", job.id, job.kind)
-                return "dropped"
-            handler = HANDLERS.get(job.kind)
-            if handler is None:
-                raise UnknownJobKind(job.kind)
-            await handler(principal, job)
-            await complete(job)
-    # Broad on purpose: whatever a handler raises, the queue must hear of it.
-    except Exception as error:  # noqa: BLE001
-        retrying = await fail(job, worker, error)
-        outcome = "retry" if retrying else "failed"
-        log.warning(
-            "job %s (%s) attempt %d: %s, %s",
-            job.id,
-            job.kind,
-            job.attempts,
-            type(error).__name__,
-            outcome,
-        )
-        return outcome
-    log.info("job %s (%s) done", job.id, job.kind)
-    return "done"
+    with telemetry.job_span(job.id, job.kind, job.attempts) as result:
+        try:
+            async with transaction_scope():
+                principal = await hold(job, worker)
+                if principal is None:
+                    log.info("job %s (%s) dropped", job.id, job.kind)
+                    result["outcome"] = "dropped"
+                    return "dropped"
+                handler = HANDLERS.get(job.kind)
+                if handler is None:
+                    raise UnknownJobKind(job.kind)
+                await handler(principal, job)
+                await complete(job)
+        # Broad on purpose: whatever a handler raises, the queue must hear of it.
+        except Exception as error:  # noqa: BLE001
+            retrying = await fail(job, worker, error)
+            outcome = "retry" if retrying else "failed"
+            log.warning(
+                "job %s (%s) attempt %d: %s, %s",
+                job.id,
+                job.kind,
+                job.attempts,
+                type(error).__name__,
+                outcome,
+            )
+            result["outcome"] = outcome
+            result["error_type"] = type(error).__name__
+            return outcome
+        log.info("job %s (%s) done", job.id, job.kind)
+        result["outcome"] = "done"
+        return "done"
 
 
 async def drain(worker: str) -> int:
@@ -199,6 +205,7 @@ def main() -> None:
     """Run the worker until it is told to stop."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
     telemetry.configure()
+    telemetry.forward_logs(log)
     asyncio.run(_main())
 
 

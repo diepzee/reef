@@ -21,7 +21,11 @@ network. That is a hard requirement, not a convenience: a missing token must
 never be able to fail a request.
 """
 
+import logging
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
+from uuid import UUID
 
 # Fields Logfire scrubs from spans in addition to its own defaults (which
 # already cover password, secret, token, and similar). These are the names
@@ -133,3 +137,77 @@ def instrument_clients() -> None:
     import logfire
 
     logfire.instrument_httpx(capture_headers=False)
+
+
+@contextmanager
+def job_span(job_id: UUID, kind: str, attempt: int) -> Iterator[dict[str, str]]:
+    """Wrap one worker job in a span that says how it went, and nothing else.
+
+    The span carries the job's id, its kind, the attempt number, the outcome
+    and the *class* of any error. Never the person, and never an error's
+    message or traceback: both can quote the content a job was working on.
+    For the same reason the span is always closed as if nothing was raised,
+    so Logfire does not attach an exception that passes through it.
+
+    The caller reports the result by filling the yielded mapping, with
+    ``outcome`` and, on failure, ``error_type``. An exception that escapes
+    is recorded as outcome ``crashed`` with its class, then raised again.
+
+    Anything else that reports to Logfire while the job runs becomes a child
+    of this span. No handler does today. One that starts to, for instance by
+    writing an audit record, which names its actor, would tie that person to
+    this job's id in Logfire. Weigh that before adding one.
+
+    Without telemetry the mapping is still yielded and simply discarded.
+
+    :param job_id: the job's id, a random value that names no person
+    :param kind: the job's kind
+    :param attempt: which attempt this is, counting from one
+    :returns: a context manager yielding the mapping to report the result in
+    """
+    result: dict[str, str] = {}
+    if not _configured:
+        yield result
+        return
+
+    import logfire
+
+    span = logfire.span("job {kind}", kind=kind, job_id=str(job_id), attempt=attempt)
+    span.__enter__()
+    try:
+        yield result
+    except BaseException as error:
+        result["outcome"] = "crashed"
+        result["error_type"] = type(error).__name__
+        raise
+    finally:
+        for name, value in result.items():
+            span.set_attribute(name, value)
+        if result.get("outcome") in {"retry", "failed", "crashed"}:
+            span.set_level("warn" if result["outcome"] == "retry" else "error")
+        span.__exit__(None, None, None)
+
+
+def forward_logs(logger: logging.Logger) -> None:
+    """Send one logger's records to Logfire as well as to where they go now.
+
+    Takes a single named logger on purpose. The root logger would also carry
+    whatever libraries log, and a database driver's error can quote a
+    statement's parameters, which are page bodies. Only pass a logger whose
+    every message is known to be free of content and identity.
+
+    Besides the message and its arguments, the handler sends where in the
+    code the record was logged: file path, line and function name.
+
+    A no-op when :func:`configure` did not run, and safe to call twice.
+
+    :param logger: the logger whose records to forward
+    """
+    if not _configured:
+        return
+
+    import logfire
+
+    if any(isinstance(h, logfire.LogfireLoggingHandler) for h in logger.handlers):
+        return
+    logger.addHandler(logfire.LogfireLoggingHandler())
