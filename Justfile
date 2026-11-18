@@ -197,6 +197,10 @@ eval-seed questions="100":
 eval questions="100":
     {{python}} scripts/eval/run.py --questions {{questions}}
 
+# Create a local account of made-up facts, test@reef.local, to try things by hand.
+test-account:
+    {{python}} scripts/eval/seed.py --test-account
+
 # Load your own JSON export as the private eval person's pages.
 eval-private-seed:
     {{python}} scripts/eval/seed.py --private
