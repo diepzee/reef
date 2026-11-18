@@ -32,12 +32,16 @@ the Dutch stemmer. A query is parsed under both configurations and the two
 are ORed, so either reading of a word can match.
 """
 
+import logging
 import re
 from uuid import UUID
 
 from reef import embedding, searchlog
 from reef.access import Principal, alias_map, resolve_cove
+from reef.db import DB
 from reef.models import AttachmentStatus, Page
+
+log = logging.getLogger(__name__)
 
 #: Text search configurations indexed for every row, in this order. Adding
 #: one changes the stored column's expression, which a migration has to do.
@@ -223,8 +227,18 @@ _KEYWORD_ORDER = "hits.every_word DESC, hits.rank DESC, hits.at DESC"
 
 _RESULTS_SQL = _results_sql(_KEYWORD_ORDER)
 
-#: The keyword ranking alone, for the fusion: which rows, in which order.
-_RANKING_SQL = f"SELECT hits.kind, hits.id FROM hits ORDER BY {_KEYWORD_ORDER}"
+#: The keyword ranking alone, for the fusion: which rows, in which order,
+#: and whether a row is ``sure``. A row is sure when it holds every word of
+#: the query, or when it has no vector to be judged by: a file, or a page
+#: that is not embedded yet. See :func:`fuse` for what that is worth.
+_RANKING_SQL = f"""
+    SELECT hits.kind, hits.id,
+        hits.every_word OR hits.kind = 'file' OR NOT EXISTS (
+            SELECT 1 FROM page_embeddings e
+            WHERE e.page_id = hits.id AND e.model_id = {{}} AND e.dims = {{}}
+        ) AS sure
+    FROM hits ORDER BY {_KEYWORD_ORDER}
+"""
 
 #: The rows the fusion chose, in its order. They pass through the same
 #: joins as a keyword hit, so row security decides once more what is shown.
@@ -268,8 +282,11 @@ SEMANTIC_WEIGHT = 3.0
 
 #: A quoted phrase or an excluded word. Such a query says exactly what a
 #: page must or must not hold, and a ranking by meaning would bring back
-#: the very pages it rules out.
-_EXACT = re.compile(r'"|(?:^|\s)-\S')
+#: the very pages it rules out. Any dash that does not follow a letter or
+#: digit counts, because Postgres reads ``a - b`` and ``a(-b)`` as
+#: exclusions too. That also catches ``a -> b`` and ``-5``, which only
+#: costs those queries the ranking by meaning. ``check-up`` is a word.
+_EXACT = re.compile(r'"|(?<!\w)-')
 
 _COVE_FILTER = " AND cove_id = {}"
 _PAGE_COVE_FILTER = " AND pages.cove_id = {}"
@@ -295,7 +312,7 @@ def _row_payload(row: dict, aliases: dict) -> dict:
 
 
 def fuse(
-    lexical: list[tuple[str, UUID]], semantic: list[UUID]
+    lexical: list[tuple[str, UUID, bool]], semantic: list[UUID]
 ) -> list[tuple[str, UUID]]:
     """Merge the keyword ranking and the meaning ranking into one.
 
@@ -303,44 +320,78 @@ def fuse(
     by the rankings' own scores, which cannot be compared. A row in both
     outranks a row at the same place in one.
 
-    :param lexical: kind and id of the keyword hits, best first
+    A place in the meaning ranking counts :data:`SEMANTIC_WEIGHT` times a
+    place in the keyword ranking. Left at that, any page close in meaning
+    would outrank the best keyword hit that is not, and two kinds of row
+    would vanish from the first results: a file or a fresh page, which has
+    no vector to be close with, and the one page that holds the exact
+    identifier somebody typed, when the model does not place it among the
+    closest. So a keyword hit marked sure that is missing from the meaning
+    ranking is taken to stand as high there as it stands by words. Being
+    absent costs it nothing. A sure hit that is in the meaning ranking is
+    judged by its real place, like any other.
+
+    :param lexical: kind, id and sureness of the keyword hits, best first
     :param semantic: ids of the pages closest in meaning, best first
     :returns: kind and id of every row in either ranking, best first
     """
+    place = {page_id: rank for rank, page_id in enumerate(semantic, 1)}
     score: dict[tuple[str, UUID], float] = {}
-    for rank, key in enumerate(lexical, 1):
-        score[key] = 1.0 / (RRF_K + rank)
-    for rank, page_id in enumerate(semantic, 1):
-        key = ("page", page_id)
-        score[key] = score.get(key, 0.0) + SEMANTIC_WEIGHT / (RRF_K + rank)
+    for rank, (kind, row_id, sure) in enumerate(lexical, 1):
+        by_meaning = place.pop(row_id, None) if kind == "page" else None
+        if sure and by_meaning is None:
+            by_meaning = rank
+        score[(kind, row_id)] = 1.0 / (RRF_K + rank) + (
+            SEMANTIC_WEIGHT / (RRF_K + by_meaning) if by_meaning else 0.0
+        )
+    for page_id, rank in place.items():
+        score[("page", page_id)] = SEMANTIC_WEIGHT / (RRF_K + rank)
     # sorted() is stable, so equal scores keep the keyword ranking's order.
     return sorted(score, key=lambda key: score[key], reverse=True)
 
 
-async def _closest_pages(query: str, cove_ids: list) -> list[UUID]:
+async def _closest_pages(
+    query: str, cove_ids: list
+) -> tuple[list[UUID], str, int] | None:
     """Rank the caller's pages by meaning, if that is possible right now.
+
+    The statement runs inside a savepoint. If it fails, for whatever
+    reason, the savepoint is rolled back and the search goes on with
+    keywords: a failed statement would otherwise abort the transaction and
+    the person would get an error instead of results.
 
     :param query: the search text
     :param cove_ids: the one cove to stay inside, or an empty list
-    :returns: page ids, closest first. Empty when the query is exact, when
-        there is no embedding service, when it did not answer, or when no
-        visible page has a vector of its model.
+    :returns: page ids closest first, with the model and the vector length
+        they were ranked by. None when the query is exact, when there is no
+        embedding service, when it gave no answer, or when no visible page
+        has a vector of its model.
     """
     if _EXACT.search(query):
-        return []
+        return None
     embedded = await embedding.embed_question(query)
     if embedded is None:
-        return []
+        return None
     model_id, vector = embedded
-    rows = await Page.raw(
-        _SEMANTIC_SQL % (_PAGE_COVE_FILTER if cove_ids else ""),
-        model_id,
-        len(vector),
-        *cove_ids,
-        embedding.literal(vector),
-        FUSION_DEPTH,
-    )
-    return [row["id"] for row in rows]
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Page.raw(
+            _SEMANTIC_SQL % (_PAGE_COVE_FILTER if cove_ids else ""),
+            model_id,
+            len(vector),
+            *cove_ids,
+            embedding.literal(vector),
+            FUSION_DEPTH,
+        )
+    # Broad on purpose: whatever went wrong, the search must still answer.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search answers by keywords alone (%s)", type(error).__name__)
+        return None
+    await savepoint.release()
+    if not rows:
+        return None
+    return [row["id"] for row in rows], model_id, len(vector)
 
 
 async def search_pages(
@@ -403,8 +454,9 @@ async def search_pages(
     hits_sql = _QUERY_SQL + _HITS_SQL.format(
         page_filter=cove_filter, file_filter=cove_filter
     )
-    closest = await _closest_pages(query, cove_ids) if semantic else []
+    closest = await _closest_pages(query, cove_ids) if semantic else None
     if closest:
+        page_ids, model_id, dims = closest
         ranking = await Page.raw(
             hits_sql + _RANKING_SQL,
             query,
@@ -413,8 +465,12 @@ async def search_pages(
             ready,
             *cove_ids,
             max(limit, FUSION_DEPTH),
+            model_id,
+            dims,
         )
-        chosen = fuse([(row["kind"], row["id"]) for row in ranking], closest)[:limit]
+        chosen = fuse(
+            [(row["kind"], row["id"], row["sure"]) for row in ranking], page_ids
+        )[:limit]
         rows = await Page.raw(
             _QUERY_SQL + _CHOSEN_SQL + _CHOSEN_RESULTS_SQL,
             query,

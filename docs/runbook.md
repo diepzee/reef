@@ -703,9 +703,13 @@ queued and the tables `page_embeddings` and `embedding_spend` are empty.
   and merges the pages closest in meaning with the pages found by words.
   A query with a quoted phrase or a `-word` is not sent: it stays exact.
 - **When the service is slow or down**, search answers with keywords
-  alone and leaves the service alone for a minute. `reef-app` logs
-  `search falls back to keywords` with the class of the error, never the
-  query. Search itself never fails because of the service.
+  alone. After three failures in a row it leaves the service alone for a
+  minute, then lets one search try again. `reef-app` logs
+  `search answers by keywords alone` with the class of the error, never
+  the query. Search itself never fails because of the service.
+- **Keyword hits keep their place.** A file, a page that is not embedded
+  yet, and a page that holds every word of the query are not pushed down
+  for being absent from the ranking by meaning.
 - **A vector is as private as its page.** Do not copy `page_embeddings`
   anywhere a page may not go: text can be recovered from vectors.
 - **Switching it off** stops new embedding, and search goes back to
