@@ -82,8 +82,6 @@ def main() -> None:
     parser.add_argument("--passages", type=int, default=PASSAGES)
     args = parser.parse_args()
     evalkit.refuse_unless_local(get_settings().dsn)
-    global CANDIDATES, PASSAGES
-    CANDIDATES, PASSAGES = args.candidates, args.passages
 
     if args.set == "private":
         pages = evalkit.private_pages(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
