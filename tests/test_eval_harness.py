@@ -26,8 +26,8 @@ SLICE = Path(__file__).parent / "fixtures" / "longmemeval_slice.json"
 #: lowers a score below its floor has made search worse and must say why.
 #: A change that raises a score should raise its floor.
 FLOORS = {
-    "lexical": {"recall_any": 0.25, "mrr": 0.22},
-    "lexical-any": {"recall_any": 0.70, "mrr": 0.55},
+    "lexical": {"recall_any": 0.75, "mrr": 0.60},
+    "lexical-any": {"recall_any": 0.75, "mrr": 0.60},
 }
 
 
