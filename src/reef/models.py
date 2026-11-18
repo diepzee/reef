@@ -421,6 +421,32 @@ class PageAccess(Table, tablename="page_access", db=DB):
     accessed_at = Timestamp(default=TimestampNow())
 
 
+class SearchLog(Table, tablename="search_log", db=DB):
+    """One search by one person: what they asked and which pages came back.
+
+    Kept to measure search on real questions. Together with the usage log
+    it shows a miss: a page the person opened in the same session that the
+    search before it did not return.
+
+    Strictly per person, like the usage log. The query text is what a person
+    asked their own memory, so a person sees their own rows and nobody
+    else's. See :func:`reef.rls.search_log_statements`.
+
+    ``page_ids`` holds the pages returned, best first. It is a plain array,
+    not a set of foreign keys: a deleted page leaves its id behind, which
+    names nothing. Rows older than :data:`reef.searchlog.RETENTION_DAYS`
+    days are deleted.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    query = Varchar(length=None)
+    page_ids = Array(base_column=UUID())
+    session_id = Varchar(null=True, default=None)
+    searched_at = Timestamp(default=TimestampNow())
+
+
 class PageHeat(Table, tablename="page_heat", db=DB):
     """How readily one page comes to mind for one person: its activation.
 
@@ -454,4 +480,5 @@ TABLES = [
     Link,
     PageAccess,
     PageHeat,
+    SearchLog,
 ]

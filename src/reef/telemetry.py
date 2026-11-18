@@ -36,6 +36,7 @@ SCRUB_PATTERNS = [
     "display_name",
     "email",
     "page_path",
+    "query",
     "section_text",
     "subject",
     "title",

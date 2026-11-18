@@ -88,6 +88,10 @@ class Settings(BaseSettings):
     open_until: str = ""
     # How long the worker waits before looking again when the queue is empty.
     worker_poll_seconds: float = 5.0
+    # Whether searches are logged. Off unless switched on: the privacy page
+    # promises that people are told before a change like this takes effect,
+    # so the code ships dark and the operator turns it on afterwards.
+    search_log: bool = False
 
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:

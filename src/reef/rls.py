@@ -1610,6 +1610,92 @@ def usage_statements() -> list[str]:
     ]
 
 
+SEARCH_LOG_DAYS = 90
+"""How long a logged search is kept. Fixed here, in the purge function's own
+body, so no caller can ask for a shorter time and delete other people's rows
+early."""
+
+SEARCH_LOG_MAX_QUERY = 500
+"""The longest query text stored. A longer one is cut by the application."""
+
+_PURGE_SEARCH_LOG = f"""
+DECLARE
+    removed integer;
+BEGIN
+    DELETE FROM search_log
+    WHERE searched_at < LOCALTIMESTAMP - make_interval(days => {SEARCH_LOG_DAYS});
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END
+"""
+
+
+def search_log_statements() -> list[str]:
+    """Return idempotent DDL arming RLS on the search log, and its purge.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives.
+
+    **The policies.** The table is private to one person, like the usage
+    log. A person may add a row, read their rows and delete them. There is
+    no ``UPDATE`` policy, so a row cannot be rewritten. Nothing looks across
+    people.
+
+    **The purge.** Rows must go after :data:`SEARCH_LOG_DAYS` days, also for
+    a person who never comes back, and no armed connection can delete
+    another person's rows. ``reef_purge_search_log`` is the one exception,
+    kept as small as it can be:
+
+    - It takes **no argument**. The age is fixed in its body, so a caller
+      cannot delete anything younger.
+    - It returns **a count**, never a row. It cannot read a query.
+
+    What a caller of it can do is delete rows that were due for deletion
+    anyway.
+
+    :returns: SQL statements to execute in order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    return [
+        "ALTER TABLE search_log DROP CONSTRAINT IF EXISTS search_log_query_sane",
+        (
+            f"ALTER TABLE search_log ADD CONSTRAINT search_log_query_sane "
+            f"CHECK (char_length(query) BETWEEN 1 AND {SEARCH_LOG_MAX_QUERY})"
+        ),
+        "ALTER TABLE search_log DROP CONSTRAINT IF EXISTS search_log_results_sane",
+        (
+            "ALTER TABLE search_log ADD CONSTRAINT search_log_results_sane "
+            "CHECK (cardinality(page_ids) <= 50)"
+        ),
+        # What a person's own reading of their log uses.
+        (
+            "CREATE INDEX IF NOT EXISTS search_log_recent "
+            "ON search_log (person_id, searched_at DESC)"
+        ),
+        # What the purge scans.
+        "CREATE INDEX IF NOT EXISTS search_log_age ON search_log (searched_at)",
+        "ALTER TABLE search_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE search_log FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS search_log_select ON search_log",
+        "DROP POLICY IF EXISTS search_log_insert ON search_log",
+        "DROP POLICY IF EXISTS search_log_delete ON search_log",
+        f"CREATE POLICY search_log_select ON search_log FOR SELECT USING ({own})",
+        (
+            f"CREATE POLICY search_log_insert ON search_log FOR INSERT "
+            f"WITH CHECK ({own})"
+        ),
+        f"CREATE POLICY search_log_delete ON search_log FOR DELETE USING ({own})",
+        *_function_ddl(
+            "reef_purge_search_log()",
+            _PURGE_SEARCH_LOG,
+            returns="integer",
+            writes=("search_log",),
+            volatility="VOLATILE",
+            language="plpgsql",
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 
