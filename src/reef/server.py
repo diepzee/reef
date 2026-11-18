@@ -381,7 +381,7 @@ async def tool_search(principal: Principal, query: str) -> dict:
     :param query: words to search for
     :returns: ``{"results": [...]}``, each with id, title and url
     """
-    hits = await run_search(principal, query)
+    hits = await run_search(principal, query, log=True)
     # First, and on every search: a connector call carries no memory of the
     # last one, so there is no such thing as offering this once.
     results = [
@@ -877,7 +877,7 @@ async def search_pages(
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await run_search(principal, query, cove=cove, limit=limit)
+        return await run_search(principal, query, cove=cove, limit=limit, log=True)
 
 
 @_read_only("What's new")

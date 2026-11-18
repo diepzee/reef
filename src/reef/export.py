@@ -34,6 +34,7 @@ from reef.models import (
     Person,
     Promotion,
     Revision,
+    SearchLog,
 )
 from reef.pages import list_pages
 
@@ -275,8 +276,8 @@ async def build_full_dump(
     Includes current Markdown pages, the exact index, revision bodies and
     authors, stored file metadata and bytes, cove membership display names,
     the principal's sharing audit rows, the links between the pages they can
-    read, and their own usage log and activation. Other members' usage is
-    never part of it: row security does not return it. Missing object-store bytes are
+    read, and their own usage log, activation and search log. Other members' usage
+    and searches are never part of it: row security does not return them. Missing object-store bytes are
     recorded explicitly in ``data/file-errors.json`` rather than omitted
     silently.
 
@@ -462,10 +463,23 @@ async def build_full_dump(
             .order_by(PageHeat.activation, ascending=False)
         ]
 
+        search_payload = [
+            {
+                "query": row["query"],
+                "returned": [named(page_id) for page_id in row["page_ids"]],
+                "session": row["session_id"],
+                "at": row["searched_at"],
+            }
+            for row in await SearchLog.select()
+            .where(SearchLog.person_id == principal.person_id)
+            .order_by(SearchLog.searched_at)
+        ]
+
         archive.writestr("index.json", _json_bytes(asdict(index)))
         archive.writestr("data/links.json", _json_bytes(link_payload))
         archive.writestr("data/usage.json", _json_bytes(usage_payload))
         archive.writestr("data/activation.json", _json_bytes(activation_payload))
+        archive.writestr("data/searches.json", _json_bytes(search_payload))
         archive.writestr("data/current.json", await build_json_export(principal))
         archive.writestr("data/revisions.json", _json_bytes(revision_payload))
         archive.writestr("data/files.json", _json_bytes(file_metadata))
@@ -492,6 +506,7 @@ async def build_full_dump(
                         "links": len(link_payload),
                         "usage_log": len(usage_payload),
                         "activation": len(activation_payload),
+                        "search_log": len(search_payload),
                     },
                 }
             ),

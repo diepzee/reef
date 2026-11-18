@@ -12,9 +12,10 @@ import logging
 import os
 import signal
 import socket
+import time
 from collections.abc import Awaitable, Callable
 
-from reef import telemetry
+from reef import searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
@@ -158,8 +159,30 @@ async def drain(worker: str) -> int:
     return attempted
 
 
+#: How often the worker deletes search log rows that are past their time.
+PURGE_EVERY_SECONDS = 3600.0
+
+
+async def purge_search_log() -> int:
+    """Delete logged searches that are older than they may be kept.
+
+    Not a job: a job is done for one person, and this is for everybody. It
+    reads no row and needs no principal. See :func:`reef.searchlog.purge`.
+
+    :returns: how many rows were deleted
+    """
+    async with transaction_scope():
+        removed = await searchlog.purge()
+    if removed:
+        log.info("search log: %d old rows deleted", removed)
+    return removed
+
+
 async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
     """Drain the queue, wait, and repeat until asked to stop.
+
+    About once an hour it also deletes old search log rows. A count is
+    logged, never a query.
 
     A stop request is honoured between jobs, never during one: the job in
     hand is finished first.
@@ -172,8 +195,14 @@ async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
     :param stop: set to end the loop
     :param poll_seconds: how long to wait when the queue is empty
     """
+    next_purge = 0.0
     while not stop.is_set():
         try:
+            if time.monotonic() >= next_purge:
+                # Set first, so a purge that fails is tried again in an hour
+                # and not on every pass.
+                next_purge = time.monotonic() + PURGE_EVERY_SECONDS
+                await purge_search_log()
             while not stop.is_set() and (job := await claim(worker)) is not None:
                 await run_job(job, worker)
         # Broad on purpose: no error may end the loop. See the docstring.

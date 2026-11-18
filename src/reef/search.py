@@ -28,6 +28,7 @@ the Dutch stemmer. A query is parsed under both configurations and the two
 are ORed, so either reading of a word can match.
 """
 
+from reef import searchlog
 from reef.access import Principal, alias_map, resolve_cove
 from reef.models import AttachmentStatus, Page
 
@@ -185,6 +186,7 @@ _HITS_SQL = f"""
 _RESULTS_SQL = f"""
     SELECT
         hits.kind,
+        hits.id,
         hits.cove_id,
         pages.path,
         pages.title,
@@ -228,6 +230,8 @@ async def search_pages(
     query: str,
     cove: str | None = None,
     limit: int = 10,
+    *,
+    log: bool = False,
 ) -> list[dict]:
     """Search every page and described file the caller can see, best match first.
 
@@ -244,6 +248,9 @@ async def search_pages(
     :param query: words to search for
     :param cove: restrict to one cove by its alias; all coves when None
     :param limit: maximum results, clamped to a sane ceiling
+    :param log: record the search in the person's search log. Set by the
+        tools a person's assistant calls, not by scripts. See
+        :mod:`reef.searchlog`, which records nothing unless switched on.
     :returns: one dict per hit — pages carry path and title, files key and
         filename; both carry the cove alias, kind, and a snippet
     :raises AccessDenied: when ``cove`` names no cove of the caller's
@@ -268,4 +275,8 @@ async def search_pages(
         + _RESULTS_SQL
     )
     rows = await Page.raw(sql, query, query, *cove_ids, ready, *cove_ids, limit)
+    if log:
+        await searchlog.record(
+            principal, query, [row["id"] for row in rows if row["kind"] == "page"]
+        )
     return [_row_payload(row, aliases) for row in rows]

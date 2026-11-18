@@ -670,6 +670,31 @@ any error. The worker's own log lines arrive there too, each with the file
 and line in reef's code that wrote it. No person, no error message and no
 traceback is sent.
 
+**The search log (18 Nov 2026).** reef can log each search: the query
+text, the pages returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
+is set on `reef-app`. Do not set it before people have been told: the
+privacy page promises that.
+
+- **Private to the person.** Row security hides every other person's rows,
+  as for the usage log. Do not read `search_log` as a superuser. A query is
+  what somebody asked their own memory.
+- **Ninety days.** About once an hour the worker calls
+  `reef_purge_search_log()`, which deletes older rows for everybody. It
+  takes no argument and returns a count. The worker logs that count and
+  nothing else.
+- **To switch it off again,** unset the variable. Rows already stored age
+  out. To remove them at once: `TRUNCATE search_log;` as a superuser.
+- **To count misses across everybody** without reading a query, as a
+  superuser:
+
+```sql
+SELECT count(*) FROM search_log s JOIN page_access a
+  ON a.person_id = s.person_id AND a.session_id = s.session_id
+ AND a.via = 'read' AND a.accessed_at >= s.searched_at
+ AND a.accessed_at < s.searched_at + interval '1 hour'
+WHERE NOT (a.page_id = ANY (s.page_ids));
+```
+
 **Stopping it** is safe at any moment. On a deploy it finishes the job in
 hand and exits. If it is killed mid-job, that job's work rolls back and
 the job is taken again after five minutes.
