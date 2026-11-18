@@ -133,3 +133,26 @@ def test_renaming_the_page_changes_every_digest():
 def test_the_limits_are_what_the_experiment_measured():
     assert (MIN_CHARS, MAX_CHARS) == (200, 2000)
     assert sections.INTRO.startswith("~")
+
+
+def test_a_crafted_heading_cannot_occupy_the_worker():
+    """One line of alternating marks and spaces once took cubic time."""
+    import time
+
+    evil = "## " + "# " * 60_000 + "x #   y"
+    started = time.monotonic()
+    split("T", "", "\n\n".join([evil, LONG * 5, "## Real", LONG * 5]))
+    assert time.monotonic() - started < 1.0
+
+
+def test_closing_marks_are_not_part_of_the_heading():
+    body = _page("## Car ##", LONG * 5, "## C# notes", LONG * 5)
+    paths = [piece.heading_path for piece in split("T", "", body)[1:]]
+    assert ("Car",) in paths
+    assert ("C# notes",) in paths
+
+
+def test_a_very_long_line_is_text_not_a_heading():
+    body = _page("## " + "x" * 400, LONG * 5)
+    anchors = _anchors(split("T", "", body))[1:]
+    assert anchors and all(anchor.startswith(INTRO) for anchor in anchors)

@@ -50,7 +50,14 @@ PAGE_CHARS = 8000
 #: cannot produce it: a slug holds no tilde.
 INTRO = "~intro"
 
-_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
+#: Deliberately simple. An earlier pattern also matched the optional closing
+#: ``#`` marks, and took cubic time on a line of alternating marks and
+#: spaces: one crafted heading could occupy the worker for hours. The
+#: closing marks are stripped in code instead. See :func:`_heading`.
+_HEADING = re.compile(r"^(#{1,6})[ \t]+(.*)$")
+
+#: A line longer than this is not a heading, whatever it starts with.
+_HEADING_CHARS = 300
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _NOT_SLUG = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -81,6 +88,21 @@ def _slug(heading: str) -> str:
     return _NOT_SLUG.sub("-", heading.lower()).strip("-") or "section"
 
 
+def _heading(line: str) -> tuple[int, str] | None:
+    """Read a line as a heading, if it is one.
+
+    :param line: one line of the page
+    :returns: the level and the heading text, or None
+    """
+    if len(line) > _HEADING_CHARS:
+        return None
+    match = _HEADING.match(line)
+    if match is None:
+        return None
+    text = match.group(2).rstrip().rstrip("#").rstrip()
+    return (len(match.group(1)), text) if text else None
+
+
 def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
     """Split a body at its level 1 to 3 headings.
 
@@ -101,13 +123,13 @@ def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
                 fence = mark.group(1)
             elif mark.group(1) == fence:
                 fence = None
-        heading = _HEADING.match(line) if fence is None else None
-        if heading is None or len(heading.group(1)) > 3:
+        heading = _heading(line) if fence is None else None
+        if heading is None or heading[0] > 3:
             blocks[-1][1].append(line)
             continue
-        level = len(heading.group(1))
+        level, text = heading
         path = {k: v for k, v in path.items() if k < level}
-        path[level] = heading.group(2).strip()
+        path[level] = text
         # Level 1 is the page's own title: it scopes nothing below it.
         blocks.append((tuple(path[k] for k in sorted(path) if k > 1), []))
     return [(where, "\n".join(lines).strip()) for where, lines in blocks]
