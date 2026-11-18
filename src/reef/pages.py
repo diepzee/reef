@@ -9,7 +9,7 @@ the ambient transaction, and an unarmed one returns nothing.
 import re
 from datetime import datetime
 
-from reef import audit, usage
+from reef import audit, embedding, usage
 from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
 from reef.indexfields import index_fields
@@ -374,6 +374,7 @@ async def save_page(
         await connect_waiting_links(resolver, page.id, cove.id, page.path)
     if via is not None:
         await usage.record(principal, page.id, via)
+    await embedding.request(principal, page.id)
     return page
 
 

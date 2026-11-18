@@ -42,6 +42,12 @@ BACKFILL_LINKS = "backfill_links"
 #: Recompute a person's activation from their usage log.
 REFRESH_ACTIVATION = "refresh_activation"
 
+#: Embed the changed pieces of the pages named in ``subject_ids``.
+EMBED_PAGE = "embed_page"
+
+#: Embed every page of the person's that has no current vectors.
+BACKFILL_EMBEDDINGS = "backfill_embeddings"
+
 #: Seconds to wait before the second attempt. Each later attempt waits four
 #: times as long as the one before: 30 seconds, 2 minutes, 8, 32.
 _FIRST_RETRY_SECONDS = 30

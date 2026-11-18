@@ -670,6 +670,32 @@ any error. The worker's own log lines arrive there too, each with the file
 and line in reef's code that wrote it. No person, no error message and no
 traceback is sent.
 
+**Embeddings (18 Nov 2026).** The worker can embed each page's pieces
+for search by meaning. It is **off** until `REEF_EMBEDDING_URL` is set on
+both `reef-app` and `reef-worker`. With it unset nothing is queued and the
+tables `page_embeddings` and `embedding_spend` stay empty.
+
+- **The address must be ours.** Page text is sent there. Point it only at
+  a service this deployment runs itself, on Railway's private network.
+  Never at a hosted embedding API: the privacy page says reef sends pages
+  nowhere on its own.
+- **The protocol** is `POST /v1/embeddings`, as Ollama,
+  text-embeddings-inference, llama.cpp and vLLM answer it.
+- **The model** is `REEF_EMBEDDING_MODEL`, by default
+  `embeddinggemma:300m`. Every vector stores its model. Change the model
+  and each page is embedded again the next time it is saved or backfilled;
+  the old model's vectors are deleted then.
+- **What limits the cost:** unchanged text is never embedded again, one job
+  waits per page, a save is embedded after `REEF_EMBEDDING_DELAY_SECONDS`
+  (120), and at most `REEF_EMBEDDING_DAILY_CAP` (2000) pieces are embedded
+  per person per day.
+- **Old pages** are embedded when their owner's assistant next loads the
+  index.
+- **A vector is as private as its page.** Do not copy `page_embeddings`
+  anywhere a page may not go: text can be recovered from vectors.
+- **To start over:** `TRUNCATE page_embeddings;` as a superuser. Pages are
+  embedded again as they are saved or backfilled.
+
 **The search log (18 Nov 2026).** reef can log each search: the query
 text, the pages returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
 is set on `reef-app`. Do not set it before people have been told: the

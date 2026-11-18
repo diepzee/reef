@@ -15,14 +15,16 @@ import socket
 import time
 from collections.abc import Awaitable, Callable
 
-from reef import searchlog, telemetry
+from reef import embedding, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
 from reef.db import DB, transaction_scope
 from reef.jobs import (
+    BACKFILL_EMBEDDINGS,
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
+    EMBED_PAGE,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -73,6 +75,44 @@ async def _refresh_activation(principal: Principal, job: ClaimedJob) -> None:
     await refresh_activation(principal)
 
 
+async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the changed pieces of the job's pages.
+
+    With no embedding service the job is done and nothing happened: the
+    service was switched off after the job was queued. A page that does not
+    fit in today's cap is queued again for later.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    embedder = embedding.get_embedder()
+    if embedder is None:
+        return
+    for page_id in job.subject_ids:
+        try:
+            await embedding.embed_page(principal, page_id, embedder)
+        except embedding.CapReached:
+            await embedding.request(principal, page_id, delay=embedding.CAP_RETRY)
+
+
+async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the person's pages that have no current vectors.
+
+    Stops quietly at the day's cap. The next index load asks again, and
+    what is already embedded is not redone.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    embedder = embedding.get_embedder()
+    if embedder is None:
+        return
+    try:
+        await embedding.backfill(principal, embedder)
+    except embedding.CapReached:
+        return
+
+
 #: What this worker knows how to do, by job kind.
 #:
 #: A handler acts as the principal it is given and nobody else. It must never
@@ -82,6 +122,8 @@ HANDLERS: dict[str, Handler] = {
     BACKFILL_INDEX_FIELDS: _backfill_index_fields,
     BACKFILL_LINKS: _backfill_links,
     REFRESH_ACTIVATION: _refresh_activation,
+    EMBED_PAGE: _embed_page,
+    BACKFILL_EMBEDDINGS: _backfill_embeddings,
 }
 
 

@@ -1696,6 +1696,89 @@ def search_log_statements() -> list[str]:
     ]
 
 
+_EMBEDDING_READ = "page_id IN (SELECT id FROM pages)"
+"""The page is readable. The subquery runs under ``pages``' own policy."""
+
+_EMBEDDING_WRITE = (
+    "page_id IN (SELECT id FROM pages WHERE cove_id IN (SELECT reef_member_cove_ids()))"
+)
+"""The page is in a cove the person may write to. A viewer may search a
+cove's vectors but not replace them: a planted vector would steer every
+other member's search."""
+
+
+def embedding_statements() -> list[str]:
+    """Return idempotent DDL for page embeddings and the daily spend.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives. Needs the ``vector`` extension,
+    which a superuser provisions once: see ``scripts/provision_pgvector.sql``.
+
+    **``page_embeddings``.** A vector is visible exactly when its page is.
+    A vector is not harmless derived data: text can be recovered from an
+    embedding well enough to matter, so it gets the page's own protection
+    and no less. Writing needs write access to the page's cove.
+
+    There is **no vector index**. A search reads one person's rows and
+    compares them all, which is exact and takes milliseconds at the sizes
+    reef has. An index also needs one fixed vector length, and this table
+    holds whatever length its model has. Add one, for one model, when a
+    cove outgrows the exact scan.
+
+    **``embedding_spend``.** Private to the person. One row per person and
+    day.
+
+    :returns: SQL statements to execute in order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    return [
+        "ALTER TABLE page_embeddings DROP CONSTRAINT IF EXISTS page_embeddings_dims",
+        (
+            "ALTER TABLE page_embeddings ADD CONSTRAINT page_embeddings_dims "
+            "CHECK (dims = vector_dims(embedding) AND dims BETWEEN 1 AND 4096)"
+        ),
+        # One vector per piece and model. COALESCE because NULL, the whole
+        # page, must count as one value and not as "never equal".
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS page_embeddings_piece "
+            "ON page_embeddings (page_id, model_id, COALESCE(section_anchor, ''))"
+        ),
+        "ALTER TABLE page_embeddings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE page_embeddings FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS page_embeddings_select ON page_embeddings",
+        "DROP POLICY IF EXISTS page_embeddings_insert ON page_embeddings",
+        "DROP POLICY IF EXISTS page_embeddings_delete ON page_embeddings",
+        (
+            f"CREATE POLICY page_embeddings_select ON page_embeddings "
+            f"FOR SELECT USING ({_EMBEDDING_READ})"
+        ),
+        (
+            f"CREATE POLICY page_embeddings_insert ON page_embeddings "
+            f"FOR INSERT WITH CHECK ({_EMBEDDING_WRITE})"
+        ),
+        (
+            f"CREATE POLICY page_embeddings_delete ON page_embeddings "
+            f"FOR DELETE USING ({_EMBEDDING_WRITE})"
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS embedding_spend_person_day "
+            "ON embedding_spend (person_id, day)"
+        ),
+        "ALTER TABLE embedding_spend DROP CONSTRAINT IF EXISTS embedding_spend_sane",
+        (
+            "ALTER TABLE embedding_spend ADD CONSTRAINT embedding_spend_sane "
+            "CHECK (pieces >= 0)"
+        ),
+        "ALTER TABLE embedding_spend ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE embedding_spend FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS embedding_spend_owner ON embedding_spend",
+        (
+            f"CREATE POLICY embedding_spend_owner ON embedding_spend "
+            f"USING ({own}) WITH CHECK ({own})"
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 

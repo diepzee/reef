@@ -7,6 +7,7 @@ Both entry points assume they run inside :func:`reef.db.transaction_scope`;
 from dataclasses import dataclass
 from uuid import UUID
 
+from reef import embedding
 from reef.access import Principal, accessible_coves, alias_map
 from reef.coves import display_names
 from reef.indexfields import index_fields, resolve_references
@@ -134,6 +135,7 @@ async def _queue_backfills(principal: Principal, pages: list[dict]) -> None:
     :param pages: the index rows, as read: ``indexed_version`` and
         ``linked_version`` still say what was stored
     """
+    await embedding.request_backfill(principal)
     stale = {
         BACKFILL_INDEX_FIELDS: {
             page["cove_id"]

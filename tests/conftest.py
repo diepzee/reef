@@ -28,6 +28,7 @@ from reef.rls import (
     drop_avatar_statements,
     drop_disclosure_statements,
     drop_mutation_statements,
+    embedding_statements,
     enable_statements,
     job_statements,
     link_statements,
@@ -191,6 +192,8 @@ async def schema():
         "page_access",
         "page_heat",
         "search_log",
+        "page_embeddings",
+        "embedding_spend",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -233,6 +236,7 @@ async def schema():
         + link_statements()
         + usage_statements()
         + search_log_statements()
+        + embedding_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
