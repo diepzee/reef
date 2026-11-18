@@ -98,6 +98,14 @@ By question type, `any@5`, for the current search:
 Preference questions share no words with the page that answers them. No
 keyword search finds them.
 
+All 470 questions, 18,239 pages, first five results, through the product
+code with EmbeddingGemma 300m on a local Ollama.
+
+| Date | Mode | any@5 | all@5 | MRR | Per search |
+|---|---|---|---|---|---|
+| 19 Nov 2026 | `lexical` | 37.5% | 18.7% | 0.262 | 0.25 s |
+| 19 Nov 2026 | `hybrid` | 46.8% | 25.1% | 0.333 | 0.60 s |
+
 Add a row to the table whenever a change to search moves the numbers.
 
 ## The slice in the test suite

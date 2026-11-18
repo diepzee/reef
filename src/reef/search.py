@@ -228,17 +228,25 @@ _KEYWORD_ORDER = "hits.every_word DESC, hits.rank DESC, hits.at DESC"
 _RESULTS_SQL = _results_sql(_KEYWORD_ORDER)
 
 #: The keyword ranking alone, for the fusion: which rows, in which order,
-#: and whether a row is ``sure``. A row is sure when it holds every word of
-#: the query, or when it has no vector to be judged by: a file, or a page
-#: that is not embedded yet. See :func:`fuse` for what that is worth.
+#: and whether a row is ``sure``. A row is sure when it has no vector to be
+#: judged by: a file, or a page that is not embedded yet. In a short query
+#: a page that holds every word is sure as well. See :func:`fuse` for what
+#: that is worth. The first parameter says whether the query is short.
 _RANKING_SQL = f"""
     SELECT hits.kind, hits.id,
-        hits.every_word OR hits.kind = 'file' OR NOT EXISTS (
+        ({{}} AND hits.every_word) OR hits.kind = 'file' OR NOT EXISTS (
             SELECT 1 FROM page_embeddings e
             WHERE e.page_id = hits.id AND e.model_id = {{}} AND e.dims = {{}}
         ) AS sure
     FROM hits ORDER BY {_KEYWORD_ORDER}
 """
+
+#: The longest query, in words, in which holding every word makes a page
+#: sure. Somebody who types an identifier or a name wants the page that
+#: has it. In a whole question, holding every word says little: measured on
+#: the benchmark on 19 November 2026, treating those pages as sure as well
+#: found the right page for 44.0% of questions, against 46.0% without.
+SURE_WORDS = 3
 
 #: The rows the fusion chose, in its order. They pass through the same
 #: joins as a keyword hit, so row security decides once more what is shown.
@@ -274,11 +282,19 @@ FUSION_DEPTH = 50
 RRF_K = 60
 
 #: How much a place in the meaning ranking counts, against 1 for a place in
-#: the keyword ranking. Measured on the benchmark in ``scripts/eval`` on
-#: 18 November 2026: 1, 2 and 3 found the right page in the first five
-#: results for 45.7%, 45.7% and 47.4% of questions, against 37.5% for
-#: keywords alone.
-SEMANTIC_WEIGHT = 3.0
+#: the keyword ranking. Measured through this code on 19 November 2026, on
+#: the benchmark in ``scripts/eval`` and on a private set of real pages.
+#: Share of questions with a right page in the first five results:
+#:
+#: ============  =========  =======
+#: weight        benchmark  private
+#: ============  =========  =======
+#: keywords      37.5%      80.0%
+#: 1             47.0%      92.5%
+#: 2             46.8%      100%
+#: 3             46.0%      100%
+#: ============  =========  =======
+SEMANTIC_WEIGHT = 2.0
 
 #: A quoted phrase or an excluded word. Such a query says exactly what a
 #: page must or must not hold, and a ranking by meaning would bring back
@@ -326,7 +342,7 @@ def fuse(
     would vanish from the first results: a file or a fresh page, which has
     no vector to be close with, and the one page that holds the exact
     identifier somebody typed, when the model does not place it among the
-    closest. So a keyword hit marked sure that is missing from the meaning
+    closest. Which hits are sure is decided by :data:`_RANKING_SQL`. So a keyword hit marked sure that is missing from the meaning
     ranking is taken to stand as high there as it stands by words. Being
     absent costs it nothing. A sure hit that is in the meaning ranking is
     judged by its real place, like any other.
@@ -465,6 +481,7 @@ async def search_pages(
             ready,
             *cove_ids,
             max(limit, FUSION_DEPTH),
+            len(query.split()) <= SURE_WORDS,
             model_id,
             dims,
         )

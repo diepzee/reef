@@ -451,7 +451,7 @@ def test_fusion_lets_meaning_outrank_an_unsure_keyword_hit():
 def test_fusion_judges_a_sure_hit_by_its_real_place_when_it_has_one():
     first, second = uuid4(), uuid4()
     merged = fuse([("page", first, True), ("page", second, True)], [second, first])
-    # Closest in meaning wins: the keyword ranking counts for a third of it.
+    # Closest in meaning wins: a place by words counts for less.
     assert merged == [("page", second), ("page", first)]
 
 
