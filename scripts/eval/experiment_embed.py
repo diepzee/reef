@@ -27,10 +27,12 @@ from pathlib import Path
 import evalkit
 import numpy as np
 
+from reef import sections
 from reef.access import Principal
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.identity import person_by_email
+from reef.indexfields import summary
 from reef.search import search_pages
 
 OLLAMA = "http://127.0.0.1:11434/api/embed"
@@ -150,19 +152,26 @@ def embed(
 
 
 def page_vectors(
-    pages: list[evalkit.EvalPage], model: dict, prefix: bool, tag: str
+    pages: list[evalkit.EvalPage], model: dict, prefix: bool | str, tag: str
 ) -> tuple[np.ndarray, np.ndarray]:
     """Embed every chunk of every page, or read the cached result.
 
     :param pages: the pages
     :param model: an entry of :data:`MODELS`
-    :param prefix: put the page title in front of each chunk
+    :param prefix: put the page title in front of each chunk, or
+        ``"sections"`` to cut by heading with :mod:`reef.sections`
     :param tag: names the cache file
     :returns: the chunk vectors, and for each chunk the index of its page
     """
     texts: list[str] = []
     owner: list[int] = []
     for index, page in enumerate(pages):
+        if prefix == "sections":
+            # The product's own cutting: by heading, with context in front.
+            for section in sections.split(page.title, summary(page.body), page.body):
+                texts.append(model["passage"].format(text=section.text))
+                owner.append(index)
+            continue
         for piece in chunks(page.body):
             text = f"{page.title}\n\n{piece}" if prefix and page.title else piece
             texts.append(model["passage"].format(text=text))
@@ -260,6 +269,11 @@ def main() -> None:
     parser.add_argument("--set", choices=["benchmark", "private"], required=True)
     parser.add_argument("--model", choices=sorted(MODELS), required=True)
     parser.add_argument("--prefix", action="store_true")
+    parser.add_argument(
+        "--sections",
+        action="store_true",
+        help="cut pages as the product does: by heading, with context in front",
+    )
     parser.add_argument("--questions", type=int, default=100)
     parser.add_argument("--json", type=Path)
     args = parser.parse_args()
@@ -279,8 +293,11 @@ def main() -> None:
         email, strip = evalkit.EVAL_EMAIL, ""
 
     model = MODELS[args.model]
-    tag = f"{args.set}-{args.model}-{'prefix' if args.prefix else 'plain'}"
-    vectors, owner = page_vectors(pages, model, args.prefix, tag)
+    how = "sections" if args.sections else "prefix" if args.prefix else "plain"
+    tag = f"{args.set}-{args.model}-{how}"
+    vectors, owner = page_vectors(
+        pages, model, "sections" if args.sections else args.prefix, tag
+    )
     paths = [page.path.removeprefix(strip) for page in pages]
     queries = embed(model["name"], [model["query"].format(q=q.text) for q in questions])
 
