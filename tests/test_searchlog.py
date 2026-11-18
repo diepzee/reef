@@ -89,6 +89,22 @@ async def test_a_long_query_is_cut_and_the_search_still_answers(
     assert len(row["query"]) == 500
 
 
+async def test_a_search_still_answers_when_recording_fails(
+    household, logging_on, monkeypatch, caplog
+):
+    """A refused row must not cost the person their results."""
+    monkeypatch.setattr(searchlog, "SEARCH_LOG_MAX_QUERY", 10_000)
+    me = principal_for(household["wouter"])
+    async with transaction_scope():
+        await save_page(me, "personal", "boiler.md", "A boiler.", message="x")
+        results = await tool_search(me, "boiler " * 200)
+        # The transaction is still usable after the refusal.
+        assert await _rows(me) == []
+    assert len(results["results"]) == 2
+    assert "CheckViolationError" in caplog.text
+    assert "boiler" not in caplog.text
+
+
 # --- whose it is ---------------------------------------------------------------
 
 

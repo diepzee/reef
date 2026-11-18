@@ -19,19 +19,27 @@ returns a number. A person's account deletion takes their rows with it.
 **Off by default.** Nothing is recorded unless ``REEF_SEARCH_LOG`` is set.
 The privacy page promises that people are told before this takes effect.
 
+**A search stays a read.** The tools that search are marked read-only for
+the assistant, and they still are: a logged search changes nothing the
+person or their assistant can see in the memory.
+
 It is not the usage log. A page that appears in a search result was not
 used, and nothing here feeds activation. See :mod:`reef.usage`.
 
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
+import logging
 from uuid import UUID, uuid4
 
 from reef.access import Principal, arm
 from reef.config import get_settings
+from reef.db import DB
 from reef.models import SearchLog
 from reef.rls import SEARCH_LOG_DAYS, SEARCH_LOG_MAX_QUERY
 from reef.usage import current_session_id
+
+log = logging.getLogger("reef.searchlog")
 
 #: How many days a logged search is kept.
 RETENTION_DAYS = SEARCH_LOG_DAYS
@@ -40,9 +48,13 @@ RETENTION_DAYS = SEARCH_LOG_DAYS
 async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None:
     """Record one search, if logging is switched on.
 
-    The statement cannot be refused for a legitimate caller: the only rule
-    is that the row is the caller's own, and the text is cut to fit first.
-    So recording does not put the search itself at risk.
+    Recording must never be what makes a search fail. No refusal is expected
+    for a legitimate caller: the only rule is that the row is the caller's
+    own, and the text is cut to fit first. But a failed statement aborts the
+    whole transaction, and the person would get an error instead of their
+    results. So the insert runs inside a savepoint. If it fails, the
+    savepoint is rolled back, the class of the error is logged, and the
+    search goes on. The query text is never logged.
 
     :param principal: the person who searched
     :param query: the search text, already stripped and not empty
@@ -51,15 +63,23 @@ async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None
     if not get_settings().search_log:
         return
     await arm(principal)
-    await SearchLog.raw(
-        "INSERT INTO search_log (id, person_id, query, page_ids, session_id) "
-        "VALUES ({}, {}, {}, {}, {})",
-        uuid4(),
-        principal.person_id,
-        query[:SEARCH_LOG_MAX_QUERY],
-        page_ids,
-        current_session_id(),
-    )
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        await SearchLog.raw(
+            "INSERT INTO search_log (id, person_id, query, page_ids, session_id) "
+            "VALUES ({}, {}, {}, {}, {})",
+            uuid4(),
+            principal.person_id,
+            query[:SEARCH_LOG_MAX_QUERY],
+            page_ids,
+            current_session_id(),
+        )
+    # Broad on purpose: whatever went wrong, the search must still answer.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search log: a search was not recorded (%s)", type(error).__name__)
+    else:
+        await savepoint.release()
 
 
 async def purge() -> int:
@@ -79,6 +99,10 @@ async def misses(principal: Principal) -> list[dict]:
     A miss is a page the person opened in the same session, within the hour
     after a search, that the search had not returned. Only the person's own
     rows are read: row security hides everybody else's.
+
+    A search or a read without a session label is left out. The web
+    interface and scripts have none, and without one there is no telling
+    which read followed which search.
 
     :param principal: the person
     :returns: one dict per miss with the query, the page id and the time,
