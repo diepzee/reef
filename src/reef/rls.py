@@ -1299,6 +1299,128 @@ def drop_open_door_statements() -> list[str]:
     ]
 
 
+JOB_LEASE_SECONDS = 300
+"""How long a claimed job may sit unlocked before another claim may take it.
+
+A worker holds a row lock on its job for as long as it is working, and the
+claim skips locked rows, so a job in progress is never taken however long it
+runs. The lease only covers a worker that died: between claiming and
+locking, or mid-job, when its lock went with its connection."""
+
+JOB_MAX_ATTEMPTS = 5
+"""How many times a job is started before it is given up on."""
+
+_JOB_PREDICATE = f"person_id = {PRINCIPAL}"
+
+_CLAIM_JOB = f"""
+BEGIN
+    -- A job whose worker died on its last allowed attempt would otherwise
+    -- stay 'running' forever: nothing may claim it again, and the worker
+    -- that would have recorded the failure is gone.
+    UPDATE jobs SET status = 'failed', error = 'LeaseExpired',
+        locked_by = NULL, locked_at = NULL, finished_at = LOCALTIMESTAMP
+    WHERE id IN (
+        SELECT d.id FROM jobs d
+        WHERE d.status = 'running'
+          AND d.attempts >= {JOB_MAX_ATTEMPTS}
+          AND d.locked_at < LOCALTIMESTAMP - interval '{JOB_LEASE_SECONDS} seconds'
+        FOR UPDATE SKIP LOCKED
+    );
+    RETURN QUERY
+    UPDATE jobs j SET status = 'running', attempts = j.attempts + 1,
+        locked_by = left(worker, 255), locked_at = LOCALTIMESTAMP
+    WHERE j.id = (
+        SELECT c.id FROM jobs c
+        WHERE (c.status = 'queued' AND c.run_after <= LOCALTIMESTAMP)
+           OR (c.status = 'running' AND c.locked_at
+               < LOCALTIMESTAMP - interval '{JOB_LEASE_SECONDS} seconds')
+        ORDER BY c.run_after, c.created_at
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+    )
+    RETURNING j.id, j.kind::text, j.person_id, j.subject_ids, j.attempts;
+END
+"""
+
+
+def job_statements() -> list[str]:
+    """Return idempotent DDL for the job queue's constraints, policy and claim.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives: historical migrations call that,
+    and they run before ``jobs`` exists.
+
+    **The policy.** One ``FOR ALL`` policy on ownership. A job belongs to
+    the person it is done for; they may queue it, read it and settle it, and
+    nobody else may see that it exists. A job row is not content, but it
+    says when a person was active and how much they wrote, which is private
+    here for the same reason an engram's existence is.
+
+    **The claim.** A worker has to find the next job without knowing whose
+    it is, and under the policy above an unarmed connection sees no jobs at
+    all. ``reef_claim_job`` is the one exception, and it is kept as small as
+    an exception can be:
+
+    - It hands out **one** job per call and marks it taken. It cannot list
+      or count the queue.
+    - It returns **ids only**: the job, its kind, its person and its subject
+      ids. There is no text to return, because a job row holds none.
+    - Everything after the claim -- the work itself, marking it done,
+      recording a failure -- happens armed as the job's person, under the
+      ordinary policy. The function grants no ability to act as anyone.
+
+    What a caller of it *can* do is take jobs it does not finish, which
+    delays them by one lease. That is a nuisance to the queue and discloses
+    nothing. Restricting the function to a dedicated worker role would close
+    it, at the price of one more role provisioned by hand.
+
+    All time arithmetic uses ``LOCALTIMESTAMP`` so that every comparison is
+    made by the database against values the database wrote. The columns are
+    ``timestamp without time zone`` like the rest of the schema, and mixing
+    in a clock from the application would compare two different "nows".
+
+    :returns: SQL statements to execute in order
+    """
+    statuses = "'queued', 'running', 'done', 'failed'"
+    return [
+        "ALTER TABLE jobs DROP CONSTRAINT IF EXISTS jobs_status_known",
+        (
+            f"ALTER TABLE jobs ADD CONSTRAINT jobs_status_known "
+            f"CHECK (status IN ({statuses}))"
+        ),
+        # What the claim scans: only rows that could be claimed.
+        (
+            "CREATE INDEX IF NOT EXISTS jobs_claimable ON jobs (run_after, created_at) "
+            "WHERE status IN ('queued', 'running')"
+        ),
+        # At most one whole-person job of a kind waiting per person, so
+        # "queue it again, to be sure" is free and cannot pile up.
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS jobs_one_queued_per_person_kind "
+            "ON jobs (person_id, kind) "
+            "WHERE status = 'queued' AND cardinality(subject_ids) = 0"
+        ),
+        "ALTER TABLE jobs ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE jobs FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS jobs_owner ON jobs",
+        (
+            f"CREATE POLICY jobs_owner ON jobs "
+            f"USING ({_JOB_PREDICATE}) WITH CHECK ({_JOB_PREDICATE})"
+        ),
+        *_function_ddl(
+            "reef_claim_job(worker text)",
+            _CLAIM_JOB,
+            returns=(
+                "TABLE(job_id uuid, job_kind text, job_person_id uuid, "
+                "job_subject_ids uuid[], job_attempts integer)"
+            ),
+            writes=("jobs",),
+            volatility="VOLATILE",
+            language="plpgsql",
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 

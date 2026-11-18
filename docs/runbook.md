@@ -587,6 +587,104 @@ of which alone meant no backup:**
 
 ---
 
+### pgvector (17 Nov 2026)
+
+reef stores embeddings in the same Postgres as the pages they describe, so
+they sit inside the same row security boundary. That needs the `vector`
+extension.
+
+**Provisioning is a one-time manual step**, for the same reason as
+`rif_authz` above: the extension is not marked "trusted", so creating it
+needs superuser, and neither the app role nor the migration role is one.
+Migrations assume the extension exists and never try to create it.
+
+**Local and CI clusters** get it from `docker/initdb`, on the
+`pgvector/pgvector:pg18` image. A cluster created before 17 Nov 2026 runs
+plain `postgres:17` and cannot be upgraded in place:
+
+```bash
+just db-recreate     # deletes local development data
+just migrate
+```
+
+**Production**, as a superuser, before deploying the first migration that
+adds a vector column:
+
+```bash
+psql "$SUPERUSER_DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f scripts/provision_pgvector.sql
+```
+
+The script first prints what the server offers. An empty result there means
+the running Postgres image ships no pgvector, and the `CREATE EXTENSION`
+after it fails without changing anything. Railway's
+`ghcr.io/railwayapp-templates/postgres-ssl:18` image ships pgvector 0.8.7 as
+of 17 Nov 2026, checked by inspecting the image. Whether the *running*
+container was started from a build that has it is not yet confirmed: it may
+predate that build, in which case redeploying the Postgres service picks it
+up. The database has no public address, so this has to be run from inside
+Railway's network.
+
+---
+
+### The worker (17 Nov 2026)
+
+reef does background work in a second process, the worker. It takes jobs
+from the `jobs` table and does them one at a time. Today the only job
+brings the stored index fields of older pages up to date.
+
+**What it may do.** The worker connects with the same app-role credential
+as the server and holds no other. It cannot read anything on its own. For
+each job it becomes the job's person, exactly as a request does, and row
+security decides what it may touch. It finds the next job through one
+database function, `reef_claim_job`, which returns ids and nothing else.
+
+**Locally:**
+
+```bash
+just worker
+```
+
+**Production: not yet running.** Until the service below exists, jobs
+queue up and wait. Nothing breaks: the index derives the fields it needs
+on every load, as it did before. To start it, add a second Railway service
+from the same repository and image:
+
+- **Start command:** `uv run --frozen --no-dev python -m reef.worker`.
+  This replaces the image's own command on purpose. The worker must not
+  run migrations; the server does that at boot.
+- **Variables:** `DATABASE_URL` for the app role, the same value the server
+  uses. `LOGFIRE_TOKEN` if its logs should reach Logfire. **Not** the
+  migration or backup credentials, the session secret, the signing key or
+  the storage keys. It needs none of them.
+- **No public domain and no volume.** It listens on nothing.
+- **One replica is enough.** More than one is safe: two workers never take
+  the same job.
+
+**Stopping it** is safe at any moment. On a deploy it finishes the job in
+hand and exits. If it is killed mid-job, that job's work rolls back and
+the job is taken again after five minutes.
+
+**Looking at the queue.** A person can see only their own jobs, so the app
+cannot list the queue, and neither can the app role. An operator reads it
+as a superuser:
+
+```sql
+SELECT kind, status, attempts, error, count(*)
+FROM jobs GROUP BY 1, 2, 3, 4 ORDER BY 1, 2;
+```
+
+`error` holds the name of an exception class, never its message, because a
+message can quote the content a job was working on. A job is tried five
+times, waiting longer each time, and then marked `failed`. To try failed
+jobs again after fixing the cause:
+
+```sql
+UPDATE jobs SET status = 'queued', attempts = 0, error = NULL,
+       run_after = LOCALTIMESTAMP, finished_at = NULL
+WHERE status = 'failed' AND kind = 'backfill_index_fields';
+```
+
 ## Phase 5 — Content: the import
 
 > **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared

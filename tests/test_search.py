@@ -8,7 +8,8 @@ here are the point, not an afterthought.
 import pytest
 
 from reef.access import AccessDenied, Principal, arm
-from reef.models import Attachment, AttachmentStatus
+from reef.config import get_settings
+from reef.models import Attachment, AttachmentStatus, Page
 from reef.pages import save_page
 from reef.search import search_pages
 
@@ -201,3 +202,98 @@ async def test_query_syntax_garbage_cannot_error(tx, household):
     await save_page(me, "personal", "notes.md", "The boiler manual.", message="x")
     for garbage in ["boiler AND (", '"unclosed phrase', "a OR OR b", "-"]:
         await search_pages(me, garbage)
+
+
+# --- stored vectors, in two languages ----------------------------------------
+
+
+async def test_dutch_word_forms_reach_their_stem(tx, household):
+    """``contracten`` is found by ``contract`` only through the Dutch stemmer."""
+    me = principal_for(household["wouter"])
+    await save_page(
+        me,
+        "personal",
+        "werk.md",
+        "De contracten worden in maart verlengd.",
+        message="x",
+        title="Werk",
+    )
+    results = await search_pages(me, "contract")
+    assert [r["path"] for r in results] == ["werk.md"]
+
+
+async def test_a_dutch_only_match_is_still_highlighted(tx, household):
+    """The snippet is cut under the configuration that actually matched."""
+    me = principal_for(household["wouter"])
+    await save_page(
+        me,
+        "personal",
+        "werk.md",
+        "Een lange inleiding over de tuin. De contracten worden verlengd. "
+        "Daarna volgt nog tekst over de dakgoten.",
+        message="x",
+    )
+    results = await search_pages(me, "contract")
+    assert "**contracten**" in results[0]["snippet"]
+
+
+async def test_english_word_forms_still_reach_their_stem(tx, household):
+    """Indexing Dutch beside English takes nothing away from English."""
+    me = principal_for(household["wouter"])
+    await save_page(
+        me, "personal", "house.md", "The boilers were serviced.", message="x"
+    )
+    results = await search_pages(me, "boiler servicing")
+    assert [r["path"] for r in results] == ["house.md"]
+    assert "**boilers**" in results[0]["snippet"]
+
+
+async def test_a_file_with_an_enormous_description_is_stored_and_found(tx, household):
+    """An unbounded description cannot push its search vector past the limit.
+
+    Postgres refuses a ``tsvector`` over one megabyte. Descriptions have no
+    ceiling, so without a bound on what is indexed this insert would fail --
+    and before vectors were stored, it was every later search that failed.
+    """
+    me = principal_for(household["wouter"])
+    unique_words = " ".join(f"word{number:016d}" for number in range(70_000))
+    await _add_file(
+        me,
+        household["w_personal"],
+        "attachments/huge",
+        "huge.txt",
+        f"Signed rental agreement. {unique_words}",
+    )
+    results = await search_pages(me, "rental agreement")
+    assert [r["key"] for r in results] == ["attachments/huge"]
+
+
+async def test_a_page_of_unique_words_at_the_ceiling_is_stored(tx, household):
+    """The worst realistic page still fits: every word distinct, at full size."""
+    me = principal_for(household["wouter"])
+    ceiling = get_settings().page_max_chars
+    words = " ".join(f"é{number:x}" for number in range(40_000))[:ceiling]
+    await save_page(me, "personal", "big.md", words, message="x")
+    assert await search_pages(me, "é1f") != []
+
+
+@pytest.mark.parametrize("table", ["pages", "attachments"])
+async def test_the_search_vector_is_stored(tx, table):
+    """Both tables carry a generated vector column, and no index on it.
+
+    The index is absent on purpose: under row security the planner cannot
+    use it for a text match, so it would only slow writes down. See the
+    module docstring of ``reef.search``.
+    """
+    generated = await Page.raw(
+        "SELECT is_generated FROM information_schema.columns "
+        "WHERE table_name = {} AND column_name = 'search_vector'",
+        table,
+    )
+    assert [row["is_generated"] for row in generated] == ["ALWAYS"]
+    indexes = await Page.raw(
+        "SELECT indexdef FROM pg_indexes "
+        "WHERE tablename = {} AND indexdef LIKE '%search_vector%'",
+        table,
+    )
+    assert indexes == []

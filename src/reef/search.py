@@ -1,69 +1,168 @@
 """Full-text search across the caller's pages and files, under RLS.
 
-Postgres FTS, no embeddings: the spec's escalation path is
+Postgres FTS, no embeddings yet: the spec's escalation path is
 index-plus-selective-read, and this is the selective part. The query runs
 in the same armed transaction as every other read, so the row-level
 policies scope it — a search can only ever rank content the caller could
 have read anyway, and a forgotten filter returns nothing rather than
 somebody else's memories.
+
+The searchable text of a row is stored, not recomputed. Each table carries
+a generated ``search_vector`` column, declared by :func:`search_statements`.
+Before that, every search parsed every visible body, which was nearly all
+of what a search cost.
+
+There is deliberately **no GIN index** on that column. Postgres will not use
+one here: a condition from the query may only become an index condition on a
+row-secured table if its operator is marked leakproof, and the text match
+operator ``@@`` is not. Measured on Postgres 18, the same query uses the
+index as a superuser and falls back to a sequential scan as the app role.
+The index would cost every write and serve no read. Marking the operator
+leakproof needs superuser and weakens the guarantee that a query touches
+only rows its caller may read, so it is not done.
+
+Two text search configurations are indexed side by side, English and Dutch,
+because reef's pages are written in both and a page does not say which.
+Stemming is per language: ``contracten`` reaches ``contract`` only through
+the Dutch stemmer. A query is parsed under both configurations and the two
+are ORed, so either reading of a word can match.
 """
 
 from reef.access import Principal, alias_map, resolve_cove
 from reef.models import AttachmentStatus, Page
 
+#: Text search configurations indexed for every row, in this order. Adding
+#: one changes the stored column's expression, which a migration has to do.
+SEARCH_CONFIGS = ("english", "dutch")
+
+#: How much of a body or description is indexed. Equal to the default page
+#: ceiling (``page_max_chars``), so a page is indexed whole. It exists for
+#: file descriptions, which have no ceiling: Postgres refuses a ``tsvector``
+#: past one megabyte, and without a bound one enormous description would
+#: fail its own upload. Measured at this length, the worst realistic text --
+#: nothing but unique words -- stays under that limit in both
+#: configurations together. Text made only of unique words in four-byte
+#: scripts can still exceed it, and such a write is refused by the database.
+INDEXED_CHARS = 200_000
+
 #: Snippets bold their matches as Markdown, the format every reader here speaks.
 _HEADLINE_OPTIONS = "StartSel=**, StopSel=**, MaxWords=25, MinWords=8"
 
-#: Title matches count as headline hits, body matches as supporting text.
-_PAGE_VECTOR = (
-    "setweight(to_tsvector('english', coalesce(title, '')), 'A') "
-    "|| setweight(to_tsvector('english', body), 'B')"
-)
 
-#: Filenames are short identifiers, descriptions the substance — same split.
-_FILE_VECTOR = (
-    "setweight(to_tsvector('english', coalesce(filename, '')), 'A') "
-    "|| setweight(to_tsvector('english', description), 'B')"
-)
+def _vector(heading: str, content: str) -> str:
+    """Return the SQL expression for a row's search vector.
 
-_PAGES_SQL = f"""
-    SELECT
-        'page' AS kind,
-        cove_id,
-        path,
-        title,
-        NULL AS key,
-        NULL AS filename,
-        ts_headline(
-            'english', body, websearch_to_tsquery('english', {{}}),
-            '{_HEADLINE_OPTIONS}'
-        ) AS snippet,
-        ts_rank({_PAGE_VECTOR}, websearch_to_tsquery('english', {{}})) AS rank,
-        updated_at AS at
-    FROM pages
-    WHERE {_PAGE_VECTOR} @@ websearch_to_tsquery('english', {{}})
+    Headings count as headline hits (weight A), content as supporting text
+    (weight B), once per configuration in :data:`SEARCH_CONFIGS`. Every
+    function in it is immutable, which a generated column requires.
+
+    :param heading: SQL expression for the short identifying text
+    :param content: SQL expression for the long text
+    :returns: a ``tsvector`` expression
+    """
+    return " || ".join(
+        f"setweight(to_tsvector('{config}', coalesce({heading}, '')), 'A') || "
+        f"setweight(to_tsvector('{config}', "
+        f"left(coalesce({content}, ''), {INDEXED_CHARS})), 'B')"
+        for config in SEARCH_CONFIGS
+    )
+
+
+def search_statements() -> list[str]:
+    """Return DDL for the stored search vectors.
+
+    Piccolo has no syntax for a generated column, so this is raw DDL in the
+    same way ``reef.rls.constraint_statements`` is. The tables' Piccolo
+    definitions deliberately do not declare ``search_vector``: Piccolo names
+    its columns explicitly in every statement, so an undeclared column is
+    never written, and Postgres would refuse a write to a generated column
+    anyway.
+
+    Titles and filenames are the heading; bodies and descriptions the
+    content. Changing the expression means dropping and re-adding the
+    column in a new migration -- ``IF NOT EXISTS`` here will not notice.
+
+    :returns: SQL statements to execute in order
+    """
+    statements = []
+    for table, heading, content in (
+        ("pages", "title", "body"),
+        ("attachments", "filename", "description"),
+    ):
+        statements.append(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector "
+            f"tsvector GENERATED ALWAYS AS ({_vector(heading, content)}) STORED"
+        )
+    return statements
+
+
+def _headline(text: str) -> str:
+    """Return the SQL expression for a snippet of ``text``.
+
+    The snippet is cut under the English configuration unless only the Dutch
+    reading of the query matches the text, because ``ts_headline`` highlights
+    by stem and an English stemmer leaves a Dutch match unmarked.
+
+    :param text: SQL expression for the text to excerpt
+    :returns: a text expression
+    """
+    excerpt = f"left({text}, {INDEXED_CHARS})"
+    return (
+        f"CASE WHEN to_tsvector('english', {excerpt}) @@ query.english "
+        f"OR NOT to_tsvector('dutch', {excerpt}) @@ query.dutch "
+        f"THEN ts_headline('english', {text}, query.english, '{_HEADLINE_OPTIONS}') "
+        f"ELSE ts_headline('dutch', {text}, query.dutch, '{_HEADLINE_OPTIONS}') END"
+    )
+
+
+#: The query, parsed once under each configuration.
+_QUERY_SQL = """
+    WITH query AS (
+        SELECT
+            websearch_to_tsquery('english', {}) AS english,
+            websearch_to_tsquery('dutch', {}) AS dutch
+    ),
 """
 
-_FILES_SQL = f"""
-    SELECT
-        'file' AS kind,
-        cove_id,
-        NULL AS path,
-        NULL AS title,
-        object_key AS key,
-        filename,
-        ts_headline(
-            'english', description, websearch_to_tsquery('english', {{}}),
-            '{_HEADLINE_OPTIONS}'
-        ) AS snippet,
-        ts_rank({_FILE_VECTOR}, websearch_to_tsquery('english', {{}})) AS rank,
-        created_at AS at
-    FROM attachments
-    WHERE {_FILE_VECTOR} @@ websearch_to_tsquery('english', {{}})
-      AND status = {{}}
+#: Rank first, excerpt second. ``ts_headline`` re-parses the whole text, so
+#: it runs only for the rows that survive the limit, not for every match.
+_HITS_SQL = """
+    hits AS (
+        SELECT 'page' AS kind, pages.id, pages.cove_id,
+            ts_rank(search_vector, query.english || query.dutch) AS rank,
+            updated_at AS at
+        FROM pages, query
+        WHERE search_vector @@ (query.english || query.dutch){page_filter}
+        UNION ALL
+        SELECT 'file' AS kind, attachments.id, attachments.cove_id,
+            ts_rank(search_vector, query.english || query.dutch) AS rank,
+            created_at AS at
+        FROM attachments, query
+        WHERE search_vector @@ (query.english || query.dutch)
+          AND status = {{}}{file_filter}
+        ORDER BY rank DESC, at DESC
+        LIMIT {{}}
+    )
 """
 
-_ORDER_SQL = " ORDER BY rank DESC, at DESC LIMIT {}"
+_RESULTS_SQL = f"""
+    SELECT
+        hits.kind,
+        hits.cove_id,
+        pages.path,
+        pages.title,
+        attachments.object_key AS key,
+        attachments.filename,
+        CASE WHEN hits.kind = 'page'
+            THEN {_headline("pages.body")}
+            ELSE {_headline("attachments.description")}
+        END AS snippet
+    FROM hits
+    CROSS JOIN query
+    LEFT JOIN pages ON hits.kind = 'page' AND pages.id = hits.id
+    LEFT JOIN attachments ON hits.kind = 'file' AND attachments.id = hits.id
+    ORDER BY hits.rank DESC, hits.at DESC
+"""
 
 _COVE_FILTER = " AND cove_id = {}"
 
@@ -115,32 +214,16 @@ async def search_pages(
     limit = max(1, min(limit, _MAX_RESULTS))
     aliases = await alias_map(principal)
     ready = AttachmentStatus.READY.value
+    cove_filter = ""
+    cove_ids: list = []
     if cove is not None:
         target = await resolve_cove(principal, cove)
-        sql = (
-            _PAGES_SQL
-            + _COVE_FILTER
-            + " UNION ALL "
-            + _FILES_SQL
-            + _COVE_FILTER
-            + _ORDER_SQL
-        )
-        rows = await Page.raw(
-            sql,
-            query,
-            query,
-            query,
-            target.id,
-            query,
-            query,
-            query,
-            ready,
-            target.id,
-            limit,
-        )
-    else:
-        sql = _PAGES_SQL + " UNION ALL " + _FILES_SQL + _ORDER_SQL
-        rows = await Page.raw(
-            sql, query, query, query, query, query, query, ready, limit
-        )
+        cove_filter = _COVE_FILTER
+        cove_ids = [target.id]
+    sql = (
+        _QUERY_SQL
+        + _HITS_SQL.format(page_filter=cove_filter, file_filter=cove_filter)
+        + _RESULTS_SQL
+    )
+    rows = await Page.raw(sql, query, query, *cove_ids, ready, *cove_ids, limit)
     return [_row_payload(row, aliases) for row in rows]

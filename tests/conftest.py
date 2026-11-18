@@ -29,10 +29,12 @@ from reef.rls import (
     drop_disclosure_statements,
     drop_mutation_statements,
     enable_statements,
+    job_statements,
     open_door_statements,
     person_column_grant_statements,
     session_epoch_statements,
 )
+from reef.search import search_statements
 
 CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
 
@@ -59,6 +61,17 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
     PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test \\
       -c "GRANT CONNECT ON DATABASE reef_test TO {PROBE_ROLE}" \\
       -c "GRANT USAGE ON SCHEMA public TO {PROBE_ROLE}"
+"""
+
+_MISSING_VECTOR_EXTENSION = """
+The vector extension does not exist in the test database.
+
+It is created at cluster bootstrap by docker/initdb, as the superuser: the
+extension is not trusted, so the app role cannot create it for itself.
+
+On a cluster that predates it, `just db-roles` creates it. If that fails
+because the cluster still runs the plain postgres:17 image, `just
+db-recreate` replaces the cluster -- and deletes local development data.
 """
 
 
@@ -149,6 +162,10 @@ async def schema():
         f"SELECT 1 FROM pg_roles WHERE rolname = '{PROBE_ROLE}'"
     ):
         raise RuntimeError(_MISSING_PROBE_ROLE)
+    if not await DB._run_in_new_connection(
+        "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
+    ):
+        raise RuntimeError(_MISSING_VECTOR_EXTENSION)
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     # Granted here rather than in docker/initdb because the tables do not
@@ -166,6 +183,7 @@ async def schema():
         "coves",
         "persons",
         "cove_appearances",
+        "jobs",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -195,14 +213,16 @@ async def schema():
         + drop_avatar_statements()
     ):
         await DB._run_in_new_connection(statement)
-    # appearance_statements, avatar_statements and open_door_statements are
-    # listed separately on purpose: none is part of enable_statements,
-    # because historical migrations call that and predate the table and the
-    # columns each needs. See their docstrings.
+    # appearance_statements, job_statements, avatar_statements and
+    # open_door_statements are listed separately on purpose: none is part of
+    # enable_statements, because historical migrations call that and predate
+    # the table and the columns each needs. See their docstrings.
     for statement in (
         constraint_statements()
+        + search_statements()
         + enable_statements()
         + appearance_statements()
+        + job_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()

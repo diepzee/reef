@@ -74,3 +74,22 @@ CREATE ROLE reef_probe WITH LOGIN PASSWORD 'probe' NOSUPERUSER NOBYPASSRLS
 GRANT CONNECT ON DATABASE reef_test TO reef_probe;
 GRANT USAGE ON SCHEMA public TO reef_probe;
 REVOKE CREATE ON SCHEMA public FROM reef_probe;
+
+-- pgvector, for embeddings.
+--
+-- Created here, as the superuser, because the extension is not marked
+-- "trusted": only a superuser may run CREATE EXTENSION vector, and "reef" is
+-- deliberately an ordinary role (see the header of this file). Production
+-- has the same shape -- the migration role is not a superuser either -- so
+-- there it is a one-time manual step, scripts/provision_pgvector.sql.
+--
+-- Migrations may therefore assume the extension exists and must never try
+-- to create it: CREATE EXTENSION IF NOT EXISTS is a harmless no-op when it
+-- is present, and a permission error when it is not.
+--
+-- Per database, hence the reconnects. A cluster that predates this file
+-- gets it from `just db-roles`.
+\c reef
+CREATE EXTENSION IF NOT EXISTS vector;
+\c reef_test
+CREATE EXTENSION IF NOT EXISTS vector;

@@ -86,8 +86,23 @@ db-roles:
     GRANT USAGE ON SCHEMA public TO reef_probe;
     SQL
       psql -d "$db" -q -c "GRANT CONNECT ON DATABASE $db TO reef_probe" || true
+      # Superuser-only, like the roles above. This fails on a cluster still
+      # running the plain postgres:17 image, which has no pgvector to
+      # create: recreate it with `just db-recreate`.
+      psql -d "$db" -q -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"
     done
     echo "roles present: reef_authz (NOLOGIN BYPASSRLS), reef_probe (ordinary)"
+    echo "extension present: vector"
+
+# A major-version or image change cannot reuse the old data directory, so the
+# volume has to go. This is the one recipe here that deletes development data.
+
+# Destroy the local cluster and its data, then bootstrap a fresh one.
+db-recreate:
+    docker compose down --volumes
+    docker compose up -d db
+    @echo "Waiting for Postgres…" && just _db-wait
+    @echo "Fresh cluster. Run 'just migrate' to rebuild the development schema."
 
 # Apply migrations to the development database.
 migrate:
@@ -105,6 +120,9 @@ db-reset-test:
     DROP SCHEMA public CASCADE;
     CREATE SCHEMA public;
     GRANT ALL ON SCHEMA public TO reef;
+    -- The extension's objects lived in the schema that was just dropped, so
+    -- the cascade took the extension with it.
+    CREATE EXTENSION IF NOT EXISTS vector;
     GRANT USAGE ON SCHEMA public TO reef_probe;
     -- Both spellings of the authz role: it was renamed once, and a cluster
     -- may carry either. Granting only the old one leaves the new one unable
@@ -167,6 +185,10 @@ fmt:
 dev email="wouter@example.test":
     PORT=8000 REEF_DEV_INSECURE=1 REEF_DEV_PRINCIPAL_EMAIL={{email}} \
       {{python}} -m reef.server
+
+# Run the background worker against the local database.
+worker:
+    {{python}} -m reef.worker
 
 # Run the frontend dev server against a local backend.
 dev-frontend:
