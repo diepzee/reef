@@ -39,6 +39,7 @@ from reef.context import build_index, load_context
 from reef.coves import CoveError, member_names, member_roster
 from reef.db import transaction_scope
 from reef.invitations import InviteBudgetExceeded
+from reef.links import links_of
 from reef.models import MemberRole, Membership, Page
 from reef.pages import (
     InvalidPath,
@@ -502,6 +503,7 @@ async def tool_read_page(
         "body": page.body,
         "version": page.version,
         "updated": page.updated_at.isoformat(),
+        **await links_of(principal, page.id),
     }
 
 
@@ -737,8 +739,9 @@ async def load_index() -> dict:
 
     The ``operating_protocol`` field carries your operating protocol and
     persona — read it and follow it. The rest is the index: every page you
-    can see — path, title, tags, and a one-line description — plus described
-    files, per cove. It contains no page bodies: read the index, decide
+    can see — path, title, tags, a one-line description, and ``inbound``, how
+    many other pages link to it — plus described files, per cove. It
+    contains no page bodies: read the index, decide
     which entries this conversation needs, and fetch them with read_pages.
     Fetch again as new topics come up; never answer from the index's
     descriptions alone.
@@ -796,6 +799,11 @@ async def read_page(cove: str, path: str, as_of: str | None = None) -> dict:
 
     Pass ``as_of`` to read the page as it stood at a past moment — "what
     did we know in March" — reconstructed from its revision history.
+
+    ``links`` lists the pages this one links to with ``[[wiki links]]``, and
+    ``linked_from`` the pages that link to it. Follow them when the page
+    alone does not answer the question. A read with ``as_of`` carries
+    neither.
 
     :param cove: ``personal`` or a cove name from list_coves
     :param path: page path, for example ``recipes.md``

@@ -1421,6 +1421,114 @@ def job_statements() -> list[str]:
     ]
 
 
+_LINK_READ = (
+    "from_page_id IN (SELECT id FROM pages) AND to_page_id IN (SELECT id FROM pages)"
+)
+"""Both ends readable. The subqueries run under ``pages``' own policy, so
+"in pages" already means "in pages this person may read"."""
+
+_LINK_WRITE = (
+    "from_page_id IN (SELECT id FROM pages "
+    "WHERE cove_id IN (SELECT reef_member_cove_ids())) "
+    "AND to_page_id IN (SELECT id FROM pages) "
+    f"AND author_id = {PRINCIPAL} "
+    # Never from a shared cove into a personal one. The reader rule above
+    # would hide such a link from the other members anyway; this keeps it
+    # from being stored at all, so no later mistake can reveal it.
+    "AND (NOT EXISTS (SELECT 1 FROM pages t JOIN coves c ON c.id = t.cove_id "
+    "WHERE t.id = links.to_page_id AND c.kind = 'personal') "
+    "OR EXISTS (SELECT 1 FROM pages f JOIN coves c ON c.id = f.cove_id "
+    "WHERE f.id = links.from_page_id AND c.kind = 'personal'))"
+)
+
+_RETIRE_LINKS = f"""
+    UPDATE links l SET status = 'superseded', superseded_at = LOCALTIMESTAMP
+    FROM pages p
+    WHERE p.id = p_page
+      AND l.from_page_id = p.id
+      AND p.cove_id IN (
+          SELECT cove_id FROM memberships
+          WHERE person_id = {PRINCIPAL} AND role = 'member'
+      )
+      AND l.source = 'wikilink'
+      AND l.status = 'active'
+      AND NOT (l.target_text = ANY (COALESCE(p.reference_targets, '{{}}')))
+"""
+
+
+def link_statements() -> list[str]:
+    """Return idempotent DDL for the link table's constraints and policies.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives.
+
+    **Reading.** A link is visible when both of its pages are. For anyone
+    else it does not exist, which is what keeps a backlink or a count from
+    saying that a page they cannot read is there.
+
+    **Writing.** A person may add a link from a page they may change to a
+    page they may read, in their own name. That is all a person may do to
+    this table directly: there is no ``UPDATE`` policy and no ``DELETE``
+    policy, so both are refused outright.
+
+    **Retiring.** A link has to end when its words leave the page, whoever
+    is saving. But the person saving may be unable to *see* the link: its
+    other end can sit in a cove they are not in. An ``UPDATE`` policy
+    cannot help them without showing them the row, and the row proves the
+    other page exists. So retiring is a function, ``reef_retire_links``:
+
+    - It takes a page id and nothing else. What to retire is decided from
+      the page's own stored targets, never from anything the caller says.
+    - It does nothing unless the caller may change that page.
+    - It returns nothing, so it cannot be used to count or probe.
+
+    Rows are never deleted except with one of their pages.
+
+    :returns: SQL statements to execute in order
+    """
+    kinds = "'references', 'supersedes', 'contradicts', 'derived_from', "
+    kinds += "'about', 'part_of'"
+    checks = {
+        "links_kind_known": f"kind IN ({kinds})",
+        "links_source_known": "source IN ('author', 'wikilink', 'dream', 'import')",
+        "links_status_known": (
+            "status IN ('active', 'proposed', 'rejected', 'superseded')"
+        ),
+        "links_not_to_itself": "from_page_id <> to_page_id",
+    }
+    statements: list[str] = []
+    for name, check in checks.items():
+        statements.append(f"ALTER TABLE links DROP CONSTRAINT IF EXISTS {name}")
+        statements.append(f"ALTER TABLE links ADD CONSTRAINT {name} CHECK ({check})")
+    statements += [
+        # One live link of a kind between two pages.
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS links_one_active "
+            "ON links (from_page_id, to_page_id, kind) WHERE status = 'active'"
+        ),
+        # Backlinks: "what points here".
+        (
+            "CREATE INDEX IF NOT EXISTS links_inbound "
+            "ON links (to_page_id) WHERE status = 'active'"
+        ),
+        "ALTER TABLE links ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE links FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS links_select ON links",
+        "DROP POLICY IF EXISTS links_insert ON links",
+        f"CREATE POLICY links_select ON links FOR SELECT USING ({_LINK_READ})",
+        f"CREATE POLICY links_insert ON links FOR INSERT WITH CHECK ({_LINK_WRITE})",
+        *_function_ddl(
+            "reef_retire_links(p_page uuid)",
+            _RETIRE_LINKS,
+            returns="void",
+            reads=("pages", "memberships"),
+            writes=("links",),
+            volatility="VOLATILE",
+        ),
+    ]
+    return statements
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 
