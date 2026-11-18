@@ -67,6 +67,8 @@ New modes are added to `MODES` in `evalkit.py`.
 | 18 Nov 2026 | `lexical` | 53.0% | 24.0% | 0.437 | Any word may match, full matches first, rank scaled by page length |
 
 **53.0% is the line that embeddings have to beat.**
+The report on what moved the score from 24.0% to 53.0% is in
+[`docs/eval/2026-11-18-keyword-search.md`](../../docs/eval/2026-11-18-keyword-search.md).
 
 By question type, `any@5`, for the current search:
 
