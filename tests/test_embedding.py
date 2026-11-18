@@ -172,11 +172,116 @@ async def test_a_bad_answer_from_the_service_stores_nothing(household, service, 
     service.embed = broken
     async with transaction_scope():
         page = await save_page(me, "personal", "note.md", "A note.", message="x")
-    with pytest.raises(embedding.BadEmbedding):
-        async with transaction_scope():
-            await embedding.embed_page(me, page.id, service)
+    assert await drain("test") == 1
     assert await seed.fetchval("SELECT count(*) FROM page_embeddings") == 0
-    assert await seed.fetchval("SELECT count(*) FROM embedding_spend") == 0
+    async with transaction_scope():
+        # The text was sent, so it is charged, and the page is tried later.
+        assert await embedding.spent_today(me) == 1
+        assert await _jobs(me, EMBED_PAGE, "queued") == 1
+        assert page.id is not None
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        [[True, False, True]],
+        [[]],
+        [["1", "2", "3"]],
+        [[1.0, 2.0], [1.0]],
+        [[0.0] * 5000],
+        "nonsense",
+        [[1.0, float("inf")]],
+    ],
+)
+def test_an_answer_that_is_not_sound_vectors_is_refused(answer):
+    count = len(answer) if isinstance(answer, list) else 1
+    with pytest.raises(embedding.BadEmbedding):
+        embedding._checked(answer, count)
+
+
+def test_a_response_must_hold_one_vector_for_each_input():
+    good = {
+        "data": [{"index": 1, "embedding": [2.0]}, {"index": 0, "embedding": [1.0]}]
+    }
+    assert embedding._rows(good, 2) == [[1.0], [2.0]]
+    for bad in ({"data": [{"index": 0, "embedding": [1.0]}] * 2}, {"oops": 1}, []):
+        with pytest.raises(embedding.BadEmbedding):
+            embedding._rows(bad, 2)
+
+
+async def test_a_failing_service_cannot_be_sent_text_without_limit(
+    household, service, monkeypatch
+):
+    """Each failed try is charged, so the cap ends the retries."""
+    import httpx
+
+    me = principal_for(household["wouter"])
+    monkeypatch.setattr(get_settings(), "embedding_daily_cap", 2)
+    calls = 0
+
+    async def refusing(texts):
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("down")
+
+    service.embed = refusing
+    async with transaction_scope():
+        page = await save_page(me, "personal", "note.md", "A note.", message="x")
+    await drain("test")
+    for _ in range(4):
+        async with transaction_scope():
+            await arm(me)
+            await Job.raw("UPDATE jobs SET run_after = LOCALTIMESTAMP")
+        await drain("test")
+    assert calls == 2
+    async with transaction_scope():
+        assert await embedding.spent_today(me) == 2
+        assert page.id is not None
+
+
+async def test_one_refused_page_does_not_undo_the_others(household, service):
+    me = principal_for(household["wouter"])
+    settings = get_settings()
+    url, settings.embedding_url = settings.embedding_url, ""
+    try:
+        async with transaction_scope():
+            await save_page(me, "personal", "good.md", "Fine.", message="x")
+            await save_page(me, "personal", "bad.md", "REFUSE this.", message="x")
+    finally:
+        settings.embedding_url = url
+    sound = service.embed
+
+    async def picky(texts):
+        if any("REFUSE" in text for text in texts):
+            raise embedding.BadEmbedding("no")
+        return await sound(texts)
+
+    service.embed = picky
+    async with transaction_scope():
+        await build_index(me)
+    await drain("test")
+    async with transaction_scope():
+        assert await _stored(me) == [(None, "fake-1", 3)]
+
+
+async def test_a_page_larger_than_the_whole_cap_is_left_alone(
+    household, service, monkeypatch
+):
+    me = principal_for(household["wouter"])
+    monkeypatch.setattr(get_settings(), "embedding_daily_cap", 2)
+    async with transaction_scope():
+        await save_page(me, "personal", "insurance.md", BODY, message="x")
+    await drain("test")
+    assert service.sent == []
+    async with transaction_scope():
+        # Not queued again: it could never fit.
+        assert await _jobs(me, EMBED_PAGE, "queued") == 0
+
+
+async def test_a_page_of_only_white_space_asks_for_nothing(tx, household, service):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "blank.md", "\n\t\n", message="x")
+    assert await embedding.request_backfill(me) is False
 
 
 # --- whose it is ---------------------------------------------------------------

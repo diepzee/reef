@@ -15,10 +15,16 @@ by a backfill that the person's own index load asks for.
 - A piece whose text did not change is never embedded again. Each stored
   vector carries the digest of the exact text it was made from, and that
   digest is compared *in the job*, at the moment of embedding.
-- At most one job waits per page.
-- At most ``REEF_EMBEDDING_DAILY_CAP`` pieces are embedded for one person
-  in one day. A page that does not fit in what is left waits whole, and
-  keeps its old vectors meanwhile.
+- At most one job waits per page and person.
+- At most ``REEF_EMBEDDING_DAILY_CAP`` pieces are sent for one person in
+  one day, counting the ones the service failed on. A page that does not
+  fit in what is left waits whole, and keeps its old vectors meanwhile.
+
+**In a shared cove** the vectors are shared and the cap is not. Whoever's
+job embeds a page pays for it from their own day. A member whose own cap
+is spent can therefore leave pages for another member's backfill to pay
+for. That costs the other member allowance, never privacy or correctness:
+a vector is made from the page's text and nothing else.
 
 **Whose it is.** A vector is as private as its page. Row security shows a
 vector exactly when it shows the page, and a job runs as the person it is
@@ -30,6 +36,7 @@ of its error, as every job does.
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
+import asyncio
 import math
 from datetime import timedelta
 from typing import Protocol
@@ -49,6 +56,16 @@ BATCH = 16
 
 #: How long a page waits when the day's cap is reached.
 CAP_RETRY = timedelta(hours=6)
+
+#: How long a page waits after the service failed on it.
+FAILURE_RETRY = timedelta(minutes=30)
+
+#: The longest one page's embedding may take, in seconds, all requests
+#: together. The job holds a database connection meanwhile.
+PAGE_SECONDS = 300.0
+
+#: The longest vector accepted. The table's own check has the same bound.
+MAX_DIMS = 4096
 
 #: How each model wants a passage and a question written, by the start of
 #: its name. These are the forms the experiment of 18 November 2026 was
@@ -71,6 +88,15 @@ class CapReached(Exception):
 
 class BadEmbedding(Exception):
     """Raised when the service answers with something that is not vectors."""
+
+
+class ServiceFailed(Exception):
+    """Raised when the service could not embed a page.
+
+    The pieces that were sent are already charged to the day's spend when
+    this is raised. Whoever catches it must let the transaction commit, or
+    the charge is lost and a failing page could be sent without limit.
+    """
 
 
 class Embedder(Protocol):
@@ -151,9 +177,28 @@ class HttpEmbedder:
                     },
                 )
                 response.raise_for_status()
-                rows = sorted(response.json()["data"], key=lambda row: row["index"])
-                vectors.extend(row["embedding"] for row in rows)
+                vectors.extend(
+                    _rows(response.json(), len(texts[start : start + BATCH]))
+                )
         return vectors
+
+
+def _rows(answer: object, count: int) -> list[list[float]]:
+    """Read one response of the embeddings protocol.
+
+    :param answer: the parsed response body
+    :param count: how many inputs were sent
+    :returns: the vectors, in input order
+    :raises BadEmbedding: if the answer does not hold exactly one vector
+        for each input
+    """
+    try:
+        rows = sorted(answer["data"], key=lambda row: row["index"])
+        if [row["index"] for row in rows] != list(range(count)):
+            raise BadEmbedding("wrong vectors for the inputs")
+        return [row["embedding"] for row in rows]
+    except (KeyError, TypeError) as error:
+        raise BadEmbedding("not an embeddings response") from error
 
 
 def get_embedder() -> Embedder | None:
@@ -175,12 +220,17 @@ def _checked(vectors: list[list[float]], count: int) -> list[list[float]]:
     :returns: the vectors, unchanged
     :raises BadEmbedding: if the count, a length or a number is wrong
     """
-    if len(vectors) != count or not vectors:
+    if not isinstance(vectors, list) or len(vectors) != count or not vectors:
         raise BadEmbedding("wrong number of vectors")
-    dims = len(vectors[0])
+    dims = len(vectors[0]) if isinstance(vectors[0], list) else 0
+    if not 1 <= dims <= MAX_DIMS:
+        raise BadEmbedding("a vector has an impossible length")
     for vector in vectors:
-        if len(vector) != dims or not all(math.isfinite(x) for x in vector):
+        if not isinstance(vector, list) or len(vector) != dims:
             raise BadEmbedding("a vector is malformed")
+        # type() and not isinstance(): True is an int to isinstance.
+        if not all(type(x) in (int, float) and math.isfinite(x) for x in vector):
+            raise BadEmbedding("a vector holds something that is not a number")
     return vectors
 
 
@@ -238,9 +288,12 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
     :param principal: the person the work is for
     :param page_id: the page
     :param embedder: the embedding service
-    :returns: how many pieces were embedded
-    :raises CapReached: if the page does not fit in today's cap. Its old
-        vectors are kept.
+    :returns: how many pieces were embedded. Zero also for a page with more
+        changed pieces than the whole daily cap: it could never fit.
+    :raises CapReached: if the page does not fit in what is left of today's
+        cap. Its old vectors are kept.
+    :raises ServiceFailed: if the service failed or answered badly. The
+        pieces sent are charged, and the old vectors are kept.
     """
     await arm(principal)
     rows = await Page.raw(
@@ -275,15 +328,24 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
     missing = [piece for piece in pieces if piece.anchor not in current]
 
     if missing:
-        left = get_settings().embedding_daily_cap - await spent_today(principal)
-        if len(missing) > left:
+        cap = get_settings().embedding_daily_cap
+        if len(missing) > cap:
+            # It can never fit, on any day. Waiting for it would be forever.
+            return 0
+        if len(missing) > cap - await spent_today(principal):
             raise CapReached
-        vectors = _checked(
-            await embedder.embed(
-                [passage(embedder.model_id, piece.text) for piece in missing]
-            ),
-            len(missing),
-        )
+        try:
+            async with asyncio.timeout(PAGE_SECONDS):
+                vectors = _checked(
+                    await embedder.embed(
+                        [passage(embedder.model_id, piece.text) for piece in missing]
+                    ),
+                    len(missing),
+                )
+        except (httpx.HTTPError, BadEmbedding, TimeoutError) as error:
+            # The text was sent, so it counts, whatever came back.
+            await _charge(principal, len(missing))
+            raise ServiceFailed(type(error).__name__) from error
     if stale:
         await PageEmbedding.raw(
             "DELETE FROM page_embeddings WHERE id = ANY({}::uuid[])",
@@ -308,23 +370,45 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
     return len(missing)
 
 
-async def backfill(principal: Principal, embedder: Embedder) -> int:
-    """Embed every page the person may write to that is not current.
+async def backfill(principal: Principal) -> int:
+    """Queue an embedding job for every page of the person's without vectors.
 
-    A page that is current costs one read and no embedding.
+    It embeds nothing itself. Each page then gets its own job and its own
+    transaction, so one page the service refuses cannot undo the others,
+    and one that does not fit in the cap cannot block the rest.
 
     :param principal: the person the work is for
-    :param embedder: the embedding service
-    :returns: how many pieces were embedded
-    :raises CapReached: when the day's cap stops it. What was embedded
-        before that stays.
+    :returns: how many jobs were added
+    """
+    return sum(
+        [
+            await request(principal, page_id, delay=timedelta(0))
+            for page_id in await _lacking(principal)
+        ]
+    )
+
+
+async def _lacking(principal: Principal, limit: int | None = None) -> list[UUID]:
+    """Find the person's writable pages with no whole-page vector of this model.
+
+    A page with only white space has no pieces and can have no vector, so
+    it does not count: it would be asked for on every index load, forever.
+
+    :param principal: the person
+    :param limit: stop after this many
+    :returns: the pages' ids, most recently changed first
     """
     await arm(principal)
     rows = await Page.raw(
-        "SELECT id FROM pages WHERE cove_id IN (SELECT reef_member_cove_ids()) "
-        "ORDER BY updated_at DESC"
+        "SELECT p.id FROM pages p "
+        "WHERE p.cove_id IN (SELECT reef_member_cove_ids()) "
+        "AND p.body ~ '\\S' AND NOT EXISTS ("
+        "SELECT 1 FROM page_embeddings e WHERE e.page_id = p.id "
+        "AND e.model_id = {} AND e.section_anchor IS NULL) "
+        "ORDER BY p.updated_at DESC" + (f" LIMIT {int(limit)}" if limit else ""),
+        get_settings().embedding_model,
     )
-    return sum([await embed_page(principal, row["id"], embedder) for row in rows])
+    return [row["id"] for row in rows]
 
 
 async def request(
@@ -367,18 +451,8 @@ async def request_backfill(principal: Principal) -> bool:
     :param principal: the person whose index was just built
     :returns: True if a job was added
     """
-    settings = get_settings()
-    if not settings.embedding_url:
+    if not get_settings().embedding_url:
         return False
-    await arm(principal)
-    lacking = await Page.raw(
-        "SELECT 1 FROM pages p "
-        "WHERE p.cove_id IN (SELECT reef_member_cove_ids()) "
-        "AND btrim(p.body) <> '' AND NOT EXISTS ("
-        "SELECT 1 FROM page_embeddings e WHERE e.page_id = p.id "
-        "AND e.model_id = {} AND e.section_anchor IS NULL) LIMIT 1",
-        settings.embedding_model,
-    )
-    if not lacking:
+    if not await _lacking(principal, limit=1):
         return False
     return await enqueue(principal, BACKFILL_EMBEDDINGS)

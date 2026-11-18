@@ -79,8 +79,12 @@ async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
     """Embed the changed pieces of the job's pages.
 
     With no embedding service the job is done and nothing happened: the
-    service was switched off after the job was queued. A page that does not
-    fit in today's cap is queued again for later.
+    service was switched off after the job was queued.
+
+    A page that does not fit in today's cap, or that the service failed
+    on, is queued again for later and the job ends normally. It must: the
+    pieces sent are charged in this transaction, and a job that raises is
+    rolled back. Only the class of a failure is logged.
 
     :param principal: the person the job runs as
     :param job: the claimed job
@@ -93,24 +97,19 @@ async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
             await embedding.embed_page(principal, page_id, embedder)
         except embedding.CapReached:
             await embedding.request(principal, page_id, delay=embedding.CAP_RETRY)
+        except embedding.ServiceFailed as failure:
+            log.warning("embedding: the service failed on a page (%s)", failure)
+            await embedding.request(principal, page_id, delay=embedding.FAILURE_RETRY)
 
 
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
-    """Embed the person's pages that have no current vectors.
-
-    Stops quietly at the day's cap. The next index load asks again, and
-    what is already embedded is not redone.
+    """Queue a job for each of the person's pages that has no vectors.
 
     :param principal: the person the job runs as
     :param job: the claimed job
     """
-    embedder = embedding.get_embedder()
-    if embedder is None:
-        return
-    try:
-        await embedding.backfill(principal, embedder)
-    except embedding.CapReached:
-        return
+    if embedding.get_embedder() is not None:
+        await embedding.backfill(principal)
 
 
 #: What this worker knows how to do, by job kind.
@@ -275,6 +274,9 @@ async def _main() -> None:
 def main() -> None:
     """Run the worker until it is told to stop."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    # httpx logs every request with its full address at INFO. The embedding
+    # service's address is configuration and has no place in the log.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     telemetry.configure()
     telemetry.forward_logs(log)
     asyncio.run(_main())
