@@ -645,21 +645,30 @@ database function, `reef_claim_job`, which returns ids and nothing else.
 just worker
 ```
 
-**Production: not yet running.** Until the service below exists, jobs
-queue up and wait. Nothing breaks: the index derives the fields it needs
-on every load, as it did before. To start it, add a second Railway service
-from the same repository and image:
+**Production:** the Railway service `reef-worker`, running since 18 Nov
+2026. It is built from the same repository and branch as `reef-app` and
+redeploys on every merge. If it is ever stopped, jobs queue up and wait.
+Nothing breaks: the index derives the fields it needs on every load. To
+rebuild the service, these are its settings:
 
 - **Start command:** `uv run --frozen --no-dev python -m reef.worker`.
   This replaces the image's own command on purpose. The worker must not
   run migrations; the server does that at boot.
-- **Variables:** `DATABASE_URL` for the app role, the same value the server
-  uses. `LOGFIRE_TOKEN` if its logs should reach Logfire. **Not** the
+- **Variables:** `DATABASE_URL` for the app role and `LOGFIRE_TOKEN`. Both
+  are references to `reef-app`'s values (`${{reef-app.DATABASE_URL}}`), so a
+  rotation there reaches the worker too. **Not** the
   migration or backup credentials, the session secret, the signing key or
   the storage keys. It needs none of them.
 - **No public domain and no volume.** It listens on nothing.
 - **One replica is enough.** More than one is safe: two workers never take
   the same job.
+
+**What it reports.** With `LOGFIRE_TOKEN` set, each job is one span in
+Logfire named `job <kind>`, with the job's id, the attempt number, the
+outcome (`done`, `retry`, `failed`, `dropped` or `crashed`) and the class of
+any error. The worker's own log lines arrive there too, each with the file
+and line in reef's code that wrote it. No person, no error message and no
+traceback is sent.
 
 **Stopping it** is safe at any moment. On a deploy it finishes the job in
 hand and exits. If it is killed mid-job, that job's work rolls back and
