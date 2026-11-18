@@ -95,6 +95,16 @@ easy on purpose. It catches a regression. It does not measure quality.
 
 Rebuild it with `python scripts/eval/seed.py --write-slice tests/fixtures/longmemeval_slice.json`.
 
+## A test account
+
+`just test-account` creates `test@reef.local` in the local database and
+loads the slice into it: 80 made-up conversations, nothing personal, no
+download. Open it with `just dev test@reef.local`.
+
+The questions and their expected pages are in
+`tests/fixtures/longmemeval_slice.json`, so you know what a search should
+find.
+
 ## The private set
 
 Questions about your own pages. It tests what the benchmark cannot: Dutch,

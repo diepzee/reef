@@ -2,6 +2,10 @@
 
 Run as: ``python scripts/eval/seed.py [--questions N] [--write-slice PATH]``
 
+With ``--test-account`` it loads the small slice kept in the repository
+into a separate local person, ``test@reef.local``, for trying things by hand.
+Nothing is downloaded.
+
 With ``--private`` it loads your own export instead, as a second local
 person. See "The private set" in the README.
 
@@ -78,6 +82,31 @@ async def seed(count: int | None) -> None:
     print(
         f"\nwrote {written} pages; {len(eval_set.pages) - written} were there already"
     )
+
+
+async def seed_test_account() -> None:
+    """Load the repository's slice as the test person's pages.
+
+    The slice is 80 made-up conversations with 24 questions whose answers
+    are known. It needs no download, so this works on a fresh checkout.
+    """
+    app_dsn = get_settings().dsn
+    seed_dsn = superuser_dsn(app_dsn)
+    evalkit.refuse_unless_local(app_dsn, seed_dsn)
+    eval_set = evalkit.EvalSet.from_json(evalkit.SLICE_FILE.read_text())
+    await DB.start_connection_pool()
+    try:
+        principal = await evalkit.ensure_eval_person(
+            seed_dsn, evalkit.TEST_EMAIL, "Test"
+        )
+        written = await evalkit.seed_pages(principal, eval_set.pages, tag="test")
+    finally:
+        await DB.close_connection_pool()
+    print(
+        f"{evalkit.TEST_EMAIL}: wrote {written} pages; "
+        f"{len(eval_set.pages) - written} were there already"
+    )
+    print(f"Open it with: just dev {evalkit.TEST_EMAIL}")
 
 
 async def seed_private(export_path: Path) -> None:
@@ -168,7 +197,18 @@ def main() -> None:
         const=evalkit.PRIVATE_EXPORT,
         help=f"load your own JSON export instead (default {evalkit.PRIVATE_EXPORT})",
     )
+    parser.add_argument(
+        "--test-account",
+        action="store_true",
+        help="load the repository's slice as test@reef.local and stop",
+    )
     args = parser.parse_args()
+    if args.test_account:
+        try:
+            asyncio.run(seed_test_account())
+        except evalkit.NotLocal as error:
+            sys.exit(str(error))
+        return
     if args.write_slice:
         write_slice(args.write_slice)
         return

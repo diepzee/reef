@@ -334,3 +334,20 @@ async def test_the_private_person_is_apart_from_the_benchmark_person(graph):
     wanted = {"home/notes/boiler.md", "personal/notes/boiler.md"}
     assert wanted <= mine
     assert not wanted & theirs
+
+
+async def test_the_test_account_holds_the_slice_and_nothing_else_does(graph, slice_set):
+    from conftest import seed_dsn
+
+    benchmark = await evalkit.ensure_eval_person(seed_dsn())
+    tester = await evalkit.ensure_eval_person(seed_dsn(), evalkit.TEST_EMAIL, "Test")
+    assert evalkit.SLICE_FILE.exists()
+    assert await evalkit.seed_pages(tester, slice_set.pages, tag="test") == len(
+        slice_set.pages
+    )
+    async with transaction_scope():
+        mine = {page.path for page in await list_pages(tester, "personal")}
+        theirs = {page.path for page in await list_pages(benchmark, "personal")}
+    wanted = {page.path for page in slice_set.pages}
+    assert wanted <= mine
+    assert not wanted & theirs

@@ -49,6 +49,14 @@ EVAL_EMAIL = "eval@reef.local"
 #: your own pages and the benchmark never mix in one search.
 PRIVATE_EMAIL = "private-eval@reef.local"
 
+#: A small account of made-up facts, for trying things by hand: the slice of
+#: the benchmark that the repository carries, and nothing personal.
+TEST_EMAIL = "test@reef.local"
+
+#: The slice kept in the repository. See "The slice in the test suite" in
+#: the README.
+SLICE_FILE = Path(__file__).parents[2] / "tests" / "fixtures" / "longmemeval_slice.json"
+
 #: Where the private set lives. Git ignores the whole directory.
 PRIVATE_DIR = Path(__file__).parent / "private"
 PRIVATE_EXPORT = PRIVATE_DIR / "export.json"
