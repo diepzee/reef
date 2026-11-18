@@ -449,12 +449,17 @@ async def test_loading_the_index_queues_the_link_backfill_and_the_worker_runs_it
     async with transaction_scope():
         assert await _inbound(me, "personal", "a.md") == 0
         await arm(me)
-        assert [job["kind"] for job in await Job.select()] == [BACKFILL_LINKS]
+        assert [
+            job["kind"] for job in await Job.select().where(Job.kind == BACKFILL_LINKS)
+        ] == [BACKFILL_LINKS]
     assert await drain("test-worker") == 1
     async with transaction_scope():
         assert await _inbound(me, "personal", "a.md") == 1
         await arm(me)
-        assert [job["status"] for job in await Job.select()] == ["done"]
+        assert [
+            job["status"]
+            for job in await Job.select().where(Job.kind == BACKFILL_LINKS)
+        ] == ["done"]
         assert await Page.count().where(Page.linked_version.is_null()) == 0
 
 
@@ -471,7 +476,10 @@ async def test_a_viewer_backfills_nothing(household, graph, seed):
         assert await backfill_links(principal_for(person)) == 0
         await build_index(principal_for(person))
     assert await seed.fetchval("SELECT count(*) FROM links") == 0
-    assert await seed.fetchval("SELECT count(*) FROM jobs") == 0
+    assert (
+        await seed.fetchval("SELECT count(*) FROM jobs WHERE kind = $1", BACKFILL_LINKS)
+        == 0
+    )
 
 
 @pytest.mark.parametrize(

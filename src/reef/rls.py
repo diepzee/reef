@@ -1529,6 +1529,87 @@ def link_statements() -> list[str]:
     return statements
 
 
+_USAGE_PREDICATE = f"person_id = {PRINCIPAL} AND page_id IN (SELECT id FROM pages)"
+"""Own rows, about pages the person can still read. The second half matters
+after someone leaves a cove: their old usage rows would otherwise go on
+naming pages they may no longer see."""
+
+
+def usage_statements() -> list[str]:
+    """Return idempotent DDL arming RLS on the usage log and activation.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives.
+
+    Both tables are private to one person. Nothing looks across people, so
+    there is no helper function here at all.
+
+    ``page_access`` is a log: a person may add to it, read it and delete
+    from it, but there is no ``UPDATE`` policy, so a row cannot be
+    rewritten. Deleting is allowed because a person may remove what Reef
+    recorded about them.
+
+    **A known gap.** Rows about a page the person can no longer read are
+    hidden from them, and a row that cannot be seen cannot be deleted
+    either. So after leaving a cove, a person's usage of its pages stays
+    stored, invisible to everyone, until the page or their account is
+    deleted. Showing them those rows instead would let a former member
+    watch which of a cove's pages still exist. The proper fix is to remove
+    the rows when the membership ends.
+
+    ``page_heat`` is derived from that log and is replaced whenever it is
+    recomputed, so its one policy covers every command.
+
+    :returns: SQL statements to execute in order
+    """
+    return [
+        "ALTER TABLE page_access DROP CONSTRAINT IF EXISTS page_access_via_known",
+        (
+            "ALTER TABLE page_access ADD CONSTRAINT page_access_via_known "
+            "CHECK (via IN ('read', 'write', 'remember', 'web'))"
+        ),
+        "ALTER TABLE page_access DROP CONSTRAINT IF EXISTS page_access_weight_sane",
+        (
+            "ALTER TABLE page_access ADD CONSTRAINT page_access_weight_sane "
+            "CHECK (weight > 0 AND weight <= 10)"
+        ),
+        # What recomputing activation reads: one person's log, newest first
+        # per page.
+        (
+            "CREATE INDEX IF NOT EXISTS page_access_recent "
+            "ON page_access (person_id, page_id, accessed_at DESC)"
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS page_heat_person_page "
+            "ON page_heat (person_id, page_id)"
+        ),
+        "ALTER TABLE page_access ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE page_access FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS page_access_select ON page_access",
+        "DROP POLICY IF EXISTS page_access_insert ON page_access",
+        "DROP POLICY IF EXISTS page_access_delete ON page_access",
+        (
+            f"CREATE POLICY page_access_select ON page_access FOR SELECT "
+            f"USING ({_USAGE_PREDICATE})"
+        ),
+        (
+            f"CREATE POLICY page_access_insert ON page_access FOR INSERT "
+            f"WITH CHECK ({_USAGE_PREDICATE})"
+        ),
+        (
+            f"CREATE POLICY page_access_delete ON page_access FOR DELETE "
+            f"USING (person_id = {PRINCIPAL})"
+        ),
+        "ALTER TABLE page_heat ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE page_heat FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS page_heat_owner ON page_heat",
+        (
+            f"CREATE POLICY page_heat_owner ON page_heat "
+            f"USING ({_USAGE_PREDICATE}) WITH CHECK ({_USAGE_PREDICATE})"
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 

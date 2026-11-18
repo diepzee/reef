@@ -9,13 +9,13 @@ the ambient transaction, and an unarmed one returns nothing.
 import re
 from datetime import datetime
 
-from reef import audit
+from reef import audit, usage
 from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
 from reef.links import Resolver, connect_waiting_links, sync_wiki_links
-from reef.models import Attachment, Cove, CoveKind, Page, Revision
+from reef.models import AccessKind, Attachment, Cove, CoveKind, Page, Revision
 
 PROTECTED_PREFIX = "meta/"
 
@@ -270,6 +270,7 @@ async def save_page(
     expected_version: int | None = None,
     allow_protected: bool = False,
     allow_private_copy: bool = False,
+    via: AccessKind | None = AccessKind.WRITE,
 ) -> Page:
     """Create or overwrite a page: snapshot a revision, bump page and cove versions.
 
@@ -285,6 +286,9 @@ async def save_page(
     :param allow_private_copy: permit shared text copied from the personal
         cove. Only the share ceremony passes this -- it *is* the sanctioned
         copy, having already shown the user the exact disclosure.
+    :param via: how to record this write in the principal's usage log, or
+        None to record nothing -- for a write that is not the person using
+        the page
     :raises PrivateContentLeak: for personal text written into a cove
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new page's path cannot be normalized
@@ -368,6 +372,8 @@ async def save_page(
     await sync_wiki_links(resolver, page.id, cove.id, page.reference_targets)
     if created:
         await connect_waiting_links(resolver, page.id, cove.id, page.path)
+    if via is not None:
+        await usage.record(principal, page.id, via)
     return page
 
 

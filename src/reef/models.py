@@ -385,6 +385,62 @@ class Link(Table, tablename="links", db=DB):
     author_id = ForeignKey(Person, null=True, default=None, on_delete=OnDelete.set_null)
 
 
+class AccessKind(StrEnum):
+    """How a person used a page. Only real use is recorded."""
+
+    READ = "read"
+    WRITE = "write"
+    REMEMBER = "remember"
+    WEB = "web"
+
+
+class PageAccess(Table, tablename="page_access", db=DB):
+    """One use of one page by one person: the usage log.
+
+    Recorded when a person, or an assistant acting for them, opens or
+    writes a page. Appearing in a search result or in the index is not use
+    and is not recorded.
+
+    Strictly per person. One member's reading habits in a shared cove are
+    not another member's business, so a person sees their own rows and
+    nobody else's. See :func:`reef.rls.usage_statements`.
+
+    ``session_id`` groups the uses of one conversation. It is a digest of
+    the transport's session id, never the id itself, and is null where the
+    transport has no session. ``weight`` is how much the use counts toward
+    activation.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    page_id = ForeignKey(Page, null=False)
+    via = Varchar(choices=AccessKind, default=AccessKind.READ)
+    weight = Real(default=1.0)
+    session_id = Varchar(null=True, default=None)
+    accessed_at = Timestamp(default=TimestampNow())
+
+
+class PageHeat(Table, tablename="page_heat", db=DB):
+    """How readily one page comes to mind for one person: its activation.
+
+    Derived from the usage log and rebuilt from it, so nothing here is a
+    source of truth. Per person, like the log it is computed from: the same
+    page has a different activation for each member of a shared cove.
+
+    ``(person_id, page_id)`` is unique, by a raw constraint.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    page_id = ForeignKey(Page, null=False)
+    activation = Real()
+    accesses = Integer()
+    last_access = Timestamp()
+    updated_at = Timestamp(default=TimestampNow())
+
+
 TABLES = [
     Person,
     Cove,
@@ -396,4 +452,6 @@ TABLES = [
     CoveAppearance,
     Job,
     Link,
+    PageAccess,
+    PageHeat,
 ]

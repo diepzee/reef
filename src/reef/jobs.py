@@ -39,6 +39,9 @@ BACKFILL_INDEX_FIELDS = "backfill_index_fields"
 #: Store the wiki links of the pages a person may change.
 BACKFILL_LINKS = "backfill_links"
 
+#: Recompute a person's activation from their usage log.
+REFRESH_ACTIVATION = "refresh_activation"
+
 #: Seconds to wait before the second attempt. Each later attempt waits four
 #: times as long as the one before: 30 seconds, 2 minutes, 8, 32.
 _FIRST_RETRY_SECONDS = 30

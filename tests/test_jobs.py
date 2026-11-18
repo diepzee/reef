@@ -46,11 +46,18 @@ async def _queue(person, kind=BACKFILL_INDEX_FIELDS, subject_ids=(), **kwargs) -
         return await enqueue(principal_for(person), kind, subject_ids, **kwargs)
 
 
-async def _jobs_seen_by(person) -> list[dict]:
-    """Return the job rows ``person`` can read, oldest first."""
+async def _jobs_seen_by(person, kind: str | None = None) -> list[dict]:
+    """Return the job rows ``person`` can read, oldest first.
+
+    Saving a page queues an activation refresh as a side effect, so a test
+    that saves pages and cares about one kind of job names it.
+    """
     async with transaction_scope():
         await arm(principal_for(person))
-        return await Job.select().order_by(Job.created_at)
+        query = Job.select().order_by(Job.created_at)
+        if kind is not None:
+            query = query.where(Job.kind == kind)
+        return await query
 
 
 async def _expire_lease(seed, attempts: int | None = None) -> None:
@@ -294,7 +301,7 @@ async def test_the_worker_runs_a_job_as_its_person(household, handlers):
     await _queue(wouter, kind="look")
     assert await drain(WORKER) == 1
     assert seen == [principal_for(wouter), ["mine.md"]]
-    [row] = await _jobs_seen_by(wouter)
+    [row] = await _jobs_seen_by(wouter, kind="look")
     assert (row["status"], row["locked_by"], row["error"]) == ("done", None, None)
     assert row["finished_at"] is not None
 
@@ -453,16 +460,17 @@ async def test_loading_the_index_queues_a_backfill_which_the_worker_carries_out(
     async with transaction_scope():
         await save_page(me, "personal", "house.md", _SECRET, message="x")
         before = await build_index(me)
-    assert await _jobs_seen_by(household["wouter"]) == []
+    assert await _jobs_seen_by(household["wouter"], BACKFILL_INDEX_FIELDS) == []
 
     await _forget_index_fields(seed)
     async with transaction_scope():
         assert await build_index(me) == before
     async with transaction_scope():
         await build_index(me)
-    assert [job["status"] for job in await _jobs_seen_by(household["wouter"])] == [
-        "queued"
-    ]
+    assert [
+        job["status"]
+        for job in await _jobs_seen_by(household["wouter"], BACKFILL_INDEX_FIELDS)
+    ] == ["queued"]
 
     assert await drain(WORKER) == 1
     assert (
@@ -474,9 +482,10 @@ async def test_loading_the_index_queues_a_backfill_which_the_worker_carries_out(
     async with transaction_scope():
         assert await build_index(me) == before
     # Nothing left to do, so nothing more is queued.
-    assert [job["status"] for job in await _jobs_seen_by(household["wouter"])] == [
-        "done"
-    ]
+    assert [
+        job["status"]
+        for job in await _jobs_seen_by(household["wouter"], BACKFILL_INDEX_FIELDS)
+    ] == ["done"]
 
 
 async def test_a_viewer_does_not_queue_a_backfill_they_could_not_carry_out(
@@ -493,4 +502,9 @@ async def test_a_viewer_does_not_queue_a_backfill_they_could_not_carry_out(
     async with transaction_scope():
         await build_index(principal_for(person))
     assert await _jobs_seen_by(person) == []
-    assert await seed.fetchval("SELECT count(*) FROM jobs") == 0
+    assert (
+        await seed.fetchval(
+            "SELECT count(*) FROM jobs WHERE kind = $1", BACKFILL_INDEX_FIELDS
+        )
+        == 0
+    )

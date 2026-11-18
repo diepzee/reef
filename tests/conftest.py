@@ -34,6 +34,7 @@ from reef.rls import (
     open_door_statements,
     person_column_grant_statements,
     session_epoch_statements,
+    usage_statements,
 )
 from reef.search import search_statements
 
@@ -186,6 +187,8 @@ async def schema():
         "cove_appearances",
         "jobs",
         "links",
+        "page_access",
+        "page_heat",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -226,6 +229,7 @@ async def schema():
         + appearance_statements()
         + job_statements()
         + link_statements()
+        + usage_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
