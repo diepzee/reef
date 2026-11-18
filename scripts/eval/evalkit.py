@@ -45,6 +45,15 @@ from reef.search import search_pages
 #: mail and names no real domain.
 EVAL_EMAIL = "eval@reef.local"
 
+#: The person the private set's pages belong to: a second local person, so
+#: your own pages and the benchmark never mix in one search.
+PRIVATE_EMAIL = "private-eval@reef.local"
+
+#: Where the private set lives. Git ignores the whole directory.
+PRIVATE_DIR = Path(__file__).parent / "private"
+PRIVATE_EXPORT = PRIVATE_DIR / "export.json"
+PRIVATE_QUESTIONS = PRIVATE_DIR / "questions.json"
+
 #: Where the benchmark file comes from, and which revision of it.
 SOURCE_URL = (
     "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/"
@@ -296,11 +305,73 @@ def load_benchmark(path: Path = DATA_FILE) -> list[dict]:
     return json.loads(path.read_text())
 
 
+# --- the private set, from your own export --------------------------------------
+
+
+def private_pages(export: dict) -> list[EvalPage]:
+    """Turn a person's own JSON export into pages for the private set.
+
+    The export is the file the site's "export as JSON" produces. Every cove
+    in it lands in one local cove, so each page's path gets its cove's alias
+    in front: two coves may hold a page at the same path.
+
+    :param export: the parsed export file
+    :returns: the pages, in path order
+    :raises ValueError: if the file is not a version 1 export
+    """
+    if export.get("schema_version") != 1:
+        raise ValueError("not a version 1 reef JSON export")
+    pages = [
+        EvalPage(
+            path=f"{cove['alias']}/{page['path']}",
+            title=page["title"] or "",
+            body=page["body"],
+        )
+        for cove in export["coves"]
+        for page in cove["pages"]
+    ]
+    return sorted(pages, key=lambda page: page.path)
+
+
+def private_questions(raw: list[dict], known: Iterable[str]) -> list[EvalQuestion]:
+    """Read the private set's questions and check their expected pages exist.
+
+    Each entry holds ``id``, ``kind``, ``text`` and ``expected``, a list of
+    page paths as :func:`private_pages` writes them. ``answer`` is optional.
+
+    :param raw: the parsed questions file
+    :param known: every path in the private set
+    :returns: the questions
+    :raises ValueError: if a question expects a page that is not in the set
+    """
+    paths = set(known)
+    questions = [
+        EvalQuestion(
+            id=str(entry["id"]),
+            kind=entry["kind"],
+            text=entry["text"],
+            answer=str(entry.get("answer", "")),
+            expected=tuple(sorted(entry["expected"])),
+        )
+        for entry in raw
+    ]
+    for question in questions:
+        missing = set(question.expected) - paths
+        if missing or not question.expected:
+            raise ValueError(
+                f"question {question.id} expects pages that are not in the set: "
+                f"{sorted(missing) or 'none given'}"
+            )
+    return questions
+
+
 # --- seeding -------------------------------------------------------------------
 
 
-async def ensure_eval_person(superuser_dsn: str) -> Principal:
-    """Make sure the eval person and their personal cove exist.
+async def ensure_eval_person(
+    superuser_dsn: str, email: str = EVAL_EMAIL, name: str = "Eval"
+) -> Principal:
+    """Make sure an eval person and their personal cove exist.
 
     A person with no inviter cannot be created by the application: the
     policies demand one. So the person row is written out of band, as the
@@ -313,6 +384,8 @@ async def ensure_eval_person(superuser_dsn: str) -> Principal:
     database has no such people.
 
     :param superuser_dsn: a connection string for the local superuser
+    :param email: the person's address; the benchmark's eval person by default
+    :param name: the person's display name
     :returns: the eval person, as a principal
     :raises NotLocal: if somebody has signed in to this database
     """
@@ -330,12 +403,12 @@ async def ensure_eval_person(superuser_dsn: str) -> Principal:
             "INSERT INTO persons (id, email, display_name) VALUES ($1, $2, $3) "
             "ON CONFLICT (email) DO NOTHING",
             uuid4(),
-            EVAL_EMAIL,
-            "Eval",
+            email,
+            name,
         )
     finally:
         await connection.close()
-    identity = await person_by_email(EVAL_EMAIL)
+    identity = await person_by_email(email)
     principal = Principal(person_id=identity.person_id, email=identity.email)
     async with transaction_scope():
         await ensure_personal_cove(principal.person_id, principal.email)
@@ -347,11 +420,14 @@ async def seed_pages(
     pages: Iterable[EvalPage],
     *,
     progress: Callable[[int, int], None] | None = None,
+    tag: str = "benchmark",
 ) -> int:
     """Write the pages that are not there yet.
 
-    Safe to run again: a path carries a digest of its text, so a page that
-    exists already holds the right text and is skipped.
+    Safe to run again: a page whose path exists already is skipped. A
+    benchmark path carries a digest of its text, so there an existing page
+    holds the right text. A private page has no digest: to pick up a newer
+    export, recreate the local database first.
 
     A write is not recorded in the usage log. The eval person did not use
     these pages; a script loaded them.
@@ -359,6 +435,7 @@ async def seed_pages(
     :param principal: the eval person
     :param pages: the pages to write
     :param progress: called with pages done and pages to do, after each batch
+    :param tag: the tag every written page gets
     :returns: how many pages were written
     """
     async with transaction_scope():
@@ -372,9 +449,9 @@ async def seed_pages(
                     _COVE,
                     page.path,
                     page.body,
-                    message="benchmark seed",
+                    message=f"{tag} seed",
                     title=page.title,
-                    tags=["benchmark"],
+                    tags=[tag],
                     via=None,
                 )
         if progress is not None:

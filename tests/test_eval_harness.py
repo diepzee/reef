@@ -55,6 +55,21 @@ def _record(question_id: str, evidence: list[str], kind: str = "multi-session") 
     }
 
 
+def _export() -> dict:
+    """Build a JSON export with two coves that share a page path.
+
+    :returns: an export shaped like the site's
+    """
+    page = {"path": "notes/boiler.md", "title": "Boiler", "body": "A Vaillant."}
+    return {
+        "schema_version": 1,
+        "coves": [
+            {"alias": "personal", "pages": [page]},
+            {"alias": "home", "pages": [{**page, "title": None, "body": "Ketel."}]},
+        ],
+    }
+
+
 # --- the guard -----------------------------------------------------------------
 
 
@@ -267,3 +282,55 @@ async def test_search_still_finds_what_it_found(eval_principal, slice_set):
             assert scores[name] >= floor, (
                 f"{mode}: {name} fell to {scores[name]}, below its floor of {floor}"
             )
+
+
+# --- the private set -------------------------------------------------------------
+
+
+def test_an_export_becomes_pages_with_the_cove_in_the_path():
+    pages = evalkit.private_pages(_export())
+    assert [page.path for page in pages] == [
+        "home/notes/boiler.md",
+        "personal/notes/boiler.md",
+    ]
+    assert pages[0].title == ""
+    assert pages[1].body == "A Vaillant."
+
+
+def test_a_file_that_is_not_an_export_is_refused():
+    with pytest.raises(ValueError, match="version 1"):
+        evalkit.private_pages({"coves": []})
+
+
+def test_a_private_question_must_expect_a_page_in_the_set():
+    known = [page.path for page in evalkit.private_pages(_export())]
+    entry = {"id": 1, "kind": "dutch", "text": "Welke ketel?", "expected": [known[0]]}
+    [question] = evalkit.private_questions([entry], known)
+    assert question.id == "1"
+    assert question.expected == ("home/notes/boiler.md",)
+    with pytest.raises(ValueError, match="not in the set"):
+        evalkit.private_questions([{**entry, "expected": ["home/gone.md"]}], known)
+    with pytest.raises(ValueError, match="none given"):
+        evalkit.private_questions([{**entry, "expected": []}], known)
+
+
+async def test_the_private_person_is_apart_from_the_benchmark_person(graph):
+    from conftest import seed_dsn
+
+    benchmark = await evalkit.ensure_eval_person(seed_dsn())
+    private = await evalkit.ensure_eval_person(
+        seed_dsn(), evalkit.PRIVATE_EMAIL, "Private eval"
+    )
+    assert private.person_id != benchmark.person_id
+    assert (
+        await evalkit.seed_pages(
+            private, evalkit.private_pages(_export()), tag="private"
+        )
+        == 2
+    )
+    async with transaction_scope():
+        theirs = {page.path for page in await list_pages(benchmark, "personal")}
+        mine = {page.path for page in await list_pages(private, "personal")}
+    wanted = {"home/notes/boiler.md", "personal/notes/boiler.md"}
+    assert wanted <= mine
+    assert not wanted & theirs
