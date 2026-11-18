@@ -16,3 +16,7 @@ clients/ts/dist-test/
 
 # Local planning artifacts (specs/plans stay out of the published repo)
 docs/superpowers/
+
+# Benchmark data is downloaded, never committed. The private set is personal data.
+scripts/eval/data/
+scripts/eval/private/

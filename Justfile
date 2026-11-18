@@ -175,6 +175,28 @@ fmt:
     {{python}} -m ruff check --fix src tests scripts clients
     {{python}} -m ruff format src tests scripts clients
 
+# --- retrieval benchmark ----------------------------------------------------
+
+# Local only. The scripts refuse any database that is not on this machine.
+# See scripts/eval/README.md.
+
+# Download the benchmark file (277 MB) and check it is the expected one.
+eval-download:
+    mkdir -p scripts/eval/data
+    curl -sSL --fail -o scripts/eval/data/longmemeval_s_cleaned.json \
+      "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/main/longmemeval_s_cleaned.json"
+    {{python}} -c "import hashlib, sys; sys.path.insert(0, 'scripts/eval'); import evalkit; \
+      d = hashlib.sha256(evalkit.DATA_FILE.read_bytes()).hexdigest(); \
+      sys.exit(0 if d == evalkit.SOURCE_SHA256 else f'unexpected file: sha256 {d}')"
+
+# Load benchmark sessions into the local database as the eval person's pages.
+eval-seed questions="100":
+    {{python}} scripts/eval/seed.py --questions {{questions}}
+
+# Ask the benchmark questions in every search mode and print the scores.
+eval questions="100":
+    {{python}} scripts/eval/run.py --questions {{questions}}
+
 # --- running --------------------------------------------------------------
 
 # REEF_DEV_INSECURE lifts the startup guard that otherwise refuses to serve
