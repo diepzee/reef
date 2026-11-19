@@ -152,9 +152,10 @@ short-lived link to its bytes.
 When the user asks for a tidy-up, or grants idle time, run three passes in
 order:
 
-1. **Compile inboxes.** Open each `inbox.md`. Move every entry onto the engram
-   where it belongs (create the engram if none fits) and take it out of the
-   inbox. Write the result with `reef write`.
+1. **Compile inboxes.** Open each `inbox.md`. Move every entry onto an engram in
+   the same space (create the engram if none fits) and take it out of the
+   inbox. A personal entry that belongs in a shared space goes there only
+   through `reef share`. Write the result with `reef write`.
 2. **Sweep for stale engrams.** Flag engrams untouched for a couple of months
    whose content sounds current. Ask, update, or record the uncertainty in the
    engram.
