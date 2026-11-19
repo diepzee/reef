@@ -670,10 +670,12 @@ any error. The worker's own log lines arrive there too, each with the file
 and line in reef's code that wrote it. No person, no error message and no
 traceback is sent.
 
-**Embeddings (18 Nov 2026).** The worker can embed each page's pieces
-for search by meaning. It is **off** until `REEF_EMBEDDING_URL` is set on
-both `reef-app` and `reef-worker`. While it has never been set, nothing is
-queued and the tables `page_embeddings` and `embedding_spend` are empty.
+**Embeddings (18 Nov 2026).** The worker embeds each page's pieces for
+search by meaning. **On in production since 19 November 2026:**
+`REEF_EMBEDDING_URL=http://reef-embed.railway.internal:11434` on both
+`reef-app` and `reef-worker`. The service is described under "Model
+services" below. Where the address is not set, nothing is queued and the
+tables `page_embeddings` and `embedding_spend` stay empty.
 
 - **The address must be ours.** Page text is sent there. Point it only at
   a service this deployment runs itself, on Railway's private network.
@@ -718,6 +720,36 @@ queued and the tables `page_embeddings` and `embedding_spend` are empty.
   stay, also of text since edited out of a page. To remove them:
   `TRUNCATE page_embeddings;` as a superuser. Pages are embedded again as
   they are saved or backfilled once the address is set again.
+
+**Model services (19 Nov 2026).** The models run as their own Railway
+services, on the private network only. Neither has a public address. Their
+images are built from `deploy/` in this repository, and they are deployed
+by hand, not from git, so merging app changes never rebuilds them:
+
+```bash
+railway up deploy/embed --path-as-root --service reef-embed --environment production
+railway up deploy/rerank --path-as-root --service reef-rerank --environment production
+```
+
+| Service | Model | Image | Memory |
+|---|---|---|---|
+| `reef-embed` | EmbeddingGemma 300m, built into the image | Ollama 0.40.14 | about 0.8 GB |
+| `reef-rerank` | BAAI bge-reranker-v2-m3, official weights at a pinned revision, converted to 8-bit during the build | llama.cpp `b12464` | about 1.1 GB |
+
+- **Threads are capped at 8.** Railway's hosts have 96 cores. Left alone,
+  llama.cpp, inside Ollama too, starts 48 threads on a 24-core allowance,
+  and they stall each other: an 11-token request took over a minute.
+  `reef-embed` sets `num_thread` on the model, `reef-rerank` sets
+  `LLAMA_ARG_THREADS`.
+- **The first request after a deploy loads the model**, about a second
+  for `reef-embed`. Searches meanwhile answer by keywords.
+- **Measured from `reef-app`:** a query vector takes 23 ms.
+- **`reef-rerank` is not deployed.** Without a graphics chip it is too slow
+  at a setting that helps. See "Reranking".
+- **Checking one by hand** from inside `reef-app`, with a made-up sentence,
+  never with page text:
+  `railway ssh -s reef-app -- python3 -c "..."` posting to
+  `http://reef-embed.railway.internal:11434/v1/embeddings`.
 
 **Reranking (19 Nov 2026).** A reranker reads the first results of each
 search next to the query and puts them in a better order. It is **on by
