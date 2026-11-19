@@ -12,7 +12,6 @@ from reef.access import Principal, arm
 from reef.activity import whats_new
 from reef.engrams import save_engram
 from reef.models import Attachment, AttachmentStatus
-from reef.server import tool_whats_new
 
 
 def principal_for(person) -> Principal:
@@ -90,18 +89,3 @@ async def test_a_new_file_is_an_event(tx, household):
     assert event["space"] == "household"
     assert event["key"] == "attachments/lease"
     assert event["filename"] == "lease.pdf"
-
-
-async def test_tool_rejects_garbage_since(tx, household):
-    me = principal_for(household["wouter"])
-    result = await tool_whats_new(me, since="last tuesday")
-    assert result["error"] == "invalid_since"
-
-
-async def test_tool_wraps_events_and_echoes_since(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "notes.md", "A note.", message="x")
-    moment = "2020-01-01T00:00:00"
-    result = await tool_whats_new(me, since=moment)
-    assert result["since"] == moment
-    assert [e["path"] for e in result["events"]] == ["notes.md"]

@@ -358,8 +358,9 @@ async def test_catch_up_lists_what_changed(household):
         "house.md",
     )
     assert event["author"] == "Partner"
-    later = await find.catch_up(me, "", since=datetime.now(UTC).isoformat())
-    assert later["events"] == []
+    moment = datetime.now(UTC).isoformat()
+    later = await find.catch_up(me, "", since=moment)
+    assert later == {"since": moment, "events": []}
 
 
 async def test_catch_up_refuses_a_bad_since(household):

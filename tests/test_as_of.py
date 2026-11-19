@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 
 from reef.access import Principal
 from reef.engrams import get_engram_as_of, save_engram
-from reef.server import tool_read_page
 
 
 def principal_for(person) -> Principal:
@@ -47,38 +46,3 @@ async def test_cannot_read_another_persons_past(tx, household):
     assert await get_engram_as_of(partner, "personal", "diary.md", when) is not None
     me = principal_for(household["wouter"])
     assert await get_engram_as_of(me, "personal", "diary.md", when) is None
-
-
-async def test_tool_read_page_accepts_as_of(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "house.md", "The boiler is broken.", message="x")
-    between = datetime.now(UTC)
-    await save_engram(me, "personal", "house.md", "The boiler is fixed.", message="x")
-    result = await tool_read_page(me, "personal", "house.md", as_of=between.isoformat())
-    assert result["body"] == "The boiler is broken."
-    assert result["as_of"] == between.isoformat()
-    assert "version" not in result
-
-
-async def test_tool_read_page_as_of_not_found_names_the_moment(tx, household):
-    me = principal_for(household["wouter"])
-    before = datetime.now(UTC)
-    await save_engram(me, "personal", "house.md", "The boiler is new.", message="x")
-    result = await tool_read_page(me, "personal", "house.md", as_of=before.isoformat())
-    assert result["error"] == "not_found"
-    assert result["as_of"] == before.isoformat()
-
-
-async def test_tool_read_page_rejects_garbage_timestamps(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "house.md", "The boiler is new.", message="x")
-    result = await tool_read_page(me, "personal", "house.md", as_of="last tuesday")
-    assert result["error"] == "invalid_as_of"
-
-
-async def test_tool_read_page_accepts_utc_timestamps(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "house.md", "The boiler is new.", message="x")
-    utc_now = datetime.now(UTC).isoformat()
-    result = await tool_read_page(me, "personal", "house.md", as_of=utc_now)
-    assert result["body"] == "The boiler is new."

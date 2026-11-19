@@ -134,8 +134,7 @@ async def add_to_inbox(
 
     The row lock serializes concurrent appends; the exact-entry check makes
     transport retries harmless without swallowing facts that merely resemble
-    an existing one. Shared by :func:`remember` and the ``remember`` tool.
-    Runs in the transaction already open.
+    an existing one. Runs in the transaction already open.
 
     :param principal: the authenticated person
     :param space: ``personal`` or one of the person's names for a space
@@ -556,8 +555,6 @@ def _is_normalized(path: str) -> bool:
 def _problem(item: object) -> str | None:
     """Say what is wrong with one engram in a :func:`write` list, if anything.
 
-    The same checks ``write_pages`` makes.
-
     :param item: one entry of the list
     :returns: what is wrong, worded to follow "Engram n in the list", or None
     """
@@ -627,9 +624,9 @@ async def write(
 ) -> list[dict]:
     """Create or replace whole engrams, several at once, all or nothing.
 
-    The same rules as ``write_pages``: at most :data:`MAX_BATCH` engrams,
-    each ``{path, body, title?, tags?, expected_version?, message?}``. Pass
-    ``expected_version`` when replacing an engram, from when it was read.
+    At most :data:`MAX_BATCH` engrams, each ``{path, body, title?, tags?,
+    expected_version?, message?}``. Pass ``expected_version`` when replacing
+    an engram, from when it was read.
     If any engram is refused, none is written. The persona is refused: it
     changes only through ``instruct``.
 
@@ -684,8 +681,8 @@ async def store_file(
 ) -> dict:
     """Keep a document or an image, with a description to find it by.
 
-    The same checks and limits as ``add_file``. The description is what
-    later conversations see and search, so it is required.
+    The description is what later conversations see and search, so it is
+    required.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
