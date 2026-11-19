@@ -29,6 +29,7 @@ from reef.engrams import (
 )
 from reef.methods import Caller, MethodError, method, staged
 from reef.methods.find import FILE_PREFIX
+from reef.methods.logs import LOG_TAG
 from reef.methods.refusals import refusals
 from reef.models import Engram, Revision, SpaceKind
 
@@ -200,11 +201,28 @@ async def undo(
                 old.body,
                 message=f"Undo to version {wanted}",
                 title=old.title,
-                tags=list(old.tags),
+                tags=_restored_tags(current, old),
                 expected_version=current.version,
                 channel=caller.writer,
             )
     return _changed(space, saved)
+
+
+def _restored_tags(current: Engram, old: Revision) -> list[str]:
+    """Choose the tags an undo restores.
+
+    Being a log is structure, not content, so a current ``log`` tag stays
+    even when the old revision has none: logs tagged by a migration have no
+    revision that carries it.
+
+    :param current: the engram as it is now
+    :param old: the revision being restored
+    :returns: the old tags, plus ``log`` when the engram is a log now
+    """
+    tags = list(old.tags)
+    if LOG_TAG in (current.tags or []) and LOG_TAG not in tags:
+        tags.append(LOG_TAG)
+    return tags
 
 
 @method("forget")
@@ -279,7 +297,8 @@ def _take(caller: Caller, token: str, accepted: list[dict]) -> dict:
     :raises MethodError: ``stale_token`` when it is staged for another target
     """
     subject = staged.take(caller, FORGET, token)
-    if subject not in accepted:
+    own = {k: subject.get(k) for k in ("space", "engram", "file") if k in subject}
+    if own not in accepted:
         raise MethodError("stale_token")
     return subject
 
@@ -307,19 +326,36 @@ async def _forget_engram(
         )
         return {
             "effect": _shared(effect, space, resolved.kind),
-            **_stage(caller, {"space": space, "engram": current.path}),
+            **_stage(
+                caller,
+                {
+                    "space": space,
+                    "engram": current.path,
+                    "space_id": str(resolved.id),
+                    "engram_id": str(current.id),
+                },
+            ),
         }
     names = {path}
     try:
         names.add(normalize_path(path))
     except InvalidPath:
         pass
-    subject = _take(
-        caller, confirm, [{"space": space, "engram": name} for name in names]
-    )
+    subject = _take(caller, confirm, [{"space": space, "engram": n} for n in names])
     try:
         with refusals():
             async with transaction_scope():
+                resolved = await resolve_writable_space(caller.principal, space)
+                current = await get_engram(caller.principal, space, subject["engram"])
+                # The token was staged for one engram in one space. A new
+                # engram at the same path, or the name now pointing at
+                # another space, is something nobody has confirmed.
+                if (
+                    current is None
+                    or str(resolved.id) != subject.get("space_id")
+                    or str(current.id) != subject.get("engram_id")
+                ):
+                    raise EngramNotFound
                 await delete_engram(caller.principal, space, subject["engram"])
     except EngramNotFound:
         raise MethodError("not_found") from None
@@ -353,10 +389,14 @@ async def _forget_file(
         )
         return {
             "effect": _shared(effect, space, resolved.kind),
-            **_stage(caller, subject),
+            **_stage(caller, {**subject, "space_id": str(resolved.id)}),
         }
-    _take(caller, confirm, [subject])
+    staged_for = _take(caller, confirm, [subject])
     with refusals():
+        async with transaction_scope():
+            resolved = await resolve_writable_space(caller.principal, space)
+        if str(resolved.id) != staged_for.get("space_id"):
+            raise MethodError("not_found")
         removed = await delete_attachment(
             caller.principal, space, key, store=S3ObjectStore()
         )
