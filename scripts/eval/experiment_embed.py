@@ -151,6 +151,35 @@ def embed(
     return np.concatenate(shards) if shards else np.zeros((0, 0), dtype=np.float32)
 
 
+def pieces(
+    pages: list[evalkit.EvalPage], prefix: bool | str
+) -> tuple[list[str], list[int]]:
+    """Cut every page into the texts that are embedded.
+
+    :param pages: the pages
+    :param prefix: put the page title in front of each chunk, or
+        ``"sections"`` to cut by heading with :mod:`reef.sections`
+    :returns: the texts, and for each text the index of its page
+    """
+    texts: list[str] = []
+    owner: list[int] = []
+    for index, page in enumerate(pages):
+        if prefix == "sections":
+            # The product's own cutting: by heading, with context in front.
+            cut = [
+                section.text
+                for section in sections.split(page.title, summary(page.body), page.body)
+            ]
+        else:
+            cut = [
+                f"{page.title}\n\n{piece}" if prefix and page.title else piece
+                for piece in chunks(page.body)
+            ]
+        texts.extend(cut)
+        owner.extend([index] * len(cut))
+    return texts, owner
+
+
 def page_vectors(
     pages: list[evalkit.EvalPage], model: dict, prefix: bool | str, tag: str
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -158,24 +187,12 @@ def page_vectors(
 
     :param pages: the pages
     :param model: an entry of :data:`MODELS`
-    :param prefix: put the page title in front of each chunk, or
-        ``"sections"`` to cut by heading with :mod:`reef.sections`
+    :param prefix: as for :func:`pieces`
     :param tag: names the cache file
     :returns: the chunk vectors, and for each chunk the index of its page
     """
-    texts: list[str] = []
-    owner: list[int] = []
-    for index, page in enumerate(pages):
-        if prefix == "sections":
-            # The product's own cutting: by heading, with context in front.
-            for section in sections.split(page.title, summary(page.body), page.body):
-                texts.append(model["passage"].format(text=section.text))
-                owner.append(index)
-            continue
-        for piece in chunks(page.body):
-            text = f"{page.title}\n\n{piece}" if prefix and page.title else piece
-            texts.append(model["passage"].format(text=text))
-            owner.append(index)
+    raw, owner = pieces(pages, prefix)
+    texts = [model["passage"].format(text=text) for text in raw]
     digest = hashlib.sha256("\x1f".join(texts).encode()).hexdigest()[:12]
     cache = OUT / f"emb-{tag}-{digest}.npy"
     OUT.mkdir(parents=True, exist_ok=True)
