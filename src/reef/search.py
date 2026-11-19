@@ -233,16 +233,25 @@ _KEYWORD_ORDER = "hits.every_word DESC, hits.rank DESC, hits.at DESC"
 _RESULTS_SQL = _results_sql(_KEYWORD_ORDER)
 
 #: The keyword ranking alone, for the fusion: which rows, in which order,
-#: and whether a row is ``sure``. A row is sure when it has no vector to be
-#: judged by: a file, or a page that is not embedded yet. In a short query
-#: a page that holds every word is sure as well. See :func:`fuse` for what
-#: that is worth. The first parameter says whether the query is short.
+#: and whether a row is ``sure``. See :func:`fuse` for what that is worth.
+#: The first parameter says whether the query is short.
+#:
+#: - A page that is not embedded yet is sure: it has no vector to be judged
+#:   by, and will have one soon.
+#: - In a short query, a page that holds every word is sure, and so is a
+#:   file. Somebody who types a name wants the page or file that has it.
+#: - In a whole question a file is not sure. Nearly every file shares some
+#:   word with a question, and credit for a meaning nobody measured let
+#:   files crowd out the pages that answer it. Measured on 19 November 2026
+#:   on real pages and files, 40 questions: with that credit 82.5% found
+#:   a right page in the first five, without it 95.0%.
 _RANKING_SQL = f"""
     SELECT hits.kind, hits.id,
-        ({{}} AND hits.every_word) OR hits.kind = 'file' OR NOT EXISTS (
+        ({{}} AND (hits.every_word OR hits.kind = 'file'))
+        OR (hits.kind = 'page' AND NOT EXISTS (
             SELECT 1 FROM page_embeddings e
             WHERE e.page_id = hits.id AND e.model_id = {{}} AND e.dims = {{}}
-        ) AS sure
+        )) AS sure
     FROM hits ORDER BY {_KEYWORD_ORDER}
 """
 

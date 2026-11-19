@@ -388,6 +388,26 @@ async def test_a_file_is_not_pushed_out_by_pages_close_in_meaning(
     assert results[0]["kind"] == "file"
 
 
+async def test_in_a_whole_question_a_file_gets_no_credit_for_meaning(
+    tx, household, service
+):
+    """A file shares some word with nearly any question; that proves little."""
+    me = principal_for(household["wouter"])
+    await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
+    await arm(me)
+    await Attachment(
+        cove_id=household["w_personal"].id,
+        object_key="files/notes",
+        filename="notes.pdf",
+        mime="application/pdf",
+        byte_size=1,
+        description="Notes on when the dwelling was painted.",
+        status=AttachmentStatus.READY.value,
+    ).save()
+    results = await search_pages(me, "when was the vehicle last looked at")
+    assert [r["kind"] for r in results][:2] == ["page", "file"]
+
+
 async def test_a_page_without_vectors_yet_is_not_pushed_out(tx, household, service):
     me = principal_for(household["wouter"])
     await _many_cars(me, service)
