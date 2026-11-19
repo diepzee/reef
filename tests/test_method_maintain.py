@@ -6,6 +6,7 @@ opens its own, as it does behind the tools.
 
 import pytest
 
+from reef.access import arm
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
@@ -367,3 +368,57 @@ async def test_forget_in_a_personal_space_does_not_name_other_members(household)
     await _save(me, "personal", "note.md", "Note.")
     staged = await maintain.forget(me, "", "personal", engram="note.md")
     assert "member" not in staged["effect"].lower()
+
+
+async def test_undo_keeps_the_log_tag_a_migration_added(household):
+    """A log tagged without a revision is still a log after undoing an entry."""
+    from reef.methods import capture
+
+    me = caller_for(household["wouter"])
+    await _save(me, "household", "trip-log.md", "# Trip\n")
+    async with transaction_scope():
+        await arm(me.principal)
+        await Engram.update({Engram.tags: ["log"]}).where(Engram.path == "trip-log.md")
+    await capture.log(me, "", "household", "trip-log.md", "Day 1", "Walked.")
+    await maintain.undo(me, "", "household", "trip-log.md")
+    engram = await _read(me, "household", "trip-log.md")
+    assert "log" in engram.tags
+    assert "Day 1" not in engram.body
+    await capture.log(me, "", "household", "trip-log.md", "Day 2", "Rested.")
+    assert "Day 2" in (await _read(me, "household", "trip-log.md")).body
+
+
+async def test_forget_token_does_not_delete_a_recreated_engram(household):
+    """A replayed token cannot delete a new engram at the old path."""
+    me = caller_for(household["wouter"])
+    await _save(me, "household", "car.md", CAR)
+    staged = await maintain.forget(me, "", "household", engram="car.md")
+    await maintain.forget(me, "", "household", engram="car.md", confirm=staged["token"])
+    await _save(me, "household", "car.md", "A new car.")
+    with pytest.raises(MethodError) as replay:
+        await maintain.forget(
+            me, "", "household", engram="car.md", confirm=staged["token"]
+        )
+    assert replay.value.code == "not_found"
+    assert (await _read(me, "household", "car.md")).body == "A new car."
+
+
+async def test_forget_token_is_refused_when_the_name_points_elsewhere(household, graph):
+    """After a rename, a token staged for the old space deletes nothing."""
+    from reef.spaces import rename_space
+
+    me = caller_for(household["wouter"])
+    club = await graph.shared_space("club", household["wouter"])
+    await _save(me, "household", "car.md", CAR)
+    await _save(me, "club", "car.md", "Club car.")
+    staged = await maintain.forget(me, "", "household", engram="car.md")
+    async with transaction_scope():
+        await rename_space(me.principal, "household", "home")
+        await rename_space(me.principal, "club", "household")
+    with pytest.raises(MethodError) as refused:
+        await maintain.forget(
+            me, "", "household", engram="car.md", confirm=staged["token"]
+        )
+    assert refused.value.code == "not_found"
+    assert (await _read(me, "household", "car.md")).body == "Club car."
+    assert club.id
