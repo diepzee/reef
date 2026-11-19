@@ -14,11 +14,11 @@ async def test_context_contains_both_spaces_with_full_bodies(tx, household):
     await save_engram(me, "personal", "health.md", "sleeps badly", message="x")
     await save_engram(me, "household", "house.md", "boiler", message="x")
     payload = await load_context(me, char_budget=100_000)
-    assert {s.alias for s in payload.coves} == {"personal", "household"}
-    bodies = [p["body"] for s in payload.coves for p in s.pages]
+    assert {s.alias for s in payload.spaces} == {"personal", "household"}
+    bodies = [p["body"] for s in payload.spaces for p in s.engrams]
     assert "sleeps badly" in bodies and "boiler" in bodies
     assert payload.truncated is False
-    assert payload.page_count == payload.included_count == 2
+    assert payload.engram_count == payload.included_count == 2
 
 
 async def test_context_never_includes_the_other_persons_space(tx, household):
@@ -28,8 +28,8 @@ async def test_context_never_includes_the_other_persons_space(tx, household):
     await save_engram(mine, "personal", "mine.md", "my secret", message="x")
     bodies = [
         p["body"]
-        for s in (await load_context(mine, char_budget=100_000)).coves
-        for p in s.pages
+        for s in (await load_context(mine, char_budget=100_000)).spaces
+        for p in s.engrams
     ]
     assert "my secret" in bodies and "her secret" not in bodies
 
@@ -50,13 +50,15 @@ async def test_truncation_prefers_meta_core_and_small_engrams(tx, household):
     await save_engram(me, "personal", "diary.md", "x" * 5_000, message="x")
     payload = await load_context(me, char_budget=100)
     included = {
-        p["path"] for s in payload.coves for p in s.pages if p["body"] is not None
+        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is not None
     }
-    omitted = {p["path"] for s in payload.coves for p in s.pages if p["body"] is None}
+    omitted = {
+        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is None
+    }
     assert "meta/persona.md" in included and "allergy.md" in included
     assert "diary.md" in omitted
     assert payload.truncated is True and payload.note is not None
-    assert payload.included_count < payload.page_count
+    assert payload.included_count < payload.engram_count
 
 
 async def test_version_reflects_every_space_write(tx, household):
@@ -83,8 +85,8 @@ async def test_index_lists_engrams_without_bodies(tx, household):
 
     idx = await load_index(me)
 
-    assert {s.alias for s in idx.coves} == {"personal", "household"}
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "health.md")
+    assert {s.alias for s in idx.spaces} == {"personal", "household"}
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "health.md")
     assert entry["title"] == "health"
     assert entry["tags"] == ["person"]
     assert entry["description"] == "Sleep profile and open questions."
@@ -104,7 +106,7 @@ async def test_index_description_skips_headings(tx, household):
         message="x",
     )
     idx = await load_index(me)
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "a.md")
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "a.md")
     assert entry["description"] == "The real summary line."
 
 
@@ -131,10 +133,10 @@ An inline example: `[[household:house.md]]`.
     )
 
     idx = await build_index(me)
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "map.md")
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "map.md")
     assert entry["references"] == [
-        {"cove": "personal", "path": "notes.md"},
-        {"cove": "household", "path": "house.md"},
+        {"space": "personal", "path": "notes.md"},
+        {"space": "household", "path": "house.md"},
     ]
 
 
@@ -145,7 +147,7 @@ async def test_index_excludes_the_other_persons_space(tx, household):
     theirs = principal_for(household["partner"])
     await save_engram(theirs, "personal", "hers.md", "her secret", message="x")
     idx = await load_index(mine)
-    assert all(p["path"] != "hers.md" for s in idx.coves for p in s.pages)
+    assert all(p["path"] != "hers.md" for s in idx.spaces for p in s.engrams)
 
 
 async def test_index_carries_attachment_descriptions(tx, household):
@@ -166,7 +168,7 @@ async def test_index_carries_attachment_descriptions(tx, household):
     ).save()
 
     idx = await load_index(me)
-    house = next(s for s in idx.coves if s.alias == "household")
+    house = next(s for s in idx.spaces if s.alias == "household")
     assert house.attachments == [
         {
             "key": "k1",
@@ -174,7 +176,7 @@ async def test_index_carries_attachment_descriptions(tx, household):
             "mime": "image/png",
             "size": 9,
             "description": "the boiler's model plate",
-            "page_path": None,
+            "engram_path": None,
         }
     ]
 
@@ -195,8 +197,8 @@ async def test_index_rows_carry_last_editor(graph):
         )
     async with transaction_scope():
         payload = await build_index(a)
-    team = next(s for s in payload.coves if s.alias == "team")
-    engram = next(p for p in team.pages if p["path"] == "n.md")
+    team = next(s for s in payload.spaces if s.alias == "team")
+    engram = next(p for p in team.engrams if p["path"] == "n.md")
     assert engram["last_editor"] == "Bob"
 
 
@@ -220,8 +222,8 @@ async def test_last_editor_none_when_author_erased(graph):
             Revision.author_id == alice.id
         )
         payload = await build_index(a)
-    personal = next(s for s in payload.coves if s.alias == "personal")
-    row = next(p for p in personal.pages if p["path"] == "n.md")
+    personal = next(s for s in payload.spaces if s.alias == "personal")
+    row = next(p for p in personal.engrams if p["path"] == "n.md")
     assert row["last_editor"] is None
 
 
@@ -241,8 +243,8 @@ def _entry(index, alias: str, path: str) -> dict:
     :param path: the engram path
     :returns: the entry's fields
     """
-    space = next(space for space in index.coves if space.alias == alias)
-    return next(engram for engram in space.pages if engram["path"] == path)
+    space = next(space for space in index.spaces if space.alias == alias)
+    return next(engram for engram in space.engrams if engram["path"] == path)
 
 
 async def _forget_index_fields(path: str) -> None:
@@ -300,8 +302,8 @@ async def test_an_engram_from_before_the_fields_existed_indexes_the_same(tx, hou
     derived = _entry(await build_index(me), "personal", "house.md")
     assert derived == stored
     assert derived["references"] == [
-        {"cove": "personal", "path": "garden.md"},
-        {"cove": "household", "path": "roof.md"},
+        {"space": "personal", "path": "garden.md"},
+        {"space": "household", "path": "roof.md"},
     ]
 
 

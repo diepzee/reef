@@ -482,47 +482,6 @@ async def _delete_avatar(request: Request, principal: Principal) -> dict:
     return {"avatar": None}
 
 
-def _index_for_web(payload: dict) -> dict:
-    """Rename the index's wire keys to the web API's vocabulary.
-
-    :func:`reef.context.build_index` still speaks the MCP tools' old
-    ``coves`` / ``pages`` vocabulary, which those tools keep until they are
-    replaced. The web app has moved on, so the translation happens here, at
-    its edge, and the MCP payload stays as it is.
-
-    :param payload: the index, as ``asdict`` of the index payload
-    :returns: the same index keyed by ``spaces``, ``engrams`` and
-        ``engram_path``, with each reference naming its ``space``
-    """
-    return {
-        "version": payload["version"],
-        "spaces": [
-            {
-                "alias": space["alias"],
-                "version": space["version"],
-                "engrams": [
-                    {
-                        **{k: v for k, v in engram.items() if k != "references"},
-                        "references": [
-                            {"space": ref["cove"], "path": ref["path"]}
-                            for ref in engram["references"]
-                        ],
-                    }
-                    for engram in space["pages"]
-                ],
-                "attachments": [
-                    {
-                        **{k: v for k, v in file.items() if k != "page_path"},
-                        "engram_path": file["page_path"],
-                    }
-                    for file in space["attachments"]
-                ],
-            }
-            for space in payload["coves"]
-        ],
-    }
-
-
 async def _index(request: Request, principal: Principal) -> dict:
     """Return the index of everything the principal may see.
 
@@ -530,7 +489,7 @@ async def _index(request: Request, principal: Principal) -> dict:
     :param principal: the authenticated person
     :returns: the index payload, as a plain dict
     """
-    return _index_for_web(asdict(await build_index(principal)))
+    return asdict(await build_index(principal))
 
 
 async def _engram_payload(space: str, engram: Engram) -> dict:

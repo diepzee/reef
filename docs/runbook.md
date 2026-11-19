@@ -956,7 +956,7 @@ budget must come from measurement on the real device, not arithmetic.
 1. `railway run uv run python scripts/measure_context.py wouter@rugvin.be <size>`
    to pad the corpus to ~60KB, then ~200KB, then ~500KB.
 2. After each: from the Claude mobile app, ask the assistant to
-   `load_all_context` and report `page_count`, `included_count`, and whether
+   `load_all_context` and report `engram_count`, `included_count`, and whether
    every non-null body arrived intact (the payload is built so a host-side cut
    is detectable — a mismatch means truncation in transit).
 3. Record results in `docs/superpowers/plans/context-limits.md`; set

@@ -91,6 +91,9 @@ def test_engram_content_never_reaches_the_exporter(captured):
         engram_path="meta/persona.md",
         section_text="SECRET-SECTION",
         subject="auth0|SECRET",
+        # Plain values: a value that says "secret" is scrubbed for that alone.
+        question="when was the boiler serviced",
+        passage="The boiler was serviced in May",
     ):
         pass
 
@@ -103,6 +106,8 @@ def test_engram_content_never_reaches_the_exporter(captured):
         "meta/persona.md",
         "SECRET-SECTION",
         "auth0|SECRET",
+        "when was the boiler serviced",
+        "The boiler was serviced in May",
     ):
         assert secret not in blob, f"{secret!r} reached the exporter"
 
@@ -141,9 +146,15 @@ def test_the_eu_instance_is_the_default(monkeypatch):
 
 def test_scrub_patterns_cover_every_content_field():
     """A new content column must be added here too; this is the reminder."""
-    assert {"body", "title", "email", "display_name", "page_path"} <= set(
-        telemetry.SCRUB_PATTERNS
-    )
+    assert {
+        "body",
+        "title",
+        "email",
+        "display_name",
+        "page_path",
+        "question",
+        "passage",
+    } <= set(telemetry.SCRUB_PATTERNS)
     assert os.environ.get("LOGFIRE_TOKEN") is None or True
 
 

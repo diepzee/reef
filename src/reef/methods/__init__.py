@@ -56,6 +56,16 @@ MESSAGES = {
         "Reef cannot confirm actions right now, because it is not set up for "
         "it. Tell the person; their Reef's operator needs to fix this."
     ),
+    "invalid_as_of": (
+        "This moment is not a date Reef can read. Send as_of as an ISO 8601 "
+        "date and time, such as 2026-03-01T12:00:00, or leave it out to read "
+        "the engram as it is now."
+    ),
+    "invalid_since": (
+        "This moment is not a date Reef can read. Send since as an ISO 8601 "
+        "date and time, such as 2026-03-01T12:00:00, or leave it out for the "
+        "last 7 days."
+    ),
 }
 """The plain message for each error code that has a standard one."""
 

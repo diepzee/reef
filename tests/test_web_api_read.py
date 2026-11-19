@@ -76,9 +76,9 @@ class _NullStore:
 async def test_index_uses_the_web_vocabulary_throughout(api, world):
     """The index speaks ``spaces`` / ``engrams`` / ``engram_path`` only.
 
-    ``build_index`` still emits the MCP tools' old keys; the web edge
-    translates them. This pins every translated key, so a typo there cannot
-    slip past hand-written frontend fixtures.
+    ``build_index`` emits these keys itself and the web edge passes them on.
+    This pins every one, so a typo there cannot slip past hand-written
+    frontend fixtures.
     """
     from reef.access import Principal
     from reef.attachments import add_attachment

@@ -30,13 +30,13 @@ async def _links(principal, alias, path) -> dict:
 
 
 def _targets(entries: list[dict]) -> list[tuple[str, str]]:
-    return [(entry["cove"], entry["path"]) for entry in entries]
+    return [(entry["space"], entry["path"]) for entry in entries]
 
 
 async def _inbound(principal, alias, path) -> int:
     index = await build_index(principal)
-    space = next(space for space in index.coves if space.alias == alias)
-    return next(engram for engram in space.pages if engram["path"] == path)["inbound"]
+    space = next(space for space in index.spaces if space.alias == alias)
+    return next(engram for engram in space.engrams if engram["path"] == path)["inbound"]
 
 
 # --- storing ------------------------------------------------------------------
@@ -52,7 +52,7 @@ async def test_a_wiki_link_is_stored_and_read_from_both_ends(tx, household):
     house = await _links(me, "personal", "house.md")
     assert house["links"] == [
         {
-            "cove": "personal",
+            "space": "personal",
             "path": "boiler.md",
             "title": "Boiler",
             "kind": "references",

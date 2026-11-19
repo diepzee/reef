@@ -17,7 +17,7 @@ async def test_tool_load_context_serialises(tx, household):
     await save_engram(me, "household", "house.md", "boiler", message="x")
     result = await tool_load_context(me)
     assert result["truncated"] is False
-    assert any(p["body"] == "boiler" for s in result["coves"] for p in s["pages"])
+    assert any(p["body"] == "boiler" for s in result["spaces"] for p in s["engrams"])
 
 
 async def test_tool_read_page_not_found_is_plain(tx, household):
@@ -53,7 +53,7 @@ async def test_tool_load_index_serialises(tx, household):
         me, "household", "house.md", "The family home.\n\nDetail.", message="x"
     )
     result = await tool_load_index(me)
-    engrams = [p for s in result["coves"] for p in s["pages"]]
+    engrams = [p for s in result["spaces"] for p in s["engrams"]]
     assert engrams and engrams[0]["description"] == "The family home."
     assert all("body" not in p for p in engrams)
 

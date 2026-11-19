@@ -248,7 +248,7 @@ async def links_of(principal: Principal, engram_id: UUID) -> dict[str, list[dict
         )
         entries = [
             {
-                "cove": aliases[row["space_id"]],
+                "space": aliases[row["space_id"]],
                 "path": row["path"],
                 "title": row["title"],
                 "kind": row["kind"],
@@ -256,7 +256,7 @@ async def links_of(principal: Principal, engram_id: UUID) -> dict[str, list[dict
             for row in rows
             if row["space_id"] in aliases
         ]
-        return sorted(entries, key=lambda entry: (entry["cove"], entry["path"]))
+        return sorted(entries, key=lambda entry: (entry["space"], entry["path"]))
 
     return {
         "links": await side("from_engram_id", "to_engram_id"),

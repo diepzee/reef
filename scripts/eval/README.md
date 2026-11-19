@@ -56,6 +56,7 @@ It does not ask a model to answer. It checks retrieval only.
 | `lexical-any` | The same search, with the question rewritten so its words are alternatives |
 | `hybrid` | Words and meaning together, as search ships once a reef has an embedding service |
 | `rerank` | `hybrid`, then the first results read again by a reranker, as search ships once a reef has both services |
+| `recall` | The `recall` method an assistant calls, with whichever services this machine has. It must find as often as `hybrid`, or as `rerank` with a reranker |
 
 `hybrid` needs a local embedding service and the eval person's vectors:
 
