@@ -143,11 +143,64 @@ def backticked(text: str) -> set[str]:
     return set(re.findall(r"`([^`\n]+)`", prose))
 
 
+#: Backticked words that are not tools: arguments, spaces and tags.
+NOT_TOOLS = {
+    "as_of",
+    "confirm",
+    "core",
+    "expected_version",
+    "family",
+    "path",
+    "personal",
+    "reason",
+    "section",
+    "to_path",
+}
+
+#: Words in the skill and the plugin commands that are not tools either.
+NOT_TOOLS_OUTSIDE_PROTOCOL = NOT_TOOLS | {
+    "body",
+    "message",
+    "operating_protocol",
+    "reef",
+    "since",
+    "tags",
+    "title",
+}
+
+
+def unknown_names(text: str, extra: set[str]) -> set[str]:
+    """Find backticked words that look like tool names but are not.
+
+    :param text: Markdown
+    :param extra: the words allowed besides the sixteen tools
+    :returns: the words that are neither a tool nor allowed
+    """
+    looks_like_a_name = {w for w in backticked(text) if re.fullmatch(r"[a-z_]+", w)}
+    return looks_like_a_name - TOOLS - extra
+
+
+def test_unknown_names_catches_a_made_up_tool():
+    """A name that is no tool is found; the sixteen and allowed words are not."""
+    assert unknown_names("Call `read_engram`, then `recall`.", NOT_TOOLS) == {
+        "read_engram"
+    }
+    assert unknown_names("`invite_member` and `reason`", NOT_TOOLS) == {"invite_member"}
+    assert not unknown_names("`recall` `open` `confirm`", NOT_TOOLS)
+
+
 def test_protocol_names_only_existing_tools():
-    """Every old tool name is gone, and every current tool is taught."""
-    words = backticked((ROOT / "src/reef/protocol.md").read_text())
-    assert not words & RETIRED
-    assert TOOLS <= words
+    """Every backticked name is a tool or an allowed word, and all are taught."""
+    text = (ROOT / "src/reef/protocol.md").read_text()
+    assert not unknown_names(text, NOT_TOOLS)
+    assert TOOLS <= backticked(text)
+
+
+def test_protocol_sends_personal_inbox_entries_through_share():
+    """The tidy-up never moves a private entry into a shared space by writing."""
+    text = " ".join((ROOT / "src/reef/protocol.md").read_text().split())
+    assert "onto an engram in the same space" in text
+    assert "goes there only through `share`" in text
 
 
 def test_protocol_uses_the_new_words():
@@ -173,6 +226,7 @@ def test_the_skill_names_only_existing_commands():
     """The skill teaches the sixteen tools as commands of the reef program."""
     text = (ROOT / "skills/reef/SKILL.md").read_text()
     assert not backticked(text) & RETIRED
+    assert not unknown_names(text, NOT_TOOLS_OUTSIDE_PROTOCOL)
     commands = set(re.findall(r"\breef ([a-z][a-z-]*)", text))
     allowed = {tool.replace("_", "-") for tool in TOOLS} | CLI_EXTRAS
     assert commands <= allowed
@@ -187,4 +241,5 @@ def test_the_plugin_commands_name_only_existing_tools():
         words = backticked(text)
         assert tool in words
         assert not words & RETIRED
+        assert not unknown_names(text, NOT_TOOLS_OUTSIDE_PROTOCOL)
         assert not re.search(r"\bcoves?\b|\bpages?\b", text.lower())

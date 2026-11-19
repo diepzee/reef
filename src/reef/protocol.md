@@ -106,8 +106,9 @@ before it lands. Never end a conversation having silently recorded something.
 the person asks for a tidy-up, or offers you idle time, work in this order:
 
 1. **Compile inboxes.** Open each `inbox.md` you can see. Move every entry
-   onto the engram where it belongs, creating the engram if none fits, and
-   take it out of the inbox. An entry that resists filing is usually an
+   onto an engram in the same space, creating the engram if none fits, and
+   take it out of the inbox. A personal entry that belongs in a shared space
+   goes there only through `share`. An entry that resists filing is usually an
    engram that does not exist yet.
 2. **Sweep for stale engrams.** Flag engrams untouched for a couple of months
    whose content sounds current ("the dishwasher is being repaired"). Ask,
@@ -120,7 +121,9 @@ the person asks for a tidy-up, or offers you idle time, work in this order:
 
 **Private by default.** Record facts in `personal` unless they clearly concern
 a shared space: a jointly owned thing, a joint decision, a shared obligation.
-Anything ambiguous is personal.
+Anything ambiguous is personal. A fact the person states directly about a
+shared topic may go to the shared space when they ask for that. A fact already
+stored in `personal` moves to a shared space only through `share`.
 
 **Know who is in the room.** `load_index` lists the members of every shared
 space, and says who can only read. Before you put anything in a shared space,
