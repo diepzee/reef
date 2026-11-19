@@ -281,7 +281,7 @@ and seeds `meta/persona.md` there for them. Nothing else is needed — no
 migration, no restart. (The operating protocol is not seeded: since 9 Aug
 2026 it ships with the product in `src/reef/protocol.md`, versioned with the
 code so improvements reach every member on deploy. `instruct`
-accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
+takes no space and replaces only `meta/persona.md` in the personal space; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
 Wouter's personal space and the shared space were deleted, and the shared
 space's stale `school` slug was renamed to `household` — backup first, via
@@ -293,13 +293,14 @@ Two things to get right:
   than one, and the provider must report it verified. `rif` binds to the
   provider's subject on first login, so changing their account afterwards means
   clearing their `subject` column by hand.
-- **Say out loud what an invite grants** before you call it. The invitee will
-  permanently see everything in that space, past and future; the tool returns a
-  disclosure line with today's engram count for exactly this reason. Removal
-  (on the website) stops future access — it cannot unshare what was read.
+- **Say out loud what an invite grants** before you send it. Inviting happens
+  on the website, not through an assistant tool. The invitee will permanently
+  see everything in that space, past and future. Removal (also on the website)
+  stops future access — it cannot unshare what was read.
 
-If you typo an address, removing that member on the website you never got to use also
-erases the orphaned person row, so the mistake leaves nothing behind.
+If you typo an address, remove that member on the website. Removing someone
+who never signed in also erases the orphaned person row, so the mistake leaves
+nothing behind.
 
 ---
 
@@ -908,30 +909,20 @@ nothing moves by inference.
 
 ## Phase 6 — Protocol and personas
 
-> **Step 1 done, 6 Aug 2026** — but written in the shared space, which no
-> longer works: `instruct` now refuses any space but `personal`, and
-> `load_index` never read the shared copy in the first place.
-> **Rewrite it in your personal space.** **Step 2 is not done either:**
+> **Step 1 is obsolete.** It wrote the operating protocol as an engram. The
+> protocol now ships with the product (`src/reef/protocol.md`) and cannot be
+> edited as content. **Step 2 is not done:**
 > `meta/persona.md` is still the 157-byte placeholder from the first end-to-end
 > test, while every other engram got real content. It is the engram that steers the
 > assistant's voice, and `mark.md` in the personal space already holds much of
 > what belongs in it. Step 3 waits on Phase 2.
 
-The code ships a built-in fallback protocol, but the real thing is content:
+The protocol ships with the product. Only the persona is content:
 
-1. **The protocol lives in each person's own personal space, not a shared one.**
-   `load_index` reads `meta/protocol.md` only from the personal
-   space it is called for, never from `household` or any other shared space — the
-   protocol and the persona are per-person. Anyone invited after go-live gets
-   both engrams created for them at first sign-in, seeded from the built-in
-   template. You were seeded by migration rather than by invite, so write your
-   own: `instruct` in your **personal** space (or ask any connected
-   assistant) with the operating rules — load context first, compile don't
-   dump, private-by-default routing, promote-only-with-consent — plus the
-   **onboarding behavior**: an assistant meeting an empty personal space
-   introduces itself, asks what to call itself, and interviews gently to seed
-   the persona.
-2. Write your own `meta/persona.md`, also in your **personal** space (Mark's
+1. **The operating protocol is not content.** `load_index` returns the copy in
+   `src/reef/protocol.md` to every person. Change it by changing the code.
+   `instruct` cannot write it: `instruct` replaces only the persona.
+2. Write your own `meta/persona.md` in your **personal** space (Mark's
    tone lives in `mark/wiki/mark.md` today — port it).
 3. **Hers is not yours to write.** Her first conversation, via the onboarding
    behavior, fills in the `meta/persona.md` waiting in her own personal space.
@@ -941,11 +932,12 @@ The code ships a built-in fallback protocol, but the real thing is content:
 
 ## Phase 7 — Measure the context ceiling
 
-> **Open.** Less urgent than it looks: `load_index` is the primary retrieval
-> path and carries no bodies, so ordinary use no longer pushes against the
-> ceiling. The bulk read a tidy-up needs (`load_index`, then `open` on many refs) is
-> what needs a measured budget. Note that step 1 pads the *real* corpus, so run it after
-> Phase 4's backup is proven, not before.
+> **Open, and it needs a new measurement.** The steps below measure
+> `load_all_context`, a bulk-read tool that no longer exists (RUG-40 retired
+> it). They have not been redone for the workflow tools: decide first which
+> call carries the most text now (`brief` or `open`), then measure that one.
+> Do not rely on the numbers below. Note that step 1 pads the *real* corpus,
+> so run it after Phase 4's backup is proven, not before.
 
 **Why:** the server counts body characters; the client cares about serialized
 tokens, and the mobile host may truncate big tool results on its own. The
@@ -1287,6 +1279,96 @@ and the door itself cannot drift: open, it offers a place; shut, it says
 there is no sign-up. Sign-in itself is unchanged either way — the AuthKit
 screen still carries its own "Sign up" link, which lands on the same door
 and is bound by the same ceiling.
+
+## The tool set (RUG-40)
+
+Assistants see sixteen tools, built around what people ask for. Spaces and
+members are managed on the website, not through a tool.
+
+| Tool | What it is for |
+|---|---|
+| `load_index` | Start of every conversation: the operating protocol, the persona and the index of every engram. |
+| `recall` | Answer a question from the passages of memory that fit it best. |
+| `brief` | Prepare for a session or a decision: the engrams that bear on a topic. |
+| `open` | Read one engram, file or image in full. |
+| `catch_up` | Show what changed since the person was last here, including other members' changes. |
+| `remember` | Keep a short fact in the space's inbox for later filing. |
+| `log` | Add one entry to a journal, training log or meeting notes. |
+| `write` | Create an engram or rewrite one completely. |
+| `store_file` | Keep a document or an image. |
+| `correct` | Replace one exact passage of an engram. |
+| `undo` | Revert a change. |
+| `forget` | Delete an engram or a file for good. Staged. |
+| `share` | Move a personal engram, or one section of it, into a shared space. Staged. |
+| `instruct` | Replace the persona (`meta/persona.md`). It takes no space. Staged. |
+| `search` | Search for connectors that expect this fixed pair (ChatGPT style). |
+| `fetch` | Fetch a result of `search` by its id. |
+
+**Staged actions.** `share`, `forget` and `instruct` take two calls. The first
+changes nothing: it returns the effect in plain words and a token. The
+assistant shows the person the effect, waits for a yes, then calls again with
+the token as `confirm`. A token works for ten minutes, for one person and one
+action.
+
+**The reason.** Every tool except `search` and `fetch` takes a `reason`: the
+assistant's own account, in a few words, of why it made the call. The call log
+(below) is the only place it is kept.
+
+**Retired names.** The earlier tool names still answer. A call to one of them
+returns a message that names its replacement (for example `read_page` points
+to `open`, `create_cove` points to the website) and does nothing else. The
+list is `RETIRED` in `src/reef/server.py`. Assistants must reload their tool
+list to see the new names.
+
+## The call log (RUG-40)
+
+**What it stores.** One row per call: the method, the reason cut to 200
+characters, who called (`assistant`, `person` or `system`), how long the call
+took, how many items it returned, and the outcome. It stores no arguments, no
+engram text and no results.
+
+**Who sees it.** Only the person it belongs to. Row-level security stops
+every other reader, operators included. The reason never reaches Logfire or
+the app logs. The person's export includes their rows, and deleting the
+account deletes them.
+
+**How long.** 90 days. The worker purges older rows every hour.
+
+**Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
+`reef-app`. **Before you set it**, update the privacy page and tell the
+people who use Reef. The privacy page promises that people hear about this
+first. Setting the variable is a separate decision from the RUG-40 deploy.
+
+## Deploying the rename (RUG-40)
+
+RUG-40 is one breaking release. It renames cove to space and page to engram
+everywhere, including the database.
+
+**What the migration does.** `reef_2026_11_20t10_00_00_000000` renames the
+tables, columns, indexes, constraints and helper functions in one
+transaction. Two later migrations add the call log
+(`reef_2026_11_20t12_00_00_000000`) and tag existing `*-log.md` engrams with
+`log` (`reef_2026_11_20t14_00_00_000000`). Rehearse all three before the
+deploy: `uv run python scripts/rehearse_rename.py` builds throwaway
+databases, runs the chain and checks row counts, schema, row security and the
+app's own code. It never touches the development or production database.
+
+**Expect a short outage.** The app is unavailable while the rename runs,
+because it holds locks on every renamed table. Deploy when nobody is likely
+to be mid-conversation.
+
+**After the deploy, tell people to reload.** Assistants keep the old tool
+list until they reload it. Until then they call retired names and get the
+replacement in the answer.
+
+**Check afterwards:**
+
+1. `load_index` works from a connected assistant and lists spaces and engrams.
+2. `recall` finds an engram you know exists.
+3. The web app loads and shows the same spaces as before.
+4. A retired name (for example `list_coves`) answers with its replacement.
+
+---
 
 ## Reference
 

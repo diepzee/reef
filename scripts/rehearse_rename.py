@@ -647,6 +647,7 @@ async def check_schema(report: Report) -> None:
         + rls.link_statements()
         + rls.usage_statements()
         + rls.search_log_statements()
+        + rls.call_log_statements()
         + rls.embedding_statements()
         + rls.session_epoch_statements()
         + rls.alias_statements()
