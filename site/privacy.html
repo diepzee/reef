@@ -120,6 +120,7 @@ footer a { color: var(--muted); }
     <tr><td>An identifier from your sign-in provider</td><td>The durable way to recognise you. Emails change; this does not.</td></tr>
     <tr><td>Page history — who changed what, and when</td><td>So a shared memory can be traced and corrected.</td></tr>
     <tr><td>Which pages you open or write, and when</td><td>So your assistant can bring up the pages you use most. Only you can see this, also in a shared cove.</td></tr>
+    <tr><td>Search vectors of your pages — lists of numbers made from each page's text</td><td>So search can find a page by what it means, not only by its words. A vector is as private as its page: only people who can read the page can find it this way.</td></tr>
     <tr><td>What you search for, and which pages came back</td><td>To measure how well search works and to improve it. Only you can see this. Deleted after 90 days. See below.</td></tr>
   </table>
   <p>
@@ -129,7 +130,11 @@ footer a { color: var(--muted); }
     person's searches, and that includes us.
   </p>
   <p>
-    <span class="reef-name">reef</span> has no advertising and no trackers. It does not analyse what your pages say.
+    <span class="reef-name">reef</span> has no advertising and no trackers. It reads what your pages say
+    for one purpose: to search them for you. Two models that <span class="reef-name">reef</span> runs
+    itself do this. One turns each page into search vectors. The other reads
+    your question next to the best matches and puts them in order. Neither
+    sends your text to another company, and neither learns from it.
     The only email you can receive is a sign-in code, sent by WorkOS at the
     moment you ask to sign in with one. Nothing else is ever sent — no
     invitation emails, no notifications, no newsletters. An invitation reaches
@@ -167,6 +172,7 @@ footer a { color: var(--muted); }
   <h2>Where it lives</h2>
   <ul>
     <li><strong>Pages, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
+    <li><strong>Search vectors</strong> — in the same database as your pages. The two models that read your pages for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network.</li>
     <li><strong>Images and backups</strong> — Cloudflare R2, in the European Union.</li>
     <li><strong>Sign-in</strong> — handled by WorkOS, either with a Google account or with a six-digit code sent to your address. <span class="reef-name">reef</span> never sees a password; it only learns your verified email address.</li>
     <li><strong>Traffic</strong> — served through Cloudflare.</li>
@@ -186,7 +192,8 @@ footer a { color: var(--muted); }
     us if that is a problem for you and we will work it out.
   </p>
   <p>
-    A logged search is deleted after 90 days. The record of which pages you
+    The search vectors of a page are deleted with the page, and made again
+    when it changes. A logged search is deleted after 90 days. The record of which pages you
     opened stays until you delete your account or ask us to remove it. Both
     are in the copy of your data you can download, and both go when your
     account goes.
