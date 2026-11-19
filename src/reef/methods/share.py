@@ -150,7 +150,8 @@ async def share(
     yes. The second call brings the token back as ``confirm``, with the
     same engram, section, space and path. The private original is replaced
     by a pointer to the shared copy, so nothing private exists twice.
-    Sharing cannot be undone. A token works once.
+    Sharing cannot be undone. Repeating the second call with the same token
+    and arguments moves nothing again and answers ``already_done``.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -161,7 +162,7 @@ async def share(
         required with ``section``
     :param confirm: the token from the first call
     :returns: without ``confirm``, ``effect`` (plain text), ``token`` and
-        ``expires_in``; with it, ``shared`` (``space/path``)
+        ``expires_in``; with it, ``shared`` (``space/path``) and ``already_done``
     :raises MethodError: ``share_to_personal``, ``unknown_space``,
         ``read_only``, ``not_found``, ``share_needs_path``,
         ``passage_not_found``, ``passage_ambiguous``,
@@ -198,8 +199,8 @@ async def _stage_share(
     people = ", ".join(staged_share["members"])
     effect = (
         f"This copies {what} into the shared space {to_space} as "
-        f"{staged_share['dest_path']}. Everyone in that space can read it, "
-        f"now and in future: {people}. This cannot be undone. "
+        f"{staged_share['dest_path']}. Everyone in that space can read it: "
+        f"{people}, and anyone invited later. This cannot be undone. "
         + (
             f"The section in {engram} is replaced by a pointer to the shared copy."
             if section
@@ -229,9 +230,9 @@ async def _carry_out_share(
     :param section: the exact text to share, or None
     :param to_path: the shared engram's path, or None
     :param token: the nonce from the first call
-    :returns: ``shared``, the shared engram as ``space/path``
-    :raises MethodError: ``stale_token`` when the token is unknown, used,
-        or was staged for other arguments; the rest as :func:`share`
+    :returns: ``shared``, the shared engram as ``space/path``, and
+        ``already_done``, true when this token had already been carried out
+    :raises MethodError: ``stale_token`` when the token is unknown or was staged for other arguments; the rest as :func:`share`
     """
     with refusals():
         async with transaction_scope():
@@ -242,11 +243,7 @@ async def _carry_out_share(
                 )
             except ValueError:
                 row = None
-            if (
-                row is None
-                or row.person_id != caller.principal.person_id
-                or row.consumed_at is not None
-            ):
+            if row is None or row.person_id != caller.principal.person_id:
                 raise MethodError("stale_token")
             source = (
                 await Engram.objects().where(Engram.id == row.source_engram_id).first()
@@ -261,4 +258,7 @@ async def _carry_out_share(
             ):
                 raise MethodError("stale_token")
             done = await confirm_promotion(caller.principal, token)
-    return {"shared": f"{done['dest_cove']}/{done['dest_path']}"}
+    return {
+        "shared": f"{done['dest_cove']}/{done['dest_path']}",
+        "already_done": done["already_done"],
+    }
