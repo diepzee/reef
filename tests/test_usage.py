@@ -395,11 +395,11 @@ async def test_the_full_export_carries_links_and_only_the_persons_own_usage(
         manifest = json.loads(archive.read("manifest.json"))
     assert [(link["from"], link["to"], link["status"]) for link in links] == [
         (
-            {"cove": "household", "path": "b.md"},
-            {"cove": "household", "path": "a.md"},
+            {"space": "household", "path": "b.md"},
+            {"space": "household", "path": "a.md"},
             "active",
         )
     ]
-    assert [(row["page"]["path"], row["via"]) for row in log] == [("a.md", "write")]
-    assert [row["page"]["path"] for row in activation] == ["a.md"]
+    assert [(row["engram"]["path"], row["via"]) for row in log] == [("a.md", "write")]
+    assert [row["engram"]["path"] for row in activation] == ["a.md"]
     assert manifest["contents"]["usage_log"] == 1

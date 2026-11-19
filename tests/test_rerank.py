@@ -81,7 +81,7 @@ def reranker(monkeypatch):
     monkeypatch.setattr(settings.rerank, "candidates", 15)
     monkeypatch.setattr(settings.rerank, "passages", 2)
     monkeypatch.setattr(settings.rerank, "seconds", 3.0)
-    monkeypatch.setattr(settings.rerank, "min_pages", 0)
+    monkeypatch.setattr(settings.rerank, "min_engrams", 0)
     monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
     monkeypatch.setattr(
         rerank,
@@ -649,7 +649,7 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
 async def test_a_small_memory_is_not_reread(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 1000)
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 1000)
     assert _paths(await search_engrams(me, "boiler"))[0] != "answer.md"
     assert reranker.calls == []
 
@@ -659,7 +659,7 @@ async def test_a_memory_at_the_threshold_is_reread(
 ):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
     assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
 
 
@@ -671,7 +671,7 @@ async def test_only_the_engrams_of_the_space_searched_count(
         await save_engram(partner, "household", f"h{n}.md", f"boiler {n}", message="x")
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
     await search_engrams(me, "boiler", space="household")
     assert reranker.calls == []
 
@@ -684,6 +684,6 @@ async def test_nobody_elses_engrams_count(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "a.md", "boiler one", message="x")
     await save_engram(me, "personal", "b.md", "boiler two", message="x")
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
     await search_engrams(me, "boiler")
     assert reranker.calls == []

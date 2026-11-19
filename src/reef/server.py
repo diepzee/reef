@@ -292,7 +292,7 @@ async def tool_load_context(principal: Principal) -> dict:
     """
     payload = asdict(
         await load_context(
-            principal, char_budget=get_settings().pages.context_char_budget
+            principal, char_budget=get_settings().engrams.context_char_budget
         )
     )
     payload["operating_protocol"] = await build_instructions(principal)

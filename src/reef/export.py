@@ -127,7 +127,7 @@ def _file_metadata(file: Attachment, engram_paths: dict[object, str]) -> dict:
         "mime": file.mime,
         "size": file.byte_size,
         "description": file.description,
-        "page_path": engram_paths.get(file.engram_id),
+        "engram_path": engram_paths.get(file.engram_id),
         "status": file.status,
         "created": file.created_at.isoformat(),
     }
@@ -198,17 +198,17 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
 
     return _json_bytes(
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "exported_at": datetime.now(UTC).isoformat(),
             "profile": {
                 "email": person.email,
                 "display_name": person.display_name,
             },
-            "coves": [
+            "spaces": [
                 {
                     "alias": aliases[space.id],
                     "version": space.version,
-                    "pages": [
+                    "engrams": [
                         _engram_payload(engram) for engram in engrams_by_space[space.id]
                     ],
                     "files": [
@@ -240,22 +240,22 @@ async def build_markdown_archive(
             "manifest.json",
             _json_bytes(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "format": "reef-markdown-export",
                     "exported_at": datetime.now(UTC).isoformat(),
                     "profile": {
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": [aliases[space.id] for space in spaces],
-                    "note": "Current pages only. Use Dump my data for history and file bytes.",
+                    "spaces": [aliases[space.id] for space in spaces],
+                    "note": "Current engrams only. Use Dump my data for history and file bytes.",
                 }
             ),
         )
         for engram in engrams:
             engram_path = _safe_archive_path(engram.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_space[engram.space_id]}/pages/{engram_path}",
+                f"spaces/{alias_by_space[engram.space_id]}/engrams/{engram_path}",
                 render_engram(engram),
             )
         if files:
@@ -264,7 +264,7 @@ async def build_markdown_archive(
                 _json_bytes(
                     [
                         {
-                            "cove": alias_by_space[file.space_id],
+                            "space": alias_by_space[file.space_id],
                             **_file_metadata(file, engram_paths),
                         }
                         for file in files
@@ -328,7 +328,7 @@ async def build_full_dump(
                 "you_are_owner": space.owner_person_id == principal.person_id,
                 "your_role": role_by_space.get(space.id),
                 "members": await member_names(space.id),
-                "page_count": sum(engram.space_id == space.id for engram in engrams),
+                "engram_count": sum(engram.space_id == space.id for engram in engrams),
                 "file_count": sum(file.space_id == space.id for file in files),
             }
         )
@@ -348,7 +348,7 @@ async def build_full_dump(
             continue
         revision_payload.append(
             {
-                "cove": alias_by_space[engram.space_id],
+                "space": alias_by_space[engram.space_id],
                 "path": revision["path"],
                 "title": revision["title"],
                 "tags": list(revision["tags"]),
@@ -365,10 +365,10 @@ async def build_full_dump(
         destination = space_by_id.get(share.dest_space_id)
         share_payload.append(
             {
-                "source_cove": alias_by_space.get(source.space_id) if source else None,
+                "source_space": alias_by_space.get(source.space_id) if source else None,
                 "source_path": source.path if source else None,
                 "source_version": share.source_version,
-                "destination_cove": (
+                "destination_space": (
                     aliases.get(destination.id) if destination else None
                 ),
                 "destination_path": share.dest_path,
@@ -390,13 +390,13 @@ async def build_full_dump(
         for engram in engrams:
             path = _safe_archive_path(engram.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_space[engram.space_id]}/pages/{path}",
+                f"spaces/{alias_by_space[engram.space_id]}/engrams/{path}",
                 render_engram(engram),
             )
 
         for file in files:
             metadata = {
-                "cove": alias_by_space[file.space_id],
+                "space": alias_by_space[file.space_id],
                 **_file_metadata(file, engram_paths),
             }
             token = _safe_archive_path(
@@ -405,7 +405,7 @@ async def build_full_dump(
             filename = _safe_archive_path(
                 metadata["filename"], fallback="download.bin"
             ).replace("/", "-")
-            archive_path = f"coves/{metadata['cove']}/files/{token}/{filename}"
+            archive_path = f"spaces/{metadata['space']}/files/{token}/{filename}"
             metadata["archive_path"] = archive_path
             try:
                 archive.writestr(archive_path, await store.get(file.object_key))
@@ -416,7 +416,7 @@ async def build_full_dump(
                 metadata["included"] = False
                 file_errors.append(
                     {
-                        "cove": metadata["cove"],
+                        "space": metadata["space"],
                         "key": file.object_key,
                         "filename": metadata["filename"],
                         "error": type(error).__name__,
@@ -429,7 +429,7 @@ async def build_full_dump(
             engram = engram_by_id.get(engram_id)
             if engram is None:
                 return None
-            return {"cove": alias_by_space[engram.space_id], "path": engram.path}
+            return {"space": alias_by_space[engram.space_id], "path": engram.path}
 
         link_payload = [
             {
@@ -446,7 +446,7 @@ async def build_full_dump(
         ]
         usage_payload = [
             {
-                "page": named(row["engram_id"]),
+                "engram": named(row["engram_id"]),
                 "via": row["via"],
                 "weight": row["weight"],
                 "session": row["session_id"],
@@ -458,7 +458,7 @@ async def build_full_dump(
         ]
         activation_payload = [
             {
-                "page": named(row["engram_id"]),
+                "engram": named(row["engram_id"]),
                 "activation": row["activation"],
                 "uses": row["accesses"],
                 "last_use": row["last_access"],
@@ -495,16 +495,16 @@ async def build_full_dump(
             "manifest.json",
             _json_bytes(
                 {
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "format": "reef-full-data-dump",
                     "exported_at": datetime.now(UTC).isoformat(),
                     "profile": {
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": space_manifest,
+                    "spaces": space_manifest,
                     "contents": {
-                        "current_pages": len(engrams),
+                        "current_engrams": len(engrams),
                         "revisions": len(revision_payload),
                         "files": len(file_metadata),
                         "file_errors": len(file_errors),

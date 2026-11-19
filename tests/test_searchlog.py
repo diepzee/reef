@@ -249,6 +249,6 @@ async def test_the_full_export_carries_only_the_persons_own_searches(
         searches = json.loads(archive.read("data/searches.json"))
         manifest = json.loads(archive.read("manifest.json"))
     assert [(s["query"], s["returned"]) for s in searches] == [
-        ("boiler", [{"cove": "household", "path": "boiler.md"}])
+        ("boiler", [{"space": "household", "path": "boiler.md"}])
     ]
     assert manifest["contents"]["search_log"] == 1

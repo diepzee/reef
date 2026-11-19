@@ -16,6 +16,7 @@ NAMES_BEFORE_GROUPING = {
     "REEF_MIGRATION_DATABASE_URL",
     "REEF_CONTEXT_CHAR_BUDGET",
     "REEF_PAGE_MAX_CHARS",
+    "REEF_RERANK_MIN_PAGES",
     "REEF_S3_ENDPOINT",
     "REEF_S3_BUCKET",
     "REEF_S3_ACCESS_KEY",
@@ -66,8 +67,29 @@ def _names() -> list[str]:
     return [name for _, name, _, _ in config.variables()]
 
 
+def _aliases(info) -> list[str]:
+    """Every spelling a field answers to, the first being the one reported."""
+    alias = info.validation_alias
+    if alias is None:
+        return []
+    if isinstance(alias, str):
+        return [alias]
+    return list(alias.choices)
+
+
+def _spellings() -> set[str]:
+    """Every variable name any setting is read under, reported or older."""
+    found = set()
+    for holder in config.Settings.model_fields.values():
+        model = holder.default_factory
+        prefix = model.model_config.get("env_prefix", "")
+        for name, info in model.model_fields.items():
+            found.update(_aliases(info) or [f"{prefix}{name}".upper()])
+    return found
+
+
 def test_every_name_a_deployment_may_set_is_still_read():
-    assert NAMES_BEFORE_GROUPING <= set(_names())
+    assert NAMES_BEFORE_GROUPING <= _spellings()
 
 
 def _sample(default: object) -> tuple[str, object]:
@@ -87,9 +109,9 @@ def _fields():
         model = holder.default_factory
         prefix = model.model_config.get("env_prefix", "")
         for name, info in model.model_fields.items():
-            alias = info.validation_alias
-            variable = alias if isinstance(alias, str) else f"{prefix}{name}".upper()
-            yield group, name, variable, info.default
+            choices = _aliases(info) or [f"{prefix}{name}".upper()]
+            for variable in choices:
+                yield group, name, variable, info.default
 
 
 @pytest.mark.parametrize(
@@ -124,7 +146,8 @@ def test_every_setting_says_what_it_does():
 @pytest.mark.parametrize(
     ("variable", "value", "read"),
     [
-        ("REEF_PAGE_MAX_CHARS", "7000", lambda s: s.pages.max_chars == 7000),
+        ("REEF_ENGRAM_MAX_CHARS", "7000", lambda s: s.engrams.max_chars == 7000),
+        ("REEF_RERANK_MIN_ENGRAMS", "7", lambda s: s.rerank.min_engrams == 7),
         ("REEF_SEARCH_LOG", "1", lambda s: s.search.log is True),
         ("WORKOS_CLIENT_ID", "abc", lambda s: s.auth.workos_client_id == "abc"),
         ("REEF_RERANK_ENABLED", "0", lambda s: s.rerank.enabled is False),
@@ -141,9 +164,39 @@ def test_a_variable_reaches_its_setting(monkeypatch, variable, value, read):
 
 
 def test_a_name_inside_a_group_is_not_a_second_spelling(monkeypatch):
-    """``REEF_PAGE_MAX_CHARS`` is the name. ``REEF_MAX_CHARS`` is nothing."""
+    """``REEF_ENGRAM_MAX_CHARS`` is the name. ``REEF_MAX_CHARS`` is nothing."""
     monkeypatch.setenv("REEF_MAX_CHARS", "9")
-    assert config.get_settings().pages.max_chars == 200_000
+    assert config.get_settings().engrams.max_chars == 200_000
+
+
+def test_old_engram_cap_name_still_read(monkeypatch):
+    """A deployment that still sets ``REEF_PAGE_MAX_CHARS`` keeps its cap."""
+    monkeypatch.delenv("REEF_ENGRAM_MAX_CHARS", raising=False)
+    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "7000")
+    assert config.get_settings().engrams.max_chars == 7000
+
+
+def test_old_rerank_floor_name_still_read(monkeypatch):
+    monkeypatch.delenv("REEF_RERANK_MIN_ENGRAMS", raising=False)
+    monkeypatch.setenv("REEF_RERANK_MIN_PAGES", "12")
+    assert config.get_settings().rerank.min_engrams == 12
+
+
+def test_new_name_wins_over_old(monkeypatch):
+    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "7000")
+    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "9000")
+    monkeypatch.setenv("REEF_RERANK_MIN_PAGES", "12")
+    monkeypatch.setenv("REEF_RERANK_MIN_ENGRAMS", "34")
+    settings = config.get_settings()
+    assert settings.engrams.max_chars == 9000
+    assert settings.rerank.min_engrams == 34
+
+
+def test_the_old_names_arrive_through_the_legacy_prefix_too(monkeypatch):
+    monkeypatch.delenv("REEF_ENGRAM_MAX_CHARS", raising=False)
+    monkeypatch.delenv("REEF_PAGE_MAX_CHARS", raising=False)
+    monkeypatch.setenv("RIF_ENGRAM_MAX_CHARS", "8000")
+    assert config.get_settings().engrams.max_chars == 8000
 
 
 def test_a_variable_named_like_a_group_cannot_stop_the_app(monkeypatch):

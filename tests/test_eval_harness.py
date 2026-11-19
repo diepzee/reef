@@ -62,10 +62,25 @@ def _export() -> dict:
     """
     engram = {"path": "notes/boiler.md", "title": "Boiler", "body": "A Vaillant."}
     return {
+        "schema_version": 2,
+        "spaces": [
+            {"alias": "personal", "engrams": [engram]},
+            {
+                "alias": "home",
+                "engrams": [{**engram, "title": None, "body": "Ketel."}],
+            },
+        ],
+    }
+
+
+def _export_schema_1() -> dict:
+    """The same export as the version the private file on disk still is."""
+    current = _export()
+    return {
         "schema_version": 1,
         "coves": [
-            {"alias": "personal", "pages": [engram]},
-            {"alias": "home", "pages": [{**engram, "title": None, "body": "Ketel."}]},
+            {"alias": space["alias"], "pages": space["engrams"]}
+            for space in current["spaces"]
         ],
     }
 
@@ -301,9 +316,15 @@ def test_an_export_becomes_engrams_with_the_space_in_the_path():
     assert engrams[1].body == "A Vaillant."
 
 
+def test_a_version_1_export_still_reads():
+    assert evalkit.private_engrams(_export_schema_1()) == evalkit.private_engrams(
+        _export()
+    )
+
+
 def test_a_file_that_is_not_an_export_is_refused():
-    with pytest.raises(ValueError, match="version 1"):
-        evalkit.private_engrams({"coves": []})
+    with pytest.raises(ValueError, match="version 1 or 2"):
+        evalkit.private_engrams({"spaces": []})
 
 
 def test_a_private_question_must_expect_an_engram_in_the_set():

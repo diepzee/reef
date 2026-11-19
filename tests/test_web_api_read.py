@@ -263,11 +263,11 @@ async def test_scoped_exports_and_full_dump_download(api, world):
     assert markdown.headers["content-type"] == "application/zip"
     assert "reef-team-markdown.zip" in markdown.headers["content-disposition"]
     with ZipFile(BytesIO(markdown.content)) as archive:
-        assert "coves/team/pages/notes.md" in archive.namelist()
+        assert "spaces/team/engrams/notes.md" in archive.namelist()
 
     current_json = await _post(api, "/api/export", {"scope": "team", "format": "json"})
     assert current_json.status_code == 200
-    assert current_json.json()["coves"][0]["pages"][0]["body"] == "Export me."
+    assert current_json.json()["spaces"][0]["engrams"][0]["body"] == "Export me."
 
     dump = await _post(api, "/api/export/dump", {})
     assert dump.status_code == 200

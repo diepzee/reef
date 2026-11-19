@@ -51,8 +51,19 @@ async def test_json_export_can_scope_one_space(tx, household):
 
     payload = json.loads(await build_json_export(me, "personal"))
 
-    assert [space["alias"] for space in payload["coves"]] == ["personal"]
-    assert payload["coves"][0]["pages"][0]["body"] == "mine"
+    assert [space["alias"] for space in payload["spaces"]] == ["personal"]
+    assert payload["spaces"][0]["engrams"][0]["body"] == "mine"
+
+
+async def test_export_schema_2(tx, household):
+    me = principal_for(household["wouter"])
+    await save_engram(me, "household", "shared.md", "ours", message="x")
+
+    payload = json.loads(await build_json_export(me))
+
+    assert payload["schema_version"] == 2
+    assert "spaces" in payload and "engrams" in payload["spaces"][0]
+    assert "coves" not in payload and "pages" not in payload["spaces"][0]
 
 
 async def test_markdown_archive_neutralizes_engram_path_traversal(tx, household):
@@ -72,7 +83,7 @@ async def test_markdown_archive_neutralizes_engram_path_traversal(tx, household)
 
     with ZipFile(BytesIO(await build_markdown_archive(me, "personal"))) as archive:
         names = archive.namelist()
-        assert "coves/personal/pages/escape.md" in names
+        assert "spaces/personal/engrams/escape.md" in names
         assert all(
             not name.startswith("/") and ".." not in name.split("/") for name in names
         )
@@ -115,7 +126,7 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
         revisions = json.loads(archive.read("data/revisions.json"))
         files = json.loads(archive.read("data/files.json"))
         assert manifest["contents"]["revisions"] == 2
-        assert next(c for c in manifest["coves"] if c["alias"] == "household")[
+        assert next(c for c in manifest["spaces"] if c["alias"] == "household")[
             "members"
         ] == ["Partner", "Wouter"]
         assert {revision["body"] for revision in revisions} == {
@@ -123,4 +134,4 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
             "second version",
         }
         assert archive.read(files[0]["archive_path"]) == b"quarterly report bytes"
-        assert "coves/household/pages/report.md" in archive.namelist()
+        assert "spaces/household/engrams/report.md" in archive.namelist()
