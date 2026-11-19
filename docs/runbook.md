@@ -780,10 +780,11 @@ worker does not use it.
 - **In production since 19 November 2026,** set on `reef-app`:
   `REEF_RERANK_URL=http://reef-rerank.railway.internal:8080`,
   `REEF_RERANK_PASSAGES=1`, `REEF_RERANK_PASSAGE_CHARS=1000` and
-  `REEF_RERANK_SECONDS=5`. Without a graphics chip the measured default of
-  2 passages of 2,000 characters takes about 30 seconds on Railway. One
-  passage of 1,000 characters takes 2 to 3 seconds there and found 51.5%
-  of benchmark questions, against 46.8% for hybrid alone.
+  `REEF_RERANK_SECONDS=5`. Without a graphics chip the default of 2
+  passages of 2,000 characters is too slow: 32 seconds on Railway with 8
+  threads, 7 seconds on a laptop's 8 cores. One passage of 1,000
+  characters takes 2 to 3 seconds on Railway with 16 threads and found
+  51.5% of benchmark questions, against 46.8% for hybrid alone.
 - **Only large memories are reranked.** A search is reranked only when
   the memory searched holds at least `REEF_RERANK_MIN_PAGES` (1,000)
   pages: in the one cove searched, or in all the caller can see. A small
