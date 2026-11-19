@@ -137,6 +137,8 @@ Embeddings are EmbeddingGemma 300m. The reranker is
 | Hybrid, reranker reads 30 pages, 2 passages each | 55.5% | 34.0% | 0.420 | 3.6 |
 | Hybrid, reranker reads 50 pages, 2 passages each | 55.3% | 34.9% | 0.420 | 5.48 |
 
+- Search as built weighs embeddings 2, not 3, and cuts pages by heading.
+  Its own numbers are under Results above.
 - A second passage per page is worth about 4 points. More pages are not.
 - The small reranker `mmarco-mMiniLMv2-L12-H384-v1` scored 48.3% and is not
   worth having.
