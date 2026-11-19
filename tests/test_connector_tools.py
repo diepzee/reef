@@ -12,7 +12,7 @@ must not become a way around the boundary.
 """
 
 from reef.access import Principal
-from reef.pages import save_page
+from reef.engrams import save_engram
 from reef.server import PROTOCOL_ID, tool_fetch, tool_search
 
 
@@ -27,7 +27,7 @@ def first_hit(payload: dict) -> dict:
 
 async def test_search_returns_the_connector_shape(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me, "household", "boiler.md", "The boiler is a Vaillant.", message="x"
     )
     results = (await tool_search(me, "Vaillant"))["results"]
@@ -36,10 +36,10 @@ async def test_search_returns_the_connector_shape(tx, household):
         assert set(result) == {"id", "title", "url"}
 
 
-async def test_an_id_from_search_fetches_the_page(tx, household):
+async def test_an_id_from_search_fetches_the_engram(tx, household):
     """The contract between the two tools: search's id must resolve."""
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me, "household", "boiler.md", "The boiler is a Vaillant.", message="x"
     )
     result = first_hit(await tool_search(me, "Vaillant"))
@@ -49,9 +49,9 @@ async def test_an_id_from_search_fetches_the_page(tx, household):
     assert set(fetched) >= {"id", "title", "text", "url", "metadata"}
 
 
-async def test_the_url_points_at_the_page_in_the_app(tx, household):
+async def test_the_url_points_at_the_engram_in_the_app(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "boiler.md", "Vaillant.", message="x")
+    await save_engram(me, "household", "boiler.md", "Vaillant.", message="x")
     result = first_hit(await tool_search(me, "Vaillant"))
     assert result["url"].endswith("/app/s/household/p/boiler.md")
 
@@ -74,7 +74,7 @@ async def test_search_offers_the_protocol_as_its_first_result(tx, household):
     where a client that reads the top hit will find it.
     """
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "boiler.md", "Vaillant.", message="x")
+    await save_engram(me, "household", "boiler.md", "Vaillant.", message="x")
     first = (await tool_search(me, "Vaillant"))["results"][0]
     assert first["id"] == PROTOCOL_ID
     assert set(first) == {"id", "title", "url"}
@@ -89,14 +89,14 @@ async def test_the_protocol_is_offered_even_when_nothing_matches(tx, household):
 
 async def test_the_protocol_result_does_not_displace_real_hits(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "boiler.md", "Vaillant.", message="x")
+    await save_engram(me, "household", "boiler.md", "Vaillant.", message="x")
     ids = [r["id"] for r in (await tool_search(me, "Vaillant"))["results"]]
     assert "page:household/boiler.md" in ids
 
 
 async def test_fetching_the_protocol_id_returns_protocol_and_persona(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me,
         "personal",
         "meta/persona.md",
@@ -111,9 +111,9 @@ async def test_fetching_the_protocol_id_returns_protocol_and_persona(tx, househo
 
 
 async def test_the_protocol_document_is_not_shared_between_people(tx, household):
-    """It carries the persona, which is one person's page."""
+    """It carries the persona, which is one person's engram."""
     mine = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         mine,
         "personal",
         "meta/persona.md",
@@ -125,22 +125,22 @@ async def test_the_protocol_document_is_not_shared_between_people(tx, household)
     assert "You are Nemo." not in other["text"]
 
 
-async def test_search_cannot_see_another_persons_cove(tx, household):
+async def test_search_cannot_see_another_persons_space(tx, household):
     """The adapter inherits the boundary; it does not get to widen it."""
     partner = principal_for(household["partner"])
     wouter = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         wouter, "personal", "secret.md", "Vaillant boiler secret.", message="x"
     )
     results = (await tool_search(partner, "Vaillant"))["results"]
     assert all("secret.md" not in r["id"] for r in results)
 
 
-async def test_fetch_refuses_a_page_the_caller_cannot_read(tx, household):
+async def test_fetch_refuses_an_engram_the_caller_cannot_read(tx, household):
     """An id is opaque, not a capability. Guessing one must not work."""
     wouter = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
-    await save_page(wouter, "personal", "secret.md", "Private.", message="x")
+    await save_engram(wouter, "personal", "secret.md", "Private.", message="x")
     assert (await tool_fetch(partner, "page:personal/secret.md"))[
         "error"
     ] == "not_found"

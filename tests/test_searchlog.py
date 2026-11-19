@@ -12,10 +12,10 @@ from reef import searchlog, usage
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import transaction_scope
+from reef.engrams import save_engram
 from reef.export import build_full_dump
 from reef.models import SearchLog
-from reef.pages import save_page
-from reef.search import search_pages
+from reef.search import search_engrams
 from reef.server import tool_read_page, tool_search
 from reef.worker import purge_search_log
 
@@ -41,22 +41,22 @@ async def _rows(principal) -> list[dict]:
 
 async def test_nothing_is_recorded_unless_switched_on(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "boiler.md", "A Vaillant boiler.", message="x")
+    await save_engram(me, "personal", "boiler.md", "A Vaillant boiler.", message="x")
     await tool_search(me, "boiler")
     assert await _rows(me) == []
 
 
-async def test_a_search_records_the_query_and_the_pages_returned(
+async def test_a_search_records_the_query_and_the_engrams_returned(
     tx, household, logging_on
 ):
     me = principal_for(household["wouter"])
-    page = await save_page(
+    engram = await save_engram(
         me, "personal", "boiler.md", "A Vaillant boiler.", message="x"
     )
     await tool_search(me, "  boiler  ")
     [row] = await _rows(me)
     assert row["query"] == "boiler"
-    assert row["page_ids"] == [page.id]
+    assert row["engram_ids"] == [engram.id]
     assert row["person_id"] == me.person_id
 
 
@@ -64,13 +64,13 @@ async def test_a_search_that_finds_nothing_is_recorded_too(tx, household, loggin
     me = principal_for(household["wouter"])
     await tool_search(me, "zeppelin")
     [row] = await _rows(me)
-    assert (row["query"], row["page_ids"]) == ("zeppelin", [])
+    assert (row["query"], row["engram_ids"]) == ("zeppelin", [])
 
 
 async def test_a_script_that_searches_is_not_recorded(tx, household, logging_on):
     """The benchmark harness calls search too. It is nobody's question."""
     me = principal_for(household["wouter"])
-    await search_pages(me, "boiler")
+    await search_engrams(me, "boiler")
     assert await _rows(me) == []
 
 
@@ -96,7 +96,7 @@ async def test_a_search_still_answers_when_recording_fails(
     monkeypatch.setattr(searchlog, "SEARCH_LOG_MAX_QUERY", 10_000)
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "boiler.md", "A boiler.", message="x")
+        await save_engram(me, "personal", "boiler.md", "A boiler.", message="x")
         results = await tool_search(me, "boiler " * 200)
         # The transaction is still usable after the refusal.
         assert await _rows(me) == []
@@ -112,7 +112,7 @@ async def test_a_person_sees_only_their_own_searches(household, logging_on):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     async with transaction_scope():
-        await save_page(me, "household", "boiler.md", "A boiler.", message="x")
+        await save_engram(me, "household", "boiler.md", "A boiler.", message="x")
         await tool_search(me, "boiler")
     async with transaction_scope():
         assert await _rows(partner) == []
@@ -172,7 +172,7 @@ async def test_deleting_a_person_takes_their_searches_along(
     partner = principal_for(household["partner"])
     async with transaction_scope():
         await tool_search(partner, "garden")
-    await seed.execute("DELETE FROM coves WHERE id = $1", household["p_personal"].id)
+    await seed.execute("DELETE FROM spaces WHERE id = $1", household["p_personal"].id)
     await graph.erase_person(household["partner"])
     assert await seed.fetchval("SELECT count(*) FROM search_log") == 0
 
@@ -209,19 +209,19 @@ async def test_the_purge_cannot_be_asked_for_a_shorter_time(seed):
 # --- what it is for ------------------------------------------------------------
 
 
-async def test_a_read_of_a_page_the_search_did_not_return_is_a_miss(
+async def test_a_read_of_an_engram_the_search_did_not_return_is_a_miss(
     tx, household, logging_on, monkeypatch
 ):
     monkeypatch.setattr(usage, "current_session_id", lambda: "s1")
     monkeypatch.setattr(searchlog, "current_session_id", lambda: "s1")
     me = principal_for(household["wouter"])
-    found = await save_page(me, "personal", "boiler.md", "A boiler.", message="x")
-    missed = await save_page(me, "personal", "heating.md", "Vaillant.", message="x")
+    found = await save_engram(me, "personal", "boiler.md", "A boiler.", message="x")
+    missed = await save_engram(me, "personal", "heating.md", "Vaillant.", message="x")
     await tool_search(me, "boiler")
     await tool_read_page(me, "personal", "boiler.md")
     await tool_read_page(me, "personal", "heating.md")
     misses = await searchlog.misses(me)
-    assert [(m["query"], m["page_id"]) for m in misses] == [("boiler", missed.id)]
+    assert [(m["query"], m["engram_id"]) for m in misses] == [("boiler", missed.id)]
     assert found.id != missed.id
 
 
@@ -229,7 +229,7 @@ async def test_a_read_in_another_session_is_not_a_miss(
     tx, household, logging_on, monkeypatch
 ):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "heating.md", "Vaillant.", message="x")
+    await save_engram(me, "personal", "heating.md", "Vaillant.", message="x")
     monkeypatch.setattr(searchlog, "current_session_id", lambda: "s1")
     await tool_search(me, "boiler")
     monkeypatch.setattr(usage, "current_session_id", lambda: "s2")
@@ -242,7 +242,7 @@ async def test_the_full_export_carries_only_the_persons_own_searches(
 ):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
-    await save_page(me, "household", "boiler.md", "A boiler.", message="x")
+    await save_engram(me, "household", "boiler.md", "A boiler.", message="x")
     await tool_search(me, "boiler")
     await tool_search(partner, "garden")
     with ZipFile(BytesIO(await build_full_dump(me))) as archive:

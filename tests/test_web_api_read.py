@@ -1,4 +1,4 @@
-"""Read API: membership slicing, page fetch, 401s."""
+"""Read API: membership slicing, engram fetch, 401s."""
 
 import json
 import uuid
@@ -9,7 +9,7 @@ from conftest import _login
 
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.pages import save_page
+from reef.engrams import save_engram
 from reef.web.session import seal
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
@@ -52,12 +52,12 @@ async def test_orphaned_session_is_401(api):
 
 
 async def test_index_is_sliced_per_person(api, world):
-    """The index only lists coves the logged-in person is a member of."""
+    """The index only lists spaces the logged-in person is a member of."""
     _alice, bob, _ = world
     _login(api, bob)
     response = await api.get("/api/index")
     assert response.status_code == 200
-    aliases = {cove["alias"] for cove in response.json()["coves"]}
+    aliases = {space["alias"] for space in response.json()["coves"]}
     assert aliases == {"personal", "team"}
 
 
@@ -84,13 +84,13 @@ async def test_sliding_renewal_preserves_sid(api, world):
     assert renewed.sid == "ses_abc"
 
 
-async def test_get_page_and_404(api, world):
-    """A page fetch returns the body; missing paths and foreign coves 404."""
+async def test_get_engram_and_404(api, world):
+    """An engram fetch returns the body; missing paths and foreign spaces 404."""
     from reef.access import Principal
 
     alice, bob, _ = world
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             Principal(person_id=alice.id, email=alice.email),
             "team",
             "notes/plan.md",
@@ -98,10 +98,10 @@ async def test_get_page_and_404(api, world):
             message="seed",
         )
     _login(api, bob)
-    page = (await api.get("/api/pages/team/notes/plan.md")).json()
-    assert page["body"].startswith("# Plan")
-    assert page["version"] == 1
-    assert page["last_editor"] == "Alice"
+    engram = (await api.get("/api/pages/team/notes/plan.md")).json()
+    assert engram["body"].startswith("# Plan")
+    assert engram["version"] == 1
+    assert engram["last_editor"] == "Alice"
     missing = await api.get("/api/pages/team/notes/absent.md")
     assert missing.status_code == 404
     foreign = await api.get("/api/pages/other-cove/notes/plan.md")
@@ -177,7 +177,7 @@ async def test_scoped_exports_and_full_dump_download(api, world):
 
     alice, _bob, _team = world
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             Principal(person_id=alice.id, email=alice.email),
             "team",
             "notes.md",

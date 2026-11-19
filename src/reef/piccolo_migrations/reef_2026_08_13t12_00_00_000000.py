@@ -3,7 +3,7 @@
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from reef.db import run_ddl_atomically
-from reef.rls import (
+from reef.frozen_ddl import (
     alias_statements,
     identity_grant_statements,
     mutation_statements,

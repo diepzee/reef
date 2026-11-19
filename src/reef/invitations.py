@@ -2,9 +2,9 @@
 
 reef is invitation-only (see :mod:`reef.auth`), and a ``persons`` row *is* the
 allowlist entry — it is what lets an unknown subject bind on first sign-in.
-Two flows create one: inviting someone into a cove, and inviting someone to
+Two flows create one: inviting someone into a space, and inviting someone to
 reef itself. Both go through :func:`allowlist` so the budget cannot be walked
-around by creating a junk cove and inviting into that instead.
+around by creating a junk space and inviting into that instead.
 
 The budget protects the resource, not an endpoint: it counts *new* rows, so
 inviting an address reef already knows costs nothing.
@@ -110,7 +110,7 @@ def relay_instructions() -> str:
 
     reef sends no mail. Both invite flows therefore owe the inviter the same
     sentence, and it lives here so neither can drift from the other or quietly
-    omit it -- a cove invite that reports only success reads as "done" while
+    omit it -- a space invite that reports only success reads as "done" while
     the invitee has in fact been told nothing.
 
     :returns: the relay instruction, naming the deployment's own URL if set
@@ -141,7 +141,7 @@ async def allowlist(
 
     The one place a ``persons`` row is created from an invite. An address reef
     already knows is returned untouched and costs nothing, so adding an
-    existing member to another cove never approaches the ceiling.
+    existing member to another space never approaches the ceiling.
 
     :param inviter: the person spending the budget
     :param email: the address the invitee will sign in with
@@ -196,10 +196,10 @@ async def invite_to_reef(
     email: str,
     display_name: str | None = None,
 ) -> dict:
-    """Invite someone to reef itself, without sharing any cove.
+    """Invite someone to reef itself, without sharing any space.
 
-    They arrive in their own personal cove, seeded on first sign-in by
-    ``ensure_personal_cove``. Nothing is disclosed, so unlike a cove invite
+    They arrive in their own personal space, seeded on first sign-in by
+    ``ensure_personal_space``. Nothing is disclosed, so unlike a space invite
     there is nothing here to regret.
 
     reef sends no mail, so the return value carries the words the inviter

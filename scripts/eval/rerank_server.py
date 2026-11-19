@@ -60,7 +60,7 @@ def handler_for(encoder) -> type[BaseHTTPRequestHandler]:
             self.wfile.write(answer)
 
         def log_message(self, format: str, *args: object) -> None:
-            """Log nothing: requests carry page text."""
+            """Log nothing: requests carry engram text."""
 
     return Handler
 

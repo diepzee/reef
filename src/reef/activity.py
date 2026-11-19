@@ -1,17 +1,17 @@
-"""What changed across the caller's coves: the awareness surface.
+"""What changed across the caller's spaces: the awareness surface.
 
-A shared cove only works if its members can see what the others'
-assistants wrote — otherwise the cove drifts while everyone assumes it
+A shared space only works if its members can see what the others'
+assistants wrote — otherwise the space drifts while everyone assumes it
 stands still. Everything here reads under the same armed RLS session as
-any other read, so activity in somebody else's personal cove simply does
+any other read, so activity in somebody else's personal space simply does
 not come back.
 """
 
 from datetime import UTC, datetime, timedelta
 
 from reef.access import Principal, alias_map
-from reef.coves import member_roster
 from reef.models import Attachment, AttachmentStatus, Revision
+from reef.spaces import member_roster
 
 _DEFAULT_WINDOW = timedelta(days=7)
 
@@ -34,9 +34,9 @@ async def whats_new(
     since: datetime | None = None,
     limit: int = _MAX_EVENTS,
 ) -> list[dict]:
-    """List page writes and file arrivals since a moment, newest first.
+    """List engram writes and file arrivals since a moment, newest first.
 
-    Page events carry the author's display name and the write message —
+    Engram events carry the author's display name and the write message —
     the same accountability the revision history stores. File events carry
     no author, because attachments do not record one. An author whose
     person row is no longer visible reads as None rather than a guess.
@@ -56,10 +56,10 @@ async def whats_new(
         Revision.message,
         Revision.created_at,
         Revision.author_id,
-        Revision.page_id.cove_id,
+        Revision.engram_id.space_id,
     ).where(Revision.created_at > cutoff)
     files = await Attachment.select(
-        Attachment.cove_id,
+        Attachment.space_id,
         Attachment.object_key,
         Attachment.filename,
         Attachment.created_at,
@@ -68,16 +68,16 @@ async def whats_new(
         Attachment.status == AttachmentStatus.READY.value,
     )
     # Direct person reads are RLS-scoped to the caller's own row; co-member
-    # names come from the roster functions, per cove, like every other
+    # names come from the roster functions, per space, like every other
     # surface that shows who is in the room.
     names: dict = {}
-    for cove_id in {r["page_id.cove_id"] for r in revisions}:
-        for member in await member_roster(cove_id):
+    for space_id in {r["engram_id.space_id"] for r in revisions}:
+        for member in await member_roster(space_id):
             names[member["person_id"]] = member["display_name"]
     events = [
         {
             "kind": "page",
-            "cove": aliases[r["page_id.cove_id"]],
+            "cove": aliases[r["engram_id.space_id"]],
             "path": r["path"],
             "title": r["title"],
             "message": r["message"],
@@ -88,7 +88,7 @@ async def whats_new(
     ] + [
         {
             "kind": "file",
-            "cove": aliases[f["cove_id"]],
+            "cove": aliases[f["space_id"]],
             "key": f["object_key"],
             "filename": f["filename"],
             "author": None,

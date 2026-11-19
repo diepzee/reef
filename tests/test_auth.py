@@ -55,19 +55,19 @@ async def test_only_a_boolean_true_counts_as_a_verified_email(tx, household):
         assert await person_by_subject(value) is None
 
 
-async def test_first_bind_onboards_a_personal_cove(tx, household):
+async def test_first_bind_onboards_a_personal_space(tx, household):
     from reef.access import Principal
-    from reef.coves import invite
-    from reef.pages import get_page
+    from reef.engrams import get_engram
+    from reef.spaces import invite
 
     owner = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
     await invite(owner, "household", "anna@example.test", display_name="Anna")
     claims = {"sub": "auth0|anna", "email": "anna@example.test", "email_verified": True}
     principal = await principal_from_claims(claims)
-    persona = await get_page(principal, "personal", "meta/persona.md")
+    persona = await get_engram(principal, "personal", "meta/persona.md")
     assert persona is not None
-    # The protocol ships with the product; it is no longer seeded as a page.
-    assert await get_page(principal, "personal", "meta/protocol.md") is None
+    # The protocol ships with the product; it is no longer seeded as an engram.
+    assert await get_engram(principal, "personal", "meta/protocol.md") is None
 
 
 async def test_stranger_is_denied(tx, household):

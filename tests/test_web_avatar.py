@@ -206,7 +206,7 @@ async def test_a_co_member_is_served_the_picture(api, world):
     assert served.status_code == 200
     assert served.content == PNG
     assert served.headers["content-type"].startswith("image/png")
-    # Never a shared cache: this body is only for people in the cove.
+    # Never a shared cache: this body is only for people in the space.
     assert "private" in served.headers["cache-control"]
     # One person's bytes reaching another person's browser is the one place
     # a sniffed content type could turn a picture into something active.
@@ -214,14 +214,14 @@ async def test_a_co_member_is_served_the_picture(api, world):
 
 
 async def test_a_stranger_cannot_fetch_a_members_picture(api, world, graph):
-    """Someone outside the cove gets the same 404 as a cove that is not there."""
+    """Someone outside the space gets the same 404 as a space that is not there."""
     alice, _bob, _ = world
     await _give_alice_a_face(api, alice)
     roster = (await api.get("/api/coves/team/members")).json()["members"]
     url = next(m["avatar"] for m in roster if m["display_name"] == "Alice")
 
     stranger = await graph.person("stranger@example.test", "Stranger")
-    await graph.personal_cove(stranger)
+    await graph.personal_space(stranger)
     api.cookies.clear()
     _login(api, stranger)
 

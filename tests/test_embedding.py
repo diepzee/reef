@@ -1,4 +1,4 @@
-"""Page embeddings: only what changed, only what the person may write, capped."""
+"""Engram embeddings: only what changed, only what the person may write, capped."""
 
 import asyncpg
 import pytest
@@ -8,9 +8,9 @@ from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.context import build_index
 from reef.db import transaction_scope
-from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_PAGE
-from reef.models import Job, PageEmbedding
-from reef.pages import delete_page, save_page
+from reef.engrams import delete_engram, save_engram
+from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_ENGRAM
+from reef.models import EngramEmbedding, Job
 from reef.worker import drain
 
 LONG = "word " * 100
@@ -50,8 +50,8 @@ def service(monkeypatch):
 async def _stored(principal) -> list[tuple[str | None, str, int]]:
     """Return the vectors the principal can see: anchor, model, length."""
     await arm(principal)
-    rows = await PageEmbedding.raw(
-        "SELECT section_anchor, model_id, dims FROM page_embeddings "
+    rows = await EngramEmbedding.raw(
+        "SELECT section_anchor, model_id, dims FROM engram_embeddings "
         "ORDER BY section_anchor NULLS FIRST"
     )
     return [(row["section_anchor"], row["model_id"], row["dims"]) for row in rows]
@@ -69,9 +69,9 @@ async def _jobs(principal, kind: str, status: str | None = None) -> int:
 
 async def test_without_a_service_nothing_is_queued_or_stored(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "insurance.md", BODY, message="x")
+    await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await build_index(me)
-    assert await _jobs(me, EMBED_PAGE) == 0
+    assert await _jobs(me, EMBED_ENGRAM) == 0
     assert await _jobs(me, BACKFILL_EMBEDDINGS) == 0
     assert await _stored(me) == []
 
@@ -79,10 +79,10 @@ async def test_without_a_service_nothing_is_queued_or_stored(tx, household):
 # --- what is embedded ----------------------------------------------------------
 
 
-async def test_a_saved_page_is_embedded_by_the_worker(household, service):
+async def test_a_saved_engram_is_embedded_by_the_worker(household, service):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             me, "personal", "insurance.md", BODY, message="x", title="Insurance"
         )
     assert await drain("test") == 1
@@ -99,31 +99,31 @@ async def test_a_saved_page_is_embedded_by_the_worker(household, service):
 async def test_saving_five_times_queues_one_job(tx, household, service):
     me = principal_for(household["wouter"])
     for n in range(5):
-        await save_page(me, "personal", "insurance.md", BODY + str(n), message="x")
-    assert await _jobs(me, EMBED_PAGE) == 1
+        await save_engram(me, "personal", "insurance.md", BODY + str(n), message="x")
+    assert await _jobs(me, EMBED_ENGRAM) == 1
 
 
 async def test_unchanged_text_is_never_embedded_again(household, service):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        page = await save_page(me, "personal", "insurance.md", BODY, message="x")
+        engram = await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     sent = len(service.sent)
     async with transaction_scope():
-        assert await embedding.embed_page(me, page.id, service) == 0
+        assert await embedding.embed_engram(me, engram.id, service) == 0
     assert len(service.sent) == sent
 
 
 async def test_an_edit_embeds_only_the_pieces_that_changed(household, service):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     service.sent.clear()
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY + " more", message="x")
+        await save_engram(me, "personal", "insurance.md", BODY + " more", message="x")
     await drain("test")
-    # The whole-page piece and the section that changed. Not "car".
+    # The whole-engram piece and the section that changed. Not "car".
     assert len(service.sent) == 2
     async with transaction_scope():
         assert len(await _stored(me)) == 3
@@ -132,10 +132,10 @@ async def test_an_edit_embeds_only_the_pieces_that_changed(household, service):
 async def test_a_section_that_is_gone_loses_its_vector(household, service):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", "Short now.", message="x")
+        await save_engram(me, "personal", "insurance.md", "Short now.", message="x")
     await drain("test")
     async with transaction_scope():
         assert await _stored(me) == [(None, "fake-1", 3)]
@@ -144,23 +144,23 @@ async def test_a_section_that_is_gone_loses_its_vector(household, service):
 async def test_another_models_vectors_are_replaced(household, service):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        page = await save_page(me, "personal", "note.md", "A note.", message="x")
+        engram = await save_engram(me, "personal", "note.md", "A note.", message="x")
     await drain("test")
     newer = FakeEmbedder(dims=2)
     newer.model_id = "fake-2"
     async with transaction_scope():
-        assert await embedding.embed_page(me, page.id, newer) == 1
+        assert await embedding.embed_engram(me, engram.id, newer) == 1
         assert await _stored(me) == [(None, "fake-2", 2)]
 
 
-async def test_deleting_a_page_deletes_its_vectors(household, service, seed):
+async def test_deleting_an_engram_deletes_its_vectors(household, service, seed):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     async with transaction_scope():
-        await delete_page(me, "personal", "insurance.md")
-    assert await seed.fetchval("SELECT count(*) FROM page_embeddings") == 0
+        await delete_engram(me, "personal", "insurance.md")
+    assert await seed.fetchval("SELECT count(*) FROM engram_embeddings") == 0
 
 
 async def test_a_bad_answer_from_the_service_stores_nothing(household, service, seed):
@@ -171,14 +171,14 @@ async def test_a_bad_answer_from_the_service_stores_nothing(household, service, 
 
     service.embed = broken
     async with transaction_scope():
-        page = await save_page(me, "personal", "note.md", "A note.", message="x")
+        engram = await save_engram(me, "personal", "note.md", "A note.", message="x")
     assert await drain("test") == 1
-    assert await seed.fetchval("SELECT count(*) FROM page_embeddings") == 0
+    assert await seed.fetchval("SELECT count(*) FROM engram_embeddings") == 0
     async with transaction_scope():
-        # The text was sent, so it is charged, and the page is tried later.
+        # The text was sent, so it is charged, and the engram is tried later.
         assert await embedding.spent_today(me) == 1
-        assert await _jobs(me, EMBED_PAGE, "queued") == 1
-        assert page.id is not None
+        assert await _jobs(me, EMBED_ENGRAM, "queued") == 1
+        assert engram.id is not None
 
 
 @pytest.mark.parametrize(
@@ -226,7 +226,7 @@ async def test_a_failing_service_cannot_be_sent_text_without_limit(
 
     service.embed = refusing
     async with transaction_scope():
-        page = await save_page(me, "personal", "note.md", "A note.", message="x")
+        engram = await save_engram(me, "personal", "note.md", "A note.", message="x")
     await drain("test")
     for _ in range(4):
         async with transaction_scope():
@@ -236,17 +236,17 @@ async def test_a_failing_service_cannot_be_sent_text_without_limit(
     assert calls == 2
     async with transaction_scope():
         assert await embedding.spent_today(me) == 2
-        assert page.id is not None
+        assert engram.id is not None
 
 
-async def test_one_refused_page_does_not_undo_the_others(household, service):
+async def test_one_refused_engram_does_not_undo_the_others(household, service):
     me = principal_for(household["wouter"])
     settings = get_settings()
     url, settings.embedding.url = settings.embedding.url, ""
     try:
         async with transaction_scope():
-            await save_page(me, "personal", "good.md", "Fine.", message="x")
-            await save_page(me, "personal", "bad.md", "REFUSE this.", message="x")
+            await save_engram(me, "personal", "good.md", "Fine.", message="x")
+            await save_engram(me, "personal", "bad.md", "REFUSE this.", message="x")
     finally:
         settings.embedding.url = url
     sound = service.embed
@@ -264,35 +264,35 @@ async def test_one_refused_page_does_not_undo_the_others(household, service):
         assert await _stored(me) == [(None, "fake-1", 3)]
 
 
-async def test_a_page_larger_than_the_whole_cap_is_left_alone(
+async def test_an_engram_larger_than_the_whole_cap_is_left_alone(
     household, service, monkeypatch
 ):
     me = principal_for(household["wouter"])
     monkeypatch.setattr(get_settings().embedding, "daily_cap", 2)
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     assert service.sent == []
     async with transaction_scope():
         # Not queued again: it could never fit.
-        assert await _jobs(me, EMBED_PAGE, "queued") == 0
+        assert await _jobs(me, EMBED_ENGRAM, "queued") == 0
 
 
-async def test_a_page_of_only_white_space_asks_for_nothing(tx, household, service):
+async def test_an_engram_of_only_white_space_asks_for_nothing(tx, household, service):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "blank.md", "\n\t\n", message="x")
+    await save_engram(me, "personal", "blank.md", "\n\t\n", message="x")
     assert await embedding.request_backfill(me) is False
 
 
 # --- whose it is ---------------------------------------------------------------
 
 
-async def test_a_vector_is_visible_exactly_when_its_page_is(household, service):
+async def test_a_vector_is_visible_exactly_when_its_engram_is(household, service):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     async with transaction_scope():
-        await save_page(me, "personal", "diary.md", "Private.", message="x")
-        await save_page(me, "household", "boiler.md", "Shared.", message="x")
+        await save_engram(me, "personal", "diary.md", "Private.", message="x")
+        await save_engram(me, "household", "boiler.md", "Shared.", message="x")
     await drain("test")
     async with transaction_scope():
         assert len(await _stored(me)) == 2
@@ -300,43 +300,47 @@ async def test_a_vector_is_visible_exactly_when_its_page_is(household, service):
         assert len(await _stored(partner)) == 1
 
 
-async def test_a_page_the_person_cannot_read_is_not_embedded(household, service):
+async def test_an_engram_the_person_cannot_read_is_not_embedded(household, service):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     async with transaction_scope():
-        page = await save_page(partner, "personal", "diary.md", "Hers.", message="x")
+        engram = await save_engram(
+            partner, "personal", "diary.md", "Hers.", message="x"
+        )
     service.sent.clear()
     async with transaction_scope():
-        assert await embedding.embed_page(me, page.id, service) == 0
+        assert await embedding.embed_engram(me, engram.id, service) == 0
     assert service.sent == []
 
 
-async def test_a_vector_cannot_be_planted_on_somebody_elses_page(household, service):
+async def test_a_vector_cannot_be_planted_on_somebody_elses_engram(household, service):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     async with transaction_scope():
-        page = await save_page(partner, "personal", "diary.md", "Hers.", message="x")
+        engram = await save_engram(
+            partner, "personal", "diary.md", "Hers.", message="x"
+        )
     with pytest.raises(asyncpg.InsufficientPrivilegeError):
         async with transaction_scope():
             await arm(me)
-            await PageEmbedding.raw(
-                "INSERT INTO page_embeddings "
-                "(id, page_id, model_id, dims, content_hash, embedding) "
+            await EngramEmbedding.raw(
+                "INSERT INTO engram_embeddings "
+                "(id, engram_id, model_id, dims, content_hash, embedding) "
                 "VALUES (gen_random_uuid(), {}, 'fake-1', 3, 'x', '[1,2,3]'::vector)",
-                page.id,
+                engram.id,
             )
 
 
 async def test_a_vector_must_have_the_length_it_says(household, seed):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "note.md", "A note.", message="x")
+        await save_engram(me, "personal", "note.md", "A note.", message="x")
     with pytest.raises(asyncpg.CheckViolationError):
         await seed.execute(
-            "INSERT INTO page_embeddings "
-            "(id, page_id, model_id, dims, content_hash, embedding) "
+            "INSERT INTO engram_embeddings "
+            "(id, engram_id, model_id, dims, content_hash, embedding) "
             "SELECT gen_random_uuid(), id, 'fake-1', 4, 'x', '[1,2,3]'::vector "
-            "FROM pages LIMIT 1"
+            "FROM engrams LIMIT 1"
         )
 
 
@@ -347,7 +351,7 @@ async def test_the_days_spend_is_counted_per_person(household, service):
     me = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     async with transaction_scope():
         assert await embedding.spent_today(me) == 3
@@ -355,37 +359,37 @@ async def test_the_days_spend_is_counted_per_person(household, service):
         assert await embedding.spent_today(partner) == 0
 
 
-async def test_a_page_over_the_cap_waits_whole_and_keeps_its_old_vectors(
+async def test_an_engram_over_the_cap_waits_whole_and_keeps_its_old_vectors(
     household, service, monkeypatch
 ):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY, message="x")
+        await save_engram(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
     monkeypatch.setattr(get_settings().embedding, "daily_cap", 4)
     service.sent.clear()
     async with transaction_scope():
-        await save_page(me, "personal", "insurance.md", BODY + " more", message="x")
+        await save_engram(me, "personal", "insurance.md", BODY + " more", message="x")
     await drain("test")
     assert service.sent == []
     async with transaction_scope():
         assert len(await _stored(me)) == 3
         assert await embedding.spent_today(me) == 3
         # Queued again for later, not lost.
-        assert await _jobs(me, EMBED_PAGE, "queued") == 1
+        assert await _jobs(me, EMBED_ENGRAM, "queued") == 1
 
 
-# --- old pages -----------------------------------------------------------------
+# --- old engrams -----------------------------------------------------------------
 
 
-async def test_loading_the_index_backfills_pages_without_vectors(
+async def test_loading_the_index_backfills_engrams_without_vectors(
     household, service, monkeypatch
 ):
     me = principal_for(household["wouter"])
     settings = get_settings()
     monkeypatch.setattr(settings.embedding, "url", "")
     async with transaction_scope():
-        await save_page(me, "personal", "old.md", "Written before.", message="x")
+        await save_engram(me, "personal", "old.md", "Written before.", message="x")
     monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
     async with transaction_scope():
         await build_index(me)

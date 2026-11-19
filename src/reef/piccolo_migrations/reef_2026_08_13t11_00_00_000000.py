@@ -3,7 +3,7 @@
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from reef.db import run_ddl_atomically
-from reef.rls import identity_statements, session_epoch_statements
+from reef.frozen_ddl import identity_statements, session_epoch_statements
 
 ID = "2026-08-13T11:00:00:000000"
 VERSION = "1.36.0"

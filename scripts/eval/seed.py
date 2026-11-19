@@ -1,4 +1,4 @@
-"""Load the benchmark into the local database, as the eval person's pages.
+"""Load the benchmark into the local database, as the eval person's engrams.
 
 Run as: ``python scripts/eval/seed.py [--questions N] [--write-slice PATH]``
 
@@ -54,10 +54,10 @@ def superuser_dsn(app_dsn: str) -> str:
 def _progress(done: int, total: int) -> None:
     """Print how far the seeding is.
 
-    :param done: pages written so far
-    :param total: pages to write
+    :param done: engrams written so far
+    :param total: engrams to write
     """
-    print(f"\r  {done}/{total} pages", end="", flush=True)
+    print(f"\r  {done}/{total} engrams", end="", flush=True)
 
 
 async def seed(count: int | None) -> None:
@@ -70,22 +70,22 @@ async def seed(count: int | None) -> None:
     evalkit.refuse_unless_local(app_dsn, seed_dsn)
     chosen = evalkit.choose(evalkit.load_benchmark(), count)
     eval_set = evalkit.convert(chosen)
-    print(f"{len(eval_set.questions)} questions, {len(eval_set.pages)} pages")
+    print(f"{len(eval_set.questions)} questions, {len(eval_set.pages)} engrams")
     await DB.start_connection_pool()
     try:
         principal = await evalkit.ensure_eval_person(seed_dsn)
-        written = await evalkit.seed_pages(
+        written = await evalkit.seed_engrams(
             principal, eval_set.pages, progress=_progress
         )
     finally:
         await DB.close_connection_pool()
     print(
-        f"\nwrote {written} pages; {len(eval_set.pages) - written} were there already"
+        f"\nwrote {written} engrams; {len(eval_set.pages) - written} were there already"
     )
 
 
 async def seed_test_account() -> None:
-    """Load the repository's slice as the test person's pages.
+    """Load the repository's slice as the test person's engrams.
 
     The slice is 80 made-up conversations with 24 questions whose answers
     are known. It needs no download, so this works on a fresh checkout.
@@ -99,18 +99,18 @@ async def seed_test_account() -> None:
         principal = await evalkit.ensure_eval_person(
             seed_dsn, evalkit.TEST_EMAIL, "Test"
         )
-        written = await evalkit.seed_pages(principal, eval_set.pages, tag="test")
+        written = await evalkit.seed_engrams(principal, eval_set.pages, tag="test")
     finally:
         await DB.close_connection_pool()
     print(
-        f"{evalkit.TEST_EMAIL}: wrote {written} pages; "
+        f"{evalkit.TEST_EMAIL}: wrote {written} engrams; "
         f"{len(eval_set.pages) - written} were there already"
     )
     print(f"Open it with: just dev {evalkit.TEST_EMAIL}")
 
 
 async def seed_private(export_path: Path) -> None:
-    """Load your own export as the private eval person's pages.
+    """Load your own export as the private eval person's engrams.
 
     :param export_path: the JSON export downloaded from the site
     :raises FileNotFoundError: if the export is not there
@@ -120,22 +120,22 @@ async def seed_private(export_path: Path) -> None:
     evalkit.refuse_unless_local(app_dsn, seed_dsn)
     if not export_path.exists():
         raise FileNotFoundError(
-            f"{export_path} is missing. Export your pages as JSON on the site "
+            f"{export_path} is missing. Export your engrams as JSON on the site "
             "and save the file there."
         )
-    pages = evalkit.private_pages(json.loads(export_path.read_text()))
-    print(f"{len(pages)} pages in the export")
+    engrams = evalkit.private_engrams(json.loads(export_path.read_text()))
+    print(f"{len(engrams)} engrams in the export")
     await DB.start_connection_pool()
     try:
         principal = await evalkit.ensure_eval_person(
             seed_dsn, evalkit.PRIVATE_EMAIL, "Private eval"
         )
-        written = await evalkit.seed_pages(
-            principal, pages, progress=_progress, tag="private"
+        written = await evalkit.seed_engrams(
+            principal, engrams, progress=_progress, tag="private"
         )
     finally:
         await DB.close_connection_pool()
-    print(f"\nwrote {written} pages; {len(pages) - written} were there already")
+    print(f"\nwrote {written} engrams; {len(engrams) - written} were there already")
 
 
 def _evidence_size(record: dict) -> int:
@@ -176,7 +176,7 @@ def write_slice(path: Path) -> None:
     ]
     eval_set = evalkit.convert(chosen, distractors=SLICE_DISTRACTORS)
     path.write_text(eval_set.to_json() + "\n")
-    print(f"{path}: {len(eval_set.questions)} questions, {len(eval_set.pages)} pages")
+    print(f"{path}: {len(eval_set.questions)} questions, {len(eval_set.pages)} engrams")
 
 
 def main() -> None:

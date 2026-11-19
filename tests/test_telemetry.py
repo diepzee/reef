@@ -1,9 +1,9 @@
 """Telemetry must describe traffic without carrying its content.
 
 reef's corpus is private memory. A telemetry backend that mirrored it would
-recreate the exposure the RLS work exists to shrink -- the same pages, held
+recreate the exposure the RLS work exists to shrink -- the same engrams, held
 by a third party, outside every policy Postgres enforces. So these assert the
-negative: that page bodies, titles, addresses and paths do not reach an
+negative: that engram bodies, titles, addresses and paths do not reach an
 exporter even when a careless caller passes them to a span.
 
 They also pin the property everything else depends on -- that with no token
@@ -78,7 +78,7 @@ def _attribute_blob(sink: _Capture) -> str:
     return "".join(str(dict(span.attributes or {})) for span in sink.spans)
 
 
-def test_page_content_never_reaches_the_exporter(captured):
+def test_engram_content_never_reaches_the_exporter(captured):
     """The point of the whole file: bodies, titles, addresses, paths."""
     import logfire
 
@@ -88,7 +88,7 @@ def test_page_content_never_reaches_the_exporter(captured):
         title="SECRET-TITLE",
         email="person@example.test",
         display_name="Somebody",
-        page_path="meta/persona.md",
+        engram_path="meta/persona.md",
         section_text="SECRET-SECTION",
         subject="auth0|SECRET",
     ):
@@ -111,12 +111,12 @@ def test_shape_still_survives_scrubbing(captured):
     """Redaction has to leave enough behind to answer an operational question."""
     import logfire
 
-    with logfire.span("probe", cove_alias="household", page_count=3, status=200):
+    with logfire.span("probe", space_alias="household", engram_count=3, status=200):
         pass
 
     blob = _attribute_blob(captured)
     assert "household" in blob
-    assert "page_count" in blob
+    assert "engram_count" in blob
     assert "status" in blob
 
 
@@ -150,7 +150,7 @@ def test_scrub_patterns_cover_every_content_field():
 # --- the worker's job span ------------------------------------------------------
 
 _JOB_ID = UUID("6f1c2a52-0d0e-4a55-9a51-3a2f2f0d9b11")
-_QUOTED = "the body of a private page"
+_QUOTED = "the body of a private engram"
 
 
 @pytest.fixture

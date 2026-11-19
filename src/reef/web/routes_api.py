@@ -1,5 +1,5 @@
-"""The JSON API: reads (``/api/me``, ``/api/index``, page and file fetch),
-writes (page save), and cove administration (create, invite, members,
+"""The JSON API: reads (``/api/me``, ``/api/index``, engram and file fetch),
+writes (engram save), and space administration (create, invite, members,
 removal).
 
 Every route goes through :func:`api`, which opens the request's single
@@ -22,24 +22,24 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from reef import usage
-from reef.access import AccessDenied, Principal, arm, resolve_cove
+from reef.access import AccessDenied, Principal, arm, resolve_space
 from reef.account import delete_account_rows
 from reef.appearance import AppearanceError, get_appearances, set_appearance
 from reef.attachments import S3ObjectStore, erase_objects, get_attachment
 from reef.config import get_settings
 from reef.context import build_index, latest_editors
-from reef.coves import (
-    CoveError,
-    cove_owner,
-    create_cove,
-    delete_cove,
-    invite,
-    leave_cove,
-    member_roster,
-    remove_member,
-    rename_cove,
-)
 from reef.db import transaction_scope
+from reef.engrams import (
+    EngramNotFound,
+    EngramTooLarge,
+    InvalidPath,
+    PrivateContentLeak,
+    ProtectedPath,
+    VersionConflict,
+    delete_engram,
+    get_engram,
+    save_engram,
+)
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
 from reef.identity import person_by_email, person_session_epoch
 from reef.invitations import (
@@ -49,19 +49,19 @@ from reef.invitations import (
     invite_to_reef,
     invites_left,
 )
-from reef.models import AccessKind, Page, Person
-from reef.pages import (
-    InvalidPath,
-    PageNotFound,
-    PageTooLarge,
-    PrivateContentLeak,
-    ProtectedPath,
-    VersionConflict,
-    delete_page,
-    get_page,
-    save_page,
-)
+from reef.models import AccessKind, Engram, Person
 from reef.releasenotes import feed_as_json, is_unread, load_feed
+from reef.spaces import (
+    SpaceError,
+    create_space,
+    delete_space,
+    invite,
+    leave_space,
+    member_roster,
+    remove_member,
+    rename_space,
+    space_owner,
+)
 from reef.web.requests import (
     SESSION_COOKIE,
     CsrfRejected,
@@ -91,7 +91,7 @@ class BadRequest(Exception):
     Every write handler raises this instead of reaching into the domain
     layer with untrusted shapes: :func:`api` maps it to a 400
     ``{"error": "bad_request", "detail": ...}`` so a bare int, a JSON syntax
-    error, or a wrong-typed field never reaches ``save_page`` or the
+    error, or a wrong-typed field never reaches ``save_engram`` or the
     database driver. The message becomes the ``detail`` and is shown to the
     person, so write it for them: name what is wrong and what would fix it.
     """
@@ -142,7 +142,7 @@ def _optional_str(payload: dict, key: str) -> str | None:
 
 
 def _optional_tags(payload: dict) -> list[str] | None:
-    """Fetch the optional, nullable ``tags`` field from a page-save body.
+    """Fetch the optional, nullable ``tags`` field from an engram-save body.
 
     :param payload: the parsed request body
     :raises BadRequest: if present and not a list of strings
@@ -216,7 +216,7 @@ def api(handler: Callable) -> Callable:
                     epoch = current
                 # Armed before the handler rather than inside it, so a handler
                 # that reads an identity table sees the same principal every
-                # other query does. Handlers that call resolve_cove re-arm
+                # other query does. Handlers that call resolve_space re-arm
                 # with the identical value, which is a no-op.
                 await arm(principal)
                 result = await handler(request, principal)
@@ -236,7 +236,7 @@ def api(handler: Callable) -> Callable:
             return JSONResponse({"error": "version_conflict"}, status_code=409)
         except ProtectedPath:
             return JSONResponse({"error": "protected"}, status_code=403)
-        except PageNotFound:
+        except EngramNotFound:
             return JSONResponse({"error": "not_found"}, status_code=404)
         except PrivateContentLeak as error:
             # 409, not 403: the caller is entitled to write here, and the
@@ -245,9 +245,9 @@ def api(handler: Callable) -> Callable:
             return JSONResponse(
                 {"error": "private_content", "detail": str(error)}, status_code=409
             )
-        except PageTooLarge as error:
+        except EngramTooLarge as error:
             # 400 with the reason: it names something the caller can fix by
-            # splitting the page, and a bare "bad_request" reads as a bug in
+            # splitting the engram, and a bare "bad_request" reads as a bug in
             # the app rather than as a rule.
             return JSONResponse(
                 {"error": "page_too_large", "detail": str(error)}, status_code=400
@@ -266,7 +266,7 @@ def api(handler: Callable) -> Callable:
             return JSONResponse(
                 {"error": "invite_budget", "detail": str(error)}, status_code=429
             )
-        except CoveError as error:
+        except SpaceError as error:
             return JSONResponse(
                 {"error": "cove_error", "detail": str(error)}, status_code=400
             )
@@ -328,10 +328,10 @@ AVATAR_MIMES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 
 
 async def _appearances(request: Request, principal: Principal) -> dict:
-    """Return how this person has chosen to see each of their coves.
+    """Return how this person has chosen to see each of their spaces.
 
     Its own endpoint rather than a field on ``/api/index``: the index is the
-    MCP surface too, and how a cove is tinted in one person's browser is not
+    MCP surface too, and how a space is tinted in one person's browser is not
     something an assistant should be handed.
 
     :param request: the incoming request, unused
@@ -342,20 +342,20 @@ async def _appearances(request: Request, principal: Principal) -> dict:
 
 
 async def _set_appearance(request: Request, principal: Principal) -> dict:
-    """Record how this person wants to see one cove.
+    """Record how this person wants to see one space.
 
-    :param request: the incoming request, carrying the ``cove`` path param
+    :param request: the incoming request, carrying the ``space`` path param
         and a JSON body with nullable ``color`` and ``glyph``
     :param principal: the authenticated person
     :raises BadRequest: if either name is not one of the offered choices
     :returns: the stored choice
     """
-    cove = await resolve_cove(principal, request.path_params["cove"])
+    space = await resolve_space(principal, request.path_params["cove"])
     payload = await _json_body(request)
     try:
         return await set_appearance(
             principal,
-            cove.id,
+            space.id,
             color=_optional_str(payload, "color"),
             glyph=_optional_str(payload, "glyph"),
         )
@@ -492,64 +492,64 @@ async def _index(request: Request, principal: Principal) -> dict:
     return asdict(await build_index(principal))
 
 
-async def _page_payload(cove: str, page: Page) -> dict:
-    """Shape a page row into the JSON API's page representation.
+async def _engram_payload(space: str, engram: Engram) -> dict:
+    """Shape an engram row into the JSON API's engram representation.
 
     Shared by the GET and PUT handlers so both carry the same fields,
-    including the newest revision's author -- a one-page batch through
+    including the newest revision's author -- a one-engram batch through
     :func:`latest_editors`, resolved fresh on every request rather than
-    denormalized onto the page row.
+    denormalized onto the engram row.
 
-    :param cove: the cove alias the page was fetched through
-    :param page: the saved or fetched page row
-    :returns: the page, shaped for the API response
+    :param space: the space alias the engram was fetched through
+    :param engram: the saved or fetched engram row
+    :returns: the engram, shaped for the API response
     """
-    editors = await latest_editors([page.id])
+    editors = await latest_editors([engram.id])
     return {
-        "cove": cove,
-        "path": page.path,
-        "title": page.title,
-        "tags": list(page.tags),
-        "body": page.body,
-        "version": page.version,
-        "updated": page.updated_at.isoformat(),
-        "last_editor": editors.get(page.id),
+        "cove": space,
+        "path": engram.path,
+        "title": engram.title,
+        "tags": list(engram.tags),
+        "body": engram.body,
+        "version": engram.version,
+        "updated": engram.updated_at.isoformat(),
+        "last_editor": editors.get(engram.id),
     }
 
 
-async def _get_page(request: Request, principal: Principal) -> Response | dict:
-    """Fetch a single page by cove and path.
+async def _get_engram(request: Request, principal: Principal) -> Response | dict:
+    """Fetch a single engram by space and path.
 
-    :param request: the incoming request, carrying ``cove`` and ``path``
+    :param request: the incoming request, carrying ``space`` and ``path``
         path params
     :param principal: the authenticated person
-    :returns: the page as a dict, or a 404 JSON response if absent
+    :returns: the engram as a dict, or a 404 JSON response if absent
     """
-    cove = request.path_params["cove"]
+    space = request.path_params["cove"]
     path = request.path_params["path"]
-    page = await get_page(principal, cove, path)
-    if page is None:
+    engram = await get_engram(principal, space, path)
+    if engram is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    await usage.record(principal, page.id, AccessKind.WEB)
-    return await _page_payload(cove, page)
+    await usage.record(principal, engram.id, AccessKind.WEB)
+    return await _engram_payload(space, engram)
 
 
-async def _put_page(request: Request, principal: Principal) -> dict:
-    """Create or overwrite a page from a JSON body.
+async def _put_engram(request: Request, principal: Principal) -> dict:
+    """Create or overwrite an engram from a JSON body.
 
     ``expected_version`` is optional: omitted or ``null`` means create or
     overwrite without an optimistic-lock check; an int enforces one, raising
     ``VersionConflict`` (mapped to 409 by :func:`api`) on a stale value.
 
-    :param request: the incoming request, carrying ``cove`` and ``path``
+    :param request: the incoming request, carrying ``space`` and ``path``
         path params and a JSON body with ``body`` and ``message`` required,
         and optional ``title``, ``tags``, ``expected_version``
     :param principal: the authenticated person
     :raises BadRequest: for malformed JSON, a non-object body, a missing
         ``body``/``message``, or any field of the wrong type
-    :returns: the saved page, shaped as in Task 4's GET
+    :returns: the saved engram, shaped as in Task 4's GET
     """
-    cove = request.path_params["cove"]
+    space = request.path_params["cove"]
     path = request.path_params["path"]
     payload = await _json_body(request)
     body = _require_str(payload, "body")
@@ -557,9 +557,9 @@ async def _put_page(request: Request, principal: Principal) -> dict:
     title = _optional_str(payload, "title")
     tags = _optional_tags(payload)
     expected_version = _optional_int(payload, "expected_version")
-    page = await save_page(
+    engram = await save_engram(
         principal,
-        cove,
+        space,
         path,
         body,
         message=message,
@@ -567,40 +567,40 @@ async def _put_page(request: Request, principal: Principal) -> dict:
         tags=tags,
         expected_version=expected_version,
     )
-    return await _page_payload(cove, page)
+    return await _engram_payload(space, engram)
 
 
-async def _delete_page(request: Request, principal: Principal) -> dict:
-    """Delete a page and its history.
+async def _delete_engram(request: Request, principal: Principal) -> dict:
+    """Delete an engram and its history.
 
-    :param request: the incoming request, carrying ``cove`` and ``path``
+    :param request: the incoming request, carrying ``space`` and ``path``
         path params
     :param principal: the authenticated person
     :returns: the deleted path and the number of revisions removed
     """
-    return await delete_page(
+    return await delete_engram(
         principal, request.path_params["cove"], request.path_params["path"]
     )
 
 
-async def _create_cove(request: Request, principal: Principal) -> dict:
-    """Create a shared cove owned by the caller.
+async def _create_space(request: Request, principal: Principal) -> dict:
+    """Create a shared space owned by the caller.
 
     :param request: the incoming request, carrying a JSON body with ``slug``
         required
     :param principal: the authenticated person
     :raises BadRequest: for malformed JSON, a non-object body, a missing
         ``slug``, or a non-string ``slug``
-    :returns: the new cove's alias and slug
+    :returns: the new space's alias and slug
     """
     payload = await _json_body(request)
     slug = _require_str(payload, "slug")
-    cove = await create_cove(principal, slug)
-    return {"alias": cove.slug, "slug": cove.slug}
+    space = await create_space(principal, slug)
+    return {"alias": space.slug, "slug": space.slug}
 
 
-async def _cove_members(request: Request, principal: Principal) -> dict:
-    """List a shared cove's members and ownership.
+async def _space_members(request: Request, principal: Principal) -> dict:
+    """List a shared space's members and ownership.
 
     Email addresses go out only to the owner. The members panel that
     consumes this is owner-only in the frontend, and a non-owner member has
@@ -615,20 +615,20 @@ async def _cove_members(request: Request, principal: Principal) -> dict:
     stale cache when the picture changes without disclosing anything the
     viewer could not already fetch.
 
-    :param request: the incoming request, carrying a ``cove`` path param
+    :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
     :returns: member id/name/email/avatar records (email blank for
         non-owners), the owner's email, and whether the caller is the owner
     """
     slug = request.path_params["cove"]
-    cove = await resolve_cove(principal, slug)
-    owner = await cove_owner(cove.id)
-    is_owner = cove.owner_person_id == principal.person_id
+    space = await resolve_space(principal, slug)
+    owner = await space_owner(space.id)
+    is_owner = space.owner_person_id == principal.person_id
     # No blanking pass here any more: reef_roster returns an address only to
-    # the cove's owner, so the rule is applied by Postgres against the armed
+    # the space's owner, so the rule is applied by Postgres against the armed
     # principal rather than by this handler remembering to strip a field it
     # had already fetched.
-    roster = await member_roster(cove.id)
+    roster = await member_roster(space.id)
     return {
         "members": [
             {
@@ -656,12 +656,12 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
     construction and so can never show anybody else's face. Here the id is in
     the path and therefore tamperable, so the rule is not this handler's to
     enforce: ``reef_member_avatar`` returns rows only when the caller and the
-    person asked about are both members of this cove. A miss is a 404 whether
-    the cove is invisible, the person is not in it, or they simply have no
+    person asked about are both members of this space. A miss is a 404 whether
+    the space is invisible, the person is not in it, or they simply have no
     picture -- the three are indistinguishable from outside, which is the
     point.
 
-    :param request: the incoming request, carrying ``cove`` and ``person``
+    :param request: the incoming request, carrying ``space`` and ``person``
         path params
     :param principal: the authenticated person
     :returns: the image, or a 404 JSON response
@@ -671,9 +671,9 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
         person_id = UUID(request.path_params["person"])
     except ValueError:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    cove = await resolve_cove(principal, slug)
+    space = await resolve_space(principal, slug)
     rows = await Person.raw(
-        "SELECT * FROM reef_member_avatar({}, {})", cove.id, person_id
+        "SELECT * FROM reef_member_avatar({}, {})", space.id, person_id
     )
     if not rows:
         return JSONResponse({"error": "not_found"}, status_code=404)
@@ -688,7 +688,7 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
         media_type=mime if mime in AVATAR_MIMES else "application/octet-stream",
         headers={
             # Private, not public: a shared cache must never hand one
-            # person's face to a viewer who is not in the cove. Immutable is
+            # person's face to a viewer who is not in the space. Immutable is
             # safe because the URL carries the size, so a different picture
             # is a different URL.
             "cache-control": "private, max-age=31536000, immutable",
@@ -698,9 +698,9 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
 
 
 async def _invite(request: Request, principal: Principal) -> dict:
-    """Invite an email address into a shared cove the caller owns.
+    """Invite an email address into a shared space the caller owns.
 
-    :param request: the incoming request, carrying a ``cove`` path param
+    :param request: the incoming request, carrying a ``space`` path param
         and a JSON body with ``email`` required and ``display_name`` optional
     :param principal: the authenticated person
     :raises BadRequest: for malformed JSON, a non-object body, a missing
@@ -716,10 +716,10 @@ async def _invite(request: Request, principal: Principal) -> dict:
 
 
 async def _invite_to_reef(request: Request, principal: Principal) -> dict:
-    """Invite someone to reef itself, without granting any cove.
+    """Invite someone to reef itself, without granting any space.
 
     Deliberately not under ``/api/coves/…`` — this invite belongs to no
-    cove, which is the whole point of it.
+    space, which is the whole point of it.
 
     :param request: the incoming request, carrying a JSON body with ``email``
         required and ``display_name`` optional
@@ -753,9 +753,9 @@ async def _invites_left(request: Request, principal: Principal) -> dict:
 
 
 async def _remove_member(request: Request, principal: Principal) -> dict:
-    """Remove a member from a shared cove the caller owns.
+    """Remove a member from a shared space the caller owns.
 
-    :param request: the incoming request, carrying ``cove`` and ``email``
+    :param request: the incoming request, carrying ``space`` and ``email``
         path params
     :param principal: the authenticated person
     :returns: the removal outcome
@@ -765,49 +765,49 @@ async def _remove_member(request: Request, principal: Principal) -> dict:
     return await remove_member(principal, slug, email)
 
 
-async def _rename_cove(request: Request, principal: Principal) -> dict:
-    """Change what the caller calls a cove, for the caller only.
+async def _rename_space(request: Request, principal: Principal) -> dict:
+    """Change what the caller calls a space, for the caller only.
 
-    :param request: the incoming request, carrying a ``cove`` path param and
+    :param request: the incoming request, carrying a ``space`` path param and
         a JSON body with ``name`` required
     :param principal: the authenticated person
     :raises BadRequest: for a malformed body or a missing ``name``
     :returns: the old and new names
     """
     payload = await _json_body(request)
-    return await rename_cove(
+    return await rename_space(
         principal, request.path_params["cove"], _require_str(payload, "name")
     )
 
 
-async def _leave_cove(request: Request, principal: Principal) -> dict:
-    """Leave a shared cove, handing it on if the caller owned it.
+async def _leave_space(request: Request, principal: Principal) -> dict:
+    """Leave a shared space, handing it on if the caller owned it.
 
-    :param request: the incoming request, carrying a ``cove`` path param
+    :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
     :returns: the departure outcome, naming any successor
     """
-    return await leave_cove(principal, request.path_params["cove"])
+    return await leave_space(principal, request.path_params["cove"])
 
 
-async def _delete_cove(request: Request, principal: Principal) -> Response:
-    """Destroy a shared cove the caller owns and is alone in.
+async def _delete_space(request: Request, principal: Principal) -> Response:
+    """Destroy a shared space the caller owns and is alone in.
 
     Guarded the way account deletion is: a typed confirmation in the body, so
-    a stray DELETE cannot take a cove down. The name has to match the cove
+    a stray DELETE cannot take a space down. The name has to match the space
     being destroyed rather than a constant, because the mistake worth
     catching here is deleting the wrong one.
 
-    :param request: the incoming request, carrying a ``cove`` path param
+    :param request: the incoming request, carrying a ``space`` path param
     :param principal: the authenticated person
-    :raises BadRequest: if the typed confirmation does not name this cove
+    :raises BadRequest: if the typed confirmation does not name this space
     :returns: the deletion outcome, with the bytes erased after the response
     """
     slug = request.path_params["cove"]
     payload = await _json_body(request)
     if payload.get("confirmation") != slug:
-        raise BadRequest("deleting a cove requires its name as confirmation")
-    outcome = await delete_cove(principal, slug)
+        raise BadRequest("deleting a space requires its name as confirmation")
+    outcome = await delete_space(principal, slug)
     keys = outcome.pop("file_keys", [])
     # The transaction commits as this handler returns, so the bytes are erased
     # from the background task rather than here -- the same shape the account
@@ -818,14 +818,14 @@ async def _delete_cove(request: Request, principal: Principal) -> Response:
 async def _get_file(request: Request, principal: Principal) -> Response:
     """Redirect to a signed URL for a stored file, after checking visibility.
 
-    :param request: the incoming request, carrying ``cove`` and ``key``
+    :param request: the incoming request, carrying ``space`` and ``key``
         path params
     :param principal: the authenticated person
     :returns: a 302 redirect to the signed URL, or 404 if not visible
     """
-    cove = request.path_params["cove"]
+    space = request.path_params["cove"]
     key = request.path_params["key"]
-    attachment = await get_attachment(principal, cove, key)
+    attachment = await get_attachment(principal, space, key)
     if attachment is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
     settings = get_settings()
@@ -853,16 +853,16 @@ def _download(content: bytes, filename: str, media_type: str) -> Response:
 async def _export(request: Request, principal: Principal) -> Response:
     """Download current content as Markdown ZIP or JSON.
 
-    ``scope=all`` exports every accessible cove; any other value is resolved
-    as one cove alias through the same access checks as page reads.
+    ``scope=all`` exports every accessible space; any other value is resolved
+    as one space alias through the same access checks as engram reads.
 
     POST, not GET, and the options travel in the body. Two reasons, both
-    about what a GET is: it is reachable by navigation, so a hostile page
+    about what a GET is: it is reachable by navigation, so a hostile engram
     could point a logged-in reader's browser at this route and trigger a
     drive-by download of their whole reef -- the attacker cannot read the
     bytes cross-origin, but the file lands on the victim's disk, and the
     ``Lax`` session cookie is sent on exactly that kind of top-level
-    navigation. And a GET puts cove names, which are the user's own words,
+    navigation. And a GET puts space names, which are the user's own words,
     into request lines that proxies and access logs keep. As a POST the
     route needs the ``X-Rif-Csrf`` header, which no cross-origin navigation
     or form can set.
@@ -877,7 +877,7 @@ async def _export(request: Request, principal: Principal) -> Response:
     export_format = _optional_str(payload, "format") or "markdown"
     scope = _optional_str(payload, "scope") or "all"
     alias = None if scope == "all" else scope
-    name = "all-coves" if alias is None else alias
+    name = "all-spaces" if alias is None else alias
     if export_format == "markdown":
         return _download(
             await build_markdown_archive(principal, alias),
@@ -897,7 +897,7 @@ async def _dump(request: Request, principal: Principal) -> Response:
     """Download every portable datum visible to the principal as one ZIP.
 
     POST for the reason :func:`_export` sets out, and more sharply: this is
-    the single request that returns a person's entire reef, page bodies and
+    the single request that returns a person's entire reef, engram bodies and
     file bytes included.
 
     :param request: the incoming request, unused
@@ -923,8 +923,8 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
     deletion = await delete_account_rows(principal)
     body = {
         "deleted": True,
-        "deleted_coves": deletion.deleted_coves,
-        "transferred_coves": deletion.transferred_coves,
+        "deleted_coves": deletion.deleted_spaces,
+        "transferred_coves": deletion.transferred_spaces,
     }
     sid = session_sid(request)
     if sid:
@@ -970,10 +970,10 @@ def register_api_routes(mcp) -> None:
         api(_mark_release_notes_seen)
     )
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
-    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["GET"])(api(_get_page))
-    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["PUT"])(api(_put_page))
+    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["GET"])(api(_get_engram))
+    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["PUT"])(api(_put_engram))
     mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["DELETE"])(
-        api(_delete_page)
+        api(_delete_engram)
     )
     mcp.custom_route("/api/files/{cove}/{key:path}", methods=["GET"])(api(_get_file))
     # Existing rendered Markdown points here; keep it as a compatibility alias.
@@ -983,8 +983,8 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/export", methods=["POST"])(api(_export))
     mcp.custom_route("/api/export/dump", methods=["POST"])(api(_dump))
     mcp.custom_route("/api/account/delete", methods=["POST"])(api(_delete_account))
-    mcp.custom_route("/api/coves", methods=["POST"])(api(_create_cove))
-    mcp.custom_route("/api/coves/{cove}/members", methods=["GET"])(api(_cove_members))
+    mcp.custom_route("/api/coves", methods=["POST"])(api(_create_space))
+    mcp.custom_route("/api/coves/{cove}/members", methods=["GET"])(api(_space_members))
     mcp.custom_route("/api/coves/{cove}/members/{person}/avatar", methods=["GET"])(
         api(_get_member_avatar)
     )
@@ -994,6 +994,6 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/coves/{cove}/members/{email}", methods=["DELETE"])(
         api(_remove_member)
     )
-    mcp.custom_route("/api/coves/{cove}/name", methods=["POST"])(api(_rename_cove))
-    mcp.custom_route("/api/coves/{cove}/leave", methods=["POST"])(api(_leave_cove))
-    mcp.custom_route("/api/coves/{cove}", methods=["DELETE"])(api(_delete_cove))
+    mcp.custom_route("/api/coves/{cove}/name", methods=["POST"])(api(_rename_space))
+    mcp.custom_route("/api/coves/{cove}/leave", methods=["POST"])(api(_leave_space))
+    mcp.custom_route("/api/coves/{cove}", methods=["DELETE"])(api(_delete_space))

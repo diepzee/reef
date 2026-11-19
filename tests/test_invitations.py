@@ -11,7 +11,6 @@ from datetime import timedelta
 import pytest
 
 from reef.access import Principal
-from reef.coves import invite
 from reef.invitations import (
     INVITE_BUDGET,
     INVITE_WINDOW_DAYS,
@@ -23,6 +22,7 @@ from reef.invitations import (
     next_invite_at,
 )
 from reef.models import Membership, Person
+from reef.spaces import invite
 
 
 def principal_for(person) -> Principal:
@@ -125,7 +125,7 @@ async def test_entries_older_than_the_window_do_not_count(household, seed):
 
 
 async def test_an_address_reef_already_knows_is_free(tx, household):
-    """Adding an existing member to another cove must not cost budget."""
+    """Adding an existing member to another space must not cost budget."""
     me = principal_for(household["wouter"])
     await spend(me, INVITE_BUDGET)
     assert await invites_left(me) == 0
@@ -138,12 +138,12 @@ async def test_an_address_reef_already_knows_is_free(tx, household):
 async def test_both_doors_share_one_budget(tx, household):
     """The bypass this design exists to prevent.
 
-    Cove invites mint the same allowlist entry, so spending the budget
+    Space invites mint the same allowlist entry, so spending the budget
     through ``invite`` must leave nothing for ``invite_to_reef``.
     """
     me = principal_for(household["wouter"])
     for n in range(INVITE_BUDGET):
-        await invite(me, "household", f"cove{n}@example.test")
+        await invite(me, "household", f"space{n}@example.test")
 
     assert await invites_left(me) == 0
     with pytest.raises(InviteBudgetExceeded):

@@ -10,10 +10,10 @@ zero-row update, and rosters that say who can only read.
 import pytest
 
 from reef.access import Principal, ReadOnlyMembership
-from reef.coves import CoveError, invite
-from reef.pages import delete_page, edit_section, save_page
-from reef.search import search_pages
+from reef.engrams import delete_engram, edit_section, save_engram
+from reef.search import search_engrams
 from reef.server import tool_list_coves, tool_read_page, tool_remember
+from reef.spaces import SpaceError, invite
 
 
 def principal_for(person) -> Principal:
@@ -22,9 +22,9 @@ def principal_for(person) -> Principal:
 
 @pytest.fixture
 async def viewer(household, graph):
-    """A third person holding a viewer membership in the shared cove."""
+    """A third person holding a viewer membership in the shared space."""
     person = await graph.person("viewer@example.test", "Viewer")
-    await graph.personal_cove(person, slug="viewer")
+    await graph.personal_space(person, slug="viewer")
     await graph.add_membership(person, household["shared"], "viewer", alias="household")
     return person
 
@@ -45,51 +45,51 @@ async def test_invite_defaults_to_full_membership(tx, household):
 
 async def test_invite_refuses_an_unknown_role(tx, household):
     me = principal_for(household["wouter"])
-    with pytest.raises(CoveError):
+    with pytest.raises(SpaceError):
         await invite(me, "household", "x@example.test", role="admin")
 
 
-async def test_a_viewer_reads_pages_and_search(tx, household, viewer):
+async def test_a_viewer_reads_engrams_and_search(tx, household, viewer):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "house.md", "The boiler is new.", message="x")
+    await save_engram(me, "household", "house.md", "The boiler is new.", message="x")
     them = principal_for(viewer)
-    page = await tool_read_page(them, "household", "house.md")
-    assert page["body"] == "The boiler is new."
-    assert await search_pages(them, "boiler") != []
+    engram = await tool_read_page(them, "household", "house.md")
+    assert engram["body"] == "The boiler is new."
+    assert await search_engrams(them, "boiler") != []
 
 
-async def test_a_viewer_cannot_write_a_page(tx, household, viewer):
+async def test_a_viewer_cannot_write_an_engram(tx, household, viewer):
     them = principal_for(viewer)
     with pytest.raises(ReadOnlyMembership):
-        await save_page(them, "household", "note.md", "Hi.", message="x")
+        await save_engram(them, "household", "note.md", "Hi.", message="x")
 
 
 async def test_a_viewer_cannot_edit_a_section(tx, household, viewer):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "house.md", "The boiler is new.", message="x")
+    await save_engram(me, "household", "house.md", "The boiler is new.", message="x")
     them = principal_for(viewer)
     with pytest.raises(ReadOnlyMembership):
         await edit_section(them, "household", "house.md", "new", "old", message="x")
 
 
-async def test_a_viewer_cannot_delete_a_page(tx, household, viewer):
+async def test_a_viewer_cannot_delete_an_engram(tx, household, viewer):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "house.md", "The boiler is new.", message="x")
+    await save_engram(me, "household", "house.md", "The boiler is new.", message="x")
     them = principal_for(viewer)
     with pytest.raises(ReadOnlyMembership):
-        await delete_page(them, "household", "house.md")
+        await delete_engram(them, "household", "house.md")
 
 
-async def test_a_viewer_cannot_remember_into_the_cove(tx, household, viewer):
+async def test_a_viewer_cannot_remember_into_the_space(tx, household, viewer):
     them = principal_for(viewer)
     with pytest.raises(ReadOnlyMembership):
         await tool_remember(them, "the boiler is new", "household")
 
 
-async def test_a_viewer_still_writes_their_own_personal_cove(tx, household, viewer):
+async def test_a_viewer_still_writes_their_own_personal_space(tx, household, viewer):
     them = principal_for(viewer)
-    page = await save_page(them, "personal", "mine.md", "My note.", message="x")
-    assert page.body == "My note."
+    engram = await save_engram(them, "personal", "mine.md", "My note.", message="x")
+    assert engram.body == "My note."
 
 
 async def test_list_coves_says_who_can_only_read(tx, household, viewer):

@@ -11,8 +11,8 @@ from reef.attachments import (
     get_attachment,
 )
 from reef.db import transaction_scope
+from reef.engrams import save_engram
 from reef.models import Attachment, AttachmentStatus
-from reef.pages import save_page
 
 
 class FakeStore:
@@ -67,7 +67,7 @@ def principal_for(person) -> Principal:
 async def test_upload_stores_bytes_and_description_and_marks_ready(household):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "household", "house.md", "boiler", message="x")
+        await save_engram(me, "household", "house.md", "boiler", message="x")
     store = FakeStore()
     attachment = await add_attachment(
         me,
@@ -77,13 +77,13 @@ async def test_upload_stores_bytes_and_description_and_marks_ready(household):
         filename="boiler.png",
         description="the boiler's model plate",
         store=store,
-        page_path="house.md",
+        engram_path="house.md",
     )
     assert attachment.status == AttachmentStatus.READY
     assert attachment.description == "the boiler's model plate"
     assert attachment.filename == "boiler.png"
     assert store.objects[attachment.object_key] == b"\x89PNG fake"
-    assert attachment.page_id is not None
+    assert attachment.engram_id is not None
 
 
 async def test_personal_attachment_is_invisible_to_the_other_person(household):
@@ -205,7 +205,7 @@ async def test_raster_images_are_delivered_inline(mime):
 async def test_scriptable_and_unknown_types_are_delivered_as_downloads(mime):
     """A caller-chosen content type must not decide how a reader's browser
     treats the bytes: add_file will happily store a 'receipt.pdf' declared as
-    text/html, and inline delivery would turn that into a live page."""
+    text/html, and inline delivery would turn that into a live engram."""
     content_type, disposition = _delivery(mime, "receipt.pdf")
     assert content_type == "application/octet-stream"
     assert disposition == 'attachment; filename="receipt.pdf"'
@@ -224,7 +224,7 @@ async def test_a_pending_attachment_is_not_readable(household):
     async with transaction_scope():
         await arm(me)
         await Attachment(
-            cove_id=household["w_personal"].id,
+            space_id=household["w_personal"].id,
             object_key="attachments/never-uploaded",
             filename="ghost.pdf",
             mime="application/pdf",
@@ -274,7 +274,7 @@ async def test_a_failed_upload_marks_the_row_failed_rather_than_leaking_pending(
     async with transaction_scope():
         await arm(me)
         rows = await Attachment.objects().where(
-            Attachment.cove_id == household["w_personal"].id
+            Attachment.space_id == household["w_personal"].id
         )
     assert [row.status for row in rows] == [AttachmentStatus.FAILED.value]
     # And it stays unreadable, exactly as the pending row was.

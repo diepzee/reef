@@ -3,7 +3,7 @@
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from reef.db import DB
-from reef.rls import disclosure_statements
+from reef.frozen_ddl import disclosure_statements
 
 ID = "2026-08-12T14:00:00:000000"
 VERSION = "1.36.0"
