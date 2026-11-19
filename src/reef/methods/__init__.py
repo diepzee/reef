@@ -146,6 +146,30 @@ MESSAGES = {
         "This file is larger than Reef keeps. Send a smaller file, or only "
         "the part that matters."
     ),
+    "not_found": (
+        "Reef has nothing there that this person can read. Check the path or "
+        "key, for example with recall, and send it again."
+    ),
+    "one_target": (
+        "Name exactly one thing to forget: an engram, by its path, or a "
+        "file, by its key. Send one of them."
+    ),
+    "passage_not_found": (
+        "The engram does not contain this passage. Open the engram, copy "
+        "the passage exactly as it is written, and send it again."
+    ),
+    "passage_ambiguous": (
+        "This passage occurs more than once. Send a longer passage that "
+        "occurs only once, with some of the words around it."
+    ),
+    "nothing_to_undo": (
+        "There is no earlier version to go back to. The engram is at its "
+        "first version, or you named the version it is at now."
+    ),
+    "no_such_version": (
+        "The engram has no such version. Versions count from 1 up to the "
+        "current one. Open the engram to see its current version."
+    ),
 }
 """The plain message for each error code that has a standard one."""
 
