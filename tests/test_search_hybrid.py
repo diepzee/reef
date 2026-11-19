@@ -7,6 +7,7 @@ import pytest
 
 from reef import embedding, search
 from reef.access import Principal, arm
+from reef.breaker import Breaker
 from reef.config import get_settings
 from reef.models import Attachment, AttachmentStatus, SearchLog
 from reef.pages import save_page
@@ -59,8 +60,11 @@ def service(monkeypatch):
     monkeypatch.setattr(settings, "embedding_url", "http://embedder.internal")
     monkeypatch.setattr(settings, "embedding_model", fake.model_id)
     monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
-    monkeypatch.setattr(embedding, "_resting_until", 0.0)
-    monkeypatch.setattr(embedding, "_failures", 0)
+    monkeypatch.setattr(
+        embedding,
+        "breaker",
+        Breaker(embedding.FAILURES_TO_REST, embedding.REST_SECONDS),
+    )
     return fake
 
 
@@ -254,17 +258,17 @@ async def test_after_the_rest_one_search_tries_again(
     service.fail = httpx.ConnectError("down")
     for _ in range(embedding.FAILURES_TO_REST):
         await search_pages(me, "vehicle")
-    monkeypatch.setattr(embedding, "_resting_until", 0.0)  # the rest is over
+    embedding.breaker.resting_until = 0.0  # the rest is over
     asked = service.calls
     await search_pages(me, "vehicle")
     assert service.calls == asked + 1
     # It failed again, so the others are spared at once.
     await search_pages(me, "vehicle")
     assert service.calls == asked + 1
-    monkeypatch.setattr(embedding, "_resting_until", 0.0)
+    embedding.breaker.resting_until = 0.0
     service.fail = None
     assert _paths(await search_pages(me, "vehicle")) == ["auto.md"]
-    assert embedding._failures == 0
+    assert embedding.breaker.failures == 0
 
 
 @pytest.mark.parametrize(
@@ -318,7 +322,7 @@ async def test_a_failure_logs_no_query(tx, household, service, caplog):
 async def test_a_slow_service_is_not_waited_for(tx, household, service, monkeypatch):
     me = principal_for(household["wouter"])
     await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
-    monkeypatch.setattr(embedding, "QUESTION_SECONDS", 0.01)
+    monkeypatch.setattr(get_settings(), "embedding_seconds", 0.01)
 
     async def slow(texts: list[str]) -> list[list[float]]:
         import asyncio

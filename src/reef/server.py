@@ -837,7 +837,9 @@ async def search(query: str) -> dict:
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await tool_search(principal, query)
+    # Outside the transaction: search opens its own, short ones, so that no
+    # database connection waits on the embedding service or the reranker.
+    return await tool_search(principal, query)
 
 
 @_read_only("Fetch")
@@ -877,7 +879,8 @@ async def search_pages(
     """
     async with transaction_scope():
         principal = await current_principal()
-        return await run_search(principal, query, cove=cove, limit=limit, log=True)
+    # Outside the transaction: see search().
+    return await run_search(principal, query, cove=cove, limit=limit, log=True)
 
 
 @_read_only("What's new")

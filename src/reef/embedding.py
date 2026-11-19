@@ -38,7 +38,6 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 
 import asyncio
 import logging
-import time
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -47,6 +46,7 @@ import httpx
 
 from reef import sections
 from reef.access import Principal, arm
+from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 from reef.indexfields import summary
 from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_PAGE, enqueue
@@ -68,10 +68,6 @@ PAGE_SECONDS = 300.0
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
 
-#: How long a search waits for its question's vector, in seconds. A search
-#: that waits longer than this is worse than a keyword search that answers.
-QUESTION_SECONDS = 2.0
-
 #: How much of a question is embedded, in characters. Short on purpose: a
 #: long text takes the model long, and nobody should be able to make the
 #: service slow for everybody by searching for an essay.
@@ -84,17 +80,18 @@ FAILURES_TO_REST = 3
 
 #: How long searches leave the service alone after that, in seconds.
 #: Without it every search would wait out the full
-#: :data:`QUESTION_SECONDS` for as long as the service is down.
+#: time limit (``REEF_EMBEDDING_SECONDS``) for as long as the service is down.
 REST_SECONDS = 60.0
 
 #: The largest number a stored vector can hold: pgvector keeps 32-bit floats.
 _FLOAT32_MAX = 3.4028234e38
 
-#: How many searches in a row the service failed.
-_failures = 0
+#: After a rest, how long the one search that tries again has before the
+#: others may try too, in seconds. Longer than any sensible time limit.
+PROBE_SECONDS = 10.0
 
-#: When searches may ask the service again, on the monotonic clock.
-_resting_until = 0.0
+#: Whether searches may ask the service now. See :mod:`reef.breaker`.
+breaker = Breaker(FAILURES_TO_REST, REST_SECONDS, PROBE_SECONDS)
 
 log = logging.getLogger(__name__)
 
@@ -198,7 +195,9 @@ class HttpEmbedder:
         :raises httpx.HTTPError: if the service cannot be reached or refuses
         """
         vectors: list[list[float]] = []
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # trust_env=False: a proxy set in the environment would carry page
+        # text somewhere other than this address.
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             for start in range(0, len(texts), BATCH):
                 response = await client.post(
                     f"{self.url}/v1/embeddings",
@@ -251,11 +250,13 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
     with keywords alone: a search must never fail because of this service.
 
     After :data:`FAILURES_TO_REST` failures in a row the service is left
-    alone for :data:`REST_SECONDS`. Then one search tries it again while
-    the others keep to keywords, so a service that is still down costs one
-    search its wait and not all of them. A question the service refuses, or
-    an answer that is not a vector, does not count as a failure: those say
-    something about one question, not about the service.
+    alone for :data:`REST_SECONDS`, see :data:`breaker`. A question the
+    service refuses (see :data:`reef.breaker.REFUSALS`), or an answer that
+    is not a vector, does not count as a failure: those say something about
+    one question, not about the service.
+
+    Call it outside any transaction: it can take ``REEF_EMBEDDING_SECONDS``,
+    and a transaction would hold a database connection all that time.
 
     Only the class of an error is logged, never the question.
 
@@ -263,15 +264,11 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
     :returns: the model's name and the question's vector, or None when
         there is no service or it gave no usable answer in time
     """
-    global _resting_until, _failures
     embedder = get_embedder()
-    if embedder is None or time.monotonic() < _resting_until:
+    if embedder is None or not breaker.ready():
         return None
-    if _failures >= FAILURES_TO_REST:
-        # The rest is over. This search tries; the ones beside it do not.
-        _resting_until = time.monotonic() + QUESTION_SECONDS
     try:
-        async with asyncio.timeout(QUESTION_SECONDS):
+        async with asyncio.timeout(get_settings().embedding_seconds):
             vector = _checked(
                 await embedder.embed(
                     [question(embedder.model_id, text[:QUESTION_CHARS])]
@@ -283,17 +280,11 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
             raise BadEmbedding("a vector of zeros")
     # Broad on purpose: whatever went wrong, the search must still answer.
     except Exception as error:  # noqa: BLE001
-        refused = (
-            isinstance(error, httpx.HTTPStatusError)
-            and error.response.status_code < 500
-        )
-        if not refused and not isinstance(error, BadEmbedding):
-            _failures += 1
-            if _failures >= FAILURES_TO_REST:
-                _resting_until = time.monotonic() + REST_SECONDS
-        log.warning("search answers by keywords alone (%s)", type(error).__name__)
+        if not is_refusal(error) and not isinstance(error, BadEmbedding):
+            breaker.failed()
+        log.warning("search answers by keywords alone (%s)", describe(error))
         return None
-    _failures = 0
+    breaker.succeeded()
     return embedder.model_id, vector
 
 

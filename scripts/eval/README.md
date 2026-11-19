@@ -55,6 +55,7 @@ It does not ask a model to answer. It checks retrieval only.
 | `lexical` | Search as it ships: the question as typed |
 | `lexical-any` | The same search, with the question rewritten so its words are alternatives |
 | `hybrid` | Words and meaning together, as search ships once a reef has an embedding service |
+| `rerank` | `hybrid`, then the first results read again by a reranker, as search ships once a reef has both services |
 
 `hybrid` needs a local embedding service and the eval person's vectors:
 
@@ -68,6 +69,18 @@ just eval-private
 Without them `hybrid` scores the same as `lexical`, because that is how
 search behaves without a service. The run stops if the address is not on
 this machine.
+
+`rerank` also needs a reranker. `scripts/eval/rerank_server.py` serves the
+measured model on this machine:
+
+```bash
+uv run --with sentence-transformers python scripts/eval/rerank_server.py
+export REEF_RERANK_URL=http://127.0.0.1:8787
+REEF_RERANK_SECONDS=60 just eval-private
+```
+
+A long time limit keeps a slow laptop from turning the measurement into
+one of the time limit.
 
 New modes are added to `MODES` in `evalkit.py`.
 
@@ -105,6 +118,12 @@ code with EmbeddingGemma 300m on a local Ollama.
 |---|---|---|---|---|---|
 | 19 Nov 2026 | `lexical` | 37.5% | 18.7% | 0.262 | 0.25 s |
 | 19 Nov 2026 | `hybrid` | 46.8% | 25.1% | 0.333 | 0.60 s |
+| 19 Nov 2026 | `rerank` | 56.8% | 33.8% | 0.424 | 2.66 s |
+
+`rerank` used `BAAI/bge-reranker-v2-m3` through `rerank_server.py` on an M4
+Pro's graphics chip, 15 candidates, 2 passages each. Its time is the whole
+search. On a server without a graphics chip it will be slower; measure it
+there before relying on the default time limit of 3 seconds.
 
 Add a row to the table whenever a change to search moves the numbers.
 
