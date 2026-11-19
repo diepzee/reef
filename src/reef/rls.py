@@ -1,16 +1,18 @@
 """Row-level security policy DDL, shared by the schema migration and tests.
 
-The migrations under ``src/reef/piccolo_migrations/`` apply these policies to
-the real database; ``tests/conftest.py`` applies them to ``reef_test`` when
-building the test schema. RLS is the security boundary for this project, so
-the two call sites must never be allowed to drift apart — a difference here
-would mean tests validate policies that production does not actually enforce.
-This module is the single source of truth both call through. (The oldest
-policy migration deliberately froze its own snapshot instead: it runs before
-``memberships.role`` exists, so today's predicates could not compile there.
-Every migration older than ``2026-11-20T10:00:00`` calls
-:mod:`reef.frozen_ddl` for the same reason: it runs before cove became space
-and page became engram.)
+``tests/conftest.py`` applies these policies to ``reef_test`` when building
+the test schema, straight from this module. Migrations apply them to the real
+database as they stood on the day each migration was written: the oldest
+froze their own snapshots, those older than ``2026-11-20T10:00:00`` call
+:mod:`reef.frozen_ddl`, and ``2026-11-20T10:00:00`` carries the post-rename
+DDL as fixed text. A migration that read this module at run time would apply
+whatever it says on the day a database is built, which reaches fresh builds
+and never production. So a change here needs a migration of its own.
+
+RLS is the security boundary for this project, so the two must never drift
+apart — a difference would mean tests validate policies that production does
+not actually enforce. ``tests/test_migration_chain.py`` builds a database by
+running every migration and fails if its policies differ from the suite's.
 
 ``NULLIF(current_setting('app.person_id', true), '')`` matters, not just a
 bare ``current_setting(..., true)`` cast: a session where ``app.person_id``

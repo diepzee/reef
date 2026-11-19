@@ -3,14 +3,14 @@
 Historical migrations call these, never :mod:`reef.rls` or
 :mod:`reef.search`. On that day a space was called a cove and an engram a
 page, in the tables, columns, policies and helper functions alike, and every
-migration up to ``2026-11-18T12:00:00`` runs against a schema with those
+migration before ``2026-11-20T10:00:00`` runs against a schema with those
 names. Today's DDL names the renamed objects, which do not exist yet at that
 point in the chain, so a database built from scratch -- a fresh deploy, or
 the restore drill in ``docs/restore.md`` -- would fail at the first of them.
 
-``2026-11-20T10:00:00`` renames the schema and then applies today's DDL
-from :mod:`reef.rls`, so production and the test suite still end up with
-exactly the same policies. ``tests/test_migration_chain.py`` checks that.
+``2026-11-20T10:00:00`` renames the schema and then applies the DDL of its
+own day, carried as fixed text, so production and the test suite end up with
+the same policies. ``tests/test_migration_chain.py`` checks that.
 
 Each function is a copy of the one of the same name, with its long
 explanation left behind: the reasoning lives on in :mod:`reef.rls` and in
