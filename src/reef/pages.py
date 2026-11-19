@@ -127,7 +127,7 @@ def validate_body(path: str, body: str) -> None:
     :param body: the full markdown body
     :raises PageTooLarge: if the body exceeds ``REEF_PAGE_MAX_CHARS``
     """
-    ceiling = get_settings().page_max_chars
+    ceiling = get_settings().pages.max_chars
     if len(body) > ceiling:
         raise PageTooLarge(
             f"{path!r} is {len(body)} characters, over the {ceiling}-character "

@@ -52,36 +52,8 @@ from reef.indexfields import summary
 from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_PAGE, enqueue
 from reef.models import EmbeddingSpend, Job, Page, PageEmbedding
 
-#: How many pieces go to the service in one request.
-BATCH = 16
-
-#: How long a page waits when the day's cap is reached.
-CAP_RETRY = timedelta(hours=6)
-
-#: How long a page waits after the service failed on it.
-FAILURE_RETRY = timedelta(minutes=30)
-
-#: The longest one page's embedding may take, in seconds, all requests
-#: together. The job holds a database connection meanwhile.
-PAGE_SECONDS = 300.0
-
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
-
-#: How much of a question is embedded, in characters. Short on purpose: a
-#: long text takes the model long, and nobody should be able to make the
-#: service slow for everybody by searching for an essay.
-QUESTION_CHARS = 500
-
-#: How many searches in a row the service must fail before searches leave
-#: it alone. One failure is not enough: one person's odd query must not
-#: switch search by meaning off for everybody.
-FAILURES_TO_REST = 3
-
-#: How long searches leave the service alone after that, in seconds.
-#: Without it every search would wait out the full
-#: time limit (``REEF_EMBEDDING_SECONDS``) for as long as the service is down.
-REST_SECONDS = 60.0
 
 #: The largest number a stored vector can hold: pgvector keeps 32-bit floats.
 _FLOAT32_MAX = 3.4028234e38
@@ -91,7 +63,11 @@ _FLOAT32_MAX = 3.4028234e38
 PROBE_SECONDS = 10.0
 
 #: Whether searches may ask the service now. See :mod:`reef.breaker`.
-breaker = Breaker(FAILURES_TO_REST, REST_SECONDS, PROBE_SECONDS)
+breaker = Breaker(
+    get_settings().embedding.rest_after_failures,
+    get_settings().embedding.rest_seconds,
+    PROBE_SECONDS,
+)
 
 log = logging.getLogger(__name__)
 
@@ -194,22 +170,19 @@ class HttpEmbedder:
         :raises BadEmbedding: if the answer is not one sound vector per passage
         :raises httpx.HTTPError: if the service cannot be reached or refuses
         """
+        batch = get_settings().embedding.batch
         vectors: list[list[float]] = []
         # trust_env=False: a proxy set in the environment would carry page
         # text somewhere other than this address.
         async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
-            for start in range(0, len(texts), BATCH):
+            for start in range(0, len(texts), batch):
+                chunk = texts[start : start + batch]
                 response = await client.post(
                     f"{self.url}/v1/embeddings",
-                    json={
-                        "model": self.model_id,
-                        "input": texts[start : start + BATCH],
-                    },
+                    json={"model": self.model_id, "input": chunk},
                 )
                 response.raise_for_status()
-                vectors.extend(
-                    _rows(response.json(), len(texts[start : start + BATCH]))
-                )
+                vectors.extend(_rows(response.json(), len(chunk)))
         return vectors
 
 
@@ -237,9 +210,9 @@ def get_embedder() -> Embedder | None:
     :returns: the embedder, or None when ``REEF_EMBEDDING_URL`` is not set
     """
     settings = get_settings()
-    if not settings.embedding_url:
+    if not settings.embedding.url:
         return None
-    return HttpEmbedder(settings.embedding_url, settings.embedding_model)
+    return HttpEmbedder(settings.embedding.url, settings.embedding.model)
 
 
 async def embed_question(text: str) -> tuple[str, list[float]] | None:
@@ -249,11 +222,11 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
     else. Whatever goes wrong, the answer is None and the search carries on
     with keywords alone: a search must never fail because of this service.
 
-    After :data:`FAILURES_TO_REST` failures in a row the service is left
-    alone for :data:`REST_SECONDS`, see :data:`breaker`. A question the
-    service refuses (see :data:`reef.breaker.REFUSALS`), or an answer that
-    is not a vector, does not count as a failure: those say something about
-    one question, not about the service.
+    After ``REEF_EMBEDDING_REST_AFTER_FAILURES`` failures in a row the service is left
+    alone for ``REEF_EMBEDDING_REST_SECONDS``, see :data:`breaker`. A question
+    the service refuses (see :data:`reef.breaker.REFUSALS`), or an answer
+    that is not a vector, does not count as a failure: those say something
+    about one question, not about the service.
 
     Call it outside any transaction: it can take ``REEF_EMBEDDING_SECONDS``,
     and a transaction would hold a database connection all that time.
@@ -264,14 +237,15 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
     :returns: the model's name and the question's vector, or None when
         there is no service or it gave no usable answer in time
     """
+    settings = get_settings().embedding
     embedder = get_embedder()
     if embedder is None or not breaker.ready():
         return None
     try:
-        async with asyncio.timeout(get_settings().embedding_seconds):
+        async with asyncio.timeout(settings.seconds):
             vector = _checked(
                 await embedder.embed(
-                    [question(embedder.model_id, text[:QUESTION_CHARS])]
+                    [question(embedder.model_id, text[: settings.question_chars])]
                 ),
                 1,
             )[0]
@@ -405,14 +379,14 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
     missing = [piece for piece in pieces if piece.anchor not in current]
 
     if missing:
-        cap = get_settings().embedding_daily_cap
+        cap = get_settings().embedding.daily_cap
         if len(missing) > cap:
             # It can never fit, on any day. Waiting for it would be forever.
             return 0
         if len(missing) > cap - await spent_today(principal):
             raise CapReached
         try:
-            async with asyncio.timeout(PAGE_SECONDS):
+            async with asyncio.timeout(get_settings().embedding.page_seconds):
                 vectors = _checked(
                     await embedder.embed(
                         [passage(embedder.model_id, piece.text) for piece in missing]
@@ -483,7 +457,7 @@ async def _lacking(principal: Principal, limit: int | None = None) -> list[UUID]
         "SELECT 1 FROM page_embeddings e WHERE e.page_id = p.id "
         "AND e.model_id = {} AND e.section_anchor IS NULL) "
         "ORDER BY p.updated_at DESC" + (f" LIMIT {int(limit)}" if limit else ""),
-        get_settings().embedding_model,
+        get_settings().embedding.model,
     )
     return [row["id"] for row in rows]
 
@@ -502,7 +476,7 @@ async def request(
     :returns: True if a job was added
     """
     settings = get_settings()
-    if not settings.embedding_url:
+    if not settings.embedding.url:
         return False
     await arm(principal)
     waiting = await Job.raw(
@@ -515,7 +489,7 @@ async def request(
     if waiting:
         return False
     if delay is None:
-        delay = timedelta(seconds=settings.embedding_delay_seconds)
+        delay = timedelta(seconds=settings.embedding.delay_seconds)
     return await enqueue(principal, EMBED_PAGE, (page_id,), delay=delay)
 
 
@@ -528,7 +502,7 @@ async def request_backfill(principal: Principal) -> bool:
     :param principal: the person whose index was just built
     :returns: True if a job was added
     """
-    if not get_settings().embedding_url:
+    if not get_settings().embedding.url:
         return False
     if not await _lacking(principal, limit=1):
         return False

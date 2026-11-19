@@ -246,13 +246,6 @@ _RANKING_SQL = f"""
     FROM hits ORDER BY {_KEYWORD_ORDER}
 """
 
-#: The longest query, in words, in which holding every word makes a page
-#: sure. Somebody who types an identifier or a name wants the page that
-#: has it. In a whole question, holding every word says little: measured on
-#: the benchmark on 19 November 2026, treating those pages as sure as well
-#: found the right page for 44.0% of questions, against 46.0% without.
-SURE_WORDS = 3
-
 #: The rows the fusion chose, in its order. They pass through the same
 #: joins as a keyword hit, so row security decides once more what is shown.
 _CHOSEN_SQL = """
@@ -316,27 +309,6 @@ _SEMANTIC_SQL = """
     LIMIT {}
 """
 
-#: How many results of each ranking take part in the fusion.
-FUSION_DEPTH = 50
-
-#: The constant of reciprocal rank fusion. 60 is the value from the paper.
-RRF_K = 60
-
-#: How much a place in the meaning ranking counts, against 1 for a place in
-#: the keyword ranking. Measured through this code on 19 November 2026, on
-#: the benchmark in ``scripts/eval`` and on a private set of real pages.
-#: Share of questions with a right page in the first five results:
-#:
-#: ============  =========  =======
-#: weight        benchmark  private
-#: ============  =========  =======
-#: keywords      37.5%      80.0%
-#: 1             47.0%      92.5%
-#: 2             46.8%      100%
-#: 3             46.0%      100%
-#: ============  =========  =======
-SEMANTIC_WEIGHT = 2.0
-
 #: A quoted phrase or an excluded word. Such a query says exactly what a
 #: page must or must not hold, and a ranking by meaning would bring back
 #: the very pages it rules out. Any dash that does not follow a letter or
@@ -347,8 +319,6 @@ _EXACT = re.compile(r'"|(?<!\w)-')
 
 _COVE_FILTER = " AND cove_id = {}"
 _PAGE_COVE_FILTER = " AND pages.cove_id = {}"
-
-_MAX_RESULTS = 50
 
 
 def _row_payload(row: dict, aliases: dict) -> dict:
@@ -377,8 +347,8 @@ def fuse(
     by the rankings' own scores, which cannot be compared. A row in both
     outranks a row at the same place in one.
 
-    A place in the meaning ranking counts :data:`SEMANTIC_WEIGHT` times a
-    place in the keyword ranking. Left at that, any page close in meaning
+    A place in the meaning ranking counts ``REEF_SEARCH_SEMANTIC_WEIGHT``
+    times a place in the keyword ranking. Left at that, any page close in meaning
     would outrank the best keyword hit that is not, and two kinds of row
     would vanish from the first results: a file or a fresh page, which has
     no vector to be close with, and the one page that holds the exact
@@ -392,17 +362,19 @@ def fuse(
     :param semantic: ids of the pages closest in meaning, best first
     :returns: kind and id of every row in either ranking, best first
     """
+    k = get_settings().search.rrf_k
+    weight = get_settings().search.semantic_weight
     place = {page_id: rank for rank, page_id in enumerate(semantic, 1)}
     score: dict[tuple[str, UUID], float] = {}
     for rank, (kind, row_id, sure) in enumerate(lexical, 1):
         by_meaning = place.pop(row_id, None) if kind == "page" else None
         if sure and by_meaning is None:
             by_meaning = rank
-        score[(kind, row_id)] = 1.0 / (RRF_K + rank) + (
-            SEMANTIC_WEIGHT / (RRF_K + by_meaning) if by_meaning else 0.0
+        score[(kind, row_id)] = 1.0 / (k + rank) + (
+            weight / (k + by_meaning) if by_meaning else 0.0
         )
     for page_id, rank in place.items():
-        score[("page", page_id)] = SEMANTIC_WEIGHT / (RRF_K + rank)
+        score[("page", page_id)] = weight / (k + rank)
     # sorted() is stable, so equal scores keep the keyword ranking's order.
     return sorted(score, key=lambda key: score[key], reverse=True)
 
@@ -431,7 +403,7 @@ async def _closest_pages(
             len(vector),
             *cove_ids,
             embedding.literal(vector),
-            FUSION_DEPTH,
+            get_settings().search.fusion_depth,
         )
     # Broad on purpose: whatever went wrong, the search must still answer.
     except Exception as error:  # noqa: BLE001
@@ -510,14 +482,14 @@ async def _read_candidates(
     page_ids = [row_id for kind, row_id in candidates if kind == "page"]
     file_ids = [row_id for kind, row_id in candidates if kind == "file"]
     settings = get_settings()
-    anchors = await _best_anchors(page_ids, embedded, settings.rerank_passages)
+    anchors = await _best_anchors(page_ids, embedded, settings.rerank.passages)
     savepoint = await DB.current_transaction.get().savepoint()
     try:
         pages = (
             await Page.raw(
                 _PAGE_TEXT_SQL,
                 [str(page_id) for page_id in anchors],
-                sections.PAGE_CHARS,
+                settings.embedding.page_chars,
                 [str(page_id) for page_id in page_ids],
             )
             if page_ids
@@ -686,7 +658,8 @@ async def search_pages(
     query = query.replace("\x00", "").strip()
     if not query:
         return []
-    limit = max(1, min(limit, _MAX_RESULTS))
+    settings = get_settings()
+    limit = max(1, min(limit, settings.search.max_results))
     exact = _EXACT.search(query) is not None
     embedded = await embedding.embed_question(query) if semantic and not exact else None
     reread = rerank and not exact and reranking.wanted()
@@ -726,8 +699,8 @@ async def search_pages(
                 *cove_ids,
                 ready,
                 *cove_ids,
-                max(limit, FUSION_DEPTH),
-                len(query.split()) <= SURE_WORDS,
+                max(limit, settings.search.fusion_depth),
+                len(query.split()) <= settings.search.sure_words,
                 model_id,
                 len(vector),
             )
@@ -742,12 +715,12 @@ async def search_pages(
                 *cove_ids,
                 ready,
                 *cove_ids,
-                max(limit, get_settings().rerank_candidates),
+                max(limit, settings.rerank.candidates),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
-                ranking[: get_settings().rerank_candidates], embedded
+                ranking[: get_settings().rerank.candidates], embedded
             )
     if reading.candidates:
         # In a thread: cutting long pages would hold up every other request.

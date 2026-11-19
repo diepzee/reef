@@ -9,10 +9,11 @@ import os
 
 from reef.config import get_settings
 
-os.environ["DATABASE_URL"] = get_settings().test_database_url
+os.environ["DATABASE_URL"] = get_settings().database.test_url
 
 import asyncpg
 import httpx
+import pytest
 import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
@@ -84,7 +85,7 @@ def probe_dsn() -> str:
 
     :returns: a DSN usable by asyncpg
     """
-    return _swap_user(get_settings().test_database_url, PROBE_ROLE, "probe")
+    return _swap_user(get_settings().database.test_url, PROBE_ROLE, "probe")
 
 
 def _swap_user(dsn: str, user: str, password: str) -> str:
@@ -119,7 +120,7 @@ def seed_dsn() -> str:
     override = os.environ.get("REEF_SEED_DATABASE_URL")
     if override:
         return override
-    return _swap_user(get_settings().test_database_url, "postgres", "postgres")
+    return _swap_user(get_settings().database.test_url, "postgres", "postgres")
 
 
 _MISSING_AUTHZ_ROLE = f"""
@@ -136,6 +137,22 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
     PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test \\
       -c "GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}"
 """
+
+
+@pytest.fixture(autouse=True)
+def _restore_environment():
+    """Leave the process environment as each test found it.
+
+    Building the settings copies legacy ``RIF_`` variables onto their
+    ``REEF_`` names straight into the environment, where monkeypatch cannot
+    undo it. A copied ``REEF_DEV_INSECURE`` would put every later test in
+    insecure mode.
+    """
+    saved = dict(os.environ)
+    yield
+    if dict(os.environ) != saved:
+        os.environ.clear()
+        os.environ.update(saved)
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)
@@ -555,7 +572,7 @@ async def api(monkeypatch, graph):
     from reef.server import mcp
     from reef.web.routes_api import register_api_routes
 
-    monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
+    monkeypatch.setattr(get_settings().web, "session_secret", "test-secret")
     register_api_routes(mcp)
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(

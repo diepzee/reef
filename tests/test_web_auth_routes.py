@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 import pytest_asyncio
 
+from reef.config import get_settings
 from reef.server import mcp
 from reef.web.oidc import OIDCError
 from reef.web.routes_auth import register_auth_routes
@@ -86,12 +87,12 @@ async def web(monkeypatch, graph):
     :returns: a tuple of the HTTP client, the fake OIDC client, and the
         already-invited member person
     """
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
-    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("REEF_BASE_URL", "https://reef.example")
-    from reef.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
+    monkeypatch.setattr(
+        get_settings().auth, "workos_authkit_domain", "fake.authkit.app"
+    )
+    monkeypatch.setattr(get_settings().auth, "workos_client_id", "client_123")
+    monkeypatch.setattr(get_settings().web, "base_url", "https://reef.example")
+    monkeypatch.setattr(get_settings().web, "session_secret", "test-secret")
     person = await graph.person("member@example.com", "Member")
     fake = FakeOIDC(
         {"sub": "sub_1", "email": "member@example.com", "email_verified": True}
@@ -196,7 +197,7 @@ async def test_login_sets_secure_oauth_cookie_by_default(web):
 
 async def test_login_omits_secure_oauth_cookie_with_dev_insecure(monkeypatch, web):
     """REEF_DEV_INSECURE=1 drops Secure so local plain-HTTP dev keeps working."""
-    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
     client, _fake, _ = web
     response = await client.get("/api/auth/login")
     set_cookie = next(
@@ -226,7 +227,7 @@ async def test_callback_omits_secure_session_cookie_with_dev_insecure(monkeypatc
     client, _fake, _person = web
     login = await client.get("/api/auth/login")
     state = parse_qs(urlparse(login.headers["location"]).query)["state"][0]
-    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
     response = await client.get(
         "/api/auth/callback", params={"code": "code_abc", "state": state}
     )
@@ -245,9 +246,9 @@ async def test_login_unconfigured_is_503(monkeypatch):
     URL -- rather than relying on whatever the ambient test environment
     happens to leave unset.
     """
-    monkeypatch.delenv("WORKOS_AUTHKIT_DOMAIN", raising=False)
-    monkeypatch.delenv("WORKOS_CLIENT_ID", raising=False)
-    monkeypatch.delenv("REEF_BASE_URL", raising=False)
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", "")
+    monkeypatch.setattr(get_settings().auth, "workos_client_id", "")
+    monkeypatch.setattr(get_settings().web, "base_url", "")
     register_auth_routes(mcp, client_factory=lambda: FakeOIDC({}))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(

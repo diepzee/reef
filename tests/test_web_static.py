@@ -7,6 +7,7 @@ from pathlib import Path
 import httpx
 import pytest_asyncio
 
+from reef.config import get_settings
 from reef.server import mcp  # importing server registers all web routes
 
 
@@ -20,11 +21,11 @@ async def static_client(monkeypatch, tmp_path):
 
     (tmp_path / "index.html").write_text("<!doctype html><title>reef</title>")
     (tmp_path / "app.js").write_text("console.log(1)")
-    monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))
+    monkeypatch.setattr(get_settings().web, "static_dir", str(tmp_path))
     # Point site_dir away from the repo's real site/ so root-route tests
     # exercise the no-site fallback unless they build a site themselves.
     site = tmp_path / "site"
-    monkeypatch.setattr(get_settings(), "site_dir", str(site))
+    monkeypatch.setattr(get_settings().web, "site_dir", str(site))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
@@ -199,7 +200,7 @@ async def static_client_with_icons(monkeypatch, tmp_path):
     (tmp_path / "index.html").write_text("<!doctype html><title>reef</title>")
     (tmp_path / "reef-icon.png").write_bytes(b"\x89PNG\r\n\x1a\nfake-png-bytes")
     (tmp_path / "reef.svg").write_text("<svg><!-- reef --></svg>")
-    monkeypatch.setattr(get_settings(), "static_dir", str(tmp_path))
+    monkeypatch.setattr(get_settings().web, "static_dir", str(tmp_path))
     transport = httpx.ASGITransport(app=mcp.http_app())
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
@@ -238,7 +239,7 @@ async def test_every_advertised_icon_url_resolves(
     """
     from reef.server import _brand_icons
 
-    monkeypatch.setenv("REEF_BASE_URL", "http://test")
+    monkeypatch.setattr(get_settings().web, "base_url", "http://test")
     for icon in _brand_icons():
         response = await static_client_with_icons.get(icon.src)
         assert response.status_code == 200, icon.src
@@ -297,7 +298,7 @@ async def test_glama_claim_served_when_configured(static_client, monkeypatch):
     """
     from reef.config import get_settings
 
-    monkeypatch.setattr(get_settings(), "glama_maintainer_email", "a@example.com")
+    monkeypatch.setattr(get_settings().web, "glama_maintainer_email", "a@example.com")
     response = await static_client.get("/.well-known/glama.json")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")

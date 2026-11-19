@@ -156,7 +156,7 @@ def _serve_or_fallback(path: str) -> Response:
         ``index.html``, or a 503 plain-text response if the frontend hasn't
         been built
     """
-    base = Path(get_settings().static_dir).resolve()
+    base = Path(get_settings().web.static_dir).resolve()
     index = base / "index.html"
     try:
         candidate = (base / path).resolve()
@@ -186,7 +186,7 @@ def _serve_site_asset(path: str) -> Response:
     canonical = _CANONICAL_PAGES.get(path)
     if canonical is not None:
         return RedirectResponse(canonical, status_code=301)
-    base = Path(get_settings().site_dir).resolve()
+    base = Path(get_settings().web.site_dir).resolve()
     try:
         candidate = (base / path).resolve()
         valid = candidate.is_relative_to(base) and candidate.is_file()
@@ -225,7 +225,7 @@ def _serve_site_page(filename: str, media_type: str | None = None) -> Response:
         response when the site tree is absent (same posture as
         :func:`_serve_site_asset`)
     """
-    page = Path(get_settings().site_dir) / filename
+    page = Path(get_settings().web.site_dir) / filename
     if page.is_file():
         return _cached(page, media_type=media_type)
     return PlainTextResponse("Not Found", status_code=404)
@@ -246,7 +246,7 @@ def _serve_icon(filename: str, media_type: str) -> Response:
     :returns: a :class:`FileResponse` for the icon, or a 404 plain-text
         response if the frontend hasn't been built yet -- never a 500
     """
-    candidate = Path(get_settings().static_dir) / filename
+    candidate = Path(get_settings().web.static_dir) / filename
     if not candidate.is_file():
         return PlainTextResponse("not found", status_code=404)
     return _cached(candidate, media_type=media_type)
@@ -274,7 +274,7 @@ def register_static_routes(mcp) -> None:
         :param request: the incoming request
         :returns: the site's ``index.html``, or a 307 redirect to ``/app``
         """
-        index = Path(get_settings().site_dir) / "index.html"
+        index = Path(get_settings().web.site_dir) / "index.html"
         if index.is_file():
             return _door_rendered(index)
         return RedirectResponse("/app", status_code=307)
@@ -404,7 +404,7 @@ def register_static_routes(mcp) -> None:
         :returns: the claim document, or a 404 plain-text response when
             ``glama_maintainer_email`` is unset
         """
-        email = get_settings().glama_maintainer_email
+        email = get_settings().web.glama_maintainer_email
         if not email:
             return PlainTextResponse("Not Found", status_code=404)
         return JSONResponse(

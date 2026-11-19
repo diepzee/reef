@@ -26,7 +26,7 @@ from reef.access import AccessDenied, Principal, arm, resolve_cove
 from reef.account import delete_account_rows
 from reef.appearance import AppearanceError, get_appearances, set_appearance
 from reef.attachments import S3ObjectStore, erase_objects, get_attachment
-from reef.config import env, get_settings
+from reef.config import get_settings
 from reef.context import build_index, latest_editors
 from reef.coves import (
     CoveError,
@@ -376,7 +376,7 @@ def _feed_path() -> Path:
 
     :returns: the path to ``release-notes.json``
     """
-    return Path(get_settings().site_dir) / "release-notes.json"
+    return Path(get_settings().web.site_dir) / "release-notes.json"
 
 
 async def _release_notes(request: Request, principal: Principal) -> dict:
@@ -831,7 +831,7 @@ async def _get_file(request: Request, principal: Principal) -> Response:
     settings = get_settings()
     url = await S3ObjectStore().signed_url(
         key,
-        settings.signed_url_ttl_seconds,
+        settings.files.signed_url_ttl_seconds,
         mime=attachment.mime,
         filename=attachment.filename or key.rsplit("/", 1)[-1],
     )
@@ -931,7 +931,9 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
         query = urlencode(
             {
                 "session_id": sid,
-                "return_to": (f"{(env('BASE_URL') or '')}/app/signed-out?deleted=1"),
+                "return_to": (
+                    f"{get_settings().web.base_url}/app/signed-out?deleted=1"
+                ),
             }
         )
         body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"

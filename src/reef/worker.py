@@ -14,6 +14,7 @@ import signal
 import socket
 import time
 from collections.abc import Awaitable, Callable
+from datetime import timedelta
 
 from reef import embedding, searchlog, telemetry
 from reef.access import Principal
@@ -92,14 +93,21 @@ async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
     embedder = embedding.get_embedder()
     if embedder is None:
         return
+    retry = get_settings().embedding
     for page_id in job.subject_ids:
         try:
             await embedding.embed_page(principal, page_id, embedder)
         except embedding.CapReached:
-            await embedding.request(principal, page_id, delay=embedding.CAP_RETRY)
+            await embedding.request(
+                principal, page_id, delay=timedelta(seconds=retry.cap_retry_seconds)
+            )
         except embedding.ServiceFailed as failure:
             log.warning("embedding: the service failed on a page (%s)", failure)
-            await embedding.request(principal, page_id, delay=embedding.FAILURE_RETRY)
+            await embedding.request(
+                principal,
+                page_id,
+                delay=timedelta(seconds=retry.failure_retry_seconds),
+            )
 
 
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
@@ -201,6 +209,8 @@ async def drain(worker: str) -> int:
 
 
 #: How often the worker deletes search log rows that are past their time.
+#: A constant, not a setting: the privacy page promises deletion after 90
+#: days, and only this keeps the promise on time.
 PURGE_EVERY_SECONDS = 3600.0
 
 
@@ -265,7 +275,7 @@ async def _main() -> None:
     await DB.start_connection_pool()
     log.info("worker %s started", worker)
     try:
-        await serve(worker, stop, get_settings().worker_poll_seconds)
+        await serve(worker, stop, get_settings().worker.poll_seconds)
     finally:
         await DB.close_connection_pool()
         log.info("worker %s stopped", worker)

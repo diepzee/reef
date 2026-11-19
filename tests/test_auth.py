@@ -2,6 +2,7 @@ import pytest
 
 from reef.access import AccessDenied
 from reef.auth import current_principal, principal_from_claims
+from reef.config import get_settings
 from reef.identity import person_by_subject
 
 
@@ -88,7 +89,7 @@ async def test_http_without_token_is_denied_by_default(tx, monkeypatch):
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.delenv("REEF_DEV_INSECURE", raising=False)
+    monkeypatch.setattr(get_settings().dev, "insecure", False)
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     with pytest.raises(AccessDenied):
         await current_principal()
@@ -104,8 +105,10 @@ async def test_http_without_token_falls_back_when_insecure(tx, household, monkey
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
-    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
+    monkeypatch.setattr(
+        get_settings().dev, "principal_email", household["wouter"].email
+    )
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     principal = await current_principal()
     assert principal.person_id == household["wouter"].id
@@ -121,8 +124,8 @@ async def test_http_insecure_fallback_denies_unknown_email(tx, household, monkey
     import fastmcp.server.dependencies
 
     monkeypatch.setenv("PORT", "8080")
-    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
-    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", "stranger@example.test")
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
+    monkeypatch.setattr(get_settings().dev, "principal_email", "stranger@example.test")
     monkeypatch.setattr(fastmcp.server.dependencies, "get_access_token", lambda: None)
     with pytest.raises(AccessDenied):
         await current_principal()

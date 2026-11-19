@@ -60,7 +60,7 @@ async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None
     :param query: the search text, already stripped and not empty
     :param page_ids: the pages returned, best first
     """
-    if not get_settings().search_log:
+    if not get_settings().search.log:
         return
     await arm(principal)
     savepoint = await DB.current_transaction.get().savepoint()

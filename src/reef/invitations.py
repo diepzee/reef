@@ -16,10 +16,11 @@ from uuid import UUID
 
 from reef import audit
 from reef.access import Principal, arm
-from reef.config import env
+from reef.config import get_settings
 from reef.models import Person
 
-#: New allowlist entries one member may mint per window.
+#: New allowlist entries one member may mint per window. A constant, not a
+#: setting: it limits abuse, and a setting could switch that off.
 INVITE_BUDGET = 5
 #: Length of the rolling window, in days. Rolling rather than calendar so
 #: there is no burst at midnight on the 1st, and so the refusal can name a
@@ -75,7 +76,8 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     # read the rows they minted, and a count that silently came back 0 would
     # hand out unlimited invites rather than fail closed.
     rows = await Person.raw(
-        "SELECT reef_invites_minted({}) AS spent", INVITE_WINDOW_DAYS
+        "SELECT reef_invites_minted({}) AS spent",
+        INVITE_WINDOW_DAYS,
     )
     return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
@@ -94,7 +96,8 @@ async def next_invite_at(
     """
     await arm(inviter)
     rows = await Person.raw(
-        "SELECT reef_oldest_invite({}) AS oldest", INVITE_WINDOW_DAYS
+        "SELECT reef_oldest_invite({}) AS oldest",
+        INVITE_WINDOW_DAYS,
     )
     oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
@@ -112,7 +115,7 @@ def relay_instructions() -> str:
 
     :returns: the relay instruction, naming the deployment's own URL if set
     """
-    base_url = (env("BASE_URL") or "").rstrip("/")
+    base_url = get_settings().web.base_url.rstrip("/")
     where = base_url or "reef"
     return (
         f"Tell them to go to {where} and sign in with this exact address. "

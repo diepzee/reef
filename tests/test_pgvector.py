@@ -36,7 +36,7 @@ async def _nearest_first(dsn: str) -> list[str]:
 
 async def test_owner_role_ranks_by_cosine_distance():
     """The role that owns the tables, and runs migrations locally, has it."""
-    assert await _nearest_first(get_settings().test_database_url) == ["near", "far"]
+    assert await _nearest_first(get_settings().database.test_url) == ["near", "far"]
 
 
 async def test_ordinary_role_ranks_by_cosine_distance():
@@ -46,7 +46,7 @@ async def test_ordinary_role_ranks_by_cosine_distance():
 
 async def test_owner_role_can_build_an_hnsw_index():
     """The index type the search design relies on can be created."""
-    connection = await asyncpg.connect(get_settings().test_database_url)
+    connection = await asyncpg.connect(get_settings().database.test_url)
     try:
         async with connection.transaction():
             await connection.execute(

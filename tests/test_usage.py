@@ -10,6 +10,7 @@ from conftest import _login
 
 from reef import usage
 from reef.access import Principal, arm
+from reef.config import get_settings
 from reef.context import build_index, load_context
 from reef.db import transaction_scope
 from reef.export import build_full_dump
@@ -18,7 +19,10 @@ from reef.models import AccessKind, Job, PageAccess, PageHeat
 from reef.pages import save_page
 from reef.search import search_pages
 from reef.server import tool_read_page, tool_remember
-from reef.usage import DECAY, WINDOW, activations, record, refresh_activation
+from reef.usage import activations, record, refresh_activation
+
+DECAY = get_settings().usage.decay
+WINDOW = get_settings().usage.window
 from reef.worker import drain
 
 
@@ -297,7 +301,7 @@ async def test_a_use_from_this_second_does_not_swamp_everything(tx, household):
     page = await save_page(me, "personal", "house.md", "x", message="x")
     await refresh_activation(me)
     assert (await activations(me))[page.id] == pytest.approx(
-        math.log(usage.MIN_AGE_HOURS**-DECAY), abs=1e-3
+        math.log(get_settings().usage.min_age_hours ** -DECAY), abs=1e-3
     )
 
 

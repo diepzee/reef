@@ -27,7 +27,7 @@ def principal_for(person) -> Principal:
 @pytest.fixture
 def logging_on(monkeypatch):
     """Switch search logging on, as the operator would."""
-    monkeypatch.setattr(get_settings(), "search_log", True)
+    monkeypatch.setattr(get_settings().search, "log", True)
 
 
 async def _rows(principal) -> list[dict]:

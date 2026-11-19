@@ -149,6 +149,10 @@ test: lint test-py test-js
 # the second reports a screenful of failures that are not about the code.
 # scripts/run_tests.py holds a machine-wide lock so the second one waits.
 
+# Rewrite the runbook's table of every setting from src/reef/config.py.
+settings-table:
+    {{python}} scripts/settings_table.py
+
 # Run the Python test suite. Pass a path or -k expression: just test-py tests/test_rls.py
 test-py *args:
     {{python}} scripts/run_tests.py {{args}}

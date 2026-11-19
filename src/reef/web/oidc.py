@@ -7,12 +7,13 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import secrets
 import time
 from typing import Protocol
 
 import httpx
+
+from reef.config import get_settings
 
 OAUTH_COOKIE_TTL_SECONDS = 600
 
@@ -54,7 +55,7 @@ def authkit_domain() -> str:
 
     :returns: e.g. ``https://foo.authkit.app``, or ``""`` if unconfigured
     """
-    domain = os.environ.get("WORKOS_AUTHKIT_DOMAIN", "")
+    domain = get_settings().auth.workos_authkit_domain
     if domain and not domain.startswith("http"):
         domain = f"https://{domain}"
     return domain.rstrip("/")
@@ -262,7 +263,7 @@ class AuthKitOIDC:
                 data={
                     "grant_type": "authorization_code",
                     "code": code,
-                    "client_id": os.environ.get("WORKOS_CLIENT_ID", ""),
+                    "client_id": get_settings().auth.workos_client_id,
                     "code_verifier": verifier,
                     "redirect_uri": redirect_uri,
                 },

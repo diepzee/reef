@@ -20,7 +20,7 @@ import yaml
 
 from reef.access import AccessDenied, Principal, accessible_coves, alias_map
 from reef.attachments import S3ObjectStore
-from reef.config import env
+from reef.config import get_settings
 from reef.context import build_index
 from reef.coves import display_names, member_names
 from reef.models import (
@@ -528,7 +528,7 @@ async def _main(alias: str, target: str) -> None:
     async with transaction_scope():
         # Pre-auth: no principal exists yet, so this goes through the narrow
         # definer lookup like every other identity-binding path.
-        identity = await person_by_email(env("DEV_PRINCIPAL_EMAIL"))
+        identity = await person_by_email(get_settings().dev.principal_email or None)
         if identity is None:
             raise SystemExit("REEF_DEV_PRINCIPAL_EMAIL names no known person")
         principal = Principal(person_id=identity.person_id, email=identity.email)

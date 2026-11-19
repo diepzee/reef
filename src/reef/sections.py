@@ -6,13 +6,13 @@ blurs every passage in it together.
 
 **What the pieces are.** A page that fits in one piece is one piece. A
 longer page gets one piece for the page as a whole, cut at
-:data:`PAGE_CHARS`, and one for each section under a level 2 or level 3
+``REEF_EMBEDDING_PAGE_CHARS``, and one for each section under a level 2 or level 3
 heading. Deeper headings stay inside their parent. Text before the first
 such heading is a section of its own.
 
-**Nothing is dropped.** A section shorter than :data:`MIN_CHARS` says too
+**Nothing is dropped.** A section shorter than ``REEF_EMBEDDING_PIECE_MIN_CHARS`` says too
 little to embed on its own, so it joins the section before it. A section
-longer than :data:`MAX_CHARS` is cut between paragraphs into parts.
+longer than ``REEF_EMBEDDING_PIECE_MAX_CHARS`` is cut between paragraphs into parts.
 
 **What is embedded.** Not the bare text. Each piece starts with the page's
 title, its one-line description and the headings above it. A passage like
@@ -23,7 +23,7 @@ context is already on the page.
 **When to embed again.** Each piece carries a digest of exactly the text
 that is embedded. Unchanged text has an unchanged digest, so an edit to one
 section costs two embeddings, that section and the whole-page piece, not
-one per section. An edit beyond :data:`PAGE_CHARS` costs one.
+one per section. An edit beyond ``REEF_EMBEDDING_PAGE_CHARS`` costs one.
 
 Sections are not stored as rows of their own. They exist only as the
 embedding rows made from them: see the memory engine design, "The unit is
@@ -36,15 +36,7 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-#: A section shorter than this joins the one before it.
-MIN_CHARS = 200
-
-#: A section longer than this is cut into parts. The size the retrieval
-#: experiment of 18 November 2026 was measured with.
-MAX_CHARS = 2000
-
-#: How much of a long page the whole-page piece holds.
-PAGE_CHARS = 8000
+from reef.config import get_settings
 
 #: The anchor of the text before a page's first section heading. A heading
 #: cannot produce it: a slug holds no tilde.
@@ -139,19 +131,20 @@ def _parts(text: str) -> list[str]:
     """Cut a long text between paragraphs.
 
     :param text: a section's text
-    :returns: parts of at most :data:`MAX_CHARS` characters. A single
+    :returns: parts of at most ``REEF_EMBEDDING_PIECE_MAX_CHARS`` characters. A single
         paragraph longer than that is cut where it has to be.
     """
+    limit = get_settings().embedding.piece_max_chars
     parts: list[str] = []
     current = ""
     for paragraph in text.split("\n\n"):
-        while len(paragraph) > MAX_CHARS:
+        while len(paragraph) > limit:
             if current:
                 parts.append(current)
                 current = ""
-            parts.append(paragraph[:MAX_CHARS])
-            paragraph = paragraph[MAX_CHARS:]
-        if current and len(current) + len(paragraph) + 2 > MAX_CHARS:
+            parts.append(paragraph[:limit])
+            paragraph = paragraph[limit:]
+        if current and len(current) + len(paragraph) + 2 > limit:
             parts.append(current)
             current = ""
         current = f"{current}\n\n{paragraph}" if current else paragraph
@@ -205,8 +198,9 @@ def split(title: str, description: str, body: str) -> list[Section]:
     body = body.strip()
     if not body:
         return []
-    whole = _piece(None, (), body[:PAGE_CHARS], title, description)
-    if len(body) <= MAX_CHARS:
+    sizes = get_settings().embedding
+    whole = _piece(None, (), body[: sizes.page_chars], title, description)
+    if len(body) <= sizes.piece_max_chars:
         return [whole]
 
     # Join each short block to the one before it. A short opening block
@@ -217,7 +211,7 @@ def split(title: str, description: str, body: str) -> list[Section]:
         label = f"{where[-1]}\n\n" if where else ""
         if not text and not label:
             continue
-        if len(text) < MIN_CHARS:
+        if len(text) < sizes.piece_min_chars:
             if merged:
                 head, before = merged[-1]
                 merged[-1] = (head, f"{before}\n\n{label}{text}".strip())

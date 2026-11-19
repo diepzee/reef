@@ -25,13 +25,13 @@ async def consent_client(monkeypatch, tmp_path):
     transaction is seeded directly into the provider's store, which is
     what /authorize would have done before redirecting here.
     """
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("REEF_BASE_URL", BASE)
-    monkeypatch.setenv("WORKOS_MCP_CLIENT_ID", "client_mcp_123")
-    monkeypatch.setenv("WORKOS_MCP_CLIENT_SECRET", "sk_test_456")
-    monkeypatch.setattr(get_settings(), "jwt_signing_key", KEY)
-    monkeypatch.setattr(get_settings(), "oauth_store_dir", str(tmp_path / "o"))
-    monkeypatch.setattr(get_settings(), "allowed_client_redirects", "")
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", DOMAIN)
+    monkeypatch.setattr(get_settings().web, "base_url", BASE)
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_id", "client_mcp_123")
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_secret", "sk_test_456")
+    monkeypatch.setattr(get_settings().auth, "jwt_signing_key", KEY)
+    monkeypatch.setattr(get_settings().auth, "oauth_store_dir", str(tmp_path / "o"))
+    monkeypatch.setattr(get_settings().auth, "allowed_client_redirects", "")
 
     provider = _build_auth()
     txn = OAuthTransaction(

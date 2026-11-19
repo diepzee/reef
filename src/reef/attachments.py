@@ -109,12 +109,12 @@ class S3ObjectStore:
 
     def __init__(self) -> None:
         settings = get_settings()
-        self._bucket = settings.s3_bucket
+        self._bucket = settings.files.bucket
         self._client = boto3.client(
             "s3",
-            endpoint_url=settings.s3_endpoint,
-            aws_access_key_id=settings.s3_access_key,
-            aws_secret_access_key=settings.s3_secret_key,
+            endpoint_url=settings.files.endpoint,
+            aws_access_key_id=settings.files.access_key,
+            aws_secret_access_key=settings.files.secret_key,
             # R2 signs against the pseudo-region "auto". Pinned rather than
             # left to boto3's resolution, which reads AWS_REGION and
             # ~/.aws/config: a developer machine with either set signs with a

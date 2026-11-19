@@ -3,7 +3,7 @@
 import os
 
 from reef.access import AccessDenied, Principal, arm
-from reef.config import env
+from reef.config import get_settings
 from reef.coves import ensure_personal_cove
 from reef.identity import bind_subject, person_by_email, person_by_subject
 
@@ -79,11 +79,11 @@ async def current_principal() -> Principal:
         token = get_access_token()
         if token is not None:
             return await principal_from_claims(dict(token.claims))
-        if env("DEV_INSECURE") != "1":
+        if not get_settings().dev.insecure:
             raise AccessDenied("no access token on this connection")
         # No token and the insecure flag is set: fall through to the same
         # dev-email fallback stdio mode uses.
-    email = env("DEV_PRINCIPAL_EMAIL")
+    email = get_settings().dev.principal_email or None
     if not email:
         raise AccessDenied("no principal on this connection")
     identity = await person_by_email(email)

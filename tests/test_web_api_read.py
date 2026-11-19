@@ -7,6 +7,7 @@ from zipfile import ZipFile
 
 from conftest import _login
 
+from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.pages import save_page
 from reef.web.session import seal
@@ -128,7 +129,7 @@ async def test_me_sets_secure_session_cookie_by_default(api, world):
 
 async def test_me_omits_secure_cookie_with_dev_insecure(monkeypatch, api, world):
     """REEF_DEV_INSECURE=1 drops Secure from the renewed session cookie."""
-    monkeypatch.setenv("REEF_DEV_INSECURE", "1")
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
     alice, _, _ = world
     _login(api, alice)
     response = await api.get("/api/me")

@@ -4,7 +4,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from reef.access import Principal
-from reef.config import env, get_settings
+from reef.config import get_settings
 from reef.web.session import SESSION_TTL_SECONDS, SessionData, seal, unseal
 
 SESSION_COOKIE = "rif_session"
@@ -36,7 +36,7 @@ def session_from_request(request: Request) -> SessionData | None:
     token = request.cookies.get(SESSION_COOKIE)
     if not token:
         return None
-    return unseal(token, secret=get_settings().session_secret)
+    return unseal(token, secret=get_settings().web.session_secret)
 
 
 def principal_from_request(request: Request) -> Principal:
@@ -54,8 +54,8 @@ def principal_from_request(request: Request) -> Principal:
     data = session_from_request(request)
     if data is not None:
         return Principal(person_id=data.person_id, email=data.email)
-    if env("DEV_INSECURE") == "1":
-        email = env("DEV_PRINCIPAL_EMAIL")
+    if get_settings().dev.insecure:
+        email = get_settings().dev.principal_email or None
         if email:
             # Local dev only: person lookup happens in the handler's
             # transaction, in the api() wrapper in routes_api.py.
@@ -99,7 +99,7 @@ def cookie_secure() -> bool:
 
     :returns: True unless ``REEF_DEV_INSECURE=1`` is set
     """
-    return env("DEV_INSECURE") != "1"
+    return not get_settings().dev.insecure
 
 
 def session_sid(request: Request) -> str | None:
@@ -140,7 +140,7 @@ def set_session_cookie(
     token = seal(
         principal.person_id,
         principal.email,
-        secret=get_settings().session_secret,
+        secret=get_settings().web.session_secret,
         sid=sid,
         issued_at=issued_at,
         epoch=epoch,
