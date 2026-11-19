@@ -374,7 +374,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
     truncated = included < len(engrams)
     note = (
         f"{len(engrams) - included} engram(s) exceeded the context budget and are "
-        "listed with body=null. Fetch them with read_page when relevant."
+        "listed with body=null. Open them with open when relevant."
         if truncated
         else None
     )

@@ -69,7 +69,7 @@ async def prepare_promotion(
 
     :param principal: the authenticated person
     :param path: engram path in the personal space
-    :param dest_space: destination shared-space slug, from list_coves
+    :param dest_space: destination shared-space slug, from load_index
     :param section: exact span to extract; None shares the whole engram
     :param dest_path: name of the new engram in the destination; required with
         section
@@ -81,7 +81,7 @@ async def prepare_promotion(
     if dest_space == "personal":
         raise PromotionError(
             "sharing moves content out of the personal space; pick a shared "
-            "space from list_coves as the destination",
+            "space from load_index as the destination",
             "share_to_personal",
         )
     try:

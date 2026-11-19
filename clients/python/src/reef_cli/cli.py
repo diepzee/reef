@@ -251,254 +251,228 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON object, @file, or '-' for stdin (default: {})",
     )
 
-    _tool_parser(sub, "load_index", "load the body-free memory index")
-    read_pages = _tool_parser(sub, "read_pages", "read several pages from one cove")
-    read_pages.add_argument("cove")
-    read_pages.add_argument("paths", nargs="+")
-    search = _tool_parser(sub, "search_pages", "full-text search across your pages")
-    search.add_argument("query")
-    search.add_argument("--cove", help="restrict to one cove")
-    search.add_argument("--limit", type=int, default=10)
-    # The two-tool connector shape, carried here for parity with the MCP
-    # surface. A person at a terminal wants search-pages and read-page --
-    # these exist because some clients can only ever call two tools.
-    connector_search = _tool_parser(sub, "search", "search, in the connector shape")
-    connector_search.add_argument("query")
-    connector_fetch = _tool_parser(sub, "fetch", "fetch one result from search")
-    connector_fetch.add_argument("id")
-    _tool_parser(sub, "load_all_context", "load all page bodies for maintenance")
-    _tool_parser(sub, "get_operating_protocol", "load the protocol and persona")
-    read_page = _tool_parser(sub, "read_page", "read one page")
-    read_page.add_argument("cove")
-    read_page.add_argument("path")
-    read_page.add_argument("--as-of", help="ISO-8601 moment to read the page as of")
-    whats_new = _tool_parser(sub, "whats_new", "list recent changes across coves")
-    whats_new.add_argument("--since", help="ISO-8601 moment to report changes after")
-    _tool_parser(sub, "list_coves", "list coves, members, ownership, and versions")
-    create_cove = _tool_parser(sub, "create_cove", "create a shared cove")
-    create_cove.add_argument("slug")
-    invite = _tool_parser(sub, "invite", "invite a person into a shared cove")
-    invite.add_argument("cove")
-    invite.add_argument("email")
-    invite.add_argument("--display-name")
-    invite.add_argument(
-        "--role",
-        choices=["member", "viewer"],
-        default="member",
-        help="viewer reads everything and writes nothing",
-    )
-    invite_reef = _tool_parser(
-        sub, "invite_to_reef", "invite someone to Reef without sharing a cove"
-    )
-    invite_reef.add_argument("email")
-    invite_reef.add_argument("--display-name")
-    remove = _tool_parser(sub, "remove_member", "remove a shared-cove member")
-    remove.add_argument("cove")
-    remove.add_argument("email")
-    rename = _tool_parser(sub, "rename_cove", "change what you call a shared cove")
-    rename.add_argument("cove")
-    rename.add_argument("new_name")
-    leave = _tool_parser(sub, "leave_cove", "leave a shared cove, handing it on")
-    leave.add_argument("cove")
-    delete = _tool_parser(sub, "delete_cove", "destroy a shared cove you are alone in")
-    delete.add_argument("cove")
-    remember = _tool_parser(sub, "remember", "append a fact to a cove inbox")
-    remember.add_argument("fact", help="fact text; '-' reads stdin")
-    remember.add_argument("--cove", default="personal")
-
-    write = _tool_parser(sub, "write_page", "create or replace one Markdown page")
-    write.add_argument("cove")
-    write.add_argument("path")
-    _add_text_source(write, "body")
-    write.add_argument("--message", required=True)
-    write.add_argument("--title")
-    write.add_argument("--tag", dest="tags", action="append")
-    write.add_argument("--expected-version", type=int)
-
-    delete_page = _tool_parser(
-        sub, "delete_page", "permanently delete a page and its history"
-    )
-    delete_page.add_argument("cove")
-    delete_page.add_argument("path")
-
-    writes = _tool_parser(sub, "write_pages", "atomically write up to 20 pages")
-    writes.add_argument("cove")
-    writes.add_argument("pages", help="JSON array, @file, or '-' for stdin")
-    writes.add_argument("--message", default="")
-
-    edit = _tool_parser(sub, "edit_page_section", "replace one exact page span")
-    edit.add_argument("cove")
-    edit.add_argument("path")
-    _add_text_source(edit, "old-text")
-    _add_text_source(edit, "new-text")
-    edit.add_argument("--message", required=True)
-    edit.add_argument("--expected-version", type=int)
-
-    meta = _tool_parser(sub, "update_meta_page", "replace the personal persona page")
-    _add_text_source(meta, "body")
-    meta.add_argument("--message", required=True)
-    meta.add_argument(
-        "--confirm",
-        action="store_true",
-        help="confirm that the user agreed to this persona change",
-    )
-
-    prepare = _tool_parser(
-        sub, "prepare_to_share", "stage personal content for sharing"
-    )
-    prepare.add_argument("path")
-    prepare.add_argument("dest_cove")
-    prepare.add_argument("--section")
-    prepare.add_argument("--section-file")
-    prepare.add_argument("--dest-path")
-    confirm = _tool_parser(sub, "confirm_share", "execute a staged share")
-    confirm.add_argument("nonce")
-
-    add_file = _tool_parser(
-        sub, "add_file", "upload a file with a searchable description"
-    )
-    add_file.add_argument("cove")
-    add_file.add_argument("file", type=Path)
-    add_file.add_argument("--mime")
-    add_file.add_argument("--description", required=True)
-    add_file.add_argument("--page-path")
-    read_file = _tool_parser(sub, "read_file", "get file metadata and a signed URL")
-    read_file.add_argument("cove")
-    read_file.add_argument("key")
-    delete_file = _tool_parser(sub, "delete_file", "permanently delete a stored file")
-    delete_file.add_argument("cove")
-    delete_file.add_argument("key")
-
-    add_image = _tool_parser(
-        sub, "add_image", "compatibility alias for uploading an image"
-    )
-    add_image.add_argument("cove")
-    add_image.add_argument("file", type=Path)
-    add_image.add_argument("--mime")
-    add_image.add_argument("--description", required=True)
-    add_image.add_argument("--page-path")
-    read_image = _tool_parser(sub, "read_image", "compatibility alias for read-file")
-    read_image.add_argument("cove")
-    read_image.add_argument("key")
-    delete_image = _tool_parser(
-        sub, "delete_image", "compatibility alias for delete-file"
-    )
-    delete_image.add_argument("cove")
-    delete_image.add_argument("key")
+    _build_tool_parsers(sub)
     return parser
 
 
-def _file_arguments(args: argparse.Namespace, *, image: bool = False) -> dict[str, Any]:
+def _reasoned(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
+    """Give a tool's parser the optional ``--reason`` every tool but two takes.
+
+    :param parser: the tool's parser
+    :returns: the same parser
+    """
+    parser.add_argument(
+        "--reason",
+        default="",
+        help="why you make this call, in a few words; Reef logs it privately "
+        "for the person, to improve Reef",
+    )
+    return parser
+
+
+def _confirmable(parser: argparse.ArgumentParser) -> None:
+    """Give a staged tool's parser the ``--confirm`` of its second call.
+
+    :param parser: the parser of ``share``, ``forget`` or ``instruct``
+    """
+    parser.add_argument(
+        "--confirm",
+        metavar="TOKEN",
+        help="the token the first call returned, once the person said yes; "
+        "leave out for the first call",
+    )
+
+
+def _build_tool_parsers(sub: argparse._SubParsersAction) -> None:
+    """Add one subcommand for each of the sixteen tools.
+
+    :param sub: the subparsers of the main parser
+    """
+
+    def tool(name: str, help: str, *, reason: bool = True) -> argparse.ArgumentParser:
+        parser = _tool_parser(sub, name, help)
+        return _reasoned(parser) if reason else parser
+
+    tool("load_index", "start here: protocol, persona and the index of every space")
+    recall = tool("recall", "answer a question from memory")
+    recall.add_argument("question")
+    recall.add_argument("--space", help="search one space only")
+    recall.add_argument("--limit", type=int, default=5)
+    brief = tool("brief", "get ready to advise or prepare on a topic")
+    brief.add_argument("topic")
+    brief.add_argument("--space", help="look in one space only")
+    brief.add_argument("--entries", type=int, default=10)
+    open_ = tool("open", "read whole engrams and stored files by ref")
+    open_.add_argument("refs", nargs="+", help="<space>/<path> or <space>/file/<key>")
+    open_.add_argument("--as-of", help="ISO-8601 moment to read engrams as of")
+    catch_up = tool("catch_up", "list what changed in your spaces")
+    catch_up.add_argument("--since", help="ISO-8601 moment; default: last 7 days")
+    remember = tool("remember", "keep one quick fact in a space's inbox")
+    remember.add_argument("fact", help="fact text; '-' reads stdin")
+    remember.add_argument("--space", default="personal")
+    log = tool("log", "add one entry at the end of a log")
+    log.add_argument("space")
+    log.add_argument("engram", help="the log's path")
+    log.add_argument("--heading", required=True)
+    _add_text_source(log, "entry")
+    write = tool("write", "create or replace up to 20 whole engrams, atomically")
+    write.add_argument("space")
+    write.add_argument("engrams", help="JSON array, @file, or '-' for stdin")
+    write.add_argument("--message", required=True)
+    store = tool("store_file", "keep a document or an image with a description")
+    store.add_argument("space")
+    store.add_argument("file", type=Path)
+    store.add_argument("--mime")
+    store.add_argument("--description", required=True)
+    store.add_argument("--engram", help="path of the engram the file belongs to")
+    correct = tool("correct", "replace one exact passage of an engram")
+    correct.add_argument("space")
+    correct.add_argument("engram")
+    _add_text_source(correct, "old-text")
+    _add_text_source(correct, "new-text")
+    correct.add_argument("--message", required=True)
+    correct.add_argument("--expected-version", type=int)
+    undo = tool("undo", "restore an earlier version of an engram")
+    undo.add_argument("space")
+    undo.add_argument("engram")
+    undo.add_argument("--version", type=int)
+    forget = tool("forget", "delete an engram or a file for good, in two calls")
+    forget.add_argument("space")
+    target = forget.add_mutually_exclusive_group(required=True)
+    target.add_argument("--engram", help="path of the engram to forget")
+    target.add_argument("--file", help="key of the file to forget")
+    _confirmable(forget)
+    share = tool("share", "move a personal engram into a shared space, in two calls")
+    share.add_argument("engram")
+    share.add_argument("to_space")
+    share.add_argument("--section", help="exact text to share; '-' reads stdin")
+    share.add_argument("--section-file", metavar="PATH")
+    share.add_argument(
+        "--to-path", help="path of the shared engram; needed with a section"
+    )
+    _confirmable(share)
+    instruct = tool("instruct", "replace the persona, in two calls")
+    _add_text_source(instruct, "body")
+    _confirmable(instruct)
+    # The two-tool connector shape, carried here for parity with the MCP
+    # surface. They take no reason: some clients can only ever call these two.
+    search = tool("search", "search, in the connector shape", reason=False)
+    search.add_argument("query")
+    fetch = tool("fetch", "fetch one result from search", reason=False)
+    fetch.add_argument("id")
+
+
+def _file_arguments(args: argparse.Namespace) -> dict[str, Any]:
+    """Read a file for ``store_file``: its bytes, name and content type.
+
+    :param args: the parsed ``store-file`` command
+    :returns: the arguments of the tool
+    :raises CLIError: when the file cannot be read
+    """
     try:
         data = args.file.read_bytes()
     except OSError as exc:
         raise CLIError(f"could not read file {args.file}: {exc}") from exc
     mime = args.mime or mimetypes.guess_type(args.file.name)[0]
-    if mime is None:
-        mime = "application/octet-stream"
-    result = {
-        "cove": args.cove,
+    return {
+        "space": args.space,
+        "filename": args.file.name,
         "data_base64": base64.b64encode(data).decode("ascii"),
-        "mime": mime,
+        "mime": mime or "application/octet-stream",
         "description": args.description,
-        "page_path": args.page_path,
+        "engram": args.engram,
     }
-    if not image:
-        result["filename"] = args.file.name
-    return result
 
 
-def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
-    """Translate one parsed named command into its exact MCP call."""
+def _arguments(args: argparse.Namespace) -> dict[str, Any]:
+    """Turn a parsed tool command into the tool's arguments, without ``reason``.
+
+    :param args: the parsed command
+    :returns: the arguments; optional ones that were not given are left out
+    :raises CLIError: when an argument cannot be used
+    """
     tool = args.tool
-    if tool in {
-        "load_index",
-        "load_all_context",
-        "get_operating_protocol",
-        "list_coves",
-    }:
-        return tool, {}
-    if tool == "read_pages":
-        return tool, {"cove": args.cove, "paths": args.paths}
-    if tool == "search_pages":
-        return tool, {"query": args.query, "cove": args.cove, "limit": args.limit}
-    if tool == "read_page":
-        payload = {"cove": args.cove, "path": args.path}
-        if args.as_of is not None:
-            payload["as_of"] = args.as_of
-        return tool, payload
-    if tool == "whats_new":
-        return tool, {"since": args.since} if args.since is not None else {}
-    if tool == "create_cove":
-        return tool, {"slug": args.slug}
-    if tool in {"invite", "invite_to_reef"}:
-        payload = {"email": args.email, "display_name": args.display_name}
-        if tool == "invite":
-            payload["cove"] = args.cove
-            payload["role"] = args.role
-        return tool, payload
-    if tool == "remove_member":
-        return tool, {"cove": args.cove, "email": args.email}
-    if tool == "rename_cove":
-        return tool, {"cove": args.cove, "new_name": args.new_name}
-    if tool in {"leave_cove", "delete_cove"}:
-        return tool, {"cove": args.cove}
+    if tool == "recall":
+        return {"question": args.question, "space": args.space, "limit": args.limit}
+    if tool == "brief":
+        return {"topic": args.topic, "space": args.space, "entries": args.entries}
+    if tool == "open":
+        return {"refs": args.refs, "as_of": args.as_of}
+    if tool == "catch_up":
+        return {"since": args.since}
     if tool == "remember":
         fact = sys.stdin.read() if args.fact == "-" else args.fact
-        return tool, {"fact": fact, "cove": args.cove}
-    if tool == "write_page":
-        return tool, {
-            "cove": args.cove,
-            "path": args.path,
-            "body": _text_source(args.body, args.body_file, "body"),
-            "message": args.message,
-            "title": args.title,
-            "tags": args.tags,
-            "expected_version": args.expected_version,
+        return {"fact": fact, "space": args.space}
+    if tool == "log":
+        return {
+            "space": args.space,
+            "engram": args.engram,
+            "heading": args.heading,
+            "entry": _text_source(args.entry, args.entry_file, "entry"),
         }
-    if tool == "write_pages":
-        pages = _json_source(args.pages)
-        if not isinstance(pages, list):
-            raise CLIError("write-pages input must be a JSON array")
-        return tool, {"cove": args.cove, "pages": pages, "message": args.message}
-    if tool == "edit_page_section":
-        return tool, {
-            "cove": args.cove,
-            "path": args.path,
+    if tool == "write":
+        engrams = _json_source(args.engrams)
+        if not isinstance(engrams, list):
+            raise CLIError("write input must be a JSON array")
+        return {"space": args.space, "engrams": engrams, "message": args.message}
+    if tool == "store_file":
+        return _file_arguments(args)
+    if tool == "correct":
+        return {
+            "space": args.space,
+            "engram": args.engram,
             "old_text": _text_source(args.old_text, args.old_text_file, "old-text"),
             "new_text": _text_source(args.new_text, args.new_text_file, "new-text"),
             "message": args.message,
             "expected_version": args.expected_version,
         }
-    if tool == "update_meta_page":
-        return tool, {
-            "cove": "personal",
-            "path": "meta/persona.md",
-            "body": _text_source(args.body, args.body_file, "body"),
-            "message": args.message,
+    if tool == "undo":
+        return {"space": args.space, "engram": args.engram, "version": args.version}
+    if tool == "forget":
+        return {
+            "space": args.space,
+            "engram": args.engram,
+            "file": args.file,
             "confirm": args.confirm,
         }
-    if tool == "prepare_to_share":
+    if tool == "share":
         if args.section is not None and args.section_file is not None:
             raise CLIError("use only one of --section and --section-file")
         section = None
         if args.section is not None or args.section_file is not None:
             section = _text_source(args.section, args.section_file, "section")
-        return tool, {
-            "path": args.path,
-            "dest_cove": args.dest_cove,
+        return {
+            "engram": args.engram,
+            "to_space": args.to_space,
             "section": section,
-            "dest_path": args.dest_path,
+            "to_path": args.to_path,
+            "confirm": args.confirm,
         }
-    if tool == "confirm_share":
-        return tool, {"nonce": args.nonce}
-    if tool == "add_file":
-        return tool, _file_arguments(args)
-    if tool == "add_image":
-        return tool, _file_arguments(args, image=True)
-    if tool in {"read_file", "delete_file", "read_image", "delete_image"}:
-        return tool, {"cove": args.cove, "key": args.key}
-    raise CLIError(f"unsupported command: {tool}")
+    if tool == "instruct":
+        return {
+            "body": _text_source(args.body, args.body_file, "body"),
+            "confirm": args.confirm,
+        }
+    if tool == "search":
+        return {"query": args.query}
+    if tool == "fetch":
+        return {"id": args.id}
+    return {}
+
+
+def tool_call(args: argparse.Namespace) -> tuple[str, dict[str, Any]]:
+    """Translate one parsed named command into its exact MCP call.
+
+    :param args: the parsed command
+    :returns: the tool's name and its arguments: ``reason`` first, when the
+        tool takes one, then every argument that was given
+    :raises CLIError: when an argument cannot be used
+    """
+    tool = args.tool
+    arguments = {k: v for k, v in _arguments(args).items() if v is not None}
+    if tool not in {"search", "fetch"}:
+        arguments = {"reason": args.reason, **arguments}
+    return tool, arguments
 
 
 def _jsonable(value: Any) -> Any:

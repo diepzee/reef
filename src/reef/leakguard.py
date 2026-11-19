@@ -1,8 +1,8 @@
 """Make the share ceremony the only route for personal content into a space.
 
-``prepare_to_share``/``confirm_share`` exists so that moving something out of
+The two calls of ``share`` exist so that moving something out of
 the personal space is a deliberate, disclosed act. Nothing enforced it. A
-plain ``write_page`` to a shared space carrying a body just read out of
+plain ``write`` to a shared space carrying a body just read out of
 ``personal`` did the same thing in one call, with no nonce, no disclosure and
 no user confirmation — which made the ceremony a convention the assistant was
 asked to follow rather than a boundary the server held.
@@ -12,7 +12,7 @@ co-member of a space controls text that lands verbatim in the victim's
 ``load_index`` output — engram titles, tags, and the first prose line, which
 becomes the description — and that is the first thing an assistant reads in
 every conversation. An instruction planted there reaches a model that is
-holding both ``read_page(personal, …)`` and ``write_page(<space>, …)`` at the
+holding both ``open(personal/…)`` and ``write(<space>, …)`` at the
 same time. The gap is not that the model can be persuaded; it is that being
 persuaded was sufficient.
 

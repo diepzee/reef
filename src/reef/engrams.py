@@ -111,8 +111,8 @@ async def _refuse_private_copy(
     raise PrivateContentLeak(
         f"this would copy text from your personal space into {alias!r} "
         f"({path!r}). Sharing is permanent, so it goes through "
-        "prepare_to_share: it shows the user the exact text and who will be "
-        "able to read it, and confirm_share performs the move after they "
+        "share: its first call shows the user the exact text and who will be "
+        "able to read it, and its second call performs the move after they "
         "agree. If the wording only coincides, rewrite it in your own words "
         "for this space."
     )
@@ -152,7 +152,7 @@ def normalize_path(path: str) -> str:
     """Return the path a new engram will actually be stored under.
 
     Mirrors ``frontend/src/pagePath.ts`` so the browser, the CLI, and an
-    assistant calling ``write_page`` all name an engram the same way. Before
+    assistant calling ``write`` all name an engram the same way. Before
     this existed the ``.md`` rule was enforced only by the web form, and the
     MCP surface happily stored ``notes/NO-EXTENSION`` and ``notes/Spaced
     Out.md`` beside it.

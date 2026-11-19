@@ -428,8 +428,9 @@ async def brief(
     """Get ready to advise or prepare on a topic.
 
     Returns the engrams that bear on it: the last entries of a log, the text
-    of anything else. Use it before a meeting, a decision or a plan, when a
-    few passages are not enough.
+    of anything else. Use it when the person says "advise me" or "prepare me
+    for", before a meeting, a decision or a plan. For a plain question use
+    recall.
 
     :param topic: what to prepare on, in the person's words
     :param space: look in one space only, by its name from load_index; leave
@@ -472,8 +473,10 @@ async def catch_up(reason: Reason = "", *, since: str | None = None) -> dict:
 async def remember(reason: Reason = "", *, fact: str, space: str = "personal") -> dict:
     """Keep one quick fact, in a space's inbox.
 
-    Use it for a fact said in passing. Facts stay private unless they
-    clearly belong to a group: name a shared space only then.
+    Use it for a fact said in passing, when filing it properly would derail
+    the person. Say what you kept before the conversation ends. Facts stay
+    private unless they clearly belong to a group: name a shared space only
+    then.
 
     :param fact: the fact, in one sentence
     :param space: ``personal``, or a shared space's name from load_index
@@ -536,8 +539,9 @@ async def store_file(
 ) -> dict:
     """Keep a document or an image, with a description to find it by.
 
-    Write the description yourself, concretely: later conversations find
-    and understand the file through it.
+    Use it when the person gives you a file to keep. Write the description
+    yourself, concretely: later conversations find and understand the file
+    through it.
 
     :param space: the space's name from load_index
     :param filename: the file's own name, with its extension
@@ -572,7 +576,8 @@ async def correct(
 ) -> dict:
     """Replace one exact passage of an engram, and change nothing else.
 
-    Use it to fix or update a detail. History keeps the old text.
+    Use it to fix or update a detail, instead of writing the whole engram
+    again. History keeps the old text.
 
     :param space: the space's name from load_index
     :param engram: the engram's path
@@ -625,7 +630,8 @@ async def forget(
 ) -> dict:
     """Delete an engram, with its history, or a stored file, for good.
 
-    Two calls. The first changes nothing: it returns the effect and a
+    Use it only when the person asks to delete something, and name what you
+    will delete. Two calls. The first changes nothing: it returns the effect and a
     token. Show the person the effect and wait for their yes. Then call
     again with the token as confirm.
 
@@ -656,7 +662,8 @@ async def share(
 ) -> dict:
     """Move a personal engram, or one section of it, into a shared space.
 
-    Every member of that space can then read it, for good. Two calls. The
+    Use it when the person wants to share something private. Every member of
+    that space can then read it, for good. Two calls. The
     first changes nothing: it returns the effect and a token. Show the
     person the effect and wait for their yes. Then call again with the same
     arguments and the token as confirm.
@@ -685,7 +692,8 @@ async def instruct(
 ) -> dict:
     """Replace the person's persona: what every assistant they use follows.
 
-    Two calls. The first changes nothing: it returns the effect and a
+    Use it when the person asks to change how assistants speak to them or
+    what they know about them. Two calls. The first changes nothing: it returns the effect and a
     token. Show the person the new text and the effect, and wait for their
     yes. Then call again with the same body and the token as confirm.
 

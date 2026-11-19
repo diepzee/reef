@@ -50,7 +50,7 @@ def _delivery(mime: str, filename: str) -> tuple[str, str]:
     """Return the content type and disposition a stored file is served with.
 
     Bytes arrive with a caller-supplied type and are stored with it, so
-    ``add_file`` can be told a ``receipt.pdf`` is ``text/html`` and the
+    ``store_file`` can be told a ``receipt.pdf`` is ``text/html`` and the
     object store will faithfully serve it as a document. The bucket is a
     different origin from the app, so this is not an XSS into reef -- but it
     is a reader clicking a file their space described as a receipt and getting
