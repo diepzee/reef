@@ -6,7 +6,7 @@ blurs every passage in it together.
 
 **What the pieces are.** An engram that fits in one piece is one piece. A
 longer engram gets one piece for the engram as a whole, cut at
-``REEF_EMBEDDING_PAGE_CHARS``, and one for each section under a level 2 or level 3
+``REEF_EMBEDDING_ENGRAM_CHARS``, and one for each section under a level 2 or level 3
 heading. Deeper headings stay inside their parent. Text before the first
 such heading is a section of its own.
 
@@ -23,7 +23,7 @@ context is already on the engram.
 **When to embed again.** Each piece carries a digest of exactly the text
 that is embedded. Unchanged text has an unchanged digest, so an edit to one
 section costs two embeddings, that section and the whole-engram piece, not
-one per section. An edit beyond ``REEF_EMBEDDING_PAGE_CHARS`` costs one.
+one per section. An edit beyond ``REEF_EMBEDDING_ENGRAM_CHARS`` costs one.
 
 Sections are not stored as rows of their own. They exist only as the
 embedding rows made from them: see the memory engine design, "The unit is
@@ -199,7 +199,7 @@ def split(title: str, description: str, body: str) -> list[Section]:
     if not body:
         return []
     sizes = get_settings().embedding
-    whole = _piece(None, (), body[: sizes.page_chars], title, description)
+    whole = _piece(None, (), body[: sizes.engram_chars], title, description)
     if len(body) <= sizes.piece_max_chars:
         return [whole]
 

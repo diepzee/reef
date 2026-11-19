@@ -356,9 +356,12 @@ class EmbeddingSettings(BaseSettings):
     batch: int = Field(
         16, ge=1, le=256, description="How many pieces go in one request."
     )
-    page_seconds: float = Field(
+    engram_seconds: float = Field(
         300.0,
         gt=0,
+        validation_alias=AliasChoices(
+            f"{PREFIX}EMBEDDING_ENGRAM_SECONDS", f"{PREFIX}EMBEDDING_PAGE_SECONDS"
+        ),
         description="The longest one engram's embedding may take. The job holds a connection.",
     )
     cap_retry_seconds: float = Field(
@@ -390,9 +393,12 @@ class EmbeddingSettings(BaseSettings):
         description="Measured. A section longer than this is cut. "
         "A change reaches an engram when it is next saved. Same value on app and worker.",
     )
-    page_chars: int = Field(
+    engram_chars: int = Field(
         8000,
         ge=100,
+        validation_alias=AliasChoices(
+            f"{PREFIX}EMBEDDING_ENGRAM_CHARS", f"{PREFIX}EMBEDDING_PAGE_CHARS"
+        ),
         description="How much of a long engram the whole-engram piece holds. "
         "A change reaches an engram when it is next saved. Same value on app and worker.",
     )

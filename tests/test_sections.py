@@ -6,7 +6,7 @@ from reef.sections import INTRO, split
 
 MAX_CHARS = get_settings().embedding.piece_max_chars
 MIN_CHARS = get_settings().embedding.piece_min_chars
-ENGRAM_CHARS = get_settings().embedding.page_chars
+ENGRAM_CHARS = get_settings().embedding.engram_chars
 
 LONG = "word " * 100  # 500 characters: a section worth embedding
 SHORT = "A short note."

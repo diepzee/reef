@@ -390,7 +390,7 @@ async def embed_engram(
         if len(missing) > cap - await spent_today(principal):
             raise CapReached
         try:
-            async with asyncio.timeout(get_settings().embedding.page_seconds):
+            async with asyncio.timeout(get_settings().embedding.engram_seconds):
                 vectors = _checked(
                     await embedder.embed(
                         [passage(embedder.model_id, piece.text) for piece in missing]
