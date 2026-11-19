@@ -327,6 +327,10 @@ _SEMANTIC_SQL = """
 _EXACT = re.compile(r'"|(?<!\w)-')
 
 _COVE_FILTER = " AND cove_id = {}"
+_COVE_FILTER_WHERE = " WHERE cove_id = {}"
+
+#: How many pages the caller can see; see :func:`_large_enough`.
+_COUNT_SQL = "SELECT count(*) AS n FROM pages"
 _PAGE_COVE_FILTER = " AND pages.cove_id = {}"
 
 
@@ -590,6 +594,24 @@ def reorder(
     return [ranking[position] for position in order] + ranking[count:]
 
 
+async def _large_enough(cove_ids: list) -> bool:
+    """Say whether the memory searched is large enough to rerank.
+
+    Counts the pages the caller can see, in the one cove searched if there
+    is one. Row security does the counting, so nobody else's pages count.
+
+    :param cove_ids: the one cove searched, or an empty list
+    :returns: True when there are at least ``REEF_RERANK_MIN_PAGES`` pages
+    """
+    least = get_settings().rerank.min_pages
+    if least == 0:
+        return True
+    rows = await Page.raw(
+        _COUNT_SQL + (_COVE_FILTER_WHERE if cove_ids else ""), *cove_ids
+    )
+    return rows[0]["n"] >= least
+
+
 async def _record(log_it: bool, principal: Principal, query: str, rows: list) -> None:
     """Record the search in the person's search log, if asked to.
 
@@ -631,7 +653,8 @@ async def search_pages(
     search with vectors rarely comes back empty. Files have no vectors and
     are found by words only.
 
-    **Read again.** Where there is a reranker, the first
+    **Read again.** Where there is a reranker, and the memory searched
+    holds at least ``REEF_RERANK_MIN_PAGES`` pages, the first
     ``REEF_RERANK_CANDIDATES`` results are read next to the query and put
     in its order, see :mod:`reef.rerank`.
 
@@ -685,6 +708,8 @@ async def search_pages(
         hits_sql = _QUERY_SQL + _HITS_SQL.format(
             page_filter=cove_filter, file_filter=cove_filter
         )
+        if reread:
+            reread = await _large_enough(cove_ids)
         closest = await _closest_pages(embedded, cove_ids) if embedded else []
         if not closest and not reread:
             # Keyword search, in one statement, as it always was.

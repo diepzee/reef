@@ -431,6 +431,18 @@ class RerankSettings(BaseSettings):
         description="Failures in a row before searches leave the service alone.",
     )
     rest_seconds: float = Field(60.0, ge=0, description="How long they leave it alone.")
+    # A judgement, not a measurement (19 November 2026): hybrid search found
+    # a right page in the first five for 95% of real questions over 37
+    # pages, and for 47% of benchmark questions over 18,000. Nothing was
+    # measured in between. Adjust it when the search log shows misses rising.
+    min_pages: int = Field(
+        1000,
+        ge=0,
+        description=(
+            "Rerank only a search over at least this many pages. A small memory "
+            "is found well without it and skips its wait. 0 reranks every search."
+        ),
+    )
 
 
 class UsageSettings(BaseSettings):
