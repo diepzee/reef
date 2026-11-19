@@ -127,7 +127,7 @@ async def test_the_share_ceremony_still_works(household):
     async with transaction_scope():
         staged = await prepare_promotion(wouter, "health.md", "household")
     async with transaction_scope():
-        outcome = await confirm_promotion(wouter, staged["nonce"])
+        outcome = await confirm_promotion(wouter, staged["nonce"], channel="assistant")
 
     assert outcome["promoted"] is True
     async with transaction_scope():
@@ -147,7 +147,8 @@ async def test_a_section_share_still_works(household):
             wouter, "health.md", "household", section=DIARY, dest_path="status.md"
         )
     async with transaction_scope():
-        assert (await confirm_promotion(wouter, staged["nonce"]))["promoted"] is True
+        done = await confirm_promotion(wouter, staged["nonce"], channel="assistant")
+        assert done["promoted"] is True
 
 
 async def test_ordinary_space_writing_is_unaffected(household):

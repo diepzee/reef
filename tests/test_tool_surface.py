@@ -12,6 +12,9 @@ The client signs in as the development principal, as stdio does.
 import inspect
 import json
 import logging
+import os
+import subprocess
+import sys
 from collections.abc import AsyncIterator
 
 import pydantic_core
@@ -487,6 +490,41 @@ async def test_a_call_without_a_reason_works_and_leaks_nothing(
         "trace": PRIVATE in _traced(captured),
     }
     assert leaked == {"log": False, "trace": False}
+
+
+async def test_a_null_reason_works_as_an_empty_one(client, household, monkeypatch):
+    """A weaker model that sends ``"reason": null`` is not failed for it either.
+
+    The listing still says the reason is a required string.
+    """
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    result = await client.call_tool("recall", {"reason": None, "question": "boiler"})
+    assert result.is_error is False
+    async with transaction_scope():
+        await arm(principal_for(household["wouter"]))
+        [row] = await CallLog.select()
+    assert (row["method"], row["reason"]) == ("recall", "")
+    schema = (await _listed(client))["recall"].inputSchema
+    assert schema["properties"]["reason"]["type"] == "string"
+    assert "reason" in schema["required"]
+
+
+def test_strict_input_validation_stays_off_whatever_the_environment():
+    """An operator's setting cannot make the listed reason truly required.
+
+    With strict validation, FastMCP checks a call against the listed schema,
+    which marks the reason required, so a call without one would fail.
+    """
+    probe = "from reef.server import mcp; print(mcp.strict_input_validation)"
+    env = {**os.environ, "FASTMCP_STRICT_INPUT_VALIDATION": "true"}
+    run = subprocess.run(
+        [sys.executable, "-c", probe],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert run.stdout.strip().splitlines()[-1:] == ["False"]
 
 
 @pytest.mark.parametrize(

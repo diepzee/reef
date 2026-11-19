@@ -175,8 +175,8 @@ MESSAGES = {
         "for the person. Ask what to call it, then send it as to_path."
     ),
     "share_target_exists": (
-        "The shared space already has an engram at that path. Send another "
-        "to_path, or merge the text with correct."
+        "An engram already exists at that path in the shared space. Make the "
+        "first call again with another to_path."
     ),
     "share_refused": (
         "Reef could not share this. Tell the person, and make the first "

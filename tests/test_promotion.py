@@ -26,7 +26,7 @@ async def test_full_flow_copies_stubs_and_discloses(tx, household):
     )
     prepared = await prepare_promotion(me, "boiler.md", "household")
     assert "Vaillant ecoTEC" in prepared["disclosure"]
-    result = await confirm_promotion(me, prepared["nonce"])
+    result = await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert result["promoted"] is True
     assert (
         await get_engram(theirs, "household", "boiler.md")
@@ -49,7 +49,7 @@ async def test_whole_engram_share_with_a_new_name_stubs_the_source_only(tx, hous
     await save_engram(me, "personal", "b.md", "unrelated b body", message="x")
 
     prepared = await prepare_promotion(me, "a.md", "household", dest_path="b.md")
-    await confirm_promotion(me, prepared["nonce"])
+    await confirm_promotion(me, prepared["nonce"], channel="assistant")
 
     assert (await get_engram(theirs, "household", "b.md")).body == "the a body"
     stub = await get_engram(me, "personal", "a.md")
@@ -62,7 +62,7 @@ async def test_confirm_without_prepare_is_impossible(tx, household):
 
     me = principal_for(household["wouter"])
     with pytest.raises(PromotionError):
-        await confirm_promotion(me, str(uuid4()))
+        await confirm_promotion(me, str(uuid4()), channel="assistant")
 
 
 async def test_source_changed_since_prepare_fails(tx, household):
@@ -71,7 +71,7 @@ async def test_source_changed_since_prepare_fails(tx, household):
     prepared = await prepare_promotion(me, "a.md", "household")
     await save_engram(me, "personal", "a.md", "v2", message="x")
     with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+        await confirm_promotion(me, prepared["nonce"], channel="assistant")
 
 
 async def test_expired_nonce_is_rejected(tx, household):
@@ -90,17 +90,30 @@ async def test_expired_nonce_is_rejected(tx, household):
     staged.created_at = utc_now() - NONCE_TTL - timedelta(seconds=1)
     await staged.save()
     with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+        await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert await get_engram(me, "household", "d.md") is None
 
 
 async def test_existing_household_engram_is_never_overwritten(tx, household):
+    """A path taken before the share is refused at prepare time."""
     me = principal_for(household["wouter"])
     await save_engram(me, "household", "boiler.md", "joint notes", message="x")
     await save_engram(me, "personal", "boiler.md", "my notes", message="x")
+    with pytest.raises(PromotionError) as refused:
+        await prepare_promotion(me, "boiler.md", "household")
+    assert refused.value.code == "share_target_exists"
+    assert (await get_engram(me, "household", "boiler.md")).body == "joint notes"
+
+
+async def test_a_path_taken_after_prepare_is_refused_at_confirm(tx, household):
+    """A path taken between the two steps is refused at confirm time."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "personal", "boiler.md", "my notes", message="x")
     prepared = await prepare_promotion(me, "boiler.md", "household")
-    with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+    await save_engram(me, "household", "boiler.md", "joint notes", message="x")
+    with pytest.raises(PromotionError) as refused:
+        await confirm_promotion(me, prepared["nonce"], channel="assistant")
+    assert refused.value.code == "share_target_exists"
     assert (await get_engram(me, "household", "boiler.md")).body == "joint notes"
 
 
@@ -109,8 +122,8 @@ async def test_confirm_retry_is_idempotent_and_never_copies_the_stub(tx, househo
     theirs = principal_for(household["partner"])
     await save_engram(me, "personal", "b.md", "the real content", message="x")
     prepared = await prepare_promotion(me, "b.md", "household")
-    await confirm_promotion(me, prepared["nonce"])
-    retried = await confirm_promotion(me, prepared["nonce"])
+    await confirm_promotion(me, prepared["nonce"], channel="assistant")
+    retried = await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert retried["promoted"] is True and retried["already_done"] is True
     assert (await get_engram(theirs, "household", "b.md")).body == "the real content"
 
@@ -121,7 +134,7 @@ async def test_another_persons_nonce_is_rejected(tx, household):
     await save_engram(me, "personal", "c.md", "mine", message="x")
     prepared = await prepare_promotion(me, "c.md", "household")
     with pytest.raises(PromotionError):
-        await confirm_promotion(theirs, prepared["nonce"])
+        await confirm_promotion(theirs, prepared["nonce"], channel="assistant")
 
 
 SECTION = "## Boiler\n\nVaillant ecoTEC VU 246/5-5, serviced 2025."
@@ -140,7 +153,7 @@ async def test_section_share_extracts_and_stubs(tx, household):
     assert prepared["disclosure"] == SECTION
     assert prepared["dest_path"] == "boiler.md"
 
-    result = await confirm_promotion(me, prepared["nonce"])
+    result = await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert result["promoted"] is True
 
     shared = await get_engram(theirs, "household", "boiler.md")
@@ -170,14 +183,15 @@ async def test_section_share_requires_dest_path(tx, household):
 
 
 async def test_section_dest_must_not_exist(tx, household):
+    """A section share to a taken path is refused before it is staged."""
     me = principal_for(household["wouter"])
     await save_engram(me, "household", "boiler.md", "joint", message="x")
     await save_engram(me, "personal", "notes2.md", BODY, message="x")
-    prepared = await prepare_promotion(
-        me, "notes2.md", "household", section=SECTION, dest_path="boiler.md"
-    )
-    with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+    with pytest.raises(PromotionError) as refused:
+        await prepare_promotion(
+            me, "notes2.md", "household", section=SECTION, dest_path="boiler.md"
+        )
+    assert refused.value.code == "share_target_exists"
     assert (await get_engram(me, "household", "boiler.md")).body == "joint"
 
 
@@ -189,7 +203,7 @@ async def test_section_share_source_changed_since_prepare_fails(tx, household):
     )
     await save_engram(me, "personal", "notes3.md", BODY + "\n\nmore", message="x")
     with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+        await confirm_promotion(me, prepared["nonce"], channel="assistant")
 
 
 async def test_share_targets_a_chosen_space(tx, household, graph):
@@ -198,7 +212,7 @@ async def test_share_targets_a_chosen_space(tx, household, graph):
     await save_engram(me, "personal", "packing.md", "tent, stove", message="x")
     prepared = await prepare_promotion(me, "packing.md", "trip")
     assert prepared["dest_cove"] == "trip"
-    await confirm_promotion(me, prepared["nonce"])
+    await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert (await get_engram(me, "trip", "packing.md")).body == "tent, stove"
     assert await get_engram(me, "household", "packing.md") is None
 
@@ -239,5 +253,5 @@ async def test_confirm_rechecks_membership_lost_after_prepare(tx, graph):
     await graph.drop_membership(wouter, club)
 
     with pytest.raises(PromotionError):
-        await confirm_promotion(me, prepared["nonce"])
+        await confirm_promotion(me, prepared["nonce"], channel="assistant")
     assert await get_engram(owner_principal, "club", "invite.md") is None

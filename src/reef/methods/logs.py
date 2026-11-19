@@ -6,15 +6,19 @@ second engram: ``climbing-log.md``, ``climbing-log-2.md``,
 ``climbing-log-3.md``, and so on. The parts share a stem, sit in one folder
 and each carry the tag.
 
-**What an entry is.** A section at the deepest heading level the log uses
-for entries: level 3 (``###``) when any part has one, else level 2. An entry
-runs to the next heading of its level or a higher one, so deeper headings
-stay inside it. Text before the first entry heading, such as a part's
-opening link or the log's intro, is not an entry.
+**What an entry is.** A section at the log's entry level, which
+:func:`entry_level` reads from its parts: level 3 (``###``) when any part
+has one, level 2 when the parts have ``##`` but no ``###``, and level 3 for
+a log with neither. An entry runs to the next heading of its level or a
+higher one, so deeper headings stay inside it. Text before the first entry
+heading, such as a part's opening link or the log's intro, is not an entry.
+Headings inside fenced code do not count.
 
 :func:`series` finds the parts and :func:`last_entries` reads the end of
-them. :func:`reef.methods.find.brief` uses both; :func:`reef.methods.capture.log`
-uses :func:`series` and names new parts with :func:`part_path`.
+them. :func:`reef.methods.find.brief` uses both. :func:`reef.methods.capture.log`
+uses :func:`series`, writes each entry at :func:`entry_level`, so that
+``brief`` keeps finding every entry, and names new parts with
+:func:`part_path`.
 """
 
 import re
@@ -31,8 +35,10 @@ LOG_TAG = "log"
 #: A trailing part number in a stem, such as the ``-2`` of ``climbing-log-2``.
 _PART_SUFFIX = re.compile(r"-([1-9]\d*)$")
 
-#: The level of entries when a log has no level 3 headings.
+#: The level of entries when a log has ``##`` headings but no ``###``.
 _SHALLOW = 2
+
+#: The level of entries otherwise, and of a new log's entries.
 _DEEP = 3
 
 
@@ -179,6 +185,19 @@ def _entries_of(body: str, level: int) -> list[str]:
     return entries
 
 
+def entry_level(parts: list[Engram]) -> int:
+    """Read the heading level a log's entries use.
+
+    :param parts: the parts, as :func:`series` gives them; none for a new log
+    :returns: 3 when any part has a ``###`` heading, 2 when the parts have
+        ``##`` headings but no ``###``, else 3
+    """
+    levels = {level for part in parts for _, level, _ in headings(part.body)}
+    if _DEEP not in levels and _SHALLOW in levels:
+        return _SHALLOW
+    return _DEEP
+
+
 def last_entries(parts: list[Engram], n: int) -> list[str]:
     """Return the last entries of a log, across its parts.
 
@@ -188,8 +207,6 @@ def last_entries(parts: list[Engram], n: int) -> list[str]:
     """
     if n <= 0:
         return []
-    bodies = [part.body for part in parts]
-    deep = any(level == _DEEP for body in bodies for _, level, _ in headings(body))
-    level = _DEEP if deep else _SHALLOW
-    entries = [entry for body in bodies for entry in _entries_of(body, level)]
+    level = entry_level(parts)
+    entries = [entry for part in parts for entry in _entries_of(part.body, level)]
     return entries[-n:]

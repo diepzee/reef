@@ -143,7 +143,7 @@ def backticked(text: str) -> set[str]:
     return set(re.findall(r"`([^`\n]+)`", prose))
 
 
-#: Backticked words that are not tools: arguments, spaces and tags.
+#: Backticked words that are not tools: arguments, result keys, spaces and tags.
 NOT_TOOLS = {
     "as_of",
     "confirm",
@@ -154,6 +154,7 @@ NOT_TOOLS = {
     "personal",
     "reason",
     "section",
+    "text",
     "to_path",
 }
 

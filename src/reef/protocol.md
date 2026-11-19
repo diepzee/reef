@@ -151,6 +151,8 @@ If the person changes their mind, or the arguments change, start again at step
 - `share` moves a personal engram into a shared space. To share one section,
   pass its exact text as `section` and name the new engram with `to_path`. The
   section must stand on its own: the reader will not see what surrounded it.
+  The first call returns `text`: the exact words that would be shared. Show
+  the person those words as they are, with who will see them.
 - `forget` deletes an engram with its history, or a stored file, for good. Name
   what you will delete when you ask. Never act on an ambiguous "get rid of it".
 - `instruct` replaces the persona: `meta/persona.md` in the personal space,

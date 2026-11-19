@@ -173,6 +173,52 @@ async def test_log_creates_a_tagged_log(household):
     assert again == {"engram": "climbing-log.md", "part": 1, "version": 2}
 
 
+async def test_log_keeps_the_level_of_a_log_with_level_two_entries(household):
+    """A log of ``##`` entries gets a ``##`` entry, and brief still reads them all.
+
+    A ``###`` inside fenced code is code, not an entry, so it does not count.
+    """
+    me = caller_for(household["wouter"])
+    before = (
+        "# Climbing log\n\n## Day 1\n\n```\n### not an entry\n```\n\n## Day 2\n\nx\n"
+    )
+    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    await capture.log(me, "", "personal", "climbing-log.md", "Day 3", "Sent it.")
+    after = await _read(me, "personal", "climbing-log.md")
+    assert after.body == before + "\n\n## Day 3\n\nSent it.\n"
+    result = await find.brief(me, "", "climbing", entries=3)
+    [log] = [item for item in result["engrams"] if item["engram"] == "climbing-log.md"]
+    assert [entry.splitlines()[0] for entry in log["entries"]] == [
+        "## Day 1",
+        "## Day 2",
+        "## Day 3",
+    ]
+
+
+async def test_log_keeps_level_two_in_a_new_part(household, small_cap):
+    """A full log of ``##`` entries goes on in part two with a ``##`` entry."""
+    me = caller_for(household["wouter"])
+    before = "## Day 1\n\n" + "x" * 800 + "\n"
+    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    result = await capture.log(
+        me, "", "personal", "climbing-log.md", "Day 2", "y" * 300
+    )
+    assert result["part"] == 2
+    two = await _read(me, "personal", "climbing-log-2.md")
+    assert "\n\n## Day 2\n\n" in two.body
+    assert "###" not in two.body
+
+
+async def test_log_keeps_level_three_when_the_log_has_any(household):
+    """A log with a ``###`` entry anywhere gets ``###`` entries."""
+    me = caller_for(household["wouter"])
+    before = "# Log\n\n## 2026\n\n### Day 1\n\nx\n"
+    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    await capture.log(me, "", "personal", "climbing-log.md", "Day 2", "y")
+    after = await _read(me, "personal", "climbing-log.md")
+    assert after.body == before + "\n\n### Day 2\n\ny\n"
+
+
 async def test_log_refuses_what_is_not_a_log(household):
     """An engram without the ``log`` tag is not turned into one."""
     me = caller_for(household["wouter"])

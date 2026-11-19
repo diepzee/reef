@@ -1,6 +1,6 @@
 # Reef glossary
 
-**Status:** adopted 2026-11-17 for documents, the team deck and tickets. Applied 2026-11-20 to the backend, database tables, web app, public site, settings and export (RUG-40). The MCP tool names (`read_page`, `list_coves`) still use the old words until the workflow tools replace them.
+**Status:** adopted 2026-11-17 for documents, the team deck and tickets. Applied 2026-11-20 to the backend, database tables, web app, public site, settings, export and MCP tools (RUG-40). The sixteen workflow tools replaced the old ones, such as `read_page` and `list_coves`, and use the new words.
 
 One term per concept. The "Replaces" column lists words the documents used for the same thing. Those words are retired.
 
@@ -69,5 +69,5 @@ These have no honest biological equivalent, so they keep their plain names: **em
 
 ## Open points
 
-1. **How far the rename goes.** Documents, deck and tickets use these terms. The backend, database tables, web app, site, settings and export now use them. The MCP tool names (`read_page`, `write_pages`, `list_coves`) do not yet; the workflow tool set replaces them.
+1. **How far the rename goes.** Documents, deck and tickets use these terms. So do the backend, database tables, web app, site, settings, export and MCP tools. The old tool names (`read_page`, `write_pages`, `list_coves`) are retired: a call to one is answered with the name of the tool that replaces it.
 2. **"Memory" still names the whole.** "The memory engine" and "Reef is a memory" stay. Only the unit changed to "engram".
