@@ -38,7 +38,11 @@ SCRUB_PATTERNS = [
     "engram_path",
     # The same path under the tools' and the web API's name for it.
     "page_path",
+    # What recall answers with: a piece of an engram.
+    "passage",
     "query",
+    # What an assistant asks recall, in the person's words.
+    "question",
     # The assistant's own words for why it called a method.
     "reason",
     "section_text",

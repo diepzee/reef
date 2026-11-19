@@ -38,6 +38,8 @@ from reef.access import Principal
 from reef.db import transaction_scope
 from reef.engrams import list_engrams, save_engram
 from reef.identity import person_by_email
+from reef.methods import Caller
+from reef.methods.find import recall
 from reef.search import search_engrams
 from reef.spaces import ensure_personal_space
 
@@ -564,12 +566,30 @@ async def reranked(principal: Principal, question: str) -> list[str]:
     return await _paths(principal, question, semantic=True, rerank=True)
 
 
+async def recalled(principal: Principal, question: str) -> list[str]:
+    """Ask the ``recall`` method, as an assistant does.
+
+    It ranks with every service the product has: by meaning where there is
+    an embedding service, and read again where there is a reranker and the
+    memory is large enough. Without a reranker it scores the same as
+    :func:`hybrid`; a lower score means ``recall`` lost what search found.
+
+    :param principal: the eval person
+    :param question: the question
+    :returns: engram paths in rank order
+    """
+    caller = Caller(principal=principal, writer="assistant", session_id=None)
+    hits = await recall(caller, "", question, space=_SPACE, limit=SEARCH_LIMIT)
+    return [hit["engram"] for hit in hits if hit["kind"] == "engram"]
+
+
 #: Every way of searching the harness can measure, by name.
 MODES: dict[str, Searcher] = {
     "lexical": lexical,
     "lexical-any": lexical_any,
     "hybrid": hybrid,
     "rerank": reranked,
+    "recall": recalled,
 }
 
 

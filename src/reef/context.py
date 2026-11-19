@@ -22,9 +22,8 @@ from reef.models import (
 )
 from reef.spaces import display_names
 
-# The field names below are the wire format: these payloads reach the MCP
-# tools and the web API as they are, through ``asdict``. So they keep saying
-# ``coves`` and ``pages`` until those surfaces are renamed themselves.
+# The field names below are the wire format: these payloads reach the
+# methods, the MCP tools and the web API as they are, through ``asdict``.
 
 
 @dataclass
@@ -33,7 +32,7 @@ class SpaceContext:
 
     alias: str
     version: int
-    pages: list[dict]
+    engrams: list[dict]
     attachments: list[dict]
 
 
@@ -41,7 +40,7 @@ class SpaceContext:
 class ContextPayload:
     """The whole corpus a principal may see, plus loading metadata.
 
-    ``page_count`` and ``included_count`` let a client detect host-side
+    ``engram_count`` and ``included_count`` let a client detect host-side
     truncation of the serialized result: if the engrams it can see do not add up,
     the payload was cut in transit.
     """
@@ -49,9 +48,9 @@ class ContextPayload:
     version: str
     truncated: bool
     note: str | None
-    page_count: int
+    engram_count: int
     included_count: int
-    coves: list[SpaceContext]
+    spaces: list[SpaceContext]
 
 
 @dataclass
@@ -60,7 +59,7 @@ class SpaceIndex:
 
     alias: str
     version: int
-    pages: list[dict]
+    engrams: list[dict]
     attachments: list[dict]
 
 
@@ -74,7 +73,7 @@ class IndexPayload:
     """
 
     version: str
-    coves: list[SpaceIndex]
+    spaces: list[SpaceIndex]
 
 
 #: Everything the index needs from an engram. ``body`` is absent on purpose:
@@ -274,7 +273,7 @@ async def build_index(principal: Principal) -> IndexPayload:
         space.id: SpaceIndex(
             alias=aliases[space.id],
             version=space.version,
-            pages=[],
+            engrams=[],
             attachments=[],
         )
         for space in spaces
@@ -291,9 +290,9 @@ async def build_index(principal: Principal) -> IndexPayload:
             for reference in resolve_references(
                 engram["reference_targets"], source_alias
             )
-            if (reference["cove"], reference["path"]) in visible_engrams
+            if (reference["space"], reference["path"]) in visible_engrams
         ]
-        by_space[engram["space_id"]].pages.append(
+        by_space[engram["space_id"]].engrams.append(
             {
                 "path": engram["path"],
                 "title": engram["title"],
@@ -316,7 +315,7 @@ async def build_index(principal: Principal) -> IndexPayload:
                 "mime": attachment.mime,
                 "size": attachment.byte_size,
                 "description": attachment.description,
-                "page_path": engram_path_by_id.get(attachment.engram_id),
+                "engram_path": engram_path_by_id.get(attachment.engram_id),
             }
         )
 
@@ -324,7 +323,7 @@ async def build_index(principal: Principal) -> IndexPayload:
         ";".join(f"{aliases[space.id]}={space.version}" for space in spaces) or "empty"
     )
     return IndexPayload(
-        version=f"{principal.person_id}:{version}", coves=list(by_space.values())
+        version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
     )
 
 
@@ -384,13 +383,13 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         space.id: SpaceContext(
             alias=aliases[space.id],
             version=space.version,
-            pages=[],
+            engrams=[],
             attachments=[],
         )
         for space in spaces
     }
     for engram in sorted(engrams, key=lambda p: p.path):
-        by_space[engram.space_id].pages.append(
+        by_space[engram.space_id].engrams.append(
             {
                 "path": engram.path,
                 "title": engram.title,
@@ -410,7 +409,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
                 "mime": attachment.mime,
                 "size": attachment.byte_size,
                 "description": attachment.description,
-                "page_path": engram_path_by_id.get(attachment.engram_id),
+                "engram_path": engram_path_by_id.get(attachment.engram_id),
             }
         )
 
@@ -421,7 +420,7 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
         version=version,
         truncated=truncated,
         note=note,
-        page_count=len(engrams),
+        engram_count=len(engrams),
         included_count=included,
-        coves=list(by_space.values()),
+        spaces=list(by_space.values()),
     )

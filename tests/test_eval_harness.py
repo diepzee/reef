@@ -28,6 +28,8 @@ SLICE = Path(__file__).parent / "fixtures" / "longmemeval_slice.json"
 FLOORS = {
     "lexical": {"recall_any": 0.75, "mrr": 0.60},
     "lexical-any": {"recall_any": 0.75, "mrr": 0.60},
+    # Without an embedding service, recall ranks by words: the lexical floor.
+    "recall": {"recall_any": 0.75, "mrr": 0.60},
 }
 
 

@@ -735,14 +735,15 @@ async def application() -> None:
     try:
         async with transaction_scope():
             index = await build_index(wouter)
-            assert sorted(entry.alias for entry in index.coves) == [
+            assert sorted(entry.alias for entry in index.spaces) == [
                 "household",
                 "personal",
             ]
-            house = next(entry for entry in index.coves if entry.alias == "household")
-            assert sorted(e["path"] for e in house.pages) == ["boiler.md", "house.md"]
+            house = next(entry for entry in index.spaces if entry.alias == "household")
+            assert sorted(e["path"] for e in house.engrams) == ["boiler.md", "house.md"]
             assert (
-                next(e for e in house.pages if e["path"] == "house.md")["inbound"] == 1
+                next(e for e in house.engrams if e["path"] == "house.md")["inbound"]
+                == 1
             )
             spaces = sorted(space.slug for space in await accessible_spaces(partner))
             assert spaces == ["household", "partner"]
@@ -757,7 +758,7 @@ async def application() -> None:
             household = await resolve_space(wouter, "household")
             roster = await member_roster(household.id)
             assert {member["avatar_len"] for member in roster} == {None, 4}
-            assert (await load_context(wouter, char_budget=100_000)).page_count == 3
+            assert (await load_context(wouter, char_budget=100_000)).engram_count == 3
         try:
             async with transaction_scope():
                 saved = await save_engram(

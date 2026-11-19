@@ -32,8 +32,8 @@ async def test_a_partners_shared_edit_is_visible_with_author_and_message(tx, hou
     events = await whats_new(me)
     assert len(events) == 1
     event = events[0]
-    assert event["cove"] == "household"
-    assert event["kind"] == "page"
+    assert event["space"] == "household"
+    assert event["kind"] == "engram"
     assert event["path"] == "house.md"
     assert event["author"] == "Partner"
     assert event["message"] == "Log the service visit"
@@ -43,7 +43,7 @@ async def test_own_edits_are_listed_too(tx, household):
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "notes.md", "A note.", message="x")
     events = await whats_new(me)
-    assert [(e["cove"], e["author"]) for e in events] == [("personal", "Wouter")]
+    assert [(e["space"], e["author"]) for e in events] == [("personal", "Wouter")]
 
 
 async def test_anothers_personal_activity_is_invisible(tx, household):
@@ -87,7 +87,7 @@ async def test_a_new_file_is_an_event(tx, household):
     assert len(events) == 1
     event = events[0]
     assert event["kind"] == "file"
-    assert event["cove"] == "household"
+    assert event["space"] == "household"
     assert event["key"] == "attachments/lease"
     assert event["filename"] == "lease.pdf"
 

@@ -65,6 +65,10 @@ INDEXED_CHARS = 200_000
 #: Snippets bold their matches as Markdown, the format every reader here speaks.
 _HEADLINE_OPTIONS = "StartSel=**, StopSel=**, MaxWords=25, MinWords=8"
 
+#: How much of an engram's best piece a hit carries as its passage, in
+#: characters. See ``passages`` in :func:`search_engrams`.
+PASSAGE_CHARS = 1_500
+
 
 def _vector(heading: str, content: str) -> str:
     """Return the SQL expression for a row's search vector.
@@ -334,11 +338,15 @@ _COUNT_SQL = "SELECT count(*) AS n FROM engrams"
 _ENGRAM_SPACE_FILTER = " AND engrams.space_id = {}"
 
 
-def _row_payload(row: dict, aliases: dict) -> dict:
+def _row_payload(
+    row: dict, aliases: dict, passages: dict[UUID, str] | None = None
+) -> dict:
     """Shape one result row for the tool payload.
 
     :param row: a row from the union query
     :param aliases: the caller's space-id-to-alias map
+    :param passages: each engram's passage, when they were asked for; an
+        engram without one gets its snippet. None adds no passage.
     :returns: the fields a reader needs, keyed by kind
     """
     common = {
@@ -348,7 +356,10 @@ def _row_payload(row: dict, aliases: dict) -> dict:
     }
     if row["kind"] == "file":
         return {**common, "key": row["key"], "filename": row["filename"]}
-    return {**common, "path": row["path"], "title": row["title"]}
+    payload = {**common, "path": row["path"], "title": row["title"]}
+    if passages is not None:
+        payload["passage"] = passages.get(row["id"]) or row["snippet"]
+    return payload
 
 
 def fuse(
@@ -565,6 +576,52 @@ def _documents(reading: _Reading) -> tuple[list[str], list[int]]:
     return documents, owners
 
 
+async def _read_best_pieces(
+    engram_ids: list[UUID], embedded: tuple[str, list[float]] | None
+) -> tuple[dict[UUID, str | None], list[dict]]:
+    """Read what each engram's passage is cut from.
+
+    The best piece is the one :func:`_best_anchors` puts first, the same
+    choice the reranker reads first. An engram without vectors of the
+    question's model has none, and nothing of it is read.
+
+    :param engram_ids: the engrams found
+    :param embedded: the model's name and the query's vector, if any
+    :returns: each engram's best anchor, and the text of those engrams
+    """
+    anchors = await _best_anchors(engram_ids, embedded, 1)
+    best = {engram_id: found[0] for engram_id, found in anchors.items()}
+    if not best:
+        return {}, []
+    ids = [str(engram_id) for engram_id in best]
+    rows = await Engram.raw(
+        _ENGRAM_TEXT_SQL, ids, get_settings().embedding.engram_chars, ids
+    )
+    return best, list(rows)
+
+
+def _passages(best: dict[UUID, str | None], engrams: list[dict]) -> dict[UUID, str]:
+    """Cut each engram's best piece out of its text, as the reranker reads it.
+
+    The piece carries its title and heading in front, see
+    :func:`reef.sections.split`. An engram edited since it was embedded may
+    no longer have that piece; it gets none. Pure, so it can run in a thread.
+
+    :param best: each engram's best anchor
+    :param engrams: the engrams' text, as :func:`_read_best_pieces` read it
+    :returns: each engram's passage, at most :data:`PASSAGE_CHARS` long
+    """
+    passages: dict[UUID, str] = {}
+    for row in engrams:
+        title, body = row["title"] or "", row["body"] or ""
+        pieces = sections.split(title, row["description"] or summary(body), body)
+        anchor = best[row["id"]]
+        text = next((piece.text for piece in pieces if piece.anchor == anchor), "")
+        if text:
+            passages[row["id"]] = text[:PASSAGE_CHARS]
+    return passages
+
+
 def reorder(
     ranking: list[tuple[str, UUID]],
     count: int,
@@ -635,6 +692,7 @@ async def search_engrams(
     log: bool = False,
     semantic: bool = True,
     rerank: bool = True,
+    passages: bool = False,
 ) -> list[dict]:
     """Search every engram and described file the caller can see, best match first.
 
@@ -681,6 +739,11 @@ async def search_engrams(
         False measures keyword search alone.
     :param rerank: let the reranker reorder the first results when there
         is one. False measures the search without it.
+    :param passages: give each engram hit a ``passage`` too: its piece
+        closest to the query, as the reranker reads it, cut to
+        :data:`PASSAGE_CHARS` characters. It uses the query's vector the
+        search already has, so the query is still embedded once. An engram
+        without vectors, or a search without them, gets its snippet.
     :returns: one dict per hit — engrams carry path and title, files key and
         filename; both carry the space alias, kind, and a snippet
     :raises AccessDenied: when ``space`` names no space of the caller's
@@ -723,7 +786,10 @@ async def search_engrams(
                 limit,
             )
             await _record(log, principal, query, rows)
-            return [_row_payload(row, aliases) for row in rows]
+            # Nothing was ranked by meaning, so no engram has a best piece.
+            return [
+                _row_payload(row, aliases, {} if passages else None) for row in rows
+            ]
         if closest:
             model_id, vector = embedded
             keyword = await Engram.raw(
@@ -763,6 +829,8 @@ async def search_engrams(
         if scores is not None:
             ranking = reorder(ranking, len(reading.candidates), owners, scores)
     chosen = ranking[:limit]
+    best: dict[UUID, str | None] = {}
+    texts: list[dict] = []
     async with transaction_scope():
         await arm(principal)
         rows = (
@@ -777,4 +845,10 @@ async def search_engrams(
             else []
         )
         await _record(log, principal, query, rows)
-    return [_row_payload(row, aliases) for row in rows]
+        if passages:
+            best, texts = await _read_best_pieces(
+                [row["id"] for row in rows if row["kind"] == "page"], embedded
+            )
+    # In a thread, like the reranker's passages: cutting long engrams takes time.
+    found = await asyncio.to_thread(_passages, best, texts) if texts else {}
+    return [_row_payload(row, aliases, found if passages else None) for row in rows]

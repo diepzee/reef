@@ -83,7 +83,7 @@ def resolve_references(targets: list[str], source_alias: str) -> list[dict[str, 
         if not alias or not path or key in seen:
             continue
         seen.add(key)
-        references.append({"cove": alias, "path": path})
+        references.append({"space": alias, "path": path})
     return references
 
 

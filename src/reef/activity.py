@@ -76,8 +76,8 @@ async def whats_new(
             names[member["person_id"]] = member["display_name"]
     events = [
         {
-            "kind": "page",
-            "cove": aliases[r["engram_id.space_id"]],
+            "kind": "engram",
+            "space": aliases[r["engram_id.space_id"]],
             "path": r["path"],
             "title": r["title"],
             "message": r["message"],
@@ -88,7 +88,7 @@ async def whats_new(
     ] + [
         {
             "kind": "file",
-            "cove": aliases[f["space_id"]],
+            "space": aliases[f["space_id"]],
             "key": f["object_key"],
             "filename": f["filename"],
             "author": None,
