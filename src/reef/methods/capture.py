@@ -10,8 +10,7 @@
 revision, so history can tell an assistant's change from a person's.
 
 **Refusals.** What the storage layer refuses becomes a :class:`MethodError`
-with a plain message, by :func:`_refusals`. Its own messages are not passed
-on: some name the caller's address, and some name tools that are gone.
+with a plain message, by :func:`reef.methods.refusals.refusals`.
 
 Each method opens the transactions it needs, armed for the caller.
 :func:`store_file` opens none itself: :func:`reef.attachments.add_attachment`
@@ -21,16 +20,12 @@ opens its own two.
 import base64
 import binascii
 import re
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from asyncpg import UniqueViolationError
 
 from reef.access import (
-    AccessDenied,
     Principal,
-    ReadOnlyMembership,
     resolve_writable_space,
 )
 from reef.attachments import MIME_RE, S3ObjectStore, add_attachment
@@ -38,17 +33,14 @@ from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import (
     PERSONA_PATH,
-    EngramTooLarge,
     InvalidPath,
-    PrivateContentLeak,
-    ProtectedPath,
-    VersionConflict,
     get_engram,
     normalize_path,
     save_engram,
 )
 from reef.methods import MESSAGES, Caller, MethodError, logs, method
 from reef.methods.find import FILE_PREFIX
+from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram
 
 #: The engram :func:`remember` adds facts to, in each space.
@@ -64,39 +56,6 @@ MAX_BATCH = 20
 #: file name's limit is its column's.
 FILENAME_CHARS = 512
 MIME_CHARS = 255
-
-#: The code for each refusal of an engram write.
-_ENGRAM_REFUSALS: dict[type[Exception], str] = {
-    VersionConflict: "version_conflict",
-    ProtectedPath: "protected_path",
-    InvalidPath: "invalid_path",
-    EngramTooLarge: "engram_too_large",
-    PrivateContentLeak: "private_content",
-}
-
-
-@contextmanager
-def _refusals(path: str | None = None) -> Iterator[None]:
-    """Turn what the storage layer refuses into a :class:`MethodError`.
-
-    A read-only membership is told apart from an unknown space, which it is
-    a kind of. The original error is not chained: its message may name the
-    caller's address.
-
-    :param path: the engram being written, named in the message of a
-        refusal about it
-    :raises MethodError: for each refusal, with its code and plain message
-    """
-    try:
-        yield
-    except ReadOnlyMembership:
-        raise MethodError("read_only") from None
-    except AccessDenied:
-        raise MethodError("unknown_space") from None
-    except tuple(_ENGRAM_REFUSALS) as error:
-        code = _ENGRAM_REFUSALS[type(error)]
-        message = MESSAGES[code] if path is None else f"{path}: {MESSAGES[code]}"
-        raise MethodError(code, message) from None
 
 
 async def _save(
@@ -127,7 +86,7 @@ async def _save(
     :returns: the saved engram
     :raises MethodError: when the write is refused
     """
-    with _refusals(path):
+    with refusals(path):
         return await save_engram(
             caller.principal,
             space,
@@ -231,7 +190,7 @@ async def remember(
     :raises MethodError: ``unknown_space``, ``read_only`` or
         ``private_content``
     """
-    with _refusals(INBOX):
+    with refusals(INBOX):
         async with transaction_scope():
             entry = await add_to_inbox(
                 caller.principal, space, fact, channel=caller.writer
@@ -361,7 +320,7 @@ async def _log(
     """
     cap = get_settings().engrams.max_chars
     message = f"log: {heading[:60]}"
-    with _refusals():
+    with refusals():
         async with transaction_scope():
             await resolve_writable_space(caller.principal, space)
             path, parts = await _named_log(caller, space, engram)
@@ -407,7 +366,7 @@ async def _named_log(
     parts = await _existing_log(caller, space, engram)
     if parts:
         return engram, parts
-    with _refusals(engram):
+    with refusals(engram):
         path = normalize_path(engram)
     if path != engram:
         parts = await _existing_log(caller, space, path)
@@ -687,7 +646,7 @@ async def write(
     """
     _check_batch(engrams)
     try:
-        with _refusals():
+        with refusals():
             async with transaction_scope():
                 saved = [
                     await _save(
@@ -764,7 +723,7 @@ async def store_file(
             f"{MESSAGES['file_too_large']} Reef keeps files of at most "
             f"{limit:,} bytes.",
         )
-    with _refusals():
+    with refusals():
         attachment = await add_attachment(
             caller.principal,
             space,
