@@ -55,7 +55,7 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    rawIndex: { coves: [{ alias: "trip" }, { alias: "home" }] },
+    rawIndex: { spaces: [{ alias: "trip" }, { alias: "home" }] },
     error: null,
     refresh: () => Promise.resolve(),
   }),
@@ -88,8 +88,8 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("an export can be scoped to one cove", async () => {
-  fireEvent.change(screen.getByLabelText("Coves"), { target: { value: "trip" } });
+test("an export can be scoped to one space", async () => {
+  fireEvent.change(screen.getByLabelText("Spaces"), { target: { value: "trip" } });
   fireEvent.click(screen.getByText("Download export"));
   await waitFor(() => expect(downloads.length).toBe(1));
   expect(downloads[0]!.body).toMatchObject({ scope: "trip", format: "markdown" });
@@ -109,10 +109,10 @@ test("deletion is not even offered until the zone is opened", () => {
 });
 
 test("opening the zone says what survives the deletion", () => {
-  // Shared coves outliving the account, and ownership moving to someone
+  // Shared spaces outliving the account, and ownership moving to someone
   // else, are the parts a person cannot guess.
   arm();
-  expect(screen.getByText(/Shared coves with other members will remain/))
+  expect(screen.getByText(/Shared spaces with other members will remain/))
     .toBeDefined();
 });
 

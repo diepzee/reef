@@ -1,5 +1,5 @@
 /**
- * Creating a cove: what happens on success, and what a refusal looks like.
+ * Creating a space: what happens on success, and what a refusal looks like.
  *
  * A 400 here is routine rather than exceptional — a slug can be malformed
  * or already taken — so the reason has to reach the form. The detail is the
@@ -63,12 +63,12 @@ mock.module("react-router-dom", () => ({
   useNavigate: () => (to: string) => navigated.push(to),
 }));
 
-const { default: NewCove } = await import("./NewCove");
+const { default: NewSpace } = await import("./NewSpace");
 
-function renderNewCove() {
+function renderNewSpace() {
   render(
     <MemoryRouter>
-      <NewCove />
+      <NewSpace />
     </MemoryRouter>,
   );
 }
@@ -88,39 +88,39 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test("cannot submit an empty name", () => {
-  renderNewCove();
+  renderNewSpace();
   expect(
-    (screen.getByText("Create cove") as HTMLButtonElement).disabled,
+    (screen.getByText("Create space") as HTMLButtonElement).disabled,
   ).toBe(true);
 });
 
-test("creating navigates to the new cove and refreshes the index", async () => {
-  // The index has to be refetched before navigating, or the cove the person
+test("creating navigates to the new space and refreshes the index", async () => {
+  // The index has to be refetched before navigating, or the space the person
   // was just sent to is missing from the sidebar they land next to.
-  renderNewCove();
+  renderNewSpace();
   type("trip");
-  fireEvent.click(screen.getByText("Create cove"));
+  fireEvent.click(screen.getByText("Create space"));
   await waitFor(() => expect(navigated).toEqual(["/s/trip"]));
   expect(sent).toEqual([
-    { method: "POST", path: "/api/coves", body: { slug: "trip" } },
+    { method: "POST", path: "/api/spaces", body: { slug: "trip" } },
   ]);
   expect(refreshed).toBe(1);
 });
 
 test("a refusal is shown with its reason and the form stays usable", async () => {
   respond = () => {
-    throw new FakeApiError(400, "cove_error", "that name is already taken");
+    throw new FakeApiError(400, "space_error", "that name is already taken");
   };
-  renderNewCove();
+  renderNewSpace();
   type("trip");
-  fireEvent.click(screen.getByText("Create cove"));
+  fireEvent.click(screen.getByText("Create space"));
   await waitFor(() =>
     expect(screen.getByText("that name is already taken")).toBeDefined(),
   );
   // Still on the form, and able to try again rather than stuck on "Creating…".
   expect(navigated).toEqual([]);
   expect(
-    (screen.getByText("Create cove") as HTMLButtonElement).disabled,
+    (screen.getByText("Create space") as HTMLButtonElement).disabled,
   ).toBe(false);
 });
 
@@ -128,10 +128,10 @@ test("a failure that is not from the API still says something", async () => {
   respond = () => {
     throw new Error("network down");
   };
-  renderNewCove();
+  renderNewSpace();
   type("trip");
-  fireEvent.click(screen.getByText("Create cove"));
+  fireEvent.click(screen.getByText("Create space"));
   await waitFor(() =>
-    expect(screen.getByText("could not create the cove")).toBeDefined(),
+    expect(screen.getByText("could not create the space")).toBeDefined(),
   );
 });

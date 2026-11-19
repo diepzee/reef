@@ -1,7 +1,7 @@
 /**
- * The whole-reef index: every cove, its pages, and how they link.
+ * The whole-reef index: every space, its engrams, and how they link.
  *
- * The paths are the load-bearing part. A page path can contain anything a
+ * The paths are the load-bearing part. An engram path can contain anything a
  * title can, so a link built without encoding sends the reader somewhere
  * else entirely — and an index is exactly where that would go unnoticed,
  * because nobody reads every row.
@@ -24,7 +24,7 @@ const { default: IndexView } = await import("./IndexView");
 
 function renderIndex() {
   render(
-    // Each cove wears its own creature here now, and that is read from the
+    // Each space wears its own creature here now, and that is read from the
     // viewer's appearance choices — so the view needs the provider.
     <AppearanceContext.Provider
       value={{ appearance: {} as never, setAppearance: () => {} }}
@@ -39,11 +39,11 @@ function renderIndex() {
 beforeEach(() => {
   error = null;
   index = {
-    coves: [
+    spaces: [
       {
         alias: "trip",
         version: 4,
-        pages: [
+        engrams: [
           {
             path: "packing.md",
             title: "Packing",
@@ -61,21 +61,21 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("each cove links to itself and lists its pages", () => {
+test("each space links to itself and lists its engrams", () => {
   renderIndex();
   expect(screen.getByText("trip").getAttribute("href")).toBe("/s/trip");
   expect(screen.getByText("Packing").getAttribute("href")).toBe(
-    "/s/trip/p/packing.md",
+    "/s/trip/engram/packing.md",
   );
 });
 
-test("a cove with nothing in it says so rather than looking broken", () => {
-  index = { coves: [{ alias: "trip", pages: [], attachments: [] }] };
+test("a space with nothing in it says so rather than looking broken", () => {
+  index = { spaces: [{ alias: "trip", engrams: [], attachments: [] }] };
   renderIndex();
-  expect(screen.getByText("No pages.")).toBeDefined();
+  expect(screen.getByText("No engrams.")).toBeDefined();
 });
 
-test("tags are shown against their page", () => {
+test("tags are shown against their engram", () => {
   renderIndex();
   expect(screen.getByText("gear")).toBeDefined();
 });

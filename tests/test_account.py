@@ -168,7 +168,7 @@ async def test_delete_api_requires_both_guards_and_clears_session(api, world, se
     )
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
-    assert "team" in deleted.json()["transferred_coves"]
+    assert "team" in deleted.json()["transferred_spaces"]
     assert "Max-Age=0" in deleted.headers["set-cookie"]
     assert not await seed.fetchval(
         "SELECT count(*) FROM persons WHERE id = $1", alice.id

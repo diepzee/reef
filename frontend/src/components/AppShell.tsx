@@ -8,17 +8,17 @@
  * fetch result is simply unused on that branch rather than skipped, since
  * a resize across the breakpoint must not trigger a fresh fetch.
  *
- * Also owns the single shared `MembersSheet` instance: the cove header
- * (`CoveView`'s whobar), the sidebar's active-cove avatar stack, and
+ * Also owns the single shared `MembersSheet` instance: the space header
+ * (`SpaceView`'s whobar), the sidebar's active-space avatar stack, and
  * (from Task 6) the page header all need to open "the" members sheet for
- * whatever cove they're showing, and there must only ever be one sheet
+ * whatever space they're showing, and there must only ever be one sheet
  * mounted at a time. `MembersSheetContext` (its own module — see
  * `useMembersSheet.ts` — so `Sidebar.tsx` can import the hook without an
  * `AppShell` <-> `Sidebar` circular import) hands every descendant an
- * `openMembers(cove)` callback; the sheet itself renders here, keyed by
- * the cove it's showing so switching coves resets its local state (the
+ * `openMembers(space)` callback; the sheet itself renders here, keyed by
+ * the space it's showing so switching spaces resets its local state (the
  * v1 stale-disclosure lesson — see `MembersSheet`'s docstring). Closing
- * only flips `sheetOpen`, leaving `sheetCove` in place, so the sheet's
+ * only flips `sheetOpen`, leaving `sheetSpace` in place, so the sheet's
  * content stays put while it animates away instead of vanishing.
  *
  * The mobile header's brand row also carries the identity pass's serif
@@ -41,7 +41,7 @@ import type { Me, ReleaseNotesFeed } from "../types";
 import {
   AppearanceContext,
   type AppearanceMap,
-  type CoveAppearance,
+  type SpaceAppearance,
 } from "../useAppearance";
 import { MeContext } from "../useMe";
 import { useMediaQuery } from "../useMediaQuery";
@@ -59,11 +59,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isHome = location.pathname === "/";
   const [me, setMe] = useState<Me | null>(null);
 
-  const [sheetCove, setSheetCove] = useState<string | null>(null);
+  const [sheetSpace, setSheetSpace] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
 
-  const openMembers = useCallback((cove: string) => {
-    setSheetCove(cove);
+  const openMembers = useCallback((space: string) => {
+    setSheetSpace(space);
     setSheetOpen(true);
   }, []);
   const closeMembers = useCallback(() => setSheetOpen(false), []);
@@ -98,7 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const meContextValue = useMemo(() => ({ me, setAvatar }), [me, setAvatar]);
 
   const [appearance, setAppearanceMap] = useState<AppearanceMap>({});
-  const setAppearance = useCallback((alias: string, look: CoveAppearance) => {
+  const setAppearance = useCallback((alias: string, look: SpaceAppearance) => {
     setAppearanceMap((current) => ({ ...current, [alias]: look }));
   }, []);
   const appearanceContextValue = useMemo(
@@ -108,12 +108,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    apiGet<{ coves: AppearanceMap }>("/api/appearance")
+    apiGet<{ spaces: AppearanceMap }>("/api/appearance")
       .then((payload) => {
-        if (!cancelled) setAppearanceMap(payload.coves);
+        if (!cancelled) setAppearanceMap(payload.spaces);
       })
       .catch(() => {
-        // Every cove already has a derived look, so a failure here costs
+        // Every space already has a derived look, so a failure here costs
         // nothing but the viewer's overrides — not worth a error surface.
       });
     return () => {
@@ -154,10 +154,10 @@ export function AppShell({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const sheet = sheetCove !== null && (
+  const sheet = sheetSpace !== null && (
     <MembersSheet
-      key={sheetCove}
-      cove={sheetCove}
+      key={sheetSpace}
+      space={sheetSpace}
       open={sheetOpen}
       onClose={closeMembers}
     />

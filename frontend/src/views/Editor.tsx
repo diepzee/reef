@@ -1,7 +1,7 @@
 /**
- * The page editor: loads an existing page, then hands off to {@link PageEditor}.
+ * The engram editor: loads an existing engram, then hands off to {@link EngramEditor}.
  *
- * `PageEditor` itself is exported for reuse: `NewPage` renders it directly
+ * `EngramEditor` itself is exported for reuse: `NewEngram` renders it directly
  * in create mode, once a valid path has been chosen, so there is exactly
  * one editing UI and one save/conflict code path for both create and edit.
  */
@@ -13,47 +13,47 @@ import { ApiError, apiGet, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 import { renderMarkdown } from "../markdown";
 import { indexDescription } from "../summary";
-import type { Page } from "../types";
+import type { Engram } from "../types";
 
 export default function Editor() {
-  const { cove = "", "*": path = "" } = useParams<{ cove: string; "*": string }>();
+  const { space = "", "*": path = "" } = useParams<{ space: string; "*": string }>();
 
-  const [page, setPage] = useState<Page | null>(null);
+  const [engram, setEngram] = useState<Engram | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setPage(null);
+    setEngram(null);
     setError(null);
-    apiGet<Page>(`/api/pages/${cove}/${path}`)
+    apiGet<Engram>(`/api/engrams/${space}/${path}`)
       .then((loaded) => {
-        if (!cancelled) setPage(loaded);
+        if (!cancelled) setEngram(loaded);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : "could not load the page");
+        setError(err instanceof ApiError ? err.message : "could not load the engram");
       });
     return () => {
       cancelled = true;
     };
-  }, [cove, path]);
+  }, [space, path]);
 
   if (error) {
     return <div className="notice">{error}</div>;
   }
-  if (page === null) {
+  if (engram === null) {
     return <p className="muted">Loading…</p>;
   }
 
   return (
-    <PageEditor
-      cove={cove}
+    <EngramEditor
+      space={space}
       path={path}
       mode="edit"
-      initialTitle={page.title}
-      initialTags={page.tags}
-      initialBody={page.body}
-      initialVersion={page.version}
+      initialTitle={engram.title}
+      initialTags={engram.tags}
+      initialBody={engram.body}
+      initialVersion={engram.version}
     />
   );
 }
@@ -65,15 +65,15 @@ function autoGrow(el: HTMLTextAreaElement | null) {
   el.style.height = `${el.scrollHeight}px`;
 }
 
-/** Props for {@link PageEditor}. */
-interface PageEditorProps {
-  cove: string;
+/** Props for {@link EngramEditor}. */
+interface EngramEditorProps {
+  space: string;
   path: string;
   mode: "edit" | "create";
   initialTitle: string;
   initialTags: string[];
   initialBody: string;
-  /** The page's current version in edit mode; `null` for a brand-new page. */
+  /** The engram's current version in edit mode; `null` for a brand-new engram. */
   initialVersion: number | null;
 }
 
@@ -84,7 +84,7 @@ interface Conflict {
 }
 
 /**
- * The editing form shared by "edit an existing page" and "create a new page".
+ * The editing form shared by "edit an existing engram" and "create a new engram".
  *
  * On a 409 (`version_conflict`) the draft is left exactly as the author
  * left it — no silent merge, no discarded typing — while the latest saved
@@ -92,15 +92,15 @@ interface Conflict {
  * advanced to the latest version so the next Save applies cleanly once the
  * author has manually reconciled the two.
  */
-export function PageEditor({
-  cove,
+export function EngramEditor({
+  space,
   path,
   mode,
   initialTitle,
   initialTags,
   initialBody,
   initialVersion,
-}: PageEditorProps) {
+}: EngramEditorProps) {
   const navigate = useNavigate();
   const { refresh } = useIndex();
 
@@ -129,7 +129,7 @@ export function PageEditor({
         .split(",")
         .map((tag) => tag.trim())
         .filter((tag) => tag.length > 0);
-      await apiSend<Page>("PUT", `/api/pages/${cove}/${path}`, {
+      await apiSend<Engram>("PUT", `/api/engrams/${space}/${path}`, {
         body,
         title,
         tags,
@@ -137,24 +137,24 @@ export function PageEditor({
         expected_version: expectedVersion,
       });
       await refresh();
-      navigate(`/s/${cove}/p/${path}`);
+      navigate(`/s/${space}/engram/${path}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         try {
-          const latest = await apiGet<Page>(`/api/pages/${cove}/${path}`);
+          const latest = await apiGet<Engram>(`/api/engrams/${space}/${path}`);
           setConflict({ version: latest.version, body: latest.body });
           setExpectedVersion(latest.version);
         } catch (fetchErr: unknown) {
           setSaveError(
             fetchErr instanceof ApiError
               ? fetchErr.message
-              : "someone else saved this page, and the latest version could not be fetched",
+              : "someone else saved this engram, and the latest version could not be fetched",
           );
         }
       } else if (err instanceof ApiError) {
         setSaveError(err.detail ?? err.message);
       } else {
-        setSaveError("could not save the page");
+        setSaveError("could not save the engram");
       }
     } finally {
       setSaving(false);
@@ -163,12 +163,12 @@ export function PageEditor({
 
   return (
     <div>
-      <h1>{mode === "create" ? "New page" : `Edit ${path}`}</h1>
+      <h1>{mode === "create" ? "New engram" : `Edit ${path}`}</h1>
 
       {saveError && <div className="notice">{saveError}</div>}
       {conflict && (
         <div className="ed-conflict">
-          Someone saved this page while you were editing (now v{conflict.version}).
+          Someone saved this engram while you were editing (now v{conflict.version}).
           Your text is kept below; the latest version is shown for comparison.
         </div>
       )}
@@ -219,7 +219,7 @@ export function PageEditor({
             <div
               className="page-body ed-input editor-preview"
               // Safe: renderMarkdown always runs its output through DOMPurify.
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(body, cove) }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(body, space) }}
             />
           ) : (
             <textarea
@@ -238,7 +238,7 @@ export function PageEditor({
           <b>Index line:</b> {indexDescription(body) || "(none yet)"}
         </div>
         <p className="muted ed-note">
-          The first prose line becomes this page's one-line description in the index.
+          The first prose line becomes this engram's one-line description in the index.
         </p>
 
         {conflict && (

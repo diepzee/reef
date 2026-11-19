@@ -1,5 +1,5 @@
 /**
- * Page-path rules for the "new page" form.
+ * Engram-path rules for the "new engram" form.
  *
  * The path shape is a convention of this UI, not a constraint the server
  * enforces — `save_page` stores whatever string it is handed, and the export
@@ -16,7 +16,7 @@
 /** Characters a normalized path may contain. */
 const ALLOWED = /[a-z0-9\-/._]/;
 
-/** Path prefix reserved for the protocol and persona pages. */
+/** Path prefix reserved for the protocol and persona engrams. */
 export const PROTECTED_PREFIX = "meta/";
 
 /**
@@ -26,7 +26,7 @@ export const PROTECTED_PREFIX = "meta/";
  * it is missing. The result is shown back to them, so none of this is a
  * silent rewrite.
  */
-export function normalizePagePath(typed: string): string {
+export function normalizeEngramPath(typed: string): string {
   const trimmed = typed.trim().toLowerCase().replace(/\s+/g, "-");
   if (!trimmed) return "";
   return trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
@@ -37,11 +37,11 @@ export function normalizePagePath(typed: string): string {
  * usable. Written to be read mid-typing, so it names the offending thing
  * rather than restating the whole rule.
  */
-export function pagePathProblem(path: string): string | null {
+export function engramPathProblem(path: string): string | null {
   if (!path) return null;
   if (path.startsWith(PROTECTED_PREFIX)) {
     return (
-      "meta/ is reserved — the protocol and persona pages change only " +
+      "meta/ is reserved — the protocol and persona engrams change only " +
       "through their own dedicated tool, not the web editor."
     );
   }
@@ -60,6 +60,6 @@ export function pagePathProblem(path: string): string | null {
   }
   // Catches both ".md" and "notes/.md" — a path whose filename is nothing
   // but the extension the normalizer just added.
-  if (segments[segments.length - 1] === ".md") return "Give the page a name.";
+  if (segments[segments.length - 1] === ".md") return "Give the engram a name.";
   return null;
 }

@@ -1,26 +1,26 @@
 /**
- * "Create a new page": a path form, then the shared editor in create mode.
+ * "Create a new engram": a path form, then the shared editor in create mode.
  *
  * The path is chosen up front and fixed for the rest of the flow — the
- * editor that follows has no way to rename a page, only to save its body.
+ * editor that follows has no way to rename an engram, only to save its body.
  */
 
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { normalizePagePath, pagePathProblem } from "../pagePath";
-import { PageEditor } from "./Editor";
+import { normalizeEngramPath, engramPathProblem } from "../engramPath";
+import { EngramEditor } from "./Editor";
 
-export default function NewPage() {
-  const { cove = "" } = useParams<{ cove: string }>();
+export default function NewEngram() {
+  const { space = "" } = useParams<{ space: string }>();
 
   const [path, setPath] = useState("");
   const [confirmedPath, setConfirmedPath] = useState<string | null>(null);
 
   // Both derived from what is in the box right now, so the form answers
   // while they type rather than waiting for a rejected submit.
-  const normalized = normalizePagePath(path);
-  const problem = pagePathProblem(normalized);
+  const normalized = normalizeEngramPath(path);
+  const problem = engramPathProblem(normalized);
   const fixed = normalized !== "" && normalized !== path.trim();
 
   function handleSubmit(event: React.FormEvent) {
@@ -31,8 +31,8 @@ export default function NewPage() {
 
   if (confirmedPath) {
     return (
-      <PageEditor
-        cove={cove}
+      <EngramEditor
+        space={space}
         path={confirmedPath}
         mode="create"
         initialTitle=""
@@ -45,7 +45,7 @@ export default function NewPage() {
 
   return (
     <div>
-      <h1>New page</h1>
+      <h1>New engram</h1>
       <form onSubmit={handleSubmit}>
         <div className="ed-field">
           <label htmlFor="new-page-path" className="ed-label">

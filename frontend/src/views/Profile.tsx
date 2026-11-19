@@ -133,7 +133,7 @@ export default function Profile() {
       <section className="profile-block">
         <h2 className="profile-section">Picture</h2>
         <p className="muted profile-note">
-          Shown next to your name, and to the people you share a cove with. It
+          Shown next to your name, and to the people you share a space with. It
           is resized to a {MAX_EDGE}px square before it is stored.
         </p>
         {error && <div className="notice">{error}</div>}

@@ -1,14 +1,14 @@
 /**
- * A colour row and a creature row, for how one viewer sees one cove.
+ * A colour row and a creature row, for how one viewer sees one space.
  *
  * Renders the two rows and nothing around them: no heading and no "only
  * you" note, because both callers already sit inside a section that says
- * so once — the members sheet's "Appearance", and `CoveView`'s for the
- * personal cove. Saying it twice under one heading read as a warning
+ * so once — the members sheet's "Appearance", and `SpaceView`'s for the
+ * personal space. Saying it twice under one heading read as a warning
  * rather than a fact.
  *
  * Both rows lead with a "from its name" tile rather than offering only
- * concrete choices, so a cove can always be put back to the colour and
+ * concrete choices, so a space can always be put back to the colour and
  * creature its name gives it — the state it was in before anyone chose.
  * That tile is painted in the derived value itself, so it shows what
  * choosing it would give you rather than describing it.
@@ -25,8 +25,8 @@ import { useState } from "react";
 
 import { apiSend } from "../api";
 import { useAppearance } from "../useAppearance";
-import { HUE_NAMES, HUES, coveColor } from "./coveColor";
-import { CoveGlyph } from "./coveGlyph";
+import { HUE_NAMES, HUES, spaceColor } from "./spaceColor";
+import { SpaceGlyph } from "./spaceGlyph";
 
 /**
  * Body plans on offer, mirroring `GLYPHS` in `src/reef/appearance.py` — the
@@ -82,7 +82,7 @@ export function LookPicker({ alias }: { alias: string }) {
     try {
       await apiSend(
         "PUT",
-        `/api/coves/${encodeURIComponent(alias)}/appearance`,
+        `/api/spaces/${encodeURIComponent(alias)}/appearance`,
         next,
       );
     } catch {
@@ -93,8 +93,8 @@ export function LookPicker({ alias }: { alias: string }) {
     }
   }
 
-  const preview = coveColor(alias, chosen.color);
-  const derived = coveColor(alias, null);
+  const preview = spaceColor(alias, chosen.color);
+  const derived = spaceColor(alias, null);
 
   return (
     <div className="look">
@@ -159,7 +159,7 @@ export function LookPicker({ alias }: { alias: string }) {
             aria-pressed={chosen.glyph === null}
             onClick={() => choose({ ...chosen, glyph: null })}
           >
-            <CoveGlyph alias={alias} color={preview.base} size={20} family={null} />
+            <SpaceGlyph alias={alias} color={preview.base} size={20} family={null} />
           </button>
           {FAMILY_NAMES.map((family) => (
             <button
@@ -172,7 +172,7 @@ export function LookPicker({ alias }: { alias: string }) {
               aria-pressed={chosen.glyph === family}
               onClick={() => choose({ ...chosen, glyph: family })}
             >
-              <CoveGlyph
+              <SpaceGlyph
                 alias={alias}
                 color={preview.base}
                 size={20}

@@ -1,12 +1,12 @@
 /**
- * Choosing a new page's path: the part of the form that answers while you
+ * Choosing a new engram's path: the part of the form that answers while you
  * type, and the handover to the editor once the path is settled.
  *
- * `pagePath.test.ts` covers normalizing and judging a path as pure
+ * `engramPath.test.ts` covers normalizing and judging a path as pure
  * functions. What is only visible by rendering is whether the answer
  * reaches the screen, whether the button is disabled when it should be,
  * and — the one that matters — that the path the editor goes on to save
- * under is the normalized one. The editor cannot rename a page, so a path
+ * under is the normalized one. The editor cannot rename an engram, so a path
  * that is wrong here is wrong forever.
  *
  * The real editor is rendered rather than a stand-in. That is partly a
@@ -47,13 +47,13 @@ mock.module("../IndexProvider", () => ({
   useIndex: () => ({ refresh: () => Promise.resolve() }),
 }));
 
-const { default: NewPage } = await import("./NewPage");
+const { default: NewEngram } = await import("./NewEngram");
 
-function renderNewPage() {
+function renderNewEngram() {
   render(
     <MemoryRouter initialEntries={["/s/trip/new"]}>
       <Routes>
-        <Route path="/s/:cove/new" element={<NewPage />} />
+        <Route path="/s/:space/new" element={<NewEngram />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -76,12 +76,12 @@ beforeEach(() => {
 afterEach(cleanup);
 
 test("an empty path cannot be submitted", () => {
-  renderNewPage();
+  renderNewEngram();
   expect(submit().disabled).toBe(true);
 });
 
 test("a reserved path is refused with its reason, not silently", () => {
-  renderNewPage();
+  renderNewEngram();
   type("meta/protocol");
   expect(submit().disabled).toBe(true);
   expect(screen.getByLabelText("Path").getAttribute("aria-invalid")).toBe(
@@ -92,38 +92,38 @@ test("a reserved path is refused with its reason, not silently", () => {
 });
 
 test("a path that will be tidied says so before it is accepted", () => {
-  renderNewPage();
+  renderNewEngram();
   type("packing list");
   expect(screen.getByText(/Will be created as/)).toBeDefined();
   expect(submit().disabled).toBe(false);
 });
 
 test("a bad path never reaches the editor", () => {
-  renderNewPage();
+  renderNewEngram();
   type("meta/protocol");
   fireEvent.click(submit());
-  expect(screen.getByText("New page")).toBeDefined();
+  expect(screen.getByText("New engram")).toBeDefined();
   // Still the path form, not the editor's body field.
   expect(screen.queryByLabelText("Body")).toBeNull();
 });
 
 test("continuing opens the editor for the chosen path", () => {
-  renderNewPage();
+  renderNewEngram();
   type("packing list");
   fireEvent.click(submit());
   expect(screen.getByLabelText("Body")).toBeDefined();
 });
 
-test("the page is saved under the normalized path, not what was typed", async () => {
+test("the engram is saved under the normalized path, not what was typed", async () => {
   // The whole point of confirming a path first: the editor has no way to
-  // rename, so this URL is the page's identity from here on.
-  renderNewPage();
+  // rename, so this URL is the engram's identity from here on.
+  renderNewEngram();
   type("packing list");
   fireEvent.click(submit());
   fireEvent.change(screen.getByLabelText("Body"), { target: { value: "hi" } });
   fireEvent.click(screen.getByText("Save"));
   await waitFor(() => expect(sent.length).toBeGreaterThan(0));
-  expect(sent[0]!.path).toBe("/api/pages/trip/packing-list.md");
-  // A brand-new page has no version to expect.
+  expect(sent[0]!.path).toBe("/api/engrams/trip/packing-list.md");
+  // A brand-new engram has no version to expect.
   expect(sent[0]!.body).toMatchObject({ expected_version: null });
 });

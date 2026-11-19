@@ -88,7 +88,7 @@ async def test_opening_an_engram_in_the_web_interface_is_recorded(api, world, se
             principal_for(alice), "team", "plan.md", "x", message="x", via=None
         )
     _login(api, alice)
-    assert (await api.get("/api/pages/team/plan.md")).status_code == 200
+    assert (await api.get("/api/engrams/team/plan.md")).status_code == 200
     rows = await seed.fetch("SELECT via, person_id, session_id FROM engram_access")
     assert [tuple(row) for row in rows] == [("web", alice.id, None)]
 

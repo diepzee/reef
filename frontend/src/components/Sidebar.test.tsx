@@ -1,10 +1,10 @@
 /**
- * The sidebar: the cove list, and the actions that are not coves.
+ * The sidebar: the space list, and the actions that are not spaces.
  *
- * A dot is the mark of a cove in this pane, so a link wearing one that
- * isn't a cove reads as one — "New cove" and "Invite someone" both used to
- * sit in the list and did exactly that. `coveFolds.test.ts` owns the
- * fold-state arithmetic; what is only visible here is which rows are coves,
+ * A dot is the mark of a space in this pane, so a link wearing one that
+ * isn't a space reads as one — "New space" and "Invite someone" both used to
+ * sit in the list and did exactly that. `spaceFolds.test.ts` owns the
+ * fold-state arithmetic; what is only visible here is which rows are spaces,
  * and that the active one is marked as such.
  */
 
@@ -26,7 +26,7 @@ mock.module("../useMembers", () => ({
   useMembers: () => ({ members: null, error: null }),
 }));
 // Both exports: AppShell imports the context to provide it, and a mock
-// missing it breaks that file at import time (see NewPage.test.tsx).
+// missing it breaks that file at import time (see NewEngram.test.tsx).
 mock.module("../useMembersSheet", () => ({
   MembersSheetContext: createContext<unknown>(null),
   useMembersSheet: () => ({ openMembers: () => {} }),
@@ -62,41 +62,41 @@ function renderSidebar(path = "/") {
   );
 }
 
-function cove(alias: string) {
-  return { alias, version: 1, pages: [], attachments: [] };
+function space(alias: string) {
+  return { alias, version: 1, engrams: [], attachments: [] };
 }
 
 beforeEach(() => {
   window.localStorage.clear();
-  index = { coves: [cove("trip"), cove("home")] };
+  index = { spaces: [space("trip"), space("home")] };
 });
 
 afterEach(cleanup);
 
-test("every cove is linked", () => {
+test("every space is linked", () => {
   renderSidebar();
   expect(screen.getByText("trip").closest("a")!.getAttribute("href")).toBe(
     "/s/trip",
   );
 });
 
-test("the index, new cove, and invite are all reachable", () => {
+test("the index, new space, and invite are all reachable", () => {
   renderSidebar();
   expect(screen.getByText("Index").closest("a")!.getAttribute("href")).toBe(
     "/index",
   );
-  expect(screen.getByText(/New cove/).getAttribute("href")).toBe("/coves/new");
+  expect(screen.getByText(/New space/).getAttribute("href")).toBe("/spaces/new");
   expect(screen.getByText(/Invite someone/).getAttribute("href")).toBe(
     "/invite",
   );
 });
 
-test("actions that are not coves do not wear a cove's dot", () => {
-  // The dot means "this is a cove". Lending it to an action makes the pane
+test("actions that are not spaces do not wear a space's dot", () => {
+  // The dot means "this is a space". Lending it to an action makes the pane
   // lie about what it contains.
   renderSidebar();
-  const newCove = screen.getByText(/New cove/);
-  expect(newCove.querySelector(".side-dot")).toBeNull();
+  const newSpace = screen.getByText(/New space/);
+  expect(newSpace.querySelector(".side-dot")).toBeNull();
   const invite = screen.getByText(/Invite someone/);
   expect(invite.querySelector(".side-dot")).toBeNull();
 });
@@ -111,9 +111,9 @@ test("the account menu sits in the sidebar", () => {
   expect(screen.getByRole("button", { name: /Wouter/ })).toBeDefined();
 });
 
-test("a reef with no coves yet still renders its actions", () => {
+test("a reef with no spaces yet still renders its actions", () => {
   // A brand-new account lands here before it has made anything.
-  index = { coves: [] };
+  index = { spaces: [] };
   renderSidebar();
-  expect(screen.getByText(/New cove/)).toBeDefined();
+  expect(screen.getByText(/New space/)).toBeDefined();
 });

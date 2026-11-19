@@ -1,17 +1,17 @@
 /**
- * The landing view: every cove the principal can see, as tappable cards.
+ * The landing view: every space the principal can see, as tappable cards.
  *
- * `GET /api/index` already orders the personal cove first, so this view
+ * `GET /api/index` already orders the personal space first, so this view
  * only renders what comes back — no client-side sort.
  *
- * Each card carries the identity pass's per-cove hue: a gradient stripe
- * across the top, a tinted frond chip, and (for shared coves) a small
- * avatar stack of that cove's members via `useMembers`. `useMembers` is
- * module-cached per cove alias (see its docstring), so one call per card
- * here dedupes against any other mounted consumer of the same cove
- * (Sidebar, CoveView, PageView) rather than issuing a fresh fetch — an
- * explicitly accepted per-card call, not an N+1 (cove counts are small).
- * The personal cove has no membership to administer, so its card shows
+ * Each card carries the identity pass's per-space hue: a gradient stripe
+ * across the top, a tinted frond chip, and (for shared spaces) a small
+ * avatar stack of that space's members via `useMembers`. `useMembers` is
+ * module-cached per space alias (see its docstring), so one call per card
+ * here dedupes against any other mounted consumer of the same space
+ * (Sidebar, SpaceView, EngramView) rather than issuing a fresh fetch — an
+ * explicitly accepted per-card call, not an N+1 (space counts are small).
+ * The personal space has no membership to administer, so its card shows
  * "only you" instead of a stack, matching every other "only you" surface.
  */
 
@@ -19,24 +19,24 @@ import { useState, type CSSProperties } from "react";
 import { Link } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
-import { CoveGraph } from "../components/CoveGraph";
-import { CoveGlyph } from "../components/coveGlyph";
+import { SpaceGraph } from "../components/SpaceGraph";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { organismFor } from "../components/organisms";
 import { useIndex } from "../IndexProvider";
 import { useMembers } from "../useMembers";
-import { getCovesView, setCovesView, type CovesView } from "../covesView";
-import type { CoveIndex } from "../types";
-import { useCoveLook } from "../useAppearance";
+import { getSpacesView, setSpacesView, type SpacesView } from "../spacesView";
+import type { SpaceIndex } from "../types";
+import { useSpaceLook } from "../useAppearance";
 
 /**
- * The organism family a cove actually grew, in words.
+ * The organism family a space actually grew, in words.
  *
- * `useCoveLook` hands back the family the viewer *chose*, which is usually
+ * `useSpaceLook` hands back the family the viewer *chose*, which is usually
  * null; the grown one comes from the same alias-seeded pipeline the glyph
  * draws, so this asks `organismFor` rather than trusting the override.
  * Case is left to `.data-voice`, which upper-cases it.
  *
- * :param alias: the cove's alias, which seeds the individual
+ * :param alias: the space's alias, which seeds the individual
  * :param chosen: a body plan the viewer picked, if any
  * :returns: the family in lower case, camelCase split into words
  */
@@ -46,30 +46,30 @@ function familyLabel(alias: string, chosen: string | null): string {
     .toLowerCase();
 }
 
-/** One cove's card: hue stripe, tinted frond chip, alias, subline, and (shared coves) its member stack. */
-function CoveCard({ cove }: { cove: CoveIndex }) {
-  const isPersonal = cove.alias === "personal";
-  const { hue, family } = useCoveLook()(cove.alias);
-  const { members } = useMembers(cove.alias);
-  const pageCount = cove.pages.length;
+/** One space's card: hue stripe, tinted frond chip, alias, subline, and (shared spaces) its member stack. */
+function SpaceCard({ space }: { space: SpaceIndex }) {
+  const isPersonal = space.alias === "personal";
+  const { hue, family } = useSpaceLook()(space.alias);
+  const { members } = useMembers(space.alias);
+  const engramCount = space.engrams.length;
 
   return (
     <Link
-      to={`/s/${cove.alias}`}
-      className="card cove-card"
+      to={`/s/${space.alias}`}
+      className="card space-card"
       style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
     >
-      <span className="cove-card-stripe" aria-hidden="true" />
-      <span className="cove-card-row">
-        <span className="cove-card-chip" aria-hidden="true">
-          <CoveGlyph alias={cove.alias} color={hue.base} size={32} family={family} />
+      <span className="space-card-stripe" aria-hidden="true" />
+      <span className="space-card-row">
+        <span className="space-card-chip" aria-hidden="true">
+          <SpaceGlyph alias={space.alias} color={hue.base} size={32} family={family} />
         </span>
-        <span className="cove-card-text">
-          <span className="cove-card-alias">
-            {cove.alias}
+        <span className="space-card-text">
+          <span className="space-card-alias">
+            {space.alias}
           </span>
-          <span className="cove-card-sub muted">
-            {pageCount} page{pageCount === 1 ? "" : "s"}
+          <span className="space-card-sub muted">
+            {engramCount} engram{engramCount === 1 ? "" : "s"}
             {isPersonal ? " · only you" : ""}
           </span>
         </span>
@@ -80,7 +80,7 @@ function CoveCard({ cove }: { cove: CoveIndex }) {
               src: member.avatar,
             }))}
             size="sm"
-            ariaLabel={`Members of ${cove.alias}`}
+            ariaLabel={`Members of ${space.alias}`}
           />
         )}
       </span>
@@ -88,29 +88,29 @@ function CoveCard({ cove }: { cove: CoveIndex }) {
   );
 }
 
-/** One cove as a grid tile: coral glyph in a circular hue "pool", alias, subline. */
-function CoveTile({ cove }: { cove: CoveIndex }) {
-  const isPersonal = cove.alias === "personal";
-  const { hue, family } = useCoveLook()(cove.alias);
-  const { members } = useMembers(cove.alias);
-  const pageCount = cove.pages.length;
+/** One space as a grid tile: coral glyph in a circular hue "pool", alias, subline. */
+function SpaceTile({ space }: { space: SpaceIndex }) {
+  const isPersonal = space.alias === "personal";
+  const { hue, family } = useSpaceLook()(space.alias);
+  const { members } = useMembers(space.alias);
+  const engramCount = space.engrams.length;
 
   return (
     <Link
-      to={`/s/${cove.alias}`}
-      className="card cove-tile"
+      to={`/s/${space.alias}`}
+      className="card space-tile"
       style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
     >
-      <span className="cove-tile-pool" aria-hidden="true">
-        <CoveGlyph alias={cove.alias} color={hue.base} size={44} family={family} />
+      <span className="space-tile-pool" aria-hidden="true">
+        <SpaceGlyph alias={space.alias} color={hue.base} size={44} family={family} />
       </span>
-      <span className="cove-card-alias">{isPersonal ? "Personal" : cove.alias}</span>
-      <span className="cove-card-sub muted">
-        {pageCount} page{pageCount === 1 ? "" : "s"}
+      <span className="space-card-alias">{isPersonal ? "Personal" : space.alias}</span>
+      <span className="space-card-sub muted">
+        {engramCount} engram{engramCount === 1 ? "" : "s"}
         {isPersonal ? " · only you" : ""}
       </span>
-      <span className="cove-card-taxon data-voice">
-        {familyLabel(cove.alias, family)}
+      <span className="space-card-taxon data-voice">
+        {familyLabel(space.alias, family)}
       </span>
       {!isPersonal && members && (
         <AvatarStack
@@ -119,7 +119,7 @@ function CoveTile({ cove }: { cove: CoveIndex }) {
             src: member.avatar,
           }))}
           size="sm"
-          ariaLabel={`Members of ${cove.alias}`}
+          ariaLabel={`Members of ${space.alias}`}
         />
       )}
     </Link>
@@ -128,18 +128,18 @@ function CoveTile({ cove }: { cove: CoveIndex }) {
 
 export default function Home() {
   const { index, error } = useIndex();
-  const coves = index?.coves ?? null;
-  const [view, setView] = useState<CovesView>(getCovesView);
+  const spaces = index?.spaces ?? null;
+  const [view, setView] = useState<SpacesView>(getSpacesView);
 
-  function pick(next: CovesView) {
+  function pick(next: SpacesView) {
     setView(next);
-    setCovesView(next);
+    setSpacesView(next);
   }
 
   return (
     <div>
-      <div className="coves-head">
-        <h1>Coves</h1>
+      <div className="spaces-head">
+        <h1>Spaces</h1>
         <Link to="/index" className="index-shortcut">
           Index
         </Link>
@@ -205,49 +205,49 @@ export default function Home() {
         </div>
       </div>
       {error && <div className="notice">{error}</div>}
-      {!error && coves === null && <p className="muted">Loading…</p>}
-      {coves !== null && coves.length === 0 && (
-        <p className="muted">No coves yet.</p>
+      {!error && spaces === null && <p className="muted">Loading…</p>}
+      {spaces !== null && spaces.length === 0 && (
+        <p className="muted">No spaces yet.</p>
       )}
       {view === "list" && (
         <>
           <ul className="card-list">
-            {coves?.map((cove) => (
-              <li key={cove.alias}>
-                <CoveCard cove={cove} />
+            {spaces?.map((space) => (
+              <li key={space.alias}>
+                <SpaceCard space={space} />
               </li>
             ))}
           </ul>
           <p>
-            <Link to="/coves/new" className="button">
-              New cove
+            <Link to="/spaces/new" className="button">
+              New space
             </Link>
           </p>
         </>
       )}
       {view === "grid" && (
         <ul className="tile-grid">
-          {coves?.map((cove) => (
-            <li key={cove.alias}>
-              <CoveTile cove={cove} />
+          {spaces?.map((space) => (
+            <li key={space.alias}>
+              <SpaceTile space={space} />
             </li>
           ))}
           <li>
-            <Link to="/coves/new" className="card cove-tile cove-tile-new">
-              <span className="cove-tile-plus" aria-hidden="true">
+            <Link to="/spaces/new" className="card space-tile space-tile-new">
+              <span className="space-tile-plus" aria-hidden="true">
                 +
               </span>
-              New cove
+              New space
             </Link>
           </li>
         </ul>
       )}
       {view === "graph" && (
         <>
-          {coves && <CoveGraph coves={coves} />}
+          {spaces && <SpaceGraph spaces={spaces} />}
           <p>
-            <Link to="/coves/new" className="button">
-              New cove
+            <Link to="/spaces/new" className="button">
+              New space
             </Link>
           </p>
         </>

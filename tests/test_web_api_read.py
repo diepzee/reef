@@ -57,7 +57,7 @@ async def test_index_is_sliced_per_person(api, world):
     _login(api, bob)
     response = await api.get("/api/index")
     assert response.status_code == 200
-    aliases = {space["alias"] for space in response.json()["coves"]}
+    aliases = {space["alias"] for space in response.json()["spaces"]}
     assert aliases == {"personal", "team"}
 
 
@@ -98,13 +98,13 @@ async def test_get_engram_and_404(api, world):
             message="seed",
         )
     _login(api, bob)
-    engram = (await api.get("/api/pages/team/notes/plan.md")).json()
+    engram = (await api.get("/api/engrams/team/notes/plan.md")).json()
     assert engram["body"].startswith("# Plan")
     assert engram["version"] == 1
     assert engram["last_editor"] == "Alice"
-    missing = await api.get("/api/pages/team/notes/absent.md")
+    missing = await api.get("/api/engrams/team/notes/absent.md")
     assert missing.status_code == 404
-    foreign = await api.get("/api/pages/other-cove/notes/plan.md")
+    foreign = await api.get("/api/engrams/other-space/notes/plan.md")
     assert foreign.status_code == 404
 
 

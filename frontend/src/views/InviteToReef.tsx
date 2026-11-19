@@ -1,9 +1,9 @@
 /**
  * The "invite someone to reef" form: an address, and nothing shared.
  *
- * Distinct from the cove invite in `MembersSheet`, which grants permanent
- * sight of a cove's contents. This one only puts an address on the
- * allowlist, so the invitee arrives in their own private personal cove —
+ * Distinct from the space invite in `MembersSheet`, which grants permanent
+ * sight of a space's contents. This one only puts an address on the
+ * allowlist, so the invitee arrives in their own private personal space —
  * which is what makes it safe to send to someone merely curious.
  *
  * reef sends no invitation email, so the success state's job is to hand the inviter
@@ -77,7 +77,7 @@ export default function InviteToReef() {
       <h1>Invite to <span className="reef-name">reef</span></h1>
       <p className="muted">
         They get their own private <span className="reef-name">reef</span>. Nothing of yours is shared — to share a
-        cove, use the members panel on that cove instead.
+        space, use the members panel on that space instead.
       </p>
 
       {error && <div className="notice"><ReefText text={error} /></div>}

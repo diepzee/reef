@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { pageMetaSentence } from "./pageMeta";
+import { engramMetaSentence } from "./engramMeta";
 
-test("shared cove, editor, version", () => {
-  const s = pageMetaSentence({
-    cove: "reef",
+test("shared space, editor, version", () => {
+  const s = engramMetaSentence({
+    space: "reef",
     personal: false,
     lastEditor: "Wouter",
     updated: new Date(Date.now() - 7200_000).toISOString(),
@@ -14,9 +14,9 @@ test("shared cove, editor, version", () => {
   expect(s).toContain("v2");
 });
 
-test("personal cove says only you; null editor omitted", () => {
-  const s = pageMetaSentence({
-    cove: "personal",
+test("personal space says only you; null editor omitted", () => {
+  const s = engramMetaSentence({
+    space: "personal",
     personal: true,
     lastEditor: null,
     updated: new Date().toISOString(),

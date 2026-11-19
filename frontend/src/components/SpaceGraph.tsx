@@ -1,20 +1,20 @@
 /**
- * A deterministic, dependency-free SVG map of coves and their references.
+ * A deterministic, dependency-free SVG map of spaces and their references.
  *
- * Colour comes from `useCoveLook`, not `coveColor` directly: this view used
+ * Colour comes from `useSpaceLook`, not `spaceColor` directly: this view used
  * to derive every hue from the alias alone, so it was the one surface that
- * went on showing a cove in a colour its viewer had explicitly changed. Each
- * node also carries the cove's own organism, so a node is identifiable as
- * the same cove the sidebar and cards show.
+ * went on showing a space in a colour its viewer had explicitly changed. Each
+ * node also carries the space's own organism, so a node is identifiable as
+ * the same space the sidebar and cards show.
  */
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
 
-import { coveConnections } from "../coveGraph";
-import type { CoveIndex } from "../types";
-import { useCoveLook } from "../useAppearance";
-import { CoveGlyph } from "./coveGlyph";
+import { spaceConnections } from "../spaceGraph";
+import type { SpaceIndex } from "../types";
+import { useSpaceLook } from "../useAppearance";
+import { SpaceGlyph } from "./spaceGlyph";
 
 interface Point {
   x: number;
@@ -25,22 +25,22 @@ const WIDTH = 960;
 const HEIGHT = 600;
 const NODE_RADIUS = 58;
 
-/** Arrange every cove around an ellipse, with useful two- and one-node layouts. */
-function layout(coves: CoveIndex[]): Map<string, Point> {
-  if (coves.length === 1) {
-    return new Map([[coves[0]!.alias, { x: WIDTH / 2, y: HEIGHT / 2 }]]);
+/** Arrange every space around an ellipse, with useful two- and one-node layouts. */
+function layout(spaces: SpaceIndex[]): Map<string, Point> {
+  if (spaces.length === 1) {
+    return new Map([[spaces[0]!.alias, { x: WIDTH / 2, y: HEIGHT / 2 }]]);
   }
-  if (coves.length === 2) {
+  if (spaces.length === 2) {
     return new Map([
-      [coves[0]!.alias, { x: 260, y: HEIGHT / 2 }],
-      [coves[1]!.alias, { x: 700, y: HEIGHT / 2 }],
+      [spaces[0]!.alias, { x: 260, y: HEIGHT / 2 }],
+      [spaces[1]!.alias, { x: 700, y: HEIGHT / 2 }],
     ]);
   }
   return new Map(
-    coves.map((cove, index) => {
-      const angle = -Math.PI / 2 + (index * Math.PI * 2) / coves.length;
+    spaces.map((space, index) => {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / spaces.length;
       return [
-        cove.alias,
+        space.alias,
         {
           x: WIDTH / 2 + Math.cos(angle) * 350,
           y: HEIGHT / 2 + Math.sin(angle) * 210,
@@ -65,31 +65,31 @@ function shortAlias(alias: string): string {
   return alias.length > 13 ? `${alias.slice(0, 11)}…` : alias;
 }
 
-export function CoveGraph({ coves }: { coves: CoveIndex[] }) {
-  const connections = coveConnections(coves);
-  const positions = layout(coves);
+export function SpaceGraph({ spaces }: { spaces: SpaceIndex[] }) {
+  const connections = spaceConnections(spaces);
+  const positions = layout(spaces);
   const [active, setActive] = useState<string | null>(null);
-  const look = useCoveLook();
+  const look = useSpaceLook();
 
   return (
     <div className="graph-wrap">
       <div className="graph-scroll">
         <svg
-          className="cove-graph"
+          className="space-graph"
           viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
           role="img"
-          aria-labelledby="cove-graph-title cove-graph-desc"
+          aria-labelledby="space-graph-title space-graph-desc"
         >
-          <title id="cove-graph-title">Cove reference graph</title>
-          <desc id="cove-graph-desc">
-            Coves are nodes. Arrows show wiki references from pages in one cove to pages
+          <title id="space-graph-title">Space reference graph</title>
+          <desc id="space-graph-desc">
+            Spaces are nodes. Arrows show wiki references from engrams in one space to engrams
             in another.
           </desc>
           <defs>
             {connections.map((connection, index) => (
               <marker
                 key={`${connection.source}-${connection.target}`}
-                id={`cove-arrow-${index}`}
+                id={`space-arrow-${index}`}
                 viewBox="0 0 10 10"
                 refX="8"
                 refY="5"
@@ -127,8 +127,8 @@ export function CoveGraph({ coves }: { coves: CoveIndex[] }) {
                 active !== null && active !== connection.source && active !== connection.target;
               const label = `${connection.source} to ${connection.target}: ${connection.referenceCount} ${
                 connection.referenceCount === 1 ? "reference" : "references"
-              } from ${connection.sourcePageCount} ${
-                connection.sourcePageCount === 1 ? "page" : "pages"
+              } from ${connection.sourceEngramCount} ${
+                connection.sourceEngramCount === 1 ? "engram" : "engrams"
               }`;
 
               return (
@@ -141,7 +141,7 @@ export function CoveGraph({ coves }: { coves: CoveIndex[] }) {
                     d={`M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`}
                     stroke={look(connection.source).hue.base}
                     strokeWidth={Math.min(5, 2 + Math.log2(connection.referenceCount))}
-                    markerEnd={`url(#cove-arrow-${index})`}
+                    markerEnd={`url(#space-arrow-${index})`}
                   />
                   <circle cx={control.x} cy={control.y} r="12" className="graph-edge-count-bg" />
                   <text x={control.x} y={control.y + 4} className="graph-edge-count">
@@ -152,40 +152,40 @@ export function CoveGraph({ coves }: { coves: CoveIndex[] }) {
             })}
           </g>
 
-          {coves.map((cove) => {
-            const point = positions.get(cove.alias)!;
-            const { hue, family } = look(cove.alias);
-            const isDimmed = active !== null && active !== cove.alias;
+          {spaces.map((space) => {
+            const point = positions.get(space.alias)!;
+            const { hue, family } = look(space.alias);
+            const isDimmed = active !== null && active !== space.alias;
             return (
               <Link
-                key={cove.alias}
-                to={`/s/${cove.alias}`}
+                key={space.alias}
+                to={`/s/${space.alias}`}
                 className={`graph-node-link ${isDimmed ? "graph-dimmed" : ""}`}
-                onMouseEnter={() => setActive(cove.alias)}
+                onMouseEnter={() => setActive(space.alias)}
                 onMouseLeave={() => setActive(null)}
-                onFocus={() => setActive(cove.alias)}
+                onFocus={() => setActive(space.alias)}
                 onBlur={() => setActive(null)}
               >
                 <g transform={`translate(${point.x} ${point.y})`}>
                   <title>
-                    {cove.alias}, {cove.pages.length} {cove.pages.length === 1 ? "page" : "pages"}
+                    {space.alias}, {space.engrams.length} {space.engrams.length === 1 ? "engram" : "engrams"}
                   </title>
                   <circle r={NODE_RADIUS} className="graph-node" style={{ stroke: hue.base }} />
                   {/* A nested <svg> lands at its group's origin, so the
                       translate is what centres the 26px organism. */}
                   <g transform="translate(-13 -44)">
-                    <CoveGlyph
-                      alias={cove.alias}
+                    <SpaceGlyph
+                      alias={space.alias}
                       color={hue.base}
                       size={26}
                       family={family}
                     />
                   </g>
                   <text y="-5" className="graph-node-name">
-                    {shortAlias(cove.alias)}
+                    {shortAlias(space.alias)}
                   </text>
                   <text y="18" className="graph-node-count">
-                    {cove.pages.length} {cove.pages.length === 1 ? "page" : "pages"}
+                    {space.engrams.length} {space.engrams.length === 1 ? "engram" : "engrams"}
                   </text>
                 </g>
               </Link>
@@ -195,18 +195,18 @@ export function CoveGraph({ coves }: { coves: CoveIndex[] }) {
       </div>
 
       <p className="graph-key muted">
-        Arrows follow <code>[[cove:page.md]]</code> references. The number is the count
-        of resolved page references.
+        Arrows follow <code>[[space:engram.md]]</code> references. The number is the count
+        of resolved engram references.
       </p>
       {connections.length === 0 ? (
-        <p className="graph-empty muted">No cross-cove references yet.</p>
+        <p className="graph-empty muted">No cross-space references yet.</p>
       ) : (
         <ul className="sr-only">
           {connections.map((connection) => (
             <li key={`${connection.source}-${connection.target}`}>
               {connection.source} references {connection.target} {connection.referenceCount}{" "}
               {connection.referenceCount === 1 ? "time" : "times"} from{" "}
-              {connection.sourcePageCount} {connection.sourcePageCount === 1 ? "page" : "pages"}.
+              {connection.sourceEngramCount} {connection.sourceEngramCount === 1 ? "engram" : "engrams"}.
             </li>
           ))}
         </ul>

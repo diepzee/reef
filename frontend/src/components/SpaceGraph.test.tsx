@@ -1,9 +1,9 @@
 /**
- * The cove graph: a picture of the whole reef.
+ * The space graph: a picture of the whole reef.
  *
  * A drawing that carries information has to describe itself, or it is
  * simply absent for anyone not looking at it. `organisms.test.ts` and
- * `coveColor.test.ts` already cover the geometry and hues underneath.
+ * `spaceColor.test.ts` already cover the geometry and hues underneath.
  */
 
 import { afterEach, expect, test } from "bun:test";
@@ -11,27 +11,27 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { AppearanceContext } from "../useAppearance";
-import { CoveGraph } from "./CoveGraph";
+import { SpaceGraph } from "./SpaceGraph";
 
-/** Render the graph for `coves`, under the contexts it expects. */
-function renderGraph(coves: unknown[]) {
+/** Render the graph for `spaces`, under the contexts it expects. */
+function renderGraph(spaces: unknown[]) {
   return render(
     <AppearanceContext.Provider
       value={{ appearance: {} as never, setAppearance: () => {} }}
     >
       <MemoryRouter>
-        <CoveGraph coves={coves as never} />
+        <SpaceGraph spaces={spaces as never} />
       </MemoryRouter>
     </AppearanceContext.Provider>,
   );
 }
 
-/** One cove's index row, with `pages` pages in it. */
-function cove(alias: string, pages = 2) {
+/** One space's index row, with `engrams` engrams in it. */
+function space(alias: string, engrams = 2) {
   return {
     alias,
     version: 1,
-    pages: Array.from({ length: pages }, (_, i) => ({
+    engrams: Array.from({ length: engrams }, (_, i) => ({
       path: `p${i}.md`,
       title: `P${i}`,
       tags: [],
@@ -46,7 +46,7 @@ function cove(alias: string, pages = 2) {
 afterEach(cleanup);
 
 test("the drawing describes itself rather than being a silent picture", () => {
-  renderGraph([cove("trip"), cove("home")]);
+  renderGraph([space("trip"), space("home")]);
   expect(screen.getByRole("img")).toBeDefined();
   // aria-labelledby points at a title and description that actually exist.
   const svg = screen.getByRole("img");
@@ -61,7 +61,7 @@ test("an empty reef still renders instead of throwing", () => {
   expect(container.querySelector("svg")).not.toBeNull();
 });
 
-test("a cove with no pages is drawn too", () => {
-  const { container } = renderGraph([cove("trip", 0)]);
+test("a space with no engrams is drawn too", () => {
+  const { container } = renderGraph([space("trip", 0)]);
   expect(container.querySelector("svg")).not.toBeNull();
 });
