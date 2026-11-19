@@ -8,8 +8,9 @@ The MCP tools are thin shells over these functions; HTTP shells can follow.
 in :data:`REGISTRY`, cuts the reason to
 :data:`~reef.rls.CALL_LOG_MAX_REASON` characters, times the call and records
 it in the private call log (:func:`reef.calllog.record`), whether the method
-returned or raised. A method that raised is recorded with the error's class
-as its outcome, and the error is raised again unchanged.
+returned or raised. A method that raised is recorded with an outcome that
+names the failure (see :func:`outcome_of`), and the error is raised again
+unchanged.
 
 **Transactions are the method's own.** A method opens the short
 transactions it needs, armed for the caller, as
@@ -147,7 +148,7 @@ def method[**P, R: dict | list](
             try:
                 result = await fn(caller, reason, *args, **kwargs)
             except Exception as error:
-                await _record(caller, name, reason, started, 0, type(error).__name__)
+                await _record(caller, name, reason, started, 0, outcome_of(error))
                 raise
             await _record(caller, name, reason, started, _count(result), OK)
             return result
@@ -156,6 +157,21 @@ def method[**P, R: dict | list](
         return wrapper
 
     return decorate
+
+
+def outcome_of(error: Exception) -> str:
+    """Name a failure for the call log.
+
+    A :class:`MethodError` is named by its code, such as ``stale_token``, so
+    the log tells one refusal from another. Any other error is named by its
+    class.
+
+    :param error: the error that ended the call
+    :returns: the outcome to record
+    """
+    if isinstance(error, MethodError):
+        return error.code
+    return type(error).__name__
 
 
 def _count(result: dict | list) -> int:
@@ -192,7 +208,7 @@ async def _record(
     :param reason: why, already cut
     :param started: :func:`time.perf_counter` when the call began
     :param count: how many items the call returned
-    :param outcome: :data:`OK`, or the class of the error that ended the call
+    :param outcome: :data:`OK`, or what :func:`outcome_of` names the failure
     """
     await calllog.record(
         caller.principal,

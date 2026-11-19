@@ -86,9 +86,11 @@ def unseal(token: str, *, secret: str, now: float | None = None) -> dict | None:
         payload = _unb64(encoded)
     except ValueError:
         return None
-    # Compared as bytes: compare_digest refuses a str with non-ASCII text.
-    expected = _sign(payload, secret).encode()
-    if not hmac.compare_digest(expected, signature.encode()):
+    # A real signature is base64url, so ASCII; anything else is a defect,
+    # and refusing it here keeps encode() and compare_digest from raising.
+    if not signature.isascii():
+        return None
+    if not hmac.compare_digest(_sign(payload, secret).encode(), signature.encode()):
         return None
     try:
         doc = json.loads(payload)
