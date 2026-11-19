@@ -350,6 +350,11 @@ def test_reorder_follows_the_best_passage_of_each_row():
     assert reorder([a, b, c, d], 3, [0, 1], [0.1, 0.5]) == [b, a, c, d]
 
 
+def test_reorder_leaves_an_unread_candidate_in_its_place():
+    a, b, c = (("page", uuid4()) for _ in range(3))
+    assert reorder([a, b, c], 3, [1, 2], [0.1, 0.9]) == [a, c, b]
+
+
 def test_reorder_keeps_ties_in_their_old_order():
     a, b = ("page", uuid4()), ("page", uuid4())
     assert reorder([a, b], 2, [0, 1], [1.0, 1.0]) == [a, b]
@@ -408,6 +413,11 @@ def test_both_answer_shapes_are_read(answer):
         {"data": []},
         "junk",
         None,
+        [
+            {"index": 0, "score": 5.0},
+            {"index": 0, "score": -3.0},
+            {"index": 1, "score": 1},
+        ],
     ],
 )
 def test_a_bad_answer_is_refused(answer):
@@ -429,6 +439,7 @@ async def test_the_http_client_speaks_the_rerank_protocol(monkeypatch):
     original = httpx.AsyncClient
 
     def client(**kwargs):
+        seen["trust_env"] = kwargs.get("trust_env")
         return original(transport=transport, **kwargs)
 
     monkeypatch.setattr(httpx, "AsyncClient", client)
@@ -436,3 +447,180 @@ async def test_the_http_client_speaks_the_rerank_protocol(monkeypatch):
     assert await reranker.score("q", ["d"]) == [0.5]
     assert seen["url"] == "http://reranker.internal/v1/rerank"
     assert b'"documents":["d"]' in seen["body"].replace(b" ", b"")
+    # A proxy from the environment would carry page text elsewhere.
+    assert seen["trust_env"] is False
+
+
+# --- found in review -----------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("status", "counts"),
+    [
+        (400, False),
+        (413, False),
+        (422, False),
+        (307, True),
+        (401, True),
+        (404, True),
+        (429, True),
+        (503, True),
+    ],
+)
+async def test_only_a_refused_query_is_not_a_failure(
+    tx, household, reranker, status, counts
+):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    request = httpx.Request("POST", "http://reranker.internal/v1/rerank")
+    reranker.fail = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(status, request=request)
+    )
+    await search_pages(me, "boiler")
+    assert rerank.breaker.failures == (1 if counts else 0)
+
+
+async def test_a_failure_logs_its_status(tx, household, reranker, caplog):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    request = httpx.Request("POST", "http://reranker.internal/v1/rerank")
+    reranker.fail = httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(404, request=request)
+    )
+    with caplog.at_level("WARNING"):
+        await search_pages(me, "boiler")
+    assert "HTTPStatusError 404" in caplog.text
+
+
+async def test_a_search_without_a_request_does_not_use_up_the_trial(
+    tx, household, reranker
+):
+    """After a rest, the trial belongs to a search that really asks."""
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    rerank.breaker.failures = rerank.breaker.threshold
+    rerank.breaker.resting_until = 0.0  # the rest is over
+    assert await search_pages(me, "nothing-matches-this") == []
+    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    assert rerank.breaker.failures == 0
+
+
+async def test_non_numbers_from_a_reranker_keep_the_order(
+    tx, household, reranker, monkeypatch
+):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    before = _paths(await search_pages(me, "boiler", rerank=False))
+
+    async def odd(query: str, documents: list[str]) -> list:
+        return [float("nan")] * len(documents)
+
+    monkeypatch.setattr(reranker, "score", odd)
+    assert _paths(await search_pages(me, "boiler")) == before
+
+
+async def test_a_failed_read_of_passages_keeps_the_order(
+    tx, household, reranker, monkeypatch
+):
+    from reef import search
+
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    before = _paths(await search_pages(me, "boiler", rerank=False))
+    monkeypatch.setattr(search, "_PAGE_TEXT_SQL", "SELECT no_such_column {} {} {}")
+    assert _paths(await search_pages(me, "boiler")) == before
+    assert reranker.calls == []
+
+
+async def test_a_page_with_no_text_is_read_by_its_title(tx, household, reranker):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    await save_page(
+        me, "personal", "empty.md", "   ", message="x", title=f"Boiler {ANSWER}"
+    )
+    results = _paths(await search_pages(me, "boiler"))
+    assert f"Boiler {ANSWER}" in reranker.sent
+    assert results[0] in {"empty.md", "answer.md"}
+
+
+async def test_scoping_to_one_cove_holds_for_the_reranker(tx, household, reranker):
+    partner = principal_for(household["partner"])
+    await save_page(partner, "household", "ours.md", "boiler in the hall", message="x")
+    await save_page(
+        partner, "household", "ours2.md", "boiler in the attic", message="x"
+    )
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    results = await search_pages(me, "boiler", cove="household")
+    assert {r["cove"] for r in results} == {"household"}
+    assert "note 0" not in reranker.sent
+
+
+async def test_a_page_deleted_while_the_reranker_reads_is_not_shown(
+    tx, household, reranker, monkeypatch
+):
+    from reef.pages import delete_page
+
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    original = reranker.score
+
+    async def meanwhile(query: str, documents: list[str]) -> list[float]:
+        await delete_page(me, "personal", "answer.md")
+        return await original(query, documents)
+
+    monkeypatch.setattr(reranker, "score", meanwhile)
+    assert "answer.md" not in _paths(await search_pages(me, "boiler"))
+
+
+async def test_a_cove_left_while_the_reranker_reads_is_not_shown(
+    tx, household, reranker, monkeypatch
+):
+    from reef.coves import leave_cove
+
+    partner = principal_for(household["partner"])
+    await save_page(partner, "household", "shared.md", "boiler zebra", message="x")
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    original = reranker.score
+
+    async def meanwhile(query: str, documents: list[str]) -> list[float]:
+        await leave_cove(me, "household")
+        return await original(query, documents)
+
+    monkeypatch.setattr(reranker, "score", meanwhile)
+    assert "shared.md" not in _paths(await search_pages(me, "boiler"))
+
+
+async def test_the_search_log_works_outside_a_transaction(
+    household, reranker, monkeypatch
+):
+    from reef.models import SearchLog
+
+    monkeypatch.setattr(get_settings(), "search_log", True)
+    me = principal_for(household["wouter"])
+    async with transaction_scope():
+        await _boilers(me)
+    await search_pages(me, "boiler", log=True)
+    async with transaction_scope():
+        await arm(me)
+        rows = await SearchLog.raw("SELECT page_ids FROM search_log")
+    assert len(rows) == 1 and rows[0]["page_ids"]
+
+
+async def test_the_search_tools_ask_no_model_inside_a_transaction(
+    household, reranker, embedder, monkeypatch
+):
+    from reef.server import search
+    from reef.server import search_pages as search_tool
+
+    me = principal_for(household["wouter"])
+    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
+    async with transaction_scope():
+        await _boilers(me)
+    results = await search_tool("boiler")
+    assert results and results[0]["path"] == "answer.md"
+    connector = await search("boiler")
+    assert len(connector["results"]) > 1
+    assert reranker.in_transaction == [False, False]
+    assert embedder.in_transaction == [False, False]

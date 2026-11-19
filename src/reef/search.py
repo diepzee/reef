@@ -32,8 +32,10 @@ the Dutch stemmer. A query is parsed under both configurations and the two
 are ORed, so either reading of a word can match.
 """
 
+import asyncio
 import logging
 import re
+from dataclasses import dataclass, field
 from uuid import UUID
 
 from reef import embedding, searchlog, sections
@@ -285,8 +287,13 @@ _PASSAGES_SQL = """
     ORDER BY ranked.page_id, ranked.n
 """
 
+#: The text of candidate pages. Whole for a page whose best pieces are
+#: known, since any piece may be among them. Otherwise only as much as the
+#: whole-page piece holds: that is all that will be read.
 _PAGE_TEXT_SQL = (
-    "SELECT id, title, description, body FROM pages WHERE id = ANY({}::uuid[])"
+    "SELECT id, title, description, "
+    "CASE WHEN id = ANY({}::uuid[]) THEN body ELSE left(body, {}) END AS body "
+    "FROM pages WHERE id = ANY({}::uuid[])"
 )
 
 _FILE_TEXT_SQL = (
@@ -473,54 +480,100 @@ async def _best_anchors(
     return best
 
 
-async def _passages(
-    candidates: list[tuple[str, UUID]], embedded: tuple[str, list[float]] | None
-) -> tuple[list[str], list[int]]:
-    """Collect what the reranker reads of each candidate.
+@dataclass
+class _Reading:
+    """What phase 1 read for the reranker, before any text is cut."""
 
-    A page gives its pieces closest to the query, cut as for embedding, so
-    each carries its title and heading in front. A page without vectors
-    gives its start. A file gives its name and description. Everything is
-    read under the caller's row security, so the reranker can only ever be
-    sent text the caller could open anyway.
+    candidates: list[tuple[str, UUID]]
+    anchors: dict[UUID, list[str | None]] = field(default_factory=dict)
+    pages: list[dict] = field(default_factory=list)
+    files: list[dict] = field(default_factory=list)
+
+
+async def _read_candidates(
+    candidates: list[tuple[str, UUID]], embedded: tuple[str, list[float]] | None
+) -> _Reading:
+    """Read what the reranker will be sent of each candidate.
+
+    Everything is read under the caller's row security, so the reranker can
+    only ever be sent text the caller could open anyway. The reads run in a
+    savepoint: if one fails, nothing is read again, and the search answers
+    in the order it had.
+
+    Cutting the pages into pieces is left to :func:`_documents`, outside
+    the transaction: on long pages it takes long enough to matter.
 
     :param candidates: kind and id of the rows to read again, best first
     :param embedded: the model's name and the query's vector, if any
-    :returns: the passages, and for each the position of its candidate
+    :returns: what was read; no candidates if the reads failed
     """
     page_ids = [row_id for kind, row_id in candidates if kind == "page"]
     file_ids = [row_id for kind, row_id in candidates if kind == "file"]
-    best = await _best_anchors(page_ids, embedded, get_settings().rerank_passages)
-    texts: dict[tuple[str, UUID], list[str]] = {}
-    if page_ids:
-        for row in await Page.raw(
-            _PAGE_TEXT_SQL, [str(page_id) for page_id in page_ids]
-        ):
-            pieces = sections.split(
-                row["title"] or "",
-                row["description"] or summary(row["body"]),
-                row["body"],
+    settings = get_settings()
+    anchors = await _best_anchors(page_ids, embedded, settings.rerank_passages)
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        pages = (
+            await Page.raw(
+                _PAGE_TEXT_SQL,
+                [str(page_id) for page_id in anchors],
+                sections.PAGE_CHARS,
+                [str(page_id) for page_id in page_ids],
             )
-            if not pieces:
-                continue
-            by_anchor = {piece.anchor: piece.text for piece in pieces}
-            texts[("page", row["id"])] = [
-                by_anchor[anchor]
-                for anchor in best.get(row["id"], [])
-                if anchor in by_anchor
-            ] or [pieces[0].text]
-    if file_ids:
-        for row in await Page.raw(
-            _FILE_TEXT_SQL,
-            [str(file_id) for file_id in file_ids],
-            AttachmentStatus.READY.value,
-        ):
-            texts[("file", row["id"])] = [
-                f"{row['filename']}\n\n{row['description'] or ''}".strip()
-            ]
+            if page_ids
+            else []
+        )
+        files = (
+            await Page.raw(
+                _FILE_TEXT_SQL,
+                [str(file_id) for file_id in file_ids],
+                AttachmentStatus.READY.value,
+            )
+            if file_ids
+            else []
+        )
+    # Broad on purpose: without passages the search keeps its order.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search keeps its order (%s)", type(error).__name__)
+        return _Reading(candidates=[])
+    await savepoint.release()
+    return _Reading(candidates, anchors, list(pages), list(files))
+
+
+def _documents(reading: _Reading) -> tuple[list[str], list[int]]:
+    """Cut what was read into the passages the reranker reads.
+
+    A page gives its pieces closest to the query, cut as for embedding, so
+    each carries its title and heading in front. A page without vectors
+    gives its start. A page with no text gives its title and description.
+    A file gives its name and description. Pure, so it can run in a thread.
+
+    :param reading: what :func:`_read_candidates` read
+    :returns: the passages, and for each the position of its candidate
+    """
+    texts: dict[tuple[str, UUID], list[str]] = {}
+    for row in reading.pages:
+        title, body = row["title"] or "", row["body"] or ""
+        description = row["description"] or summary(body)
+        pieces = sections.split(title, description, body)
+        if not pieces:
+            label = "\n".join(part for part in (title, description) if part)
+            texts[("page", row["id"])] = [label] if label else []
+            continue
+        by_anchor = {piece.anchor: piece.text for piece in pieces}
+        texts[("page", row["id"])] = [
+            by_anchor[anchor]
+            for anchor in reading.anchors.get(row["id"], [])
+            if anchor in by_anchor
+        ] or [pieces[0].text]
+    for row in reading.files:
+        texts[("file", row["id"])] = [
+            f"{row['filename']}\n\n{row['description'] or ''}".strip()
+        ]
     documents: list[str] = []
     owners: list[int] = []
-    for position, key in enumerate(candidates):
+    for position, key in enumerate(reading.candidates):
         for text in texts.get(key, []):
             documents.append(text)
             owners.append(position)
@@ -536,8 +589,7 @@ def reorder(
     """Put the first ``count`` rows of a ranking in the reranker's order.
 
     A row scores by its best passage. A candidate the reranker read nothing
-    of keeps its place after those it did read. Rows past ``count`` keep
-    their order and follow.
+    of keeps its own place. Rows past ``count`` keep their order and follow.
 
     :param ranking: kind and id of every row, best first
     :param count: how many rows were candidates
@@ -548,9 +600,13 @@ def reorder(
     best: dict[int, float] = {}
     for position, score in zip(owners, scores, strict=True):
         best[position] = max(best.get(position, score), score)
-    read = sorted(best, key=lambda position: (-best[position], position))
-    unread = [position for position in range(count) if position not in best]
-    return [ranking[position] for position in read + unread] + ranking[count:]
+    read = iter(sorted(best, key=lambda position: (-best[position], position)))
+    # A candidate the reranker read nothing of keeps its own place; the
+    # ones it read fill the other places in its order.
+    order = [
+        position if position not in best else next(read) for position in range(count)
+    ]
+    return [ranking[position] for position in order] + ranking[count:]
 
 
 async def _record(log_it: bool, principal: Principal, query: str, rows: list) -> None:
@@ -634,9 +690,7 @@ async def search_pages(
     exact = _EXACT.search(query) is not None
     embedded = await embedding.embed_question(query) if semantic and not exact else None
     reread = rerank and not exact and reranking.wanted()
-    candidates: list[tuple[str, UUID]] = []
-    documents: list[str] = []
-    owners: list[int] = []
+    reading = _Reading(candidates=[])
     async with transaction_scope():
         aliases = await alias_map(principal)
         ready = AttachmentStatus.READY.value
@@ -691,13 +745,16 @@ async def search_pages(
                 max(limit, get_settings().rerank_candidates),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
-        if reread:
-            candidates = ranking[: get_settings().rerank_candidates]
-            documents, owners = await _passages(candidates, embedded)
-    if len(candidates) > 1 and documents:
-        scores = await reranking.rerank(query, documents)
+        if reread and len(ranking) > 1:
+            reading = await _read_candidates(
+                ranking[: get_settings().rerank_candidates], embedded
+            )
+    if reading.candidates:
+        # In a thread: cutting long pages would hold up every other request.
+        documents, owners = await asyncio.to_thread(_documents, reading)
+        scores = await reranking.rerank(query, documents) if documents else None
         if scores is not None:
-            ranking = reorder(ranking, len(candidates), owners, scores)
+            ranking = reorder(ranking, len(reading.candidates), owners, scores)
     chosen = ranking[:limit]
     async with transaction_scope():
         await arm(principal)

@@ -32,7 +32,7 @@ from typing import Protocol
 
 import httpx
 
-from reef.breaker import Breaker
+from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 
 #: How much of the query is sent, in characters.
@@ -97,7 +97,9 @@ class HttpReranker:
         :raises BadAnswer: if the answer is not one score per passage
         :raises httpx.HTTPError: if the service cannot be reached or refuses
         """
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # trust_env=False: a proxy set in the environment would carry page
+        # text somewhere other than this address.
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             response = await client.post(
                 f"{self.url}/v1/rerank",
                 json={
@@ -131,6 +133,8 @@ def scores_from(answer: object, count: int) -> list[float]:
             # bound also refuses NaN, which compares false.
             if type(index) is not int or type(value) not in (int, float):
                 raise BadAnswer("not a score")
+            if index in found:
+                raise BadAnswer("a document scored twice")
             if not -_MAX_SCORE <= value <= _MAX_SCORE:
                 raise BadAnswer("an impossible score")
             found[index] = float(value)
@@ -166,20 +170,25 @@ breaker = Breaker(FAILURES_TO_REST, REST_SECONDS, PROBE_SECONDS)
 def wanted() -> bool:
     """Say whether a search should prepare passages for the reranker.
 
-    Cheap, and asks nothing of the service. A search checks it before it
-    collects passages, so a resting or absent reranker costs no reads.
+    Cheap, asks nothing of the service, and changes nothing: the trial
+    after a rest is claimed by :func:`rerank`, when a request really
+    follows. A search checks it before it collects passages, so a resting
+    or absent reranker costs no reads.
 
-    :returns: True if there is a reranker and it may be asked now
+    :returns: True if there is a reranker and it is not being left alone
     """
-    return get_reranker() is not None and breaker.ready()
+    return get_reranker() is not None and not breaker.resting()
 
 
 async def rerank(query: str, documents: list[str]) -> list[float] | None:
     """Score passages against a query, quickly or not at all.
 
     Call it outside any transaction: it can take ``REEF_RERANK_SECONDS``,
-    and a transaction would hold a database connection all that time. Call
-    it only after :func:`wanted` said yes in the same search.
+    and a transaction would hold a database connection all that time.
+
+    A question the service refuses (see :data:`reef.breaker.REFUSALS`), or
+    an answer that is not scores, does not count as a failure of the
+    service. Every other error does.
 
     :param query: the query as typed
     :param documents: the passages, already chosen
@@ -189,22 +198,28 @@ async def rerank(query: str, documents: list[str]) -> list[float] | None:
     reranker = get_reranker()
     if reranker is None or not documents:
         return None
+    seconds = get_settings().rerank_seconds
+    if not breaker.ready(probe_seconds=seconds + 1):
+        return None
     try:
-        async with asyncio.timeout(get_settings().rerank_seconds):
+        async with asyncio.timeout(seconds):
             scores = await reranker.score(
                 query[:QUERY_CHARS], [text[:PASSAGE_CHARS] for text in documents]
             )
-        if not isinstance(scores, list) or len(scores) != len(documents):
-            raise BadAnswer("wrong number of scores")
+        if (
+            not isinstance(scores, list)
+            or len(scores) != len(documents)
+            or not all(
+                type(x) in (int, float) and -_MAX_SCORE <= x <= _MAX_SCORE
+                for x in scores
+            )
+        ):
+            raise BadAnswer("not one score per document")
     # Broad on purpose: whatever went wrong, the search must still answer.
     except Exception as error:  # noqa: BLE001
-        refused = (
-            isinstance(error, httpx.HTTPStatusError)
-            and error.response.status_code < 500
-        )
-        if not refused and not isinstance(error, BadAnswer):
+        if not is_refusal(error) and not isinstance(error, BadAnswer):
             breaker.failed()
-        log.warning("search keeps its order (%s)", type(error).__name__)
+        log.warning("search keeps its order (%s)", describe(error))
         return None
     breaker.succeeded()
-    return scores
+    return [float(x) for x in scores]

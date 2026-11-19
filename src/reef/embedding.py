@@ -46,7 +46,7 @@ import httpx
 
 from reef import sections
 from reef.access import Principal, arm
-from reef.breaker import Breaker
+from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 from reef.indexfields import summary
 from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_PAGE, enqueue
@@ -195,7 +195,9 @@ class HttpEmbedder:
         :raises httpx.HTTPError: if the service cannot be reached or refuses
         """
         vectors: list[list[float]] = []
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # trust_env=False: a proxy set in the environment would carry page
+        # text somewhere other than this address.
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             for start in range(0, len(texts), BATCH):
                 response = await client.post(
                     f"{self.url}/v1/embeddings",
@@ -249,8 +251,9 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
 
     After :data:`FAILURES_TO_REST` failures in a row the service is left
     alone for :data:`REST_SECONDS`, see :data:`breaker`. A question the
-    service refuses, or an answer that is not a vector, does not count as a
-    failure: those say something about one question, not about the service.
+    service refuses (see :data:`reef.breaker.REFUSALS`), or an answer that
+    is not a vector, does not count as a failure: those say something about
+    one question, not about the service.
 
     Call it outside any transaction: it can take ``REEF_EMBEDDING_SECONDS``,
     and a transaction would hold a database connection all that time.
@@ -277,13 +280,9 @@ async def embed_question(text: str) -> tuple[str, list[float]] | None:
             raise BadEmbedding("a vector of zeros")
     # Broad on purpose: whatever went wrong, the search must still answer.
     except Exception as error:  # noqa: BLE001
-        refused = (
-            isinstance(error, httpx.HTTPStatusError)
-            and error.response.status_code < 500
-        )
-        if not refused and not isinstance(error, BadEmbedding):
+        if not is_refusal(error) and not isinstance(error, BadEmbedding):
             breaker.failed()
-        log.warning("search answers by keywords alone (%s)", type(error).__name__)
+        log.warning("search answers by keywords alone (%s)", describe(error))
         return None
     breaker.succeeded()
     return embedder.model_id, vector

@@ -1,6 +1,7 @@
 import os
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: What settings are spelled with now.
@@ -108,7 +109,7 @@ class Settings(BaseSettings):
     # How long a search waits for its query's vector. Past it, the search
     # answers by keywords alone. A search that waits longer than this is
     # worse than a keyword search that answers.
-    embedding_seconds: float = 2.0
+    embedding_seconds: float = Field(2.0, gt=0)
     # Where the reranker is: a cross-encoder that reads each top result next
     # to the query and orders them again. Empty means there is none. The
     # query and passages of the person's own pages are sent to this
@@ -122,11 +123,11 @@ class Settings(BaseSettings):
     # How many of the first results are read again, and how many of each
     # page's pieces closest to the query are read. Measured on 18 November
     # 2026: 15 and 2 kept most of the gain of 30 and 2, at half the time.
-    rerank_candidates: int = 15
-    rerank_passages: int = 2
+    rerank_candidates: int = Field(15, ge=2, le=50)
+    rerank_passages: int = Field(2, ge=1, le=10)
     # How long a search waits for the reranker. Past it, the search answers
     # in the order it had.
-    rerank_seconds: float = 3.0
+    rerank_seconds: float = Field(3.0, gt=0)
 
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:

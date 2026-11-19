@@ -725,7 +725,8 @@ default** and runs as soon as `REEF_RERANK_URL` is set on `reef-app`. The
 worker does not use it.
 
 - **The address must be ours**, as for embeddings. Each search sends the
-  query and passages of pages the person can already read.
+  query, passages of pages the person can already read, and the names and
+  descriptions of their stored files.
 - **The protocol** is `POST /v1/rerank` with a model, a query and a list
   of documents, as llama.cpp (`--reranking`), vLLM and Infinity answer it.
   The plain-list answer of text-embeddings-inference is read too.
@@ -739,7 +740,10 @@ worker does not use it.
   keeps the order it had. After three failures in a row searches leave
   the service alone for a minute, then one search tries again. A query
   the service refuses does not count. `reef-app` logs
-  `search keeps its order` with the class of the error, never text.
+  `search keeps its order` with the class of the error and any HTTP
+  status, never text. A status of 400, 413 or 422 is the service refusing
+  one query and does not count as a failure; any other does, a redirect,
+  401, 404 or 429 included.
 - **The off switch** is `REEF_RERANK_ENABLED=0`. It stops reranking at once
   without removing the address.
 - **No model call holds a database connection.** A search embeds its

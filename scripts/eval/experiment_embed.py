@@ -254,8 +254,14 @@ async def lexical_rankings(
         found: dict[str, list[str]] = {}
         for question in questions:
             async with transaction_scope():
+                # Keyword search alone: the experiment builds the rest itself.
                 hits = await search_pages(
-                    principal, question.text, cove="personal", limit=DEPTH
+                    principal,
+                    question.text,
+                    cove="personal",
+                    limit=DEPTH,
+                    semantic=False,
+                    rerank=False,
                 )
             found[question.id] = [h["path"] for h in hits if h["kind"] == "page"]
         return found
