@@ -118,6 +118,12 @@ code with EmbeddingGemma 300m on a local Ollama.
 |---|---|---|---|---|---|
 | 19 Nov 2026 | `lexical` | 37.5% | 18.7% | 0.262 | 0.25 s |
 | 19 Nov 2026 | `hybrid` | 46.8% | 25.1% | 0.333 | 0.60 s |
+| 19 Nov 2026 | `rerank` | 56.8% | 33.8% | 0.424 | 2.66 s |
+
+`rerank` used `BAAI/bge-reranker-v2-m3` through `rerank_server.py` on an M4
+Pro's graphics chip, 15 candidates, 2 passages each. Its time is the whole
+search. On a server without a graphics chip it will be slower; measure it
+there before relying on the default time limit of 3 seconds.
 
 Add a row to the table whenever a change to search moves the numbers.
 
