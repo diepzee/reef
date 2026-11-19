@@ -7,8 +7,8 @@ target, then reports the resulting total and engram count.
 
 The measurement itself is a human step this script does not perform: after
 each run, from the actual Claude mobile app, ask the assistant to
-``load_all_context`` and record ``engram_count``, ``included_count``, and
-whether every listed non-null body arrived intact in
+``open`` every ref that ``load_index`` lists, and record how many engrams
+arrived and whether every body arrived intact in
 ``docs/superpowers/plans/context-limits.md``. Once all three runs (roughly
 60 KB, 200 KB, 500 KB) are recorded, delete the scratch engram by running this
 script with a target of ``0``.

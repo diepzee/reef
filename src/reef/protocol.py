@@ -18,8 +18,8 @@ PROTOCOL = (Path(__file__).parent / "protocol.md").read_text()
 
 PERSONA_STUB = (
     "# Persona\n\nNot yet written. This is a first meeting: introduce "
-    "yourself, ask what the user would like to call you, and interview "
-    "gently to fill this engram in."
+    "yourself, ask what the person would like to call you, and interview "
+    "gently. Once they agree to the wording, save it with `instruct`."
 )
 
 
@@ -28,7 +28,7 @@ async def build_instructions(principal: Principal) -> str:
 
     The protocol is the packaged product text — any ``meta/protocol.md``
     engram left over from the old design is ignored. The persona is an
-    ordinary engram (editable through ``update_meta_page``, with revision
+    ordinary engram (changed through ``instruct``, with revision
     history), read from the caller's own personal space so it is never
     shared between people.
 

@@ -43,7 +43,7 @@ _RESERVED_PREFIXES = ("personal",)
 
 Reserving the whole ``personal`` prefix, not just the exact alias, does two
 jobs. It stops a space whose name renders as the private one in
-``list_coves`` — a confused-deputy path into an attacker's space — and it
+``load_index`` — a confused-deputy path into an attacker's space — and it
 stops a squat on ``personal-{person.id.hex}``, the slug
 :func:`ensure_personal_space` derives. That slug is globally unique, so a
 squat would make the victim's first sign-in raise inside
@@ -76,7 +76,7 @@ async def _membership(person_id: UUID, space_id: UUID) -> Membership | None:
 async def member_roster(space_id: UUID) -> list[dict]:
     """Return a space's members, sorted by display name.
 
-    Both consent surfaces read through this: ``list_coves`` tells a person
+    Both consent surfaces read through this: ``load_index`` tells a person
     who is in the room, ``prepare_promotion``'s warning names every reader a
     share is about to reach, and the web members panel needs addresses to key
     removal by.

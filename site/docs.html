@@ -337,10 +337,12 @@ footer a { color: var(--muted); }
 <ol>
   <li>The assistant calls <code>load_index</code> and gets a map of every engram it
     may see: path, title, tags, and the one-line description. No engram bodies.</li>
-  <li>It reads the map, decides what this conversation needs, and fetches only
-    that with <code>read_pages</code>.</li>
-  <li>It fetches again as the topic moves. When the map alone cannot settle what
-    to read, <code>search_pages</code> matches words inside engram bodies.</li>
+  <li>It reads the map, decides what this conversation needs, and asks
+    <code>recall</code>, which returns the passages that best answer the
+    question.</li>
+  <li>When passages are not enough, it reads whole engrams with
+    <code>open</code>. For advice or preparation, <code>brief</code> gathers
+    everything that bears on a topic.</li>
 </ol>
 <p>
   The index is rebuilt from the database on every call, so it cannot fall out of
@@ -369,10 +371,10 @@ footer a { color: var(--muted); }
 <p>For edits to real engrams rather than the inbox, an assistant uses:</p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>write_page</code></td><td>Creates or replaces one engram.</td></tr>
-  <tr><td><code>write_pages</code></td><td>Writes several engrams as one change.</td></tr>
-  <tr><td><code>edit_page_section</code></td><td>Replaces one section, leaving the rest of the engram untouched.</td></tr>
-  <tr><td><code>update_meta_page</code></td><td>Updates a space's own index engram.</td></tr>
+  <tr><td><code>log</code></td><td>Adds one entry to the end of a journal, training log or meeting notes. Nothing else changes.</td></tr>
+  <tr><td><code>write</code></td><td>Creates or replaces whole engrams, up to 20 at once, all or nothing.</td></tr>
+  <tr><td><code>correct</code></td><td>Replaces one exact passage, leaving the rest of the engram untouched.</td></tr>
+  <tr><td><code>undo</code></td><td>Restores an earlier version of an engram.</td></tr>
 </table>
 
 <h2 id="connect">Connect an assistant</h2>
@@ -436,10 +438,10 @@ claude plugin install reef@haai</code></pre>
 </p>
 <pre><code>reef login
 reef load-index
-reef read-pages personal profile.md preferences.md
-reef write-page personal plans.md --body-file ./plans.md \
-  --message "Add the summer plan" --title Plans
-reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
+reef recall "when is the boiler serviced?"
+reef open personal/profile.md personal/preferences.md
+reef log personal climbing-log.md --heading "2026-11-19" --entry "Sent the blue route."
+reef call open '{"refs":["personal/plans.md"]}'</code></pre>
 <p>
   <code>reef call</code> takes any tool name and a JSON object, so it reaches
   everything the named commands do. Run <code>reef tools</code> for the live
@@ -481,62 +483,61 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
 
 <h2 id="tools">Tool reference</h2>
 <p>
-  These are the tools an assistant sees over MCP, and the commands the CLI
-  mirrors. Every one that touches a space takes a <code>cove</code> argument.
+  These are the sixteen tools an assistant sees over MCP, and the commands the
+  CLI mirrors. Every tool but <code>search</code> and <code>fetch</code> takes a
+  <code>reason</code>: a few words from your request, which
+  <span class="reef-name">reef</span> logs privately for you, to improve
+  <span class="reef-name">reef</span>.
 </p>
 <p><b>Reading</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>load_index</code></td><td>The map of every engram you may see — no bodies.</td></tr>
-  <tr><td><code>read_pages</code></td><td>Fetches several engrams from one space.</td></tr>
-  <tr><td><code>read_page</code></td><td>Fetches one engram, optionally as it stood at a past date.</td></tr>
-  <tr><td><code>search_pages</code></td><td>Matches words inside engram bodies.</td></tr>
-  <tr><td><code>load_all_context</code></td><td>Everything at once — for small spaces, or a fresh start.</td></tr>
-  <tr><td><code>whats_new</code></td><td>What has changed since you last looked.</td></tr>
-  <tr><td><code>get_operating_protocol</code></td><td>The rules an assistant should follow here.</td></tr>
+  <tr><td><code>load_index</code></td><td>Where a conversation starts: the rules an assistant follows, your persona, and the map of every engram and file you may see. No bodies.</td></tr>
+  <tr><td><code>recall</code></td><td>Answers a question with the passages that fit best, and where each comes from.</td></tr>
+  <tr><td><code>brief</code></td><td>Gathers what bears on a topic, to advise or prepare you.</td></tr>
+  <tr><td><code>open</code></td><td>Reads whole engrams and stored files, optionally as they stood at a past date.</td></tr>
+  <tr><td><code>catch_up</code></td><td>What has changed in your spaces, and who changed it.</td></tr>
 </table>
 <p><b>Writing</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
   <tr><td><code>remember</code></td><td>Stages a fact as a dated line in the space's inbox.</td></tr>
-  <tr><td><code>write_page</code></td><td>Creates or replaces one engram.</td></tr>
-  <tr><td><code>write_pages</code></td><td>Writes several engrams as one change.</td></tr>
-  <tr><td><code>edit_page_section</code></td><td>Replaces one section of an engram.</td></tr>
-  <tr><td><code>update_meta_page</code></td><td>Updates a space's own index engram.</td></tr>
-  <tr><td><code>delete_page</code></td><td>Removes an engram.</td></tr>
+  <tr><td><code>log</code></td><td>Adds one entry to the end of a log.</td></tr>
+  <tr><td><code>write</code></td><td>Creates or replaces whole engrams.</td></tr>
+  <tr><td><code>correct</code></td><td>Replaces one exact passage of an engram.</td></tr>
+  <tr><td><code>undo</code></td><td>Restores an earlier version of an engram.</td></tr>
+  <tr><td><code>store_file</code></td><td>Keeps a document or an image, with a description to find it by.</td></tr>
 </table>
-<p><b>Spaces</b></p>
+<p><b>Changes that need your yes</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>list_coves</code></td><td>The spaces you are in.</td></tr>
-  <tr><td><code>create_cove</code></td><td>Makes a new shared space.</td></tr>
-  <tr><td><code>rename_cove</code></td><td>Changes your own name for a space.</td></tr>
-  <tr><td><code>leave_cove</code></td><td>Removes you from a space.</td></tr>
-  <tr><td><code>delete_cove</code></td><td>Deletes a space and its engrams.</td></tr>
+  <tr><td><code>share</code></td><td>Moves a personal engram, or one section of it, into a shared space.</td></tr>
+  <tr><td><code>forget</code></td><td>Deletes an engram and its history, or a stored file, for good.</td></tr>
+  <tr><td><code>instruct</code></td><td>Replaces your persona, which every assistant of yours follows.</td></tr>
 </table>
-<p><b>People and sharing</b></p>
+<p>
+  Each of these takes two calls. The first changes nothing and shows the effect.
+  The second happens only after you say yes.
+</p>
+<p><b>For connectors</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>invite</code></td><td>Adds someone to one of your spaces.</td></tr>
-  <tr><td><code>invite_to_reef</code></td><td>Brings someone new onto <span class="reef-name">reef</span>.</td></tr>
-  <tr><td><code>remove_member</code></td><td>Takes someone out of a space.</td></tr>
-  <tr><td><code>prepare_to_share</code></td><td>Shows the exact text, and who would read it.</td></tr>
-  <tr><td><code>confirm_share</code></td><td>Moves it, once you have seen it.</td></tr>
+  <tr><td><code>search</code></td><td>Finds engrams and files by words, for connectors that can call only two tools.</td></tr>
+  <tr><td><code>fetch</code></td><td>Retrieves one result of <code>search</code>.</td></tr>
 </table>
-<p><b>Files and images</b></p>
-<table>
-  <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>add_file</code> · <code>read_file</code> · <code>delete_file</code></td><td>Documents attached to a space.</td></tr>
-  <tr><td><code>add_image</code> · <code>read_image</code> · <code>delete_image</code></td><td>Images attached to a space.</td></tr>
-</table>
+<p>
+  Creating, renaming and deleting spaces, and inviting and removing members,
+  are done on the <span class="reef-name">reef</span> website, by you. An
+  assistant cannot do them.
+</p>
 
 <h2 id="sharing">Sharing and invitations</h2>
 <p>
   <b>Sharing is deliberate and permanent.</b> Moving something out of your
   private space takes two steps. First your assistant calls
-  <code>prepare_to_share</code>, which shows you the exact text and names
-  everyone who will be able to read it. Only then, with
-  <code>confirm_share</code>, does it move.
+  <code>share</code>, which shows you the exact text and names everyone who
+  will be able to read it. Only after your yes does it call <code>share</code>
+  again, and the text moves.
 </p>
 <p>
   Writing private content into a shared space any other way is refused — not
@@ -551,10 +552,9 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   </p>
 </div>
 <p>
-  Invite someone already on <span class="reef-name">reef</span> into a space with
-  <code>invite</code>. For someone new, <code>invite_to_reef</code> brings them
-  on. Both are addressed to an email, and that address is the one they must sign
-  in with.
+  You invite people on the <span class="reef-name">reef</span> website, to a
+  space or to <span class="reef-name">reef</span> itself. An invitation is
+  addressed to an email, and that address is the one they must sign in with.
 </p>
 
 <h2 id="your-data">Your data</h2>
@@ -618,7 +618,7 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
 <p>
   Space names are per person. Their name for a space is not necessarily yours, so
   ask what is on the engrams rather than what the space is called — or check
-  <code>list_coves</code> for what you actually have. If it is nowhere, you
+  <code>load_index</code> for what you actually have. If it is nowhere, you
   have not been invited to it yet.
 </p>
 

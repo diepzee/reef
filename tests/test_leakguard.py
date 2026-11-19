@@ -62,7 +62,7 @@ async def test_a_personal_engram_cannot_be_written_straight_into_a_space(househo
 
     async with transaction_scope():
         private = await get_engram(wouter, "personal", "health.md")
-        with pytest.raises(PrivateContentLeak, match="prepare_to_share"):
+        with pytest.raises(PrivateContentLeak, match="share"):
             await save_engram(
                 wouter, "household", "notes.md", private.body, message="notes"
             )

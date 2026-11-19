@@ -258,8 +258,8 @@ fallback is a web app for her, not a redesign.
 ## Phase 2 — Who is allowed in
 
 **Why this matters:** WorkOS authenticates anyone who signs up. Something else
-has to turn "authenticated" into "allowed", and that something is now the
-`invite` tool, not a hand-edited migration. Inviting an email address creates
+has to turn "authenticated" into "allowed", and that something is now an
+invitation made on the Reef website, not a hand-edited migration. Inviting an email address creates
 the person's row (if new) and their membership row *before* they have ever
 signed in; an authenticated stranger nobody invited is denied by
 `principal_from_claims`, and RLS denies them rows even if that check were
@@ -271,18 +271,16 @@ solo today.
 
 ### Bringing anyone else in
 
-As the space's owner, from any connected assistant:
-
-```
-invite(cove="household", email="<their-email>", display_name="<their-name>")
-```
+As the space's owner, on the Reef website: open the space, choose to invite
+someone, and enter their email and name. (Assistants cannot invite: the
+sixteen tools have no administration.)
 
 Then the person signs in to AuthKit with that exact address. On that first
 sign-in `rif` binds their provider subject, creates their own personal space,
 and seeds `meta/persona.md` there for them. Nothing else is needed — no
 migration, no restart. (The operating protocol is not seeded: since 9 Aug
 2026 it ships with the product in `src/reef/protocol.md`, versioned with the
-code so improvements reach every member on deploy. `update_meta_page`
+code so improvements reach every member on deploy. `instruct`
 accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
 Wouter's personal space and the shared space were deleted, and the shared
@@ -298,9 +296,9 @@ Two things to get right:
 - **Say out loud what an invite grants** before you call it. The invitee will
   permanently see everything in that space, past and future; the tool returns a
   disclosure line with today's engram count for exactly this reason. Removal
-  (`remove_member`) stops future access — it cannot unshare what was read.
+  (on the website) stops future access — it cannot unshare what was read.
 
-If you typo an address, `remove_member` on the invite you never got to use also
+If you typo an address, removing that member on the website you never got to use also
 erases the orphaned person row, so the mistake leaves nothing behind.
 
 ---
@@ -309,7 +307,7 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 
 > **Done, 6 Aug 2026.** The real service runs at
 > `rif-app-production.up.railway.app` — since 11 Aug 2026 also, and by
-> preference, at `reefwith.me` — and step 3's check passes: `list_coves`
+> preference, at `reefwith.me` — and step 3's check passes: `load_index`
 > returned exactly `personal` and the shared space (then aliased `household`,
 > briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal space identifiers
 > and nothing belonging to anyone else.
@@ -355,7 +353,7 @@ spike service and for recovering when a bad commit is already on `main`.
    ```
 
    If the wrong person came out owner, reassign before anyone relies on
-   owner-only tools (`invite`, `remove_member`):
+   owner-only actions (inviting and removing members):
 
    ```sql
    UPDATE spaces SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
@@ -363,7 +361,7 @@ spike service and for recovering when a bad commit is already on `main`.
    ```
 3. **Swap the connector** on both accounts from the spike URL to the real
    `/mcp` URL (same domain if you reused the service — then nothing to swap).
-4. **Verify, on each phone:** `list_coves` returns that person's `personal`
+4. **Verify, on each phone:** `load_index` lists that person's `personal`
    space plus every shared space they belong to, with each space's member list
    — never a space they were never invited to, never anyone else's `personal`
    space (addressing is `personal` or a slug, and membership decides the rest;
@@ -901,7 +899,7 @@ nothing moves by inference.
    railway run uv run python scripts/import_mark.py <scratch-dir> wouter@rugvin.be
    ```
 
-4. **Verify from both sides:** your phone — `load_all_context` shows
+4. **Verify from both sides:** your phone — `load_index` and `open` show
    everything; her phone — the shared space's engrams visible, none of yours.
    This is the
    moment the privacy design faces reality; look at it directly.
@@ -911,8 +909,8 @@ nothing moves by inference.
 ## Phase 6 — Protocol and personas
 
 > **Step 1 done, 6 Aug 2026** — but written in the shared space, which no
-> longer works: `update_meta_page` now refuses any space but `personal`, and
-> `get_operating_protocol` never read the shared copy in the first place.
+> longer works: `instruct` now refuses any space but `personal`, and
+> `load_index` never read the shared copy in the first place.
 > **Rewrite it in your personal space.** **Step 2 is not done either:**
 > `meta/persona.md` is still the 157-byte placeholder from the first end-to-end
 > test, while every other engram got real content. It is the engram that steers the
@@ -922,12 +920,12 @@ nothing moves by inference.
 The code ships a built-in fallback protocol, but the real thing is content:
 
 1. **The protocol lives in each person's own personal space, not a shared one.**
-   `get_operating_protocol` reads `meta/protocol.md` only from the personal
+   `load_index` reads `meta/protocol.md` only from the personal
    space it is called for, never from `household` or any other shared space — the
    protocol and the persona are per-person. Anyone invited after go-live gets
    both engrams created for them at first sign-in, seeded from the built-in
    template. You were seeded by migration rather than by invite, so write your
-   own: `update_meta_page` in your **personal** space (or ask any connected
+   own: `instruct` in your **personal** space (or ask any connected
    assistant) with the operating rules — load context first, compile don't
    dump, private-by-default routing, promote-only-with-consent — plus the
    **onboarding behavior**: an assistant meeting an empty personal space
@@ -945,8 +943,8 @@ The code ships a built-in fallback protocol, but the real thing is content:
 
 > **Open.** Less urgent than it looks: `load_index` is the primary retrieval
 > path and carries no bodies, so ordinary use no longer pushes against the
-> ceiling. It is `load_all_context` — the maintenance path — that needs a
-> measured budget. Note that step 1 pads the *real* corpus, so run it after
+> ceiling. The bulk read a tidy-up needs (`load_index`, then `open` on many refs) is
+> what needs a measured budget. Note that step 1 pads the *real* corpus, so run it after
 > Phase 4's backup is proven, not before.
 
 **Why:** the server counts body characters; the client cares about serialized
@@ -956,8 +954,8 @@ budget must come from measurement on the real device, not arithmetic.
 1. `railway run uv run python scripts/measure_context.py wouter@rugvin.be <size>`
    to pad the corpus to ~60KB, then ~200KB, then ~500KB.
 2. After each: from the Claude mobile app, ask the assistant to
-   `load_all_context` and report `engram_count`, `included_count`, and whether
-   every non-null body arrived intact (the payload is built so a host-side cut
+   `open` every ref `load_index` lists and report how many engrams it received
+   and whether every body arrived intact (the payload is built so a host-side cut
    is detectable — a mismatch means truncation in transit).
 3. Record results in `docs/superpowers/plans/context-limits.md`; set
    `REEF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
