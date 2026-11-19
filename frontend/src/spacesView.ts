@@ -1,5 +1,5 @@
 /**
- * The Coves screen's persisted view preference (spec: "Main screen").
+ * The Spaces screen's persisted view preference (spec: "Main screen").
  * localStorage-backed so it survives reloads without a server round-trip;
  * unknown/absent values fall back to the default rather than throwing.
  * Accessed via `window.localStorage` (not the bare global) so the module
@@ -7,12 +7,12 @@
  * `window` but no top-level `localStorage` binding.
  */
 
-export type CovesView = "list" | "grid" | "graph";
+export type SpacesView = "list" | "grid" | "graph";
 
-const KEY = "reef.covesView";
+const KEY = "reef.spacesView";
 
 /** Read the persisted view, defaulting to `"list"` for absent or junk values. */
-export function getCovesView(): CovesView {
+export function getSpacesView(): SpacesView {
   try {
     const stored = window.localStorage.getItem(KEY);
     return stored === "grid" || stored === "graph" ? stored : "list";
@@ -22,7 +22,7 @@ export function getCovesView(): CovesView {
 }
 
 /** Persist the chosen view. Storage failures (private mode) are non-fatal. */
-export function setCovesView(view: CovesView): void {
+export function setSpacesView(view: SpacesView): void {
   try {
     window.localStorage.setItem(KEY, view);
   } catch {

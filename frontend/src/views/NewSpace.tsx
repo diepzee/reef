@@ -1,5 +1,5 @@
 /**
- * The "create a shared cove" form: one slug field, one submit.
+ * The "create a shared space" form: one slug field, one submit.
  *
  * A 400 from the backend (invalid or already-taken slug) is a routine,
  * expected outcome of this form, not a crash — it renders inline via
@@ -12,7 +12,7 @@ import { useNavigate } from "react-router-dom";
 import { ApiError, apiSend } from "../api";
 import { useIndex } from "../IndexProvider";
 
-export default function NewCove() {
+export default function NewSpace() {
   const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -24,7 +24,7 @@ export default function NewCove() {
     setError(null);
     setSubmitting(true);
     try {
-      await apiSend<{ alias: string; slug: string }>("POST", "/api/coves", {
+      await apiSend<{ alias: string; slug: string }>("POST", "/api/spaces", {
         slug,
       });
       await refresh();
@@ -34,14 +34,14 @@ export default function NewCove() {
       if (err instanceof ApiError) {
         setError(err.detail ?? err.message);
       } else {
-        setError("could not create the cove");
+        setError("could not create the space");
       }
     }
   }
 
   return (
     <div>
-      <h1>New cove</h1>
+      <h1>New space</h1>
       {error && <div className="notice">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="ed-field">
@@ -63,7 +63,7 @@ export default function NewCove() {
         <p className="muted">Lowercase letters, digits, and hyphens — e.g. "trip".</p>
         <div className="ed-toolbar">
           <button type="submit" className="ed-save" disabled={submitting || !slug}>
-            {submitting ? "Creating…" : "Create cove"}
+            {submitting ? "Creating…" : "Create space"}
           </button>
         </div>
       </form>

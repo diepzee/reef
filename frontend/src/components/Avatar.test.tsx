@@ -60,7 +60,7 @@ test("a stack counts the people it had no room for", () => {
 
 test("a clickable stack opens from the keyboard, not only the mouse", () => {
   // The members sheet is reachable from this stack, so a keyboard user who
-  // cannot open it cannot see who is in a cove at all.
+  // cannot open it cannot see who is in a space at all.
   let opened = 0;
   render(<AvatarStack people={[{ name: "Ann" }]} onClick={() => (opened += 1)} />);
   const stack = screen.getByRole("button");
@@ -82,14 +82,14 @@ test("a stack draws each person's picture, and initials for those without", () =
   render(
     <AvatarStack
       people={[
-        { name: "Ann", src: "/api/coves/team/members/a1/avatar?v=9" },
+        { name: "Ann", src: "/api/spaces/team/members/a1/avatar?v=9" },
         { name: "Bo", src: null },
       ]}
     />,
   );
   const drawn = screen.getByTitle("Ann") as HTMLImageElement;
   expect(drawn.tagName).toBe("IMG");
-  expect(drawn.getAttribute("src")).toBe("/api/coves/team/members/a1/avatar?v=9");
+  expect(drawn.getAttribute("src")).toBe("/api/spaces/team/members/a1/avatar?v=9");
   // Bo has chosen no picture, so their initial stands in rather than a
   // request that would only 404.
   expect(screen.getByTitle("Bo").tagName).not.toBe("IMG");
@@ -108,8 +108,8 @@ test("a clickable stack carries the label it was given", () => {
     <AvatarStack
       people={[{ name: "Ann" }]}
       onClick={() => {}}
-      ariaLabel="Cove members"
+      ariaLabel="Space members"
     />,
   );
-  expect(screen.getByLabelText("Cove members")).toBeDefined();
+  expect(screen.getByLabelText("Space members")).toBeDefined();
 });

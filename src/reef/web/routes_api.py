@@ -250,7 +250,7 @@ def api(handler: Callable) -> Callable:
             # splitting the engram, and a bare "bad_request" reads as a bug in
             # the app rather than as a rule.
             return JSONResponse(
-                {"error": "page_too_large", "detail": str(error)}, status_code=400
+                {"error": "engram_too_large", "detail": str(error)}, status_code=400
             )
         except InvalidPath as error:
             # The detail names what is wrong with the path; the editor shows
@@ -268,7 +268,7 @@ def api(handler: Callable) -> Callable:
             )
         except SpaceError as error:
             return JSONResponse(
-                {"error": "cove_error", "detail": str(error)}, status_code=400
+                {"error": "space_error", "detail": str(error)}, status_code=400
             )
         response = result if isinstance(result, Response) else JSONResponse(result)
         if response.headers.get(_ACCOUNT_DELETED_HEADER) == "1":
@@ -336,9 +336,9 @@ async def _appearances(request: Request, principal: Principal) -> dict:
 
     :param request: the incoming request, unused
     :param principal: the authenticated person
-    :returns: ``{"coves": {slug: {color, glyph}}}``
+    :returns: ``{"spaces": {slug: {color, glyph}}}``
     """
-    return {"coves": await get_appearances(principal)}
+    return {"spaces": await get_appearances(principal)}
 
 
 async def _set_appearance(request: Request, principal: Principal) -> dict:
@@ -350,7 +350,7 @@ async def _set_appearance(request: Request, principal: Principal) -> dict:
     :raises BadRequest: if either name is not one of the offered choices
     :returns: the stored choice
     """
-    space = await resolve_space(principal, request.path_params["cove"])
+    space = await resolve_space(principal, request.path_params["space"])
     payload = await _json_body(request)
     try:
         return await set_appearance(
@@ -482,6 +482,47 @@ async def _delete_avatar(request: Request, principal: Principal) -> dict:
     return {"avatar": None}
 
 
+def _index_for_web(payload: dict) -> dict:
+    """Rename the index's wire keys to the web API's vocabulary.
+
+    :func:`reef.context.build_index` still speaks the MCP tools' old
+    ``coves`` / ``pages`` vocabulary, which those tools keep until they are
+    replaced. The web app has moved on, so the translation happens here, at
+    its edge, and the MCP payload stays as it is.
+
+    :param payload: the index, as ``asdict`` of the index payload
+    :returns: the same index keyed by ``spaces``, ``engrams`` and
+        ``engram_path``, with each reference naming its ``space``
+    """
+    return {
+        "version": payload["version"],
+        "spaces": [
+            {
+                "alias": space["alias"],
+                "version": space["version"],
+                "engrams": [
+                    {
+                        **{k: v for k, v in engram.items() if k != "references"},
+                        "references": [
+                            {"space": ref["cove"], "path": ref["path"]}
+                            for ref in engram["references"]
+                        ],
+                    }
+                    for engram in space["pages"]
+                ],
+                "attachments": [
+                    {
+                        **{k: v for k, v in file.items() if k != "page_path"},
+                        "engram_path": file["page_path"],
+                    }
+                    for file in space["attachments"]
+                ],
+            }
+            for space in payload["coves"]
+        ],
+    }
+
+
 async def _index(request: Request, principal: Principal) -> dict:
     """Return the index of everything the principal may see.
 
@@ -489,7 +530,7 @@ async def _index(request: Request, principal: Principal) -> dict:
     :param principal: the authenticated person
     :returns: the index payload, as a plain dict
     """
-    return asdict(await build_index(principal))
+    return _index_for_web(asdict(await build_index(principal)))
 
 
 async def _engram_payload(space: str, engram: Engram) -> dict:
@@ -506,7 +547,7 @@ async def _engram_payload(space: str, engram: Engram) -> dict:
     """
     editors = await latest_editors([engram.id])
     return {
-        "cove": space,
+        "space": space,
         "path": engram.path,
         "title": engram.title,
         "tags": list(engram.tags),
@@ -525,7 +566,7 @@ async def _get_engram(request: Request, principal: Principal) -> Response | dict
     :param principal: the authenticated person
     :returns: the engram as a dict, or a 404 JSON response if absent
     """
-    space = request.path_params["cove"]
+    space = request.path_params["space"]
     path = request.path_params["path"]
     engram = await get_engram(principal, space, path)
     if engram is None:
@@ -549,7 +590,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
         ``body``/``message``, or any field of the wrong type
     :returns: the saved engram, shaped as in Task 4's GET
     """
-    space = request.path_params["cove"]
+    space = request.path_params["space"]
     path = request.path_params["path"]
     payload = await _json_body(request)
     body = _require_str(payload, "body")
@@ -579,7 +620,7 @@ async def _delete_engram(request: Request, principal: Principal) -> dict:
     :returns: the deleted path and the number of revisions removed
     """
     return await delete_engram(
-        principal, request.path_params["cove"], request.path_params["path"]
+        principal, request.path_params["space"], request.path_params["path"]
     )
 
 
@@ -620,7 +661,7 @@ async def _space_members(request: Request, principal: Principal) -> dict:
     :returns: member id/name/email/avatar records (email blank for
         non-owners), the owner's email, and whether the caller is the owner
     """
-    slug = request.path_params["cove"]
+    slug = request.path_params["space"]
     space = await resolve_space(principal, slug)
     owner = await space_owner(space.id)
     is_owner = space.owner_person_id == principal.person_id
@@ -636,7 +677,7 @@ async def _space_members(request: Request, principal: Principal) -> dict:
                 "display_name": member["display_name"],
                 "email": member["email"],
                 "avatar": (
-                    f"/api/coves/{quote(slug)}/members/"
+                    f"/api/spaces/{quote(slug)}/members/"
                     f"{member['person_id']}/avatar?v={member['avatar_len']}"
                     if member["avatar_len"] is not None
                     else None
@@ -666,7 +707,7 @@ async def _get_member_avatar(request: Request, principal: Principal) -> Response
     :param principal: the authenticated person
     :returns: the image, or a 404 JSON response
     """
-    slug = request.path_params["cove"]
+    slug = request.path_params["space"]
     try:
         person_id = UUID(request.path_params["person"])
     except ValueError:
@@ -708,7 +749,7 @@ async def _invite(request: Request, principal: Principal) -> dict:
     :returns: the invite outcome, including the disclosure text the UI must
         show
     """
-    slug = request.path_params["cove"]
+    slug = request.path_params["space"]
     payload = await _json_body(request)
     email = _require_str(payload, "email")
     display_name = _optional_str(payload, "display_name")
@@ -718,7 +759,7 @@ async def _invite(request: Request, principal: Principal) -> dict:
 async def _invite_to_reef(request: Request, principal: Principal) -> dict:
     """Invite someone to reef itself, without granting any space.
 
-    Deliberately not under ``/api/coves/…`` — this invite belongs to no
+    Deliberately not under ``/api/spaces/…`` — this invite belongs to no
     space, which is the whole point of it.
 
     :param request: the incoming request, carrying a JSON body with ``email``
@@ -760,7 +801,7 @@ async def _remove_member(request: Request, principal: Principal) -> dict:
     :param principal: the authenticated person
     :returns: the removal outcome
     """
-    slug = request.path_params["cove"]
+    slug = request.path_params["space"]
     email = request.path_params["email"]
     return await remove_member(principal, slug, email)
 
@@ -776,7 +817,7 @@ async def _rename_space(request: Request, principal: Principal) -> dict:
     """
     payload = await _json_body(request)
     return await rename_space(
-        principal, request.path_params["cove"], _require_str(payload, "name")
+        principal, request.path_params["space"], _require_str(payload, "name")
     )
 
 
@@ -787,7 +828,7 @@ async def _leave_space(request: Request, principal: Principal) -> dict:
     :param principal: the authenticated person
     :returns: the departure outcome, naming any successor
     """
-    return await leave_space(principal, request.path_params["cove"])
+    return await leave_space(principal, request.path_params["space"])
 
 
 async def _delete_space(request: Request, principal: Principal) -> Response:
@@ -803,7 +844,7 @@ async def _delete_space(request: Request, principal: Principal) -> Response:
     :raises BadRequest: if the typed confirmation does not name this space
     :returns: the deletion outcome, with the bytes erased after the response
     """
-    slug = request.path_params["cove"]
+    slug = request.path_params["space"]
     payload = await _json_body(request)
     if payload.get("confirmation") != slug:
         raise BadRequest("deleting a space requires its name as confirmation")
@@ -823,7 +864,7 @@ async def _get_file(request: Request, principal: Principal) -> Response:
     :param principal: the authenticated person
     :returns: a 302 redirect to the signed URL, or 404 if not visible
     """
-    space = request.path_params["cove"]
+    space = request.path_params["space"]
     key = request.path_params["key"]
     attachment = await get_attachment(principal, space, key)
     if attachment is None:
@@ -923,8 +964,8 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
     deletion = await delete_account_rows(principal)
     body = {
         "deleted": True,
-        "deleted_coves": deletion.deleted_spaces,
-        "transferred_coves": deletion.transferred_spaces,
+        "deleted_spaces": deletion.deleted_spaces,
+        "transferred_spaces": deletion.transferred_spaces,
     }
     sid = session_sid(request)
     if sid:
@@ -962,7 +1003,7 @@ def register_api_routes(mcp) -> None:
     mcp.custom_route("/api/me/avatar", methods=["PUT"])(api(_put_avatar))
     mcp.custom_route("/api/me/avatar", methods=["DELETE"])(api(_delete_avatar))
     mcp.custom_route("/api/appearance", methods=["GET"])(api(_appearances))
-    mcp.custom_route("/api/coves/{cove}/appearance", methods=["PUT"])(
+    mcp.custom_route("/api/spaces/{space}/appearance", methods=["PUT"])(
         api(_set_appearance)
     )
     mcp.custom_route("/api/release-notes", methods=["GET"])(api(_release_notes))
@@ -970,30 +1011,36 @@ def register_api_routes(mcp) -> None:
         api(_mark_release_notes_seen)
     )
     mcp.custom_route("/api/index", methods=["GET"])(api(_index))
-    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["GET"])(api(_get_engram))
-    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["PUT"])(api(_put_engram))
-    mcp.custom_route("/api/pages/{cove}/{path:path}", methods=["DELETE"])(
+    mcp.custom_route("/api/engrams/{space}/{path:path}", methods=["GET"])(
+        api(_get_engram)
+    )
+    mcp.custom_route("/api/engrams/{space}/{path:path}", methods=["PUT"])(
+        api(_put_engram)
+    )
+    mcp.custom_route("/api/engrams/{space}/{path:path}", methods=["DELETE"])(
         api(_delete_engram)
     )
-    mcp.custom_route("/api/files/{cove}/{key:path}", methods=["GET"])(api(_get_file))
+    mcp.custom_route("/api/files/{space}/{key:path}", methods=["GET"])(api(_get_file))
     # Existing rendered Markdown points here; keep it as a compatibility alias.
-    mcp.custom_route("/api/images/{cove}/{key:path}", methods=["GET"])(api(_get_file))
+    mcp.custom_route("/api/images/{space}/{key:path}", methods=["GET"])(api(_get_file))
     # POST rather than GET: both return the caller's content in bulk, and a
     # GET is reachable by cross-origin navigation. See :func:`_export`.
     mcp.custom_route("/api/export", methods=["POST"])(api(_export))
     mcp.custom_route("/api/export/dump", methods=["POST"])(api(_dump))
     mcp.custom_route("/api/account/delete", methods=["POST"])(api(_delete_account))
-    mcp.custom_route("/api/coves", methods=["POST"])(api(_create_space))
-    mcp.custom_route("/api/coves/{cove}/members", methods=["GET"])(api(_space_members))
-    mcp.custom_route("/api/coves/{cove}/members/{person}/avatar", methods=["GET"])(
+    mcp.custom_route("/api/spaces", methods=["POST"])(api(_create_space))
+    mcp.custom_route("/api/spaces/{space}/members", methods=["GET"])(
+        api(_space_members)
+    )
+    mcp.custom_route("/api/spaces/{space}/members/{person}/avatar", methods=["GET"])(
         api(_get_member_avatar)
     )
-    mcp.custom_route("/api/coves/{cove}/invites", methods=["POST"])(api(_invite))
+    mcp.custom_route("/api/spaces/{space}/invites", methods=["POST"])(api(_invite))
     mcp.custom_route("/api/invites", methods=["GET"])(api(_invites_left))
     mcp.custom_route("/api/invites", methods=["POST"])(api(_invite_to_reef))
-    mcp.custom_route("/api/coves/{cove}/members/{email}", methods=["DELETE"])(
+    mcp.custom_route("/api/spaces/{space}/members/{email}", methods=["DELETE"])(
         api(_remove_member)
     )
-    mcp.custom_route("/api/coves/{cove}/name", methods=["POST"])(api(_rename_space))
-    mcp.custom_route("/api/coves/{cove}/leave", methods=["POST"])(api(_leave_space))
-    mcp.custom_route("/api/coves/{cove}", methods=["DELETE"])(api(_delete_space))
+    mcp.custom_route("/api/spaces/{space}/name", methods=["POST"])(api(_rename_space))
+    mcp.custom_route("/api/spaces/{space}/leave", methods=["POST"])(api(_leave_space))
+    mcp.custom_route("/api/spaces/{space}", methods=["DELETE"])(api(_delete_space))

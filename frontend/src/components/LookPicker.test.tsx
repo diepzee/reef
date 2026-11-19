@@ -1,5 +1,5 @@
 /**
- * Choosing how a cove looks to you alone.
+ * Choosing how a space looks to you alone.
  *
  * The choice is applied optimistically — the point is watching the sidebar
  * change — which means the only thing standing between a failed save and a
@@ -22,7 +22,7 @@ let sent: Array<{ method: string; path: string; body?: unknown }> = [];
 let fails = false;
 
 // Every mock of `../api` must present its whole surface — see the note in
-// src/views/NewPage.test.tsx.
+// src/views/NewEngram.test.tsx.
 mock.module("../api", () => ({
   ApiError: class extends Error {},
   apiGet: () => Promise.resolve({}),
@@ -77,7 +77,7 @@ test("choosing a colour records it and saves it", async () => {
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "PUT",
-    path: "/api/coves/trip/appearance",
+    path: "/api/spaces/trip/appearance",
   });
   // Applied before the round trip, not after it.
   expect(recorded.length).toBeGreaterThan(0);

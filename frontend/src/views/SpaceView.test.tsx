@@ -1,10 +1,10 @@
 /**
- * A cove's own page, and the two different ways out of it.
+ * A space's own engram, and the two different ways out of it.
  *
  * Which exit is offered depends on whether anyone else is here, and the two
- * are not interchangeable: leaving is survivable, deleting takes the cove's
- * pages, files, and history permanently. Offering the wrong one — or
- * describing it wrongly — is how somebody destroys a shared cove believing
+ * are not interchangeable: leaving is survivable, deleting takes the space's
+ * engrams, files, and history permanently. Offering the wrong one — or
+ * describing it wrongly — is how somebody destroys a shared space believing
  * they were stepping out of it. The wording is part of the contract, so it
  * is asserted alongside the requests.
  */
@@ -56,12 +56,12 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    // "personal" too: the page list, and the appearance section under it,
-    // only render for a cove the index actually holds.
+    // "personal" too: the engram list, and the appearance section under it,
+    // only render for a space the index actually holds.
     index: {
-      coves: [
-        { alias: "trip", pages: [] },
-        { alias: "personal", pages: [] },
+      spaces: [
+        { alias: "trip", engrams: [] },
+        { alias: "personal", engrams: [] },
       ],
     },
     error: null,
@@ -72,7 +72,7 @@ mock.module("../useMembers", () => ({
   useMembers: () => ({ members, error: null }),
 }));
 // Both exports: AppShell imports the context to provide it, and a mock
-// missing it breaks that file at import time (see NewPage.test.tsx).
+// missing it breaks that file at import time (see NewEngram.test.tsx).
 mock.module("../useMembersSheet", () => ({
   MembersSheetContext: createContext<unknown>(null),
   useMembersSheet: () => ({ openMembers: () => {} }),
@@ -82,17 +82,17 @@ mock.module("react-router-dom", () => ({
   useNavigate: () => (to: string) => navigated.push(to),
 }));
 
-const { default: CoveView } = await import("./CoveView");
+const { default: SpaceView } = await import("./SpaceView");
 
-/** Render the cove page for `cove`. */
-function renderCove(cove = "trip") {
+/** Render the space engram for `space`. */
+function renderSpace(space = "trip") {
   render(
     <AppearanceContext.Provider
       value={{ appearance: {}, setAppearance: () => {} }}
     >
-      <MemoryRouter initialEntries={[`/s/${cove}`]}>
+      <MemoryRouter initialEntries={[`/s/${space}`]}>
       <Routes>
-        <Route path="/s/:cove" element={<CoveView />} />
+        <Route path="/s/:space" element={<SpaceView />} />
       </Routes>
       </MemoryRouter>
     </AppearanceContext.Provider>,
@@ -116,24 +116,24 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("no cove is left or deleted from this screen", () => {
+test("no space is left or deleted from this screen", () => {
   // Leaving and deleting moved into the members sheet's danger zone — see
   // MembersSheet.test.tsx, which holds the guards. What matters here is that
-  // a permanent delete no longer sits one scroll under the page list.
-  renderCove();
-  expect(screen.queryByText(/Leave this cove/)).toBeNull();
-  expect(screen.queryByText(/Delete this cove/)).toBeNull();
+  // a permanent delete no longer sits one scroll under the engram list.
+  renderSpace();
+  expect(screen.queryByText(/Leave this space/)).toBeNull();
+  expect(screen.queryByText(/Delete this space/)).toBeNull();
 });
 
-test("the personal cove is styled from this screen, having no sheet", () => {
-  // Every shared cove reaches the picker from Manage. The personal one has
+test("the personal space is styled from this screen, having no sheet", () => {
+  // Every shared space reaches the picker from Manage. The personal one has
   // no roster and so no sheet, and would otherwise lose the control.
-  renderCove("personal");
+  renderSpace("personal");
   expect(screen.getByText("Appearance")).toBeDefined();
   expect(screen.getByText("Colour")).toBeDefined();
 });
 
-test("a shared cove keeps its appearance behind Manage, not in the body", () => {
-  renderCove();
+test("a shared space keeps its appearance behind Manage, not in the body", () => {
+  renderSpace();
   expect(screen.queryByText("Appearance")).toBeNull();
 });

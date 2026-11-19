@@ -2,7 +2,7 @@
  * The post-logout landing page, and the one link on it that must not
  * point at the login route.
  *
- * This page exists outside AppShell precisely so it never calls
+ * This engram exists outside AppShell precisely so it never calls
  * `/api/me` — a 401 there redirects into `/api/auth/login` and undoes the
  * sign-out. The same trap applies to its link: after a deletion it has to
  * lead home, because sending someone to sign in again immediately after
@@ -42,10 +42,10 @@ test("after a deletion it leads home, not back to sign-in", () => {
 });
 
 test("a deletion says plainly what survives it", () => {
-  // Shared coves outliving the account is the surprising part, so it is
+  // Shared spaces outliving the account is the surprising part, so it is
   // stated rather than left to be discovered.
   renderAt("?deleted=1");
-  expect(screen.getByText(/Shared coves remain with their other members/))
+  expect(screen.getByText(/Shared spaces remain with their other members/))
     .toBeDefined();
 });
 

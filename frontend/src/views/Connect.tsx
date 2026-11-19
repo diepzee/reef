@@ -2,7 +2,7 @@
  * How to point an AI assistant at this reef.
  *
  * Until this existed the app never mentioned it. Someone could be invited,
- * sign in, read their pages in the browser and never learn that being read
+ * sign in, read their engrams in the browser and never learn that being read
  * and written by an assistant is the entire product — the instructions lived
  * only on the marketing site, which a signed-in member has no reason to
  * revisit.
@@ -111,8 +111,8 @@ export default function Connect() {
         <div className="export-card-copy">
           <h2>What Claude can reach</h2>
           <p>
-            Everything you can: your personal pages and every cove you belong
-            to. Pages your assistant reads are sent to whoever runs it, and
+            Everything you can: your personal engrams and every space you belong
+            to. Engrams your assistant reads are sent to whoever runs it, and
             their privacy terms cover that exchange —{" "}
             <a href="/privacy">the privacy page</a> says what{" "}
             <span className="reef-name">reef</span> itself does and does not do.

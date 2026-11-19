@@ -1,5 +1,5 @@
 /**
- * The roster sheet: who can see a cove, and who may change that.
+ * The roster sheet: who can see a space, and who may change that.
  *
  * Two things here are privacy boundaries rather than styling. Only an owner
  * may invite or remove, so a non-owner must not be shown those controls at
@@ -51,7 +51,7 @@ let members: unknown = null;
 let navigated: string[] = [];
 
 // Every mock of `../api` must present its whole surface — see the note in
-// src/views/NewPage.test.tsx.
+// src/views/NewEngram.test.tsx.
 mock.module("../api", () => ({
   ApiError: FakeApiError,
   apiGet: () => Promise.resolve({}),
@@ -83,7 +83,7 @@ const { MembersSheet } = await import("./MembersSheet");
 /** Render the sheet, open unless told otherwise. */
 function renderSheet(open = true, onClose = () => {}) {
   return render(
-    // The sheet wears the cove's creature and carries the look picker, both
+    // The sheet wears the space's creature and carries the look picker, both
     // of which read the viewer's appearance choices; `me` is what tells the
     // roster which row belongs to the reader.
     <MeContext.Provider value={{ me: ME as never, setAvatar: () => {} }}>
@@ -91,7 +91,7 @@ function renderSheet(open = true, onClose = () => {}) {
         value={{ appearance: {} as never, setAppearance: () => {} }}
       >
         <MemoryRouter>
-          <MembersSheet cove="trip" open={open} onClose={onClose} />
+          <MembersSheet space="trip" open={open} onClose={onClose} />
         </MemoryRouter>
       </AppearanceContext.Provider>
     </MeContext.Provider>,
@@ -148,7 +148,7 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
-test("everyone in the cove is listed", () => {
+test("everyone in the space is listed", () => {
   renderSheet();
   expect(screen.getByText("Ada")).toBeDefined();
   expect(screen.getByText("Guest")).toBeDefined();
@@ -164,7 +164,7 @@ test("a member with a picture is shown it, not their initial", () => {
         person_id: "33333333-3333-4333-8333-333333333333",
         display_name: "Ada",
         email: "own@example.com",
-        avatar: "/api/coves/trip/members/33333333-3333-4333-8333-333333333333/avatar?v=7",
+        avatar: "/api/spaces/trip/members/33333333-3333-4333-8333-333333333333/avatar?v=7",
       },
       {
         person_id: "44444444-4444-4444-8444-444444444444",
@@ -181,11 +181,11 @@ test("a member with a picture is shown it, not their initial", () => {
   expect(screen.getByTitle("Guest").tagName).not.toBe("IMG");
 });
 
-test("the cove's own look is changed from here", () => {
-  // It used to sit loose in CoveView's body, between "New page" and the
-  // delete zone, where it read as a property of the cove rather than of the
+test("the space's own look is changed from here", () => {
+  // It used to sit loose in SpaceView's body, between "New engram" and the
+  // delete zone, where it read as a property of the space rather than of the
   // viewer. Name, colour and creature now share one section, because all
-  // three change this cove for you and for nobody else in it.
+  // three change this space for you and for nobody else in it.
   renderSheet();
   expect(screen.getByText("Appearance")).toBeDefined();
   expect(screen.getByText("Name")).toBeDefined();
@@ -202,7 +202,7 @@ test("the appearance section says the choice is yours alone, once", () => {
   expect(screen.getAllByText(/Only you\./).length).toBe(1);
 });
 
-test("a non-owner may still restyle the cove for themselves", () => {
+test("a non-owner may still restyle the space for themselves", () => {
   // The one control in this sheet a non-owner can actually use — hiding it
   // with the owner-only controls would strand it entirely for them.
   members = roster(false);
@@ -254,7 +254,7 @@ test("confirming a removal sends it for that person only", async () => {
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "DELETE",
-    path: "/api/coves/trip/members/guest%40example.com",
+    path: "/api/spaces/trip/members/guest%40example.com",
   });
 });
 
@@ -293,19 +293,19 @@ test("Escape does nothing while the sheet is shut", () => {
 });
 
 /*
- * The way out of the cove, moved here from CoveView's body. Which act is on
+ * The way out of the space, moved here from SpaceView's body. Which act is on
  * offer depends on who else is in it, and the guards in front of each are the
- * only thing between a misclick and a cove nobody can get back.
+ * only thing between a misclick and a space nobody can get back.
  */
 
 test("with others here, the exit is leaving — never deleting", () => {
   members = rosterOf(3);
   renderSheet();
-  expect(screen.getByText("Leave this cove")).toBeDefined();
-  expect(screen.queryByText("Delete this cove…")).toBeNull();
+  expect(screen.getByText("Leave this space")).toBeDefined();
+  expect(screen.queryByText("Delete this space…")).toBeNull();
 });
 
-test("an owner leaving is told the cove survives without them", () => {
+test("an owner leaving is told the space survives without them", () => {
   members = rosterOf(3);
   renderSheet();
   expect(screen.getByText(/Ownership passes to another member/)).toBeDefined();
@@ -321,29 +321,29 @@ test("a member leaving is told it stays for everyone else", () => {
 test("leaving asks once, then posts", async () => {
   members = rosterOf(3);
   renderSheet();
-  fireEvent.click(screen.getByText("Leave this cove"));
+  fireEvent.click(screen.getByText("Leave this space"));
   expect(sent).toEqual([]);
   fireEvent.click(screen.getByText("Confirm — leave trip"));
   await waitFor(() => expect(navigated).toEqual(["/"]));
   expect(sent).toEqual([
-    { method: "POST", path: "/api/coves/trip/leave", body: undefined },
+    { method: "POST", path: "/api/spaces/trip/leave", body: undefined },
   ]);
 });
 
-test("alone in a cove, the exit is deletion and says what goes with it", () => {
+test("alone in a space, the exit is deletion and says what goes with it", () => {
   members = rosterOf(1);
   renderSheet();
-  expect(screen.getByText("Delete this cove…")).toBeDefined();
+  expect(screen.getByText("Delete this space…")).toBeDefined();
   expect(
-    screen.getByText(/pages, files, and history go with it, permanently/),
+    screen.getByText(/engrams, files, and history go with it, permanently/),
   ).toBeDefined();
-  expect(screen.queryByText("Leave this cove")).toBeNull();
+  expect(screen.queryByText("Leave this space")).toBeNull();
 });
 
-test("deleting needs the cove's own name typed", () => {
+test("deleting needs the space's own name typed", () => {
   members = rosterOf(1);
   renderSheet();
-  fireEvent.click(screen.getByText("Delete this cove…"));
+  fireEvent.click(screen.getByText("Delete this space…"));
   const confirm = screen.getByText("Permanently delete trip") as HTMLButtonElement;
   expect(confirm.disabled).toBe(true);
   fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "trp" } });
@@ -353,13 +353,13 @@ test("deleting needs the cove's own name typed", () => {
 test("the typed name unlocks deletion, and it sends the confirmation", async () => {
   members = rosterOf(1);
   renderSheet();
-  fireEvent.click(screen.getByText("Delete this cove…"));
+  fireEvent.click(screen.getByText("Delete this space…"));
   fireEvent.change(screen.getByLabelText(/Type/), { target: { value: "trip" } });
   fireEvent.click(screen.getByText("Permanently delete trip"));
   await waitFor(() => expect(sent.length).toBe(1));
   expect(sent[0]).toMatchObject({
     method: "DELETE",
-    path: "/api/coves/trip",
+    path: "/api/spaces/trip",
     body: { confirmation: "trip" },
   });
 });
@@ -370,7 +370,7 @@ test("a refused exit is reported and the reader stays put", async () => {
     throw new FakeApiError(403, "not_allowed");
   };
   renderSheet();
-  fireEvent.click(screen.getByText("Leave this cove"));
+  fireEvent.click(screen.getByText("Leave this space"));
   fireEvent.click(screen.getByText("Confirm — leave trip"));
   await waitFor(() => expect(screen.getByText("not_allowed")).toBeDefined());
   expect(navigated).toEqual([]);
@@ -382,7 +382,7 @@ test("a half-armed deletion does not survive closing the sheet", () => {
   // be an invitation nobody asked for twice.
   members = rosterOf(1);
   const { rerender } = renderSheet();
-  fireEvent.click(screen.getByText("Delete this cove…"));
+  fireEvent.click(screen.getByText("Delete this space…"));
   expect(screen.getByText("Permanently delete trip")).toBeDefined();
 
   rerender(
@@ -391,11 +391,11 @@ test("a half-armed deletion does not survive closing the sheet", () => {
         value={{ appearance: {} as never, setAppearance: () => {} }}
       >
         <MemoryRouter>
-          <MembersSheet cove="trip" open={false} onClose={() => {}} />
+          <MembersSheet space="trip" open={false} onClose={() => {}} />
         </MemoryRouter>
       </AppearanceContext.Provider>
     </MeContext.Provider>,
   );
   expect(screen.queryByText("Permanently delete trip")).toBeNull();
-  expect(screen.getByText("Delete this cove…")).toBeDefined();
+  expect(screen.getByText("Delete this space…")).toBeDefined();
 });

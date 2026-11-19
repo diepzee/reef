@@ -21,7 +21,7 @@ export default function SignedOut() {
       <h1>{deleted ? "Your data was deleted" : "Signed out"}</h1>
       <p>
         {deleted
-          ? "Your reef account and private data are gone. Shared coves remain with their other members."
+          ? "Your reef account and private data are gone. Shared spaces remain with their other members."
           : "Your session has ended on this device."}
       </p>
       <a className="button" href={deleted ? "/" : "/api/auth/login"}>

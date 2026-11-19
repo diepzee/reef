@@ -39,7 +39,7 @@ let respond: () => unknown = () => ({
 });
 
 // Every mock of `../api` must present its whole surface — see the note in
-// src/views/NewPage.test.tsx.
+// src/views/NewEngram.test.tsx.
 mock.module("../api", () => ({
   ApiError: FakeApiError,
   apiGet: () => Promise.resolve(budget),

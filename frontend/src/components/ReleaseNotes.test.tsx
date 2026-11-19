@@ -18,7 +18,7 @@ const ENTRIES: ReleaseEntry[] = [
   {
     version: "0.5.0",
     date: "2026-08-18",
-    changes: [{ kind: "added", text: "Search your pages from your assistant." }],
+    changes: [{ kind: "added", text: "Search your engrams from your assistant." }],
   },
   {
     version: "0.4.0",
@@ -34,7 +34,7 @@ test("it lists every release, newest first", () => {
     expect.stringContaining("0.5.0"),
     expect.stringContaining("0.4.0"),
   ]);
-  expect(screen.getByText("Search your pages from your assistant.")).toBeDefined();
+  expect(screen.getByText("Search your engrams from your assistant.")).toBeDefined();
 });
 
 test("it announces itself as a dialog", () => {

@@ -1,4 +1,4 @@
-/** Download current cove content or a complete personal data archive. */
+/** Download current space content or a complete personal data archive. */
 
 import { useState } from "react";
 
@@ -79,7 +79,7 @@ export default function ExportView() {
         <div className="export-card-copy">
           <h2>Portable content export</h2>
           <p>
-            Export the latest version of every page in one cove or across your whole
+            Export the latest version of every engram in one space or across your whole
             reef. Stored files are listed as metadata; their bytes are included in the
             full dump below.
           </p>
@@ -87,12 +87,12 @@ export default function ExportView() {
 
         <div className="export-fields">
           <label>
-            Coves
+            Spaces
             <select value={scope} onChange={(event) => setScope(event.target.value)}>
-              <option value="all">All coves</option>
-              {index?.coves.map((cove) => (
-                <option key={cove.alias} value={cove.alias}>
-                  {cove.alias}
+              <option value="all">All spaces</option>
+              {index?.spaces.map((space) => (
+                <option key={space.alias} value={space.alias}>
+                  {space.alias}
                 </option>
               ))}
             </select>
@@ -112,8 +112,8 @@ export default function ExportView() {
 
         <div className="export-format-note muted">
           {format === "markdown"
-            ? "Import-compatible Markdown pages with YAML frontmatter."
-            : "Current page bodies and metadata in one machine-readable document."}
+            ? "Import-compatible Markdown engrams with YAML frontmatter."
+            : "Current engram bodies and metadata in one machine-readable document."}
         </div>
 
         {downloadError && <div className="notice">{downloadError}</div>}
@@ -137,12 +137,12 @@ export default function ExportView() {
         <div className="export-card-copy">
           <h2>Dump my data</h2>
           <p>
-            One ZIP containing every cove you can access: current Markdown pages, the
+            One ZIP containing every space you can access: current Markdown engrams, the
             raw index, full revision history, stored file bytes and metadata, member
             names, and your sharing audit trail.
           </p>
           <p className="muted export-caveat">
-            Shared-cove content is included because it is part of the reef you can see;
+            Shared-space content is included because it is part of the reef you can see;
             keep the archive private.
           </p>
         </div>
@@ -162,7 +162,7 @@ export default function ExportView() {
         <div className="export-card-copy">
           <h2>Danger zone</h2>
           <p>
-            Permanently delete your account, personal cove, and shared coves where
+            Permanently delete your account, personal space, and shared spaces where
             you are the only member.
           </p>
         </div>
@@ -174,7 +174,7 @@ export default function ExportView() {
         ) : (
           <div className="delete-guards">
             <p>
-              Shared coves with other members will remain. Ownership transfers to
+              Shared spaces with other members will remain. Ownership transfers to
               another member, your membership is removed, and your author identity is
               cleared from retained history. Everything else is permanent.
             </p>

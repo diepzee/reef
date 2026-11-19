@@ -2,8 +2,8 @@
  * The shell every signed-in screen renders inside.
  *
  * It owns the two things views cannot fetch for themselves — the signed-in
- * person, and the viewer's cove appearances — and both have to fail softly.
- * A cove always has a derived look, and the account row can sit blank, so
+ * person, and the viewer's space appearances — and both have to fail softly.
+ * A space always has a derived look, and the account row can sit blank, so
  * neither failure is worth an error surface; what would be wrong is letting
  * either take the whole app down with it.
  */
@@ -29,7 +29,7 @@ let gets: string[] = [];
 let sends: Array<{ method: string; path: string }> = [];
 
 // Every mock of `../api` must present its whole surface — see the note in
-// src/views/NewPage.test.tsx.
+// src/views/NewEngram.test.tsx.
 mock.module("../api", () => ({
   ApiError: FakeApiError,
   apiGet: (path: string) => {
@@ -51,7 +51,7 @@ mock.module("../api", () => ({
 
 mock.module("../IndexProvider", () => ({
   useIndex: () => ({
-    index: { coves: [] },
+    index: { spaces: [] },
     error: null,
     refresh: () => Promise.resolve(),
   }),
@@ -81,7 +81,7 @@ beforeEach(() => {
       display_name: "Wouter",
       avatar: null,
     }),
-    "/api/appearance": () => ({ coves: {} }),
+    "/api/appearance": () => ({ spaces: {} }),
     "/api/release-notes": () => ({ entries: [], unread: false }),
   };
   gets = [];
@@ -107,7 +107,7 @@ test("the signed-in person reaches the account row", async () => {
 });
 
 test("a failed appearance fetch costs only the overrides", async () => {
-  // Every cove has a derived look, so this must not be an error surface --
+  // Every space has a derived look, so this must not be an error surface --
   // and must not stop /api/me either.
   responses["/api/appearance"] = () => {
     throw new Error("offline");

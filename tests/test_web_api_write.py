@@ -15,7 +15,7 @@ async def test_put_creates_then_conflicts(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     created = await api.put(
-        "/api/pages/team/notes/a.md",
+        "/api/engrams/team/notes/a.md",
         json={"body": "First line.\n", "message": "create", "title": "A"},
         headers=CSRF,
     )
@@ -23,7 +23,7 @@ async def test_put_creates_then_conflicts(api, world):
     assert created.json()["version"] == 1
     assert created.json()["last_editor"] == "Alice"
     stale = await api.put(
-        "/api/pages/team/notes/a.md",
+        "/api/engrams/team/notes/a.md",
         json={"body": "x", "message": "stale", "expected_version": 0},
         headers=CSRF,
     )
@@ -35,7 +35,7 @@ async def test_put_without_csrf_header_is_403(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/a.md", json={"body": "x", "message": "m"}
+        "/api/engrams/team/notes/a.md", json={"body": "x", "message": "m"}
     )
     assert response.status_code == 403
 
@@ -45,7 +45,7 @@ async def test_put_missing_required_field_is_bad_request(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/a.md", json={"body": "x"}, headers=CSRF
+        "/api/engrams/team/notes/a.md", json={"body": "x"}, headers=CSRF
     )
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
@@ -56,7 +56,7 @@ async def test_meta_engrams_are_read_only(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/personal/meta/protocol.md",
+        "/api/engrams/personal/meta/protocol.md",
         json={"body": "x", "message": "m"},
         headers=CSRF,
     )
@@ -67,10 +67,10 @@ async def test_create_space_and_slug_taken(api, world):
     """A space is created once; a repeat of the same slug 400s."""
     alice, _, _ = world
     _login(api, alice)
-    ok = await api.post("/api/coves", json={"slug": "trip"}, headers=CSRF)
+    ok = await api.post("/api/spaces", json={"slug": "trip"}, headers=CSRF)
     assert ok.status_code == 200
     assert ok.json() == {"alias": "trip", "slug": "trip"}
-    dup = await api.post("/api/coves", json={"slug": "trip"}, headers=CSRF)
+    dup = await api.post("/api/spaces", json={"slug": "trip"}, headers=CSRF)
     assert dup.status_code == 400
 
 
@@ -79,11 +79,11 @@ async def test_invite_and_members_and_remove(api, world):
     alice, bob, _ = world
     _login(api, alice)
     invited = await api.post(
-        "/api/coves/team/invites", json={"email": "New@X.com"}, headers=CSRF
+        "/api/spaces/team/invites", json={"email": "New@X.com"}, headers=CSRF
     )
     assert invited.status_code == 200
     assert "disclosure" in invited.json()
-    members = (await api.get("/api/coves/team/members")).json()
+    members = (await api.get("/api/spaces/team/members")).json()
     assert members["is_owner"] is True
     assert members["owner_email"] == alice.email
     assert len(members["members"]) == 3
@@ -108,7 +108,7 @@ async def test_invite_and_members_and_remove(api, world):
     # must clear the jar first or the request would carry alice's cookie too.
     api.cookies.clear()
     _login(api, bob)
-    non_owner_view = (await api.get("/api/coves/team/members")).json()
+    non_owner_view = (await api.get("/api/spaces/team/members")).json()
     assert non_owner_view["is_owner"] is False
     assert {m["display_name"] for m in non_owner_view["members"]} == {
         m["display_name"] for m in members["members"]
@@ -117,7 +117,7 @@ async def test_invite_and_members_and_remove(api, world):
 
     api.cookies.clear()
     _login(api, alice)
-    removed = await api.delete("/api/coves/team/members/new@x.com", headers=CSRF)
+    removed = await api.delete("/api/spaces/team/members/new@x.com", headers=CSRF)
     assert removed.status_code == 200
 
 
@@ -126,7 +126,7 @@ async def test_non_owner_cannot_invite(api, world):
     _, bob, _ = world
     _login(api, bob)
     response = await api.post(
-        "/api/coves/team/invites", json={"email": "e@x.com"}, headers=CSRF
+        "/api/spaces/team/invites", json={"email": "e@x.com"}, headers=CSRF
     )
     assert response.status_code == 400
 
@@ -140,7 +140,7 @@ async def test_put_non_dict_json_body_is_bad_request(api, world):
     """
     alice, _, _ = world
     _login(api, alice)
-    response = await api.put("/api/pages/team/notes/a.md", json=42, headers=CSRF)
+    response = await api.put("/api/engrams/team/notes/a.md", json=42, headers=CSRF)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
 
@@ -150,7 +150,7 @@ async def test_put_malformed_json_is_bad_request(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/a.md",
+        "/api/engrams/team/notes/a.md",
         content=b"{not valid json",
         headers={**CSRF, "Content-Type": "application/json"},
     )
@@ -168,7 +168,7 @@ async def test_put_wrong_typed_body_is_bad_request(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/a.md",
+        "/api/engrams/team/notes/a.md",
         json={"body": 42, "message": "m"},
         headers=CSRF,
     )
@@ -181,7 +181,7 @@ async def test_put_wrong_typed_tags_is_bad_request(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/a.md",
+        "/api/engrams/team/notes/a.md",
         json={"body": "x", "message": "m", "tags": "not-a-list"},
         headers=CSRF,
     )
@@ -193,7 +193,7 @@ async def test_post_spaces_non_dict_json_body_is_bad_request(api, world):
     """A JSON body that parses to a bare list, not an object, 400s cleanly."""
     alice, _, _ = world
     _login(api, alice)
-    response = await api.post("/api/coves", json=["trip"], headers=CSRF)
+    response = await api.post("/api/spaces", json=["trip"], headers=CSRF)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
 
@@ -202,7 +202,7 @@ async def test_invite_non_dict_json_body_is_bad_request(api, world):
     """A JSON body that parses to a bare string, not an object, 400s cleanly."""
     alice, _, _ = world
     _login(api, alice)
-    response = await api.post("/api/coves/team/invites", json="e@x.com", headers=CSRF)
+    response = await api.post("/api/spaces/team/invites", json="e@x.com", headers=CSRF)
     assert response.status_code == 400
     assert response.json()["error"] == "bad_request"
 
@@ -222,7 +222,7 @@ async def test_invite_to_reef_allowlists_without_sharing_a_space(api, world):
     assert "next_step" in body
 
     # They are on the allowlist, but in none of alice's spaces.
-    members = (await api.get("/api/coves/team/members")).json()
+    members = (await api.get("/api/spaces/team/members")).json()
     assert "curious@x.com" not in {m["email"] for m in members["members"]}
 
 
@@ -264,7 +264,7 @@ async def test_space_invite_shares_the_budget_over_http(api, world):
         await api.post("/api/invites", json={"email": f"r{n}@x.com"}, headers=CSRF)
 
     refused = await api.post(
-        "/api/coves/team/invites", json={"email": "via-space@x.com"}, headers=CSRF
+        "/api/spaces/team/invites", json={"email": "via-space@x.com"}, headers=CSRF
     )
     assert refused.status_code == 429
 
@@ -273,17 +273,17 @@ async def test_leaving_over_http_hands_the_space_on(api, world):
     """The owner departs; the space survives, owned by whoever is left."""
     alice, bob, _ = world
     _login(api, alice)
-    left = await api.post("/api/coves/team/leave", headers=CSRF)
+    left = await api.post("/api/spaces/team/leave", headers=CSRF)
     assert left.status_code == 200
     assert left.json()["handed_to"] == "Bob"
 
     # Alice is out — 404 rather than 403, so leaving cannot be used to probe
     # which spaces still exist.
-    assert (await api.get("/api/coves/team/members")).status_code == 404
+    assert (await api.get("/api/spaces/team/members")).status_code == 404
     # ...and Bob still has it.
     api.cookies.clear()
     _login(api, bob)
-    assert (await api.get("/api/coves/team/members")).status_code == 200
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
 
 
 async def test_deleting_requires_the_space_name_as_confirmation(api, world):
@@ -292,11 +292,11 @@ async def test_deleting_requires_the_space_name_as_confirmation(api, world):
     _login(api, alice)
     for body in ({}, {"confirmation": "DELETE"}, {"confirmation": "other-space"}):
         response = await api.request(
-            "DELETE", "/api/coves/team", json=body, headers=CSRF
+            "DELETE", "/api/spaces/team", json=body, headers=CSRF
         )
         assert response.status_code == 400
         assert response.json()["error"] == "bad_request"
-    assert (await api.get("/api/coves/team/members")).status_code == 200
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
 
 
 async def test_deleting_a_shared_space_over_http_is_refused(api, world):
@@ -304,23 +304,23 @@ async def test_deleting_a_shared_space_over_http_is_refused(api, world):
     alice, _, _ = world
     _login(api, alice)
     response = await api.request(
-        "DELETE", "/api/coves/team", json={"confirmation": "team"}, headers=CSRF
+        "DELETE", "/api/spaces/team", json={"confirmation": "team"}, headers=CSRF
     )
     assert response.status_code == 400
-    assert (await api.get("/api/coves/team/members")).status_code == 200
+    assert (await api.get("/api/spaces/team/members")).status_code == 200
 
 
 async def test_deleting_the_last_space_over_http_destroys_it(api, world):
     alice, _, _ = world
     _login(api, alice)
-    await api.delete("/api/coves/team/members/bob@x.com", headers=CSRF)
+    await api.delete("/api/spaces/team/members/bob@x.com", headers=CSRF)
     response = await api.request(
-        "DELETE", "/api/coves/team", json={"confirmation": "team"}, headers=CSRF
+        "DELETE", "/api/spaces/team", json={"confirmation": "team"}, headers=CSRF
     )
     assert response.status_code == 200
     assert response.json()["deleted"] is True
     index = await api.get("/api/index")
-    assert "team" not in {space["alias"] for space in index.json()["coves"]}
+    assert "team" not in {space["alias"] for space in index.json()["spaces"]}
 
 
 async def test_delete_removes_an_engram_over_http(api, world):
@@ -328,21 +328,21 @@ async def test_delete_removes_an_engram_over_http(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     await api.put(
-        "/api/pages/team/notes/typo.md",
+        "/api/engrams/team/notes/typo.md",
         json={"body": "oops", "message": "create"},
         headers=CSRF,
     )
-    removed = await api.delete("/api/pages/team/notes/typo.md", headers=CSRF)
+    removed = await api.delete("/api/engrams/team/notes/typo.md", headers=CSRF)
     assert removed.status_code == 200
     assert removed.json()["deleted"] is True
-    assert (await api.get("/api/pages/team/notes/typo.md")).status_code == 404
+    assert (await api.get("/api/engrams/team/notes/typo.md")).status_code == 404
 
 
 async def test_delete_of_a_missing_engram_is_404(api, world):
     """A path naming nothing is a clean 404, not a 500."""
     alice, _bob, _ = world
     _login(api, alice)
-    response = await api.delete("/api/pages/team/notes/nope.md", headers=CSRF)
+    response = await api.delete("/api/engrams/team/notes/nope.md", headers=CSRF)
     assert response.status_code == 404
 
 
@@ -350,7 +350,7 @@ async def test_delete_requires_the_csrf_header(api, world):
     """Destroying an engram sits behind the same guard as writing one."""
     alice, _bob, _ = world
     _login(api, alice)
-    assert (await api.delete("/api/pages/team/notes/a.md")).status_code == 403
+    assert (await api.delete("/api/engrams/team/notes/a.md")).status_code == 403
 
 
 async def test_put_normalizes_a_new_engrams_path(api, world):
@@ -358,7 +358,7 @@ async def test_put_normalizes_a_new_engrams_path(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     created = await api.put(
-        "/api/pages/team/Notes/Packing List",
+        "/api/engrams/team/Notes/Packing List",
         json={"body": "socks", "message": "create"},
         headers=CSRF,
     )
@@ -376,7 +376,7 @@ async def test_put_with_an_unrepairable_path_explains_itself(api, world):
     alice, _bob, _ = world
     _login(api, alice)
     response = await api.put(
-        "/api/pages/team/notes/what%3F.md",
+        "/api/engrams/team/notes/what%3F.md",
         json={"body": "x", "message": "m"},
         headers=CSRF,
     )
@@ -392,17 +392,17 @@ async def test_renaming_a_space_over_http_moves_only_my_own_name(api, world, gra
     _login(api, alice)
 
     renamed = await api.post(
-        "/api/coves/team/name", json={"name": "squad"}, headers={"x-reef-csrf": "1"}
+        "/api/spaces/team/name", json={"name": "squad"}, headers={"x-reef-csrf": "1"}
     )
     assert renamed.status_code == 200
     assert renamed.json() == {"was": "team", "now": "squad"}
 
-    aliases = {s["alias"] for s in (await api.get("/api/index")).json()["coves"]}
+    aliases = {s["alias"] for s in (await api.get("/api/index")).json()["spaces"]}
     assert "squad" in aliases and "team" not in aliases
 
     # Bob still calls it what he always called it.
     _login(api, bob)
-    his = {s["alias"] for s in (await api.get("/api/index")).json()["coves"]}
+    his = {s["alias"] for s in (await api.get("/api/index")).json()["spaces"]}
     assert "team" in his and "squad" not in his
 
 
@@ -412,7 +412,7 @@ async def test_renaming_to_a_name_i_already_use_is_refused(api, world, graph):
     _login(api, alice)
 
     clash = await api.post(
-        "/api/coves/team/name", json={"name": "boat"}, headers={"x-reef-csrf": "1"}
+        "/api/spaces/team/name", json={"name": "boat"}, headers={"x-reef-csrf": "1"}
     )
     assert clash.status_code == 400
     assert "already have a space" in clash.json()["detail"]

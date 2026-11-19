@@ -1,24 +1,24 @@
 /**
- * A single cove: its pages, and — for a shared cove — a "whobar" summarizing
+ * A single space: its engrams, and — for a shared space — a "whobar" summarizing
  * who can see it, whose avatar stack and "Manage" link open the shared
  * `MembersSheet` (owned by `AppShell`, reached via `useMembersSheet`).
  *
- * The hero wears the cove's own organism. This is the one screen whose whole
- * subject is a single cove, so it carried the weakest mark of it — a bare
+ * The hero wears the space's own organism. This is the one screen whose whole
+ * subject is a single space, so it carried the weakest mark of it — a bare
  * title, no hue, while `Home`'s cards showed the creature. The controls that
  * *change* that creature live in `MembersSheet` (behind "Manage"), next to
- * "Rename for me": both are per-person settings for this cove that alter
+ * "Rename for me": both are per-person settings for this space that alter
  * nothing for anybody else, and they belong together rather than one being
- * stranded in the page body between "New page" and the delete zone.
+ * stranded in the page body between "New engram" and the delete zone.
  *
- * The personal cove has no membership to administer, so the members
+ * The personal space has no membership to administer, so the members
  * fetch is skipped entirely for it (`useMembers` already treats "personal"
- * as no-cove) and the whobar shows a plain "only you" instead.
+ * as no-space) and the whobar shows a plain "only you" instead.
  *
- * The way out of a cove is no longer here. Leaving and deleting live in
- * `MembersSheet`'s danger zone, with the rest of what one does *to* a cove
+ * The way out of a space is no longer here. Leaving and deleting live in
+ * `MembersSheet`'s danger zone, with the rest of what one does *to* a space
  * rather than *in* it — this view is for reading what is in it, and a
- * permanent delete sitting under the page list was one scroll away from
+ * permanent delete sitting under the engram list was one scroll away from
  * every ordinary visit.
  */
 
@@ -27,23 +27,23 @@ import { Link, useParams } from "react-router-dom";
 
 import { AvatarStack } from "../components/Avatar";
 import { LookPicker } from "../components/LookPicker";
-import { CoveGlyph } from "../components/coveGlyph";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { useIndex } from "../IndexProvider";
 import { relativeTime } from "../relativeTime";
-import { useCoveLook } from "../useAppearance";
+import { useSpaceLook } from "../useAppearance";
 import { useMembers } from "../useMembers";
 import { useMembersSheet } from "../useMembersSheet";
 
-export default function CoveView() {
-  const { cove = "" } = useParams<{ cove: string }>();
-  const isPersonal = cove === "personal";
+export default function SpaceView() {
+  const { space = "" } = useParams<{ space: string }>();
+  const isPersonal = space === "personal";
 
   const { index, error: indexError } = useIndex();
-  const { members, error: membersError } = useMembers(cove);
+  const { members, error: membersError } = useMembers(space);
   const { openMembers } = useMembersSheet();
-  const { hue, family } = useCoveLook()(cove);
+  const { hue, family } = useSpaceLook()(space);
 
-  const thisCove = index?.coves.find((entry) => entry.alias === cove);
+  const thisSpace = index?.spaces.find((entry) => entry.alias === space);
 
   return (
     <div>
@@ -52,9 +52,9 @@ export default function CoveView() {
         style={{ "--hue-base": hue.base, "--hue-light": hue.light } as CSSProperties}
       >
         <span className="hero-chip" aria-hidden="true">
-          <CoveGlyph alias={cove} color={hue.base} size={34} family={family} />
+          <SpaceGlyph alias={space} color={hue.base} size={34} family={family} />
         </span>
-        <h1 className="hero-title">{cove}</h1>
+        <h1 className="hero-title">{space}</h1>
       </div>
 
       {indexError && <div className="notice">{indexError}</div>}
@@ -77,8 +77,8 @@ export default function CoveView() {
                   name: member.display_name,
                   src: member.avatar,
                 }))}
-                onClick={() => openMembers(cove)}
-                ariaLabel={`Members of ${cove}`}
+                onClick={() => openMembers(space)}
+                ariaLabel={`Members of ${space}`}
               />
               <span className="whobar-lbl">
                 {members.members.length}{" "}
@@ -90,7 +90,7 @@ export default function CoveView() {
                 <button
                   type="button"
                   className="whobar-manage"
-                  onClick={() => openMembers(cove)}
+                  onClick={() => openMembers(space)}
                 >
                   Manage
                 </button>
@@ -100,40 +100,40 @@ export default function CoveView() {
         </div>
       )}
 
-      {thisCove && (
+      {thisSpace && (
         <>
-          <div className="section-label">Pages</div>
+          <div className="section-label">Engrams</div>
           <ul className="page-rows">
-            {thisCove.pages.length === 0 && (
-              <li className="muted page-rows-empty">No pages yet.</li>
+            {thisSpace.engrams.length === 0 && (
+              <li className="muted page-rows-empty">No engrams yet.</li>
             )}
-            {thisCove.pages.map((page) => (
-              <li key={page.path} className="page-row">
-                <Link to={`/s/${cove}/p/${page.path}`} className="page-row-link">
+            {thisSpace.engrams.map((engram) => (
+              <li key={engram.path} className="page-row">
+                <Link to={`/s/${space}/engram/${engram.path}`} className="page-row-link">
                   <span className="page-row-icon" aria-hidden="true">
                     ☰
                   </span>
                   <span className="page-row-text">
-                    <span className="page-row-title">{page.title || page.path}</span>
-                    {page.description && (
-                      <span className="page-row-desc">{page.description}</span>
+                    <span className="page-row-title">{engram.title || engram.path}</span>
+                    {engram.description && (
+                      <span className="page-row-desc">{engram.description}</span>
                     )}
                   </span>
                   <span className="page-row-when">
-                    {relativeTime(page.updated)}
-                    {page.last_editor && ` · ${page.last_editor}`}
+                    {relativeTime(engram.updated)}
+                    {engram.last_editor && ` · ${engram.last_editor}`}
                   </span>
                 </Link>
               </li>
             ))}
           </ul>
-          <Link to={`/s/${cove}/new`} className="page-new">
-            ＋ New page
+          <Link to={`/s/${space}/new`} className="page-new">
+            ＋ New engram
           </Link>
           {/*
-            The personal cove is the one place this stays in the page body:
+            The personal space is the one place this stays in the page body:
             it has no roster, so no "Manage" and no sheet to move it into.
-            Every shared cove reaches the same control from Manage instead —
+            Every shared space reaches the same control from Manage instead —
             and carries the heading and note that the sheet provides there,
             since `LookPicker` renders only the two rows.
           */}
@@ -141,9 +141,9 @@ export default function CoveView() {
             <>
               <div className="section-label">Appearance</div>
               <p className="muted look-note">
-                Only you. Nobody else can see this cove at all.
+                Only you. Nobody else can see this space at all.
               </p>
-              <LookPicker alias={cove} />
+              <LookPicker alias={space} />
             </>
           )}
         </>

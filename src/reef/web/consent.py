@@ -107,27 +107,27 @@ _CAPABILITIES = [
     (
         "Read everything you can see",
         (
-            "every page, file and image in your personal cove and every "
-            "shared cove you belong to"
+            "every engram, file and image in your personal space and every "
+            "shared space you belong to"
         ),
     ),
     (
         "Write and delete",
         (
-            "create, edit and delete pages and files in those coves, as "
+            "create, edit and delete engrams and files in those spaces, as "
             "everyone in them will see"
         ),
     ),
     (
-        "Manage coves and membership",
+        "Manage spaces and membership",
         (
-            "create and rename coves, invite people by email, remove "
-            "members, leave or delete a cove"
+            "create and rename spaces, invite people by email, remove "
+            "members, leave or delete a space"
         ),
     ),
     (
         "Export everything",
-        "a full copy of any cove, including history and files",
+        "a full copy of any space, including history and files",
     ),
 ]
 

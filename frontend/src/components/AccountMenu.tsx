@@ -1,9 +1,9 @@
 /**
  * The account row at the foot of the sidebar, and the menu behind it.
  *
- * Everything that is about *the person* rather than about a cove lives here:
+ * Everything that is about *the person* rather than about a space lives here:
  * their profile, taking their data out, and signing out. Export used to sit
- * in the nav between Index and the cove list, which read as a third way to
+ * in the nav between Index and the space list, which read as a third way to
  * browse; it is an account action, so it belongs behind the name.
  *
  * The trigger is the avatar and name together — a bigger target than either
