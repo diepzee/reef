@@ -53,7 +53,7 @@ log = logging.getLogger(__name__)
 SEARCH_CONFIGS = ("english", "dutch")
 
 #: How much of a body or description is indexed. Equal to the default engram
-#: ceiling (``engram_max_chars``), so an engram is indexed whole. It exists for
+#: ceiling (``REEF_ENGRAM_MAX_CHARS``), so an engram is indexed whole. It exists for
 #: file descriptions, which have no ceiling: Postgres refuses a ``tsvector``
 #: past one megabyte, and without a bound one enormous description would
 #: fail its own upload. Measured at this length, the worst realistic text --
@@ -601,9 +601,9 @@ async def _large_enough(space_ids: list) -> bool:
     is one. Row security does the counting, so nobody else's engrams count.
 
     :param space_ids: the one space searched, or an empty list
-    :returns: True when there are at least ``REEF_RERANK_MIN_PAGES`` engrams
+    :returns: True when there are at least ``REEF_RERANK_MIN_ENGRAMS`` engrams
     """
-    least = get_settings().rerank.min_pages
+    least = get_settings().rerank.min_engrams
     if least == 0:
         return True
     rows = await Engram.raw(
@@ -654,7 +654,7 @@ async def search_engrams(
     are found by words only.
 
     **Read again.** Where there is a reranker, and the memory searched
-    holds at least ``REEF_RERANK_MIN_PAGES`` engrams, the first
+    holds at least ``REEF_RERANK_MIN_ENGRAMS`` engrams, the first
     ``REEF_RERANK_CANDIDATES`` results are read next to the query and put
     in its order, see :mod:`reef.rerank`.
 

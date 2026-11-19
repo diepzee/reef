@@ -138,9 +138,9 @@ def validate_body(path: str, body: str) -> None:
 
     :param path: the engram path, for the message
     :param body: the full markdown body
-    :raises EngramTooLarge: if the body exceeds ``REEF_PAGE_MAX_CHARS``
+    :raises EngramTooLarge: if the body exceeds ``REEF_ENGRAM_MAX_CHARS``
     """
-    ceiling = get_settings().pages.max_chars
+    ceiling = get_settings().engrams.max_chars
     if len(body) > ceiling:
         raise EngramTooLarge(
             f"{path!r} is {len(body)} characters, over the {ceiling}-character "

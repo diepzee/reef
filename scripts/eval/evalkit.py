@@ -326,18 +326,24 @@ def private_engrams(export: dict) -> list[EvalEngram]:
 
     :param export: the parsed export file
     :returns: the engrams, in path order
-    :raises ValueError: if the file is not a version 1 export
+    :raises ValueError: if the file is not a version 1 or 2 export
     """
-    if export.get("schema_version") != 1:
-        raise ValueError("not a version 1 reef JSON export")
+    version = export.get("schema_version")
+    if version == 2:
+        space_key, engram_key = "spaces", "engrams"
+    elif version == 1:
+        # Exports made before the rename call them coves and pages.
+        space_key, engram_key = "coves", "pages"
+    else:
+        raise ValueError("not a version 1 or 2 reef JSON export")
     engrams = [
         EvalEngram(
             path=f"{space['alias']}/{engram['path']}",
             title=engram["title"] or "",
             body=engram["body"],
         )
-        for space in export["coves"]
-        for engram in space["pages"]
+        for space in export[space_key]
+        for engram in space[engram_key]
     ]
     return sorted(engrams, key=lambda engram: engram.path)
 

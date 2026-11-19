@@ -1,39 +1,39 @@
 # Retrieval benchmark
 
-This measures how often search finds the page that holds the answer. No
+This measures how often search finds the engram that holds the answer. No
 change to search should ship without running it.
 
 ## Run it
 
 ```bash
 just eval-download     # once: 277 MB, checked against a known hash
-just eval-seed         # loads 100 questions' sessions, about 4,500 pages
+just eval-seed         # loads 100 questions' sessions, about 4,500 engrams
 just eval              # asks the questions in every search mode
 ```
 
 `just eval-seed all` and `just eval all` use all 470 answerable questions.
-That is about 19,000 pages.
+That is about 19,000 engrams.
 
 **Local only.** The scripts stop if the database is not on this machine, or
 if any `RAILWAY_` variable is set, or if anybody has signed in to that
 database. The benchmark must never reach
-production: it creates a person nobody invited and thousands of pages of
+production: it creates a person nobody invited and thousands of engrams of
 other people's chats.
 
 ## What it measures
 
 The data is LongMemEval-S. Each question comes with the chat sessions that
-hold its answer and about forty that do not. Every session becomes a page of
+hold its answer and about forty that do not. Every session becomes an engram of
 one dedicated person, `eval@reef.local`, written through the same code an
 assistant uses.
 
-For each question the harness searches and looks at the pages returned.
+For each question the harness searches and looks at the engrams returned.
 
 | Column | Meaning |
 |---|---|
-| `any@5` | A page with the answer is in the first five results |
-| `all@5` | Every page needed for the answer is in the first five |
-| `MRR` | How high the first right page ranks. 1.0 means always first |
+| `any@5` | An engram with the answer is in the first five results |
+| `all@5` | Every engram needed for the answer is in the first five |
+| `MRR` | How high the first right engram ranks. 1.0 means always first |
 
 It does not ask a model to answer. It checks retrieval only.
 
@@ -62,7 +62,7 @@ It does not ask a model to answer. It checks retrieval only.
 ```bash
 ollama pull embeddinggemma:300m
 export REEF_EMBEDDING_URL=http://127.0.0.1:11434
-just worker            # embeds the pages; lift REEF_EMBEDDING_DAILY_CAP for the benchmark
+just worker            # embeds the engrams; lift REEF_EMBEDDING_DAILY_CAP for the benchmark
 just eval-private
 ```
 
@@ -86,12 +86,12 @@ New modes are added to `MODES` in `evalkit.py`.
 
 ## Results
 
-100 questions, 4,546 pages, first five results.
+100 questions, 4,546 engrams, first five results.
 
 | Date | Mode | any@5 | all@5 | MRR | What changed |
 |---|---|---|---|---|---|
-| 18 Nov 2026 | `lexical` | 24.0% | 10.0% | 0.195 | First measurement. A page had to hold every word |
-| 18 Nov 2026 | `lexical` | 53.0% | 24.0% | 0.437 | Any word may match, full matches first, rank scaled by page length |
+| 18 Nov 2026 | `lexical` | 24.0% | 10.0% | 0.195 | First measurement. An engram had to hold every word |
+| 18 Nov 2026 | `lexical` | 53.0% | 24.0% | 0.437 | Any word may match, full matches first, rank scaled by engram length |
 
 **53.0% is the line that embeddings have to beat.**
 The report on what moved the score from 24.0% to 53.0% is in
@@ -108,10 +108,10 @@ By question type, `any@5`, for the current search:
 | single-session-user | 14 | 42.9% |
 | temporal-reasoning | 27 | 51.8% |
 
-Preference questions share no words with the page that answers them. No
+Preference questions share no words with the engram that answers them. No
 keyword search finds them.
 
-All 470 questions, 18,239 pages, first five results, through the product
+All 470 questions, 18,239 engrams, first five results, through the product
 code with EmbeddingGemma 300m on a local Ollama.
 
 | Date | Mode | any@5 | all@5 | MRR | Per search |
@@ -141,7 +141,7 @@ uv run --with numpy --with sentence-transformers python \
     --reranker bge-m3 --candidates 15 --passages 2
 ```
 
-All 470 questions, 18,239 pages, first five results, 18 Nov 2026.
+All 470 questions, 18,239 engrams, first five results, 18 Nov 2026.
 Embeddings are EmbeddingGemma 300m. The reranker is
 `BAAI/bge-reranker-v2-m3`. Times are from an M4 Pro.
 
@@ -150,15 +150,15 @@ Embeddings are EmbeddingGemma 300m. The reranker is
 | Keyword, as it ships | 37.5% | 18.7% | 0.271 | |
 | Embeddings alone | 44.9% | | | |
 | Hybrid, embeddings weighted 3 | 47.4% | 26.2% | 0.340 | |
-| Hybrid, reranker reads 15 pages, 1 passage each | 51.3% | 29.1% | 0.373 | 0.90 |
-| Hybrid, reranker reads 15 pages, 2 passages each | 54.0% | 31.5% | 0.405 | 1.74 |
-| Hybrid, reranker reads 30 pages, 1 passage each | 51.1% | 30.0% | 0.380 | 1.75 |
-| Hybrid, reranker reads 30 pages, 2 passages each | 55.5% | 34.0% | 0.420 | 3.6 |
-| Hybrid, reranker reads 50 pages, 2 passages each | 55.3% | 34.9% | 0.420 | 5.48 |
+| Hybrid, reranker reads 15 engrams, 1 passage each | 51.3% | 29.1% | 0.373 | 0.90 |
+| Hybrid, reranker reads 15 engrams, 2 passages each | 54.0% | 31.5% | 0.405 | 1.74 |
+| Hybrid, reranker reads 30 engrams, 1 passage each | 51.1% | 30.0% | 0.380 | 1.75 |
+| Hybrid, reranker reads 30 engrams, 2 passages each | 55.5% | 34.0% | 0.420 | 3.6 |
+| Hybrid, reranker reads 50 engrams, 2 passages each | 55.3% | 34.9% | 0.420 | 5.48 |
 
-- Search as built weighs embeddings 2, not 3, and cuts pages by heading.
+- Search as built weighs embeddings 2, not 3, and cuts engrams by heading.
   Its own numbers are under Results above.
-- A second passage per page is worth about 4 points. More pages are not.
+- A second passage per engram is worth about 4 points. More engrams are not.
 - The small reranker `mmarco-mMiniLMv2-L12-H384-v1` scored 48.3% and is not
   worth having.
 - The fusion weight was chosen on these same questions, so the hybrid
@@ -180,29 +180,29 @@ Rebuild it with `python scripts/eval/seed.py --write-slice tests/fixtures/longme
 loads the slice into it: 80 made-up conversations, nothing personal, no
 download. Open it with `just dev test@reef.local`.
 
-The questions and their expected pages are in
+The questions and their expected engrams are in
 `tests/fixtures/longmemeval_slice.json`, so you know what a search should
 find.
 
 ## The private set
 
-Questions about your own pages. It tests what the benchmark cannot: Dutch,
-real page style, and the questions you actually ask.
+Questions about your own engrams. It tests what the benchmark cannot: Dutch,
+real engram style, and the questions you actually ask.
 
-`scripts/eval/private/` is ignored by git. Your pages and the questions
+`scripts/eval/private/` is ignored by git. Your engrams and the questions
 about them are personal data and must not be committed.
 
-1. On the site, export your pages as JSON. Save the file as
+1. On the site, export your engrams as JSON. Save the file as
    `scripts/eval/private/export.json`.
-2. Load it: `just eval-private-seed`. The pages go to a second local person,
+2. Load it: `just eval-private-seed`. The engrams go to a second local person,
    `private-eval@reef.local`, apart from the benchmark.
 3. Write `scripts/eval/private/questions.json`: a list of entries like
    `{"id": "1", "kind": "dutch", "text": "...", "expected": ["personal/notes/x.md"]}`.
-   A path is the cove's alias, a slash, and the page's path.
+   A path is the space's alias, a slash, and the engram's path.
 4. Run it: `just eval-private`.
 
 The export holds only what you can see yourself. Nothing is read from the
-production database, and nobody else's private pages come along. To load a
+production database, and nobody else's private engrams come along. To load a
 newer export, recreate the local database first.
 
 ## Source and licence

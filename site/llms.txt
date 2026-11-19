@@ -1,7 +1,7 @@
 # reef
 
 > A shared, living memory for a group of people and the AI assistants they
-> talk to. Each circle of your life gets a cove: a small wiki your assistant
+> talk to. Each circle of your life gets a space: a small wiki your assistant
 > reads before it answers, and writes back to as things change.
 
 reef is built by Haai BV and runs at https://reefwith.me. It speaks the Model
@@ -11,22 +11,22 @@ terminal-first setups.
 
 What makes it different from an assistant's built-in memory:
 
-- **Shared, not personal.** A cove belongs to a household, a project or a
+- **Shared, not personal.** A space belongs to a household, a project or a
   team, so everyone's assistant starts from the same picture.
-- **A wiki, not a blob.** Memory is pages a person can read, correct and
+- **A wiki, not a blob.** Memory is engrams a person can read, correct and
   reorganise, not an opaque store you have to trust.
 - **Map before memory.** An assistant loads an index of what exists first,
-  then fetches only the pages the conversation actually needs.
+  then fetches only the engrams the conversation actually needs.
 - **Yours to leave with.** Everything exports, and deleting means deleted.
 
 reef is invitation-only: there is no public sign-up, and people arrive because
-someone already inside adds them to a cove.
+someone already inside adds them to a space.
 
 ## Pages
 
-- [Home](https://reefwith.me/): what reef is, how coves work, and how to
+- [Home](https://reefwith.me/): what reef is, how spaces work, and how to
   connect Claude, ChatGPT, Codex or the CLI to it.
-- [Documentation](https://reefwith.me/docs): coves and pages, how an assistant
+- [Documentation](https://reefwith.me/docs): spaces and engrams, how an assistant
   reads and writes memory, connection steps for each client, and the full tool
   reference.
 - [What's new](https://reefwith.me/changelog): release notes, newest first.

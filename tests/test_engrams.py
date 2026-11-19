@@ -110,7 +110,7 @@ async def test_a_body_over_the_ceiling_is_refused(tx, household):
     the cheapest way to bloat a space -- and every body is parsed on save and
     loaded whole on read, so one oversized engram taxes everyone who opens it."""
     me = principal_for(household["wouter"])
-    ceiling = get_settings().pages.max_chars
+    ceiling = get_settings().engrams.max_chars
     with pytest.raises(EngramTooLarge):
         await save_engram(me, "household", "bloat.md", "A" * (ceiling + 1), message="x")
     assert await get_engram(me, "household", "bloat.md") is None
@@ -118,7 +118,7 @@ async def test_a_body_over_the_ceiling_is_refused(tx, household):
 
 async def test_a_body_at_the_ceiling_is_allowed(tx, household):
     me = principal_for(household["wouter"])
-    ceiling = get_settings().pages.max_chars
+    ceiling = get_settings().engrams.max_chars
     engram = await save_engram(me, "household", "big.md", "A" * ceiling, message="x")
     assert len(engram.body) == ceiling
 
