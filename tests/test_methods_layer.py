@@ -109,6 +109,18 @@ async def test_failed_method_is_logged_and_reraised(household, logging_on, regis
     assert row["reason"] == "to find the boiler manual"
 
 
+async def test_a_refusal_is_logged_by_its_code(household, logging_on, registry):
+    @method("probe")
+    async def probe(caller: Caller, reason: str) -> dict:
+        raise MethodError("stale_token")
+
+    me = caller_for(household["wouter"])
+    with pytest.raises(MethodError):
+        await probe(me, "")
+    [row] = await _rows(me)
+    assert (row["outcome"], row["returned"]) == ("stale_token", 0)
+
+
 async def test_the_method_runs_outside_any_transaction(household, registry):
     # Methods open their own short transactions, so model calls can happen
     # outside them; the wrapper must not hold one open around the method.
@@ -219,9 +231,19 @@ def test_token_refused_after_expiry(secret):
         lambda token: "e30." + token.split(".")[1],
         lambda token: token.replace(".", ""),
         lambda token: token + "é",
+        lambda token: token + "\ud800",
+        lambda token: "\ud800" + token,
         lambda token: "",
     ],
-    ids=["signature", "payload", "no-dot", "non-ascii", "empty"],
+    ids=[
+        "signature",
+        "payload",
+        "no-dot",
+        "non-ascii",
+        "surrogate-signature",
+        "surrogate-payload",
+        "empty",
+    ],
 )
 def test_token_refused_with_a_bad_signature(secret, tamper):
     me = somebody()

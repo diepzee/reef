@@ -70,7 +70,8 @@ async def record(
     :param reason: why it was called; cut to the stored length
     :param duration_ms: how long the call took, in milliseconds
     :param returned: how many items the call returned
-    :param outcome: ``ok``, or the class of the error that ended the call
+    :param outcome: ``ok``; the code of a refusal, such as ``stale_token``;
+        or the class of any other error that ended the call
     """
     if not get_settings().calls.log:
         return
@@ -117,7 +118,8 @@ async def _insert(
     :param reason: why it was called; cut to the stored length
     :param duration_ms: how long the call took, in milliseconds
     :param returned: how many items the call returned
-    :param outcome: ``ok``, or the class of the error that ended the call
+    :param outcome: ``ok``; the code of a refusal, such as ``stale_token``;
+        or the class of any other error that ended the call
     """
     await arm(principal)
     savepoint = await DB.current_transaction.get().savepoint()
