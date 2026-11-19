@@ -793,8 +793,17 @@ worker does not use it.
   benchmark questions over 18,000, with nothing measured in between.
 - **`reef-rerank` sleeps while nobody needs it.** With sleeping on, Railway
   stops it after about ten minutes without traffic, and a request over the
-  private network wakes it. The first searches after that answer in the
-  hybrid order while the model loads. So the threshold is the automatic
+  private network wakes it. Measured on 19 November 2026: it was asleep ten
+  minutes after a deploy, and a request woke it. For about 13 seconds it
+  refused connections, then answered "loading"; the first answer came after
+  16 seconds, the next took 2.8. Those first searches fail fast and answer
+  in the hybrid order.
+- **Sleeping belongs to each deploy, not only to the service.**
+  `railway service redeploy` copies the configuration of the deploy it
+  repeats, so a setting changed since, such as sleeping, does not reach the
+  service. After changing a service setting, deploy afresh with `railway up`.
+  To check, read the deploy's `meta.serviceManifest.deploy.sleepApplication`
+  with `railway api`. So the threshold is the automatic
   switch: nothing calls the service, and it costs next to nothing, until a
   memory crosses it.
 - **The off switch** is `REEF_RERANK_ENABLED=0`. It stops reranking at once
