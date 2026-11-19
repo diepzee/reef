@@ -72,9 +72,10 @@ async def measure(
     """
     settings = get_settings()
     evalkit.refuse_unless_local(settings.dsn)
-    if settings.embedding_url:
-        # The hybrid mode sends each question to this address.
-        evalkit.refuse_unless_local(settings.embedding_url)
+    for address in (settings.embedding_url, settings.rerank_url):
+        if address:
+            # The hybrid and rerank modes send questions and pages here.
+            evalkit.refuse_unless_local(address)
     if private:
         questions = _private_questions()
         email = evalkit.PRIVATE_EMAIL

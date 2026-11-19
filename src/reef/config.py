@@ -105,6 +105,28 @@ class Settings(BaseSettings):
     # How long after a save the page is embedded. A page edited five times
     # in a row is embedded once.
     embedding_delay_seconds: float = 120.0
+    # How long a search waits for its query's vector. Past it, the search
+    # answers by keywords alone. A search that waits longer than this is
+    # worse than a keyword search that answers.
+    embedding_seconds: float = 2.0
+    # Where the reranker is: a cross-encoder that reads each top result next
+    # to the query and orders them again. Empty means there is none. The
+    # query and passages of the person's own pages are sent to this
+    # address, so it must be a service this deployment runs itself.
+    rerank_url: str = ""
+    # Which model that service serves. Sent with every request.
+    rerank_model: str = "BAAI/bge-reranker-v2-m3"
+    # The off switch. On by default: the reranker runs whenever there is a
+    # service. Set REEF_RERANK_ENABLED=0 to stop using it without removing it.
+    rerank_enabled: bool = True
+    # How many of the first results are read again, and how many of each
+    # page's pieces closest to the query are read. Measured on 18 November
+    # 2026: 15 and 2 kept most of the gain of 30 and 2, at half the time.
+    rerank_candidates: int = 15
+    rerank_passages: int = 2
+    # How long a search waits for the reranker. Past it, the search answers
+    # in the order it had.
+    rerank_seconds: float = 3.0
 
     # Email on the Glama account that owns this deployment's listing, served
     # at /.well-known/glama.json to claim it. Deliberately unset by default:

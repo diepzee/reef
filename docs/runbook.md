@@ -699,7 +699,8 @@ queued and the tables `page_embeddings` and `embedding_spend` are empty.
 - **Old pages** are embedded after an assistant of somebody who may write
   to their cove next loads the index.
 - **Search uses the vectors** as soon as the address is set on `reef-app`.
-  Each search sends its query to the service, waits at most two seconds,
+  Each search sends its query to the service, waits at most
+  `REEF_EMBEDDING_SECONDS` (2),
   and merges the pages closest in meaning with the pages found by words.
   A query with a quoted phrase or a `-word` is not sent: it stays exact.
 - **When the service is slow or down**, search answers with keywords
@@ -717,6 +718,33 @@ queued and the tables `page_embeddings` and `embedding_spend` are empty.
   stay, also of text since edited out of a page. To remove them:
   `TRUNCATE page_embeddings;` as a superuser. Pages are embedded again as
   they are saved or backfilled once the address is set again.
+
+**Reranking (19 Nov 2026).** A reranker reads the first results of each
+search next to the query and puts them in a better order. It is **on by
+default** and runs as soon as `REEF_RERANK_URL` is set on `reef-app`. The
+worker does not use it.
+
+- **The address must be ours**, as for embeddings. Each search sends the
+  query and passages of pages the person can already read.
+- **The protocol** is `POST /v1/rerank` with a model, a query and a list
+  of documents, as llama.cpp (`--reranking`), vLLM and Infinity answer it.
+  The plain-list answer of text-embeddings-inference is read too.
+- **The model** is `REEF_RERANK_MODEL`, by default
+  `BAAI/bge-reranker-v2-m3`. It is sent with each request; most servers
+  serve one model and ignore it.
+- **How much it reads:** the first `REEF_RERANK_CANDIDATES` (15) results,
+  and of each page its `REEF_RERANK_PASSAGES` (2) pieces closest to the
+  query. Without vectors it reads the start of each page.
+- **The time limit** is `REEF_RERANK_SECONDS` (3). Past it, the search
+  keeps the order it had. After three failures in a row searches leave
+  the service alone for a minute, then one search tries again. A query
+  the service refuses does not count. `reef-app` logs
+  `search keeps its order` with the class of the error, never text.
+- **The off switch** is `REEF_RERANK_ENABLED=0`. It stops reranking at once
+  without removing the address.
+- **No model call holds a database connection.** A search embeds its
+  query, reads in one short transaction, asks the reranker, then reads the
+  results in a second short transaction.
 
 **The search log (18 Nov 2026).** reef can log each search: the query
 text, the pages returned and the time. It is **off** until `REEF_SEARCH_LOG=1`

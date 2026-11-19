@@ -55,6 +55,7 @@ It does not ask a model to answer. It checks retrieval only.
 | `lexical` | Search as it ships: the question as typed |
 | `lexical-any` | The same search, with the question rewritten so its words are alternatives |
 | `hybrid` | Words and meaning together, as search ships once a reef has an embedding service |
+| `rerank` | `hybrid`, then the first results read again by a reranker, as search ships once a reef has both services |
 
 `hybrid` needs a local embedding service and the eval person's vectors:
 
@@ -68,6 +69,18 @@ just eval-private
 Without them `hybrid` scores the same as `lexical`, because that is how
 search behaves without a service. The run stops if the address is not on
 this machine.
+
+`rerank` also needs a reranker. `scripts/eval/rerank_server.py` serves the
+measured model on this machine:
+
+```bash
+uv run --with sentence-transformers python scripts/eval/rerank_server.py
+export REEF_RERANK_URL=http://127.0.0.1:8787
+REEF_RERANK_SECONDS=60 just eval-private
+```
+
+A long time limit keeps a slow laptop from turning the measurement into
+one of the time limit.
 
 New modes are added to `MODES` in `evalkit.py`.
 

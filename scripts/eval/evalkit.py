@@ -475,7 +475,7 @@ _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 
 
 async def _paths(
-    principal: Principal, query: str, *, semantic: bool = False
+    principal: Principal, query: str, *, semantic: bool = False, rerank: bool = False
 ) -> list[str]:
     """Search the eval person's pages and return the paths found, best first.
 
@@ -483,12 +483,20 @@ async def _paths(
     :param query: the search text
     :param semantic: merge in the ranking by meaning, as the product does
         when it has an embedding service
+    :param rerank: let the reranker reorder the first results, as the
+        product does when it has a reranker
     :returns: page paths in rank order
     """
-    async with transaction_scope():
-        hits = await search_pages(
-            principal, query, cove=_COVE, limit=SEARCH_LIMIT, semantic=semantic
-        )
+    # No transaction around it: search opens its own, as it does for the
+    # tools, so model calls happen outside them here too.
+    hits = await search_pages(
+        principal,
+        query,
+        cove=_COVE,
+        limit=SEARCH_LIMIT,
+        semantic=semantic,
+        rerank=rerank,
+    )
     return [hit["path"] for hit in hits if hit["kind"] == "page"]
 
 
@@ -522,7 +530,7 @@ async def lexical_any(principal: Principal, question: str) -> list[str]:
 
 
 async def hybrid(principal: Principal, question: str) -> list[str]:
-    """Search by words and by meaning together, as the product does.
+    """Search by words and by meaning together, without the reranker.
 
     Needs ``REEF_EMBEDDING_URL`` to point at an embedding service on this
     machine, and the eval person's pages to have their vectors. Without
@@ -536,11 +544,25 @@ async def hybrid(principal: Principal, question: str) -> list[str]:
     return await _paths(principal, question, semantic=True)
 
 
+async def reranked(principal: Principal, question: str) -> list[str]:
+    """Search as the product does with every service: hybrid, then reranked.
+
+    Needs ``REEF_RERANK_URL`` as well as what :func:`hybrid` needs. Without
+    a reranker it scores the same as :func:`hybrid`.
+
+    :param principal: the eval person
+    :param question: the question
+    :returns: page paths in rank order
+    """
+    return await _paths(principal, question, semantic=True, rerank=True)
+
+
 #: Every way of searching the harness can measure, by name.
 MODES: dict[str, Searcher] = {
     "lexical": lexical,
     "lexical-any": lexical_any,
     "hybrid": hybrid,
+    "rerank": reranked,
 }
 
 

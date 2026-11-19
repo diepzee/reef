@@ -36,9 +36,12 @@ import logging
 import re
 from uuid import UUID
 
-from reef import embedding, searchlog
-from reef.access import Principal, alias_map, resolve_cove
-from reef.db import DB
+from reef import embedding, searchlog, sections
+from reef import rerank as reranking
+from reef.access import Principal, alias_map, arm, resolve_cove
+from reef.config import get_settings
+from reef.db import DB, transaction_scope
+from reef.indexfields import summary
 from reef.models import AttachmentStatus, Page
 
 log = logging.getLogger(__name__)
@@ -260,6 +263,37 @@ _CHOSEN_SQL = """
 
 _CHOSEN_RESULTS_SQL = _results_sql("hits.ord")
 
+#: The keyword ranking alone, for a search that has no ranking by meaning
+#: but will be read again by the reranker.
+_KEYWORD_RANKING_SQL = f"SELECT hits.kind, hits.id FROM hits ORDER BY {_KEYWORD_ORDER}"
+
+#: Each candidate page's pieces closest to the query, best first. The
+#: window is computed over rows that passed ``WHERE``, so ``<=>`` never
+#: meets a vector of another length.
+_PASSAGES_SQL = """
+    SELECT ranked.page_id, ranked.section_anchor
+    FROM (
+        SELECT e.page_id, e.section_anchor,
+            row_number() OVER (
+                PARTITION BY e.page_id ORDER BY e.embedding <=> {}::vector
+            ) AS n
+        FROM page_embeddings e
+        JOIN pages ON pages.id = e.page_id
+        WHERE e.page_id = ANY({}::uuid[]) AND e.model_id = {} AND e.dims = {}
+    ) ranked
+    WHERE ranked.n <= {}
+    ORDER BY ranked.page_id, ranked.n
+"""
+
+_PAGE_TEXT_SQL = (
+    "SELECT id, title, description, body FROM pages WHERE id = ANY({}::uuid[])"
+)
+
+_FILE_TEXT_SQL = (
+    "SELECT id, filename, description FROM attachments "
+    "WHERE id = ANY({}::uuid[]) AND status = {}"
+)
+
 #: Pages by meaning: each page counts for its closest piece. Only vectors of
 #: the model that embedded the question can be compared with it, and only
 #: ones of its length: ``<=>`` raises on two lengths. There is no vector
@@ -367,27 +401,20 @@ def fuse(
 
 
 async def _closest_pages(
-    query: str, cove_ids: list
-) -> tuple[list[UUID], str, int] | None:
-    """Rank the caller's pages by meaning, if that is possible right now.
+    embedded: tuple[str, list[float]], cove_ids: list
+) -> list[UUID]:
+    """Rank the caller's pages by meaning.
 
     The statement runs inside a savepoint. If it fails, for whatever
     reason, the savepoint is rolled back and the search goes on with
     keywords: a failed statement would otherwise abort the transaction and
     the person would get an error instead of results.
 
-    :param query: the search text
+    :param embedded: the model's name and the query's vector
     :param cove_ids: the one cove to stay inside, or an empty list
-    :returns: page ids closest first, with the model and the vector length
-        they were ranked by. None when the query is exact, when there is no
-        embedding service, when it gave no answer, or when no visible page
-        has a vector of its model.
+    :returns: page ids, closest first. Empty when the statement failed or
+        no visible page has a vector of this model.
     """
-    if _EXACT.search(query):
-        return None
-    embedded = await embedding.embed_question(query)
-    if embedded is None:
-        return None
     model_id, vector = embedded
     savepoint = await DB.current_transaction.get().savepoint()
     try:
@@ -403,11 +430,141 @@ async def _closest_pages(
     except Exception as error:  # noqa: BLE001
         await savepoint.rollback_to()
         log.warning("search answers by keywords alone (%s)", type(error).__name__)
-        return None
+        return []
     await savepoint.release()
-    if not rows:
-        return None
-    return [row["id"] for row in rows], model_id, len(vector)
+    return [row["id"] for row in rows]
+
+
+async def _best_anchors(
+    page_ids: list[UUID], embedded: tuple[str, list[float]] | None, count: int
+) -> dict[UUID, list[str | None]]:
+    """Find each page's pieces closest to the query.
+
+    Runs inside a savepoint, like :func:`_closest_pages`. On any failure
+    the pages are read from their start instead.
+
+    :param page_ids: the candidate pages
+    :param embedded: the model's name and the query's vector, if any
+    :param count: how many pieces per page
+    :returns: the anchors of each page's best pieces, best first
+    """
+    if embedded is None or not page_ids:
+        return {}
+    model_id, vector = embedded
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Page.raw(
+            _PASSAGES_SQL,
+            embedding.literal(vector),
+            [str(page_id) for page_id in page_ids],
+            model_id,
+            len(vector),
+            count,
+        )
+    # Broad on purpose: without the best pieces, a page's start will do.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search reads pages from their start (%s)", type(error).__name__)
+        return {}
+    await savepoint.release()
+    best: dict[UUID, list[str | None]] = {}
+    for row in rows:
+        best.setdefault(row["page_id"], []).append(row["section_anchor"])
+    return best
+
+
+async def _passages(
+    candidates: list[tuple[str, UUID]], embedded: tuple[str, list[float]] | None
+) -> tuple[list[str], list[int]]:
+    """Collect what the reranker reads of each candidate.
+
+    A page gives its pieces closest to the query, cut as for embedding, so
+    each carries its title and heading in front. A page without vectors
+    gives its start. A file gives its name and description. Everything is
+    read under the caller's row security, so the reranker can only ever be
+    sent text the caller could open anyway.
+
+    :param candidates: kind and id of the rows to read again, best first
+    :param embedded: the model's name and the query's vector, if any
+    :returns: the passages, and for each the position of its candidate
+    """
+    page_ids = [row_id for kind, row_id in candidates if kind == "page"]
+    file_ids = [row_id for kind, row_id in candidates if kind == "file"]
+    best = await _best_anchors(page_ids, embedded, get_settings().rerank_passages)
+    texts: dict[tuple[str, UUID], list[str]] = {}
+    if page_ids:
+        for row in await Page.raw(
+            _PAGE_TEXT_SQL, [str(page_id) for page_id in page_ids]
+        ):
+            pieces = sections.split(
+                row["title"] or "",
+                row["description"] or summary(row["body"]),
+                row["body"],
+            )
+            if not pieces:
+                continue
+            by_anchor = {piece.anchor: piece.text for piece in pieces}
+            texts[("page", row["id"])] = [
+                by_anchor[anchor]
+                for anchor in best.get(row["id"], [])
+                if anchor in by_anchor
+            ] or [pieces[0].text]
+    if file_ids:
+        for row in await Page.raw(
+            _FILE_TEXT_SQL,
+            [str(file_id) for file_id in file_ids],
+            AttachmentStatus.READY.value,
+        ):
+            texts[("file", row["id"])] = [
+                f"{row['filename']}\n\n{row['description'] or ''}".strip()
+            ]
+    documents: list[str] = []
+    owners: list[int] = []
+    for position, key in enumerate(candidates):
+        for text in texts.get(key, []):
+            documents.append(text)
+            owners.append(position)
+    return documents, owners
+
+
+def reorder(
+    ranking: list[tuple[str, UUID]],
+    count: int,
+    owners: list[int],
+    scores: list[float],
+) -> list[tuple[str, UUID]]:
+    """Put the first ``count`` rows of a ranking in the reranker's order.
+
+    A row scores by its best passage. A candidate the reranker read nothing
+    of keeps its place after those it did read. Rows past ``count`` keep
+    their order and follow.
+
+    :param ranking: kind and id of every row, best first
+    :param count: how many rows were candidates
+    :param owners: for each passage, the position of its row
+    :param scores: for each passage, the reranker's score
+    :returns: the ranking, reordered
+    """
+    best: dict[int, float] = {}
+    for position, score in zip(owners, scores, strict=True):
+        best[position] = max(best.get(position, score), score)
+    read = sorted(best, key=lambda position: (-best[position], position))
+    unread = [position for position in range(count) if position not in best]
+    return [ranking[position] for position in read + unread] + ranking[count:]
+
+
+async def _record(log_it: bool, principal: Principal, query: str, rows: list) -> None:
+    """Record the search in the person's search log, if asked to.
+
+    :param log_it: whether the caller asked for logging
+    :param principal: the person who searched
+    :param query: the search text
+    :param rows: the result rows
+    """
+    if log_it:
+        await searchlog.record(
+            principal, query, [row["id"] for row in rows if row["kind"] == "page"]
+        )
 
 
 async def search_pages(
@@ -418,6 +575,7 @@ async def search_pages(
     *,
     log: bool = False,
     semantic: bool = True,
+    rerank: bool = True,
 ) -> list[dict]:
     """Search every page and described file the caller can see, best match first.
 
@@ -433,12 +591,24 @@ async def search_pages(
     **By meaning.** Where there is an embedding service, the query is
     embedded and the pages closest to it are merged in, see :func:`fuse`.
     A page can then be found that shares no word with the query, so a
-    search with vectors rarely comes back empty. A query with a quoted
-    phrase or an exclusion is not merged: it stays exact. Files have no
-    vectors and are found by words only.
+    search with vectors rarely comes back empty. Files have no vectors and
+    are found by words only.
 
-    Search never fails because of the embedding service. Without one, or
-    when it is slow or down, the answer is the keyword ranking.
+    **Read again.** Where there is a reranker, the first
+    ``REEF_RERANK_CANDIDATES`` results are read next to the query and put
+    in its order, see :mod:`reef.rerank`.
+
+    A query with a quoted phrase or an exclusion is neither merged nor read
+    again: it stays exact.
+
+    **Never slow because of a model.** The search embeds the query first,
+    then reads in one short transaction, then asks the reranker, then reads
+    the results in a second short transaction. No database connection
+    waits on a model. Called inside a transaction, it runs in that one.
+
+    Search never fails because of the embedding service or the reranker.
+    Without them, or when they are slow or down, the answer is the order
+    it had without them.
 
     :param principal: the authenticated person
     :param query: words to search for
@@ -449,6 +619,8 @@ async def search_pages(
         :mod:`reef.searchlog`, which records nothing unless switched on.
     :param semantic: merge in the ranking by meaning when there is one.
         False measures keyword search alone.
+    :param rerank: let the reranker reorder the first results when there
+        is one. False measures the search without it.
     :returns: one dict per hit — pages carry path and title, files key and
         filename; both carry the cove alias, kind, and a snippet
     :raises AccessDenied: when ``cove`` names no cove of the caller's
@@ -459,48 +631,86 @@ async def search_pages(
     if not query:
         return []
     limit = max(1, min(limit, _MAX_RESULTS))
-    aliases = await alias_map(principal)
-    ready = AttachmentStatus.READY.value
-    cove_filter = ""
-    cove_ids: list = []
-    if cove is not None:
-        target = await resolve_cove(principal, cove)
-        cove_filter = _COVE_FILTER
-        cove_ids = [target.id]
-    hits_sql = _QUERY_SQL + _HITS_SQL.format(
-        page_filter=cove_filter, file_filter=cove_filter
-    )
-    closest = await _closest_pages(query, cove_ids) if semantic else None
-    if closest:
-        page_ids, model_id, dims = closest
-        ranking = await Page.raw(
-            hits_sql + _RANKING_SQL,
-            query,
-            query,
-            *cove_ids,
-            ready,
-            *cove_ids,
-            max(limit, FUSION_DEPTH),
-            len(query.split()) <= SURE_WORDS,
-            model_id,
-            dims,
+    exact = _EXACT.search(query) is not None
+    embedded = await embedding.embed_question(query) if semantic and not exact else None
+    reread = rerank and not exact and reranking.wanted()
+    candidates: list[tuple[str, UUID]] = []
+    documents: list[str] = []
+    owners: list[int] = []
+    async with transaction_scope():
+        aliases = await alias_map(principal)
+        ready = AttachmentStatus.READY.value
+        cove_filter = ""
+        cove_ids: list = []
+        if cove is not None:
+            target = await resolve_cove(principal, cove)
+            cove_filter = _COVE_FILTER
+            cove_ids = [target.id]
+        hits_sql = _QUERY_SQL + _HITS_SQL.format(
+            page_filter=cove_filter, file_filter=cove_filter
         )
-        chosen = fuse(
-            [(row["kind"], row["id"], row["sure"]) for row in ranking], page_ids
-        )[:limit]
-        rows = await Page.raw(
-            _QUERY_SQL + _CHOSEN_SQL + _CHOSEN_RESULTS_SQL,
-            query,
-            query,
-            [kind for kind, _ in chosen],
-            [str(row_id) for _, row_id in chosen],
+        closest = await _closest_pages(embedded, cove_ids) if embedded else []
+        if not closest and not reread:
+            # Keyword search, in one statement, as it always was.
+            rows = await Page.raw(
+                hits_sql + _RESULTS_SQL,
+                query,
+                query,
+                *cove_ids,
+                ready,
+                *cove_ids,
+                limit,
+            )
+            await _record(log, principal, query, rows)
+            return [_row_payload(row, aliases) for row in rows]
+        if closest:
+            model_id, vector = embedded
+            keyword = await Page.raw(
+                hits_sql + _RANKING_SQL,
+                query,
+                query,
+                *cove_ids,
+                ready,
+                *cove_ids,
+                max(limit, FUSION_DEPTH),
+                len(query.split()) <= SURE_WORDS,
+                model_id,
+                len(vector),
+            )
+            ranking = fuse(
+                [(row["kind"], row["id"], row["sure"]) for row in keyword], closest
+            )
+        else:
+            keyword = await Page.raw(
+                hits_sql + _KEYWORD_RANKING_SQL,
+                query,
+                query,
+                *cove_ids,
+                ready,
+                *cove_ids,
+                max(limit, get_settings().rerank_candidates),
+            )
+            ranking = [(row["kind"], row["id"]) for row in keyword]
+        if reread:
+            candidates = ranking[: get_settings().rerank_candidates]
+            documents, owners = await _passages(candidates, embedded)
+    if len(candidates) > 1 and documents:
+        scores = await reranking.rerank(query, documents)
+        if scores is not None:
+            ranking = reorder(ranking, len(candidates), owners, scores)
+    chosen = ranking[:limit]
+    async with transaction_scope():
+        await arm(principal)
+        rows = (
+            await Page.raw(
+                _QUERY_SQL + _CHOSEN_SQL + _CHOSEN_RESULTS_SQL,
+                query,
+                query,
+                [kind for kind, _ in chosen],
+                [str(row_id) for _, row_id in chosen],
+            )
+            if chosen
+            else []
         )
-    else:
-        rows = await Page.raw(
-            hits_sql + _RESULTS_SQL, query, query, *cove_ids, ready, *cove_ids, limit
-        )
-    if log:
-        await searchlog.record(
-            principal, query, [row["id"] for row in rows if row["kind"] == "page"]
-        )
+        await _record(log, principal, query, rows)
     return [_row_payload(row, aliases) for row in rows]
