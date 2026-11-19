@@ -50,9 +50,10 @@ async def test_share_moves_and_leaves_a_pointer(household):
     first = await share.share(me, "", "boiler.md", "household")
     assert first["expires_in"] == 600
     assert "Everyone in that space can read it" in first["effect"]
+    assert ", and anyone invited later." in first["effect"]
     assert BOILER not in first["effect"]
     done = await share.share(me, "", "boiler.md", "household", confirm=first["token"])
-    assert done == {"shared": "household/boiler.md"}
+    assert done == {"shared": "household/boiler.md", "already_done": False}
     assert (await _read(partner, "household", "boiler.md")).body == BOILER
     stub = await _read(me, "personal", "boiler.md")
     assert "household" in stub.body and "Vaillant" not in stub.body
@@ -82,15 +83,21 @@ async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     assert "Keep." in (await _read(me, "personal", "notes.md")).body
 
 
-async def test_share_token_refused_twice(household):
-    """A token works once; the second use is refused and moves nothing more."""
+async def test_share_token_does_not_act_twice(household):
+    """A retry with the same token answers as done and moves nothing again."""
     me = caller_for(household["wouter"])
+    partner = caller_for(household["partner"])
     await _save(me, "personal", "boiler.md", BOILER)
     first = await share.share(me, "", "boiler.md", "household")
-    await share.share(me, "", "boiler.md", "household", confirm=first["token"])
-    with pytest.raises(MethodError) as refused:
-        await share.share(me, "", "boiler.md", "household", confirm=first["token"])
-    assert refused.value.code == "stale_token"
+    done = await share.share(me, "", "boiler.md", "household", confirm=first["token"])
+    assert done["already_done"] is False
+    shared = await _read(partner, "household", "boiler.md")
+    stub = await _read(me, "personal", "boiler.md")
+    again = await share.share(me, "", "boiler.md", "household", confirm=first["token"])
+    assert again == {**done, "already_done": True}
+    assert (await _read(partner, "household", "boiler.md")).version == shared.version
+    assert (await _read(me, "personal", "boiler.md")).version == stub.version
+    assert (await _read(me, "personal", "boiler.md")).body == stub.body
 
 
 @pytest.mark.parametrize(
