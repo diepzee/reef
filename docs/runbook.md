@@ -1325,9 +1325,11 @@ when the table is out of date. A setting may change behaviour or cost.
 What would weaken a guarantee, or needs a migration to change, stays a
 constant in its module.
 
-Two settings were renamed with the engram rename (20 November 2026):
-`REEF_ENGRAM_MAX_CHARS` and `REEF_RERANK_MIN_ENGRAMS`. The old names
-`REEF_PAGE_MAX_CHARS` and `REEF_RERANK_MIN_PAGES` are still read; when both
+Four settings were renamed with the engram rename (20 November 2026):
+`REEF_ENGRAM_MAX_CHARS`, `REEF_RERANK_MIN_ENGRAMS`,
+`REEF_EMBEDDING_ENGRAM_SECONDS` and `REEF_EMBEDDING_ENGRAM_CHARS`. The old names
+`REEF_PAGE_MAX_CHARS`, `REEF_RERANK_MIN_PAGES`, `REEF_EMBEDDING_PAGE_SECONDS`
+and `REEF_EMBEDDING_PAGE_CHARS` are still read; when both
 are set, the new one wins. Rename them in the deployment when convenient.
 
 <!-- settings:start -->
@@ -1373,7 +1375,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | embedding | `REEF_EMBEDDING_DELAY_SECONDS` | `120` | How long after a save an engram is embedded, so five edits embed once. |
 | embedding | `REEF_EMBEDDING_SECONDS` | `2` | How long a search waits for its query's vector, then uses keywords. |
 | embedding | `REEF_EMBEDDING_BATCH` | `16` | How many pieces go in one request. |
-| embedding | `REEF_EMBEDDING_PAGE_SECONDS` | `300` | The longest one engram's embedding may take. The job holds a connection. |
+| embedding | `REEF_EMBEDDING_ENGRAM_SECONDS` | `300` | The longest one engram's embedding may take. The job holds a connection. |
 | embedding | `REEF_EMBEDDING_CAP_RETRY_SECONDS` | `21600` | How long an engram waits when the cap is reached. |
 | embedding | `REEF_EMBEDDING_FAILURE_RETRY_SECONDS` | `1800` | How long an engram waits after a failure. |
 | embedding | `REEF_EMBEDDING_QUESTION_CHARS` | `500` | How much of a query is embedded, in characters. |
@@ -1381,7 +1383,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | embedding | `REEF_EMBEDDING_REST_SECONDS` | `60` | How long they leave it alone. |
 | embedding | `REEF_EMBEDDING_PIECE_MIN_CHARS` | `200` | Measured. A section shorter than this joins the one before it. A change reaches an engram when it is next saved. Same value on app and worker. |
 | embedding | `REEF_EMBEDDING_PIECE_MAX_CHARS` | `2000` | Measured. A section longer than this is cut. A change reaches an engram when it is next saved. Same value on app and worker. |
-| embedding | `REEF_EMBEDDING_PAGE_CHARS` | `8000` | How much of a long engram the whole-engram piece holds. A change reaches an engram when it is next saved. Same value on app and worker. |
+| embedding | `REEF_EMBEDDING_ENGRAM_CHARS` | `8000` | How much of a long engram the whole-engram piece holds. A change reaches an engram when it is next saved. Same value on app and worker. |
 | rerank | `REEF_RERANK_URL` | (none) | Where the reranker is. Empty: none. The query and passages of engrams the person can read go there, so it must be a service this deployment runs itself. |
 | rerank | `REEF_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Which model it serves. |
 | rerank | `REEF_RERANK_ENABLED` | `1` | The off switch. On: the reranker runs when there is one. |

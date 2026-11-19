@@ -502,7 +502,7 @@ async def _read_candidates(
             await Engram.raw(
                 _ENGRAM_TEXT_SQL,
                 [str(engram_id) for engram_id in anchors],
-                settings.embedding.page_chars,
+                settings.embedding.engram_chars,
                 [str(engram_id) for engram_id in engram_ids],
             )
             if engram_ids
