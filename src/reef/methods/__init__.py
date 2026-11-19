@@ -66,6 +66,10 @@ MESSAGES = {
         "date and time, such as 2026-03-01T12:00:00, or leave it out for the "
         "last 7 days."
     ),
+    "unknown_space": (
+        "Reef has no space by that name for this person. Call load_index to "
+        "see their spaces, then use one of those names."
+    ),
 }
 """The plain message for each error code that has a standard one."""
 
