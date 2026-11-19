@@ -29,7 +29,7 @@ from dataclasses import asdict
 from datetime import datetime
 
 from reef import usage
-from reef.access import AccessDenied, Principal, alias_map
+from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
 from reef.activity import whats_new
 from reef.attachments import S3ObjectStore, get_attachment
 from reef.config import get_settings
@@ -38,10 +38,10 @@ from reef.db import transaction_scope
 from reef.engrams import get_engram, get_engram_as_of
 from reef.links import links_of
 from reef.methods import Caller, MethodError, logs, method
-from reef.models import AccessKind, Attachment, Engram
+from reef.models import AccessKind, Attachment, Engram, MemberRole, Membership, Space
 from reef.protocol import build_instructions
 from reef.search import search_engrams
-from reef.spaces import member_names
+from reef.spaces import member_names, space_owner
 
 #: What follows the space in a reference to a file.
 FILE_PREFIX = "file/"
@@ -72,23 +72,52 @@ async def load_index(caller: Caller, reason: str) -> dict:
 
     The index lists every engram the caller can see, without its body, and
     every described file. Each space also lists its members by display
-    name, so the assistant knows who will read what it writes there.
+    name, so the assistant knows who will read what it writes there, and
+    says what the caller may do there and who owns it, so the assistant
+    knows before writing whether it can.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
-    :returns: ``version``, ``spaces`` (each with ``alias``, ``version``,
-        ``engrams``, ``attachments`` and ``members``) and
-        ``operating_protocol``, the protocol and the persona
+    :returns: ``version``, ``spaces`` and ``operating_protocol``, the
+        protocol and the persona. Each space has ``alias``, ``version``,
+        ``engrams``, ``attachments``, ``members``; ``role``, the caller's
+        own (see :func:`_role`); and ``owner``, the owner's display name
     """
     principal = caller.principal
     async with transaction_scope():
         index = asdict(await build_index(principal))
         aliases = await alias_map(principal)
+        spaces = {space.id: space for space in await accessible_spaces(principal)}
+        roles = {
+            row["space_id"]: row["role"]
+            for row in await Membership.select(
+                Membership.space_id, Membership.role
+            ).where(Membership.person_id == principal.person_id)
+        }
         space_ids = {alias: space_id for space_id, alias in aliases.items()}
         for space in index["spaces"]:
-            space["members"] = await member_names(space_ids[space["alias"]])
+            space_id = space_ids[space["alias"]]
+            owner = await space_owner(space_id)
+            space["members"] = await member_names(space_id)
+            space["role"] = _role(principal, spaces[space_id], roles.get(space_id))
+            space["owner"] = owner["display_name"] if owner else None
         index["operating_protocol"] = await build_instructions(principal)
     return index
+
+
+def _role(principal: Principal, space: Space, membership: str | None) -> str:
+    """Say what the caller may do in a space, in one word.
+
+    :param principal: the caller
+    :param space: the space
+    :param membership: the role of the caller's membership
+    :returns: ``owner``, who may write and manages the space on the website;
+        ``member``, who may write; or ``viewer``, who may only read. With no
+        membership on record, ``viewer``: the answer that promises least
+    """
+    if space.owner_person_id == principal.person_id:
+        return "owner"
+    return membership or MemberRole.VIEWER.value
 
 
 @method("recall")

@@ -14,58 +14,12 @@ import os
 from uuid import UUID
 
 import pytest
-from opentelemetry.sdk.trace.export import (
-    SimpleSpanProcessor,
-    SpanExporter,
-    SpanExportResult,
-)
+from conftest import SpanCapture
 
 from reef import telemetry
 
 
-class _Capture(SpanExporter):
-    """Collects spans in memory instead of shipping them anywhere."""
-
-    def __init__(self) -> None:
-        self.spans: list = []
-
-    def export(self, spans) -> SpanExportResult:
-        """Record the batch.
-
-        :param spans: spans being exported
-        :returns: always success
-        """
-        self.spans.extend(spans)
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        """Nothing to release."""
-
-
-@pytest.fixture
-def captured(monkeypatch):
-    """Configure Logfire with scrubbing and an in-memory exporter.
-
-    ``send_to_logfire=False`` keeps this offline: no credentials, no network,
-    nothing that could make the suite depend on a third party being up.
-
-    :param monkeypatch: pytest's monkeypatch fixture
-    :returns: the exporter holding whatever was exported
-    """
-    import logfire
-
-    sink = _Capture()
-    logfire.configure(
-        service_name="reef-test",
-        send_to_logfire=False,
-        console=False,
-        scrubbing=logfire.ScrubbingOptions(extra_patterns=telemetry.SCRUB_PATTERNS),
-        additional_span_processors=[SimpleSpanProcessor(sink)],
-    )
-    return sink
-
-
-def _attribute_blob(sink: _Capture) -> str:
+def _attribute_blob(sink: SpanCapture) -> str:
     """Flatten every exported attribute into one searchable string.
 
     Checking the serialized form rather than named keys is deliberate: it
@@ -176,7 +130,7 @@ def live(captured, monkeypatch):
     return captured
 
 
-def _everything(sink: _Capture) -> str:
+def _everything(sink: SpanCapture) -> str:
     """Flatten names, attributes and events of every span into one string.
 
     :param sink: the capturing exporter

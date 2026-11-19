@@ -6,6 +6,12 @@ method outside it, as the assistant, in the client's session. The method
 opens the transactions it needs, does the work and records the call in the
 private call log. See :mod:`reef.methods`.
 
+**Arguments.** Every tool but ``search`` and ``fetch`` lists ``reason`` as
+required, and still runs without one, with an empty reason. Arguments that
+do not fit a tool are refused before FastMCP sees them, by name only:
+FastMCP's own refusal would quote their values in the app log and on the
+trace.
+
 **Errors.** A method that refuses raises :class:`~reef.methods.MethodError`,
 and the client reads its plain message followed by its code in brackets.
 Anything else that goes wrong reaches the client as one fixed sentence, and
@@ -21,15 +27,16 @@ what replaces it.
 
 import logging
 import os
+from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from typing import TYPE_CHECKING, Annotated
 
 from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools import ToolResult
+from fastmcp.tools import FunctionTool, ToolResult
 from mcp.types import CallToolRequestParams, Icon, TextContent, ToolAnnotations
-from pydantic import Field
+from pydantic import Field, TypeAdapter, ValidationError
 
 if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
@@ -239,17 +246,66 @@ register_static_routes(mcp)
 # FastMCP passes on as it is, marked as an error.
 
 
+#: How each tool's arguments are checked, by the tool's name: the same
+#: validation FastMCP runs, done first by :class:`_Gate`.
+_ARGUMENTS: dict[str, TypeAdapter] = {}
+
+
+def _register(title: str, *, read_only: bool, destructive: bool):
+    """Register a shell as a tool, with the hints a client decides from.
+
+    :param title: the tool's title, as a client shows it
+    :param read_only: whether the tool changes nothing
+    :param destructive: whether it may replace, move or remove what is there
+    :returns: the decorator, which returns the shell unchanged
+    """
+    annotations = ToolAnnotations(
+        title=title, readOnlyHint=read_only, destructiveHint=destructive
+    )
+
+    def register[F: Callable](shell: F) -> F:
+        """Register one shell.
+
+        :param shell: the shell
+        :returns: the shell
+        """
+        tool = FunctionTool.from_function(shell, annotations=annotations)
+        mcp.add_tool(
+            tool.model_copy(update={"parameters": _reason_required(tool.parameters)})
+        )
+        _ARGUMENTS[tool.name] = TypeAdapter(shell)
+        return shell
+
+    return register
+
+
+def _reason_required(schema: dict) -> dict:
+    """List ``reason`` as required, though a call without it still works.
+
+    The listing is what makes assistants send a reason. The shell's default
+    is what keeps a weaker model that leaves it out from failing for it.
+
+    :param schema: the input schema FastMCP made from the shell
+    :returns: the schema to list
+    """
+    properties = schema["properties"]
+    if "reason" not in properties:
+        return schema
+    reason = {k: v for k, v in properties["reason"].items() if k != "default"}
+    return {
+        **schema,
+        "properties": {**properties, "reason": reason},
+        "required": ["reason", *schema.get("required", [])],
+    }
+
+
 def _read_only(title: str):
     """Register a tool that changes nothing, so a client may run it unprompted.
 
     :param title: the tool's title, as a client shows it
     :returns: the decorator
     """
-    return mcp.tool(
-        annotations=ToolAnnotations(
-            title=title, readOnlyHint=True, destructiveHint=False
-        )
-    )
+    return _register(title, read_only=True, destructive=False)
 
 
 def _additive(title: str):
@@ -258,11 +314,7 @@ def _additive(title: str):
     :param title: the tool's title, as a client shows it
     :returns: the decorator
     """
-    return mcp.tool(
-        annotations=ToolAnnotations(
-            title=title, readOnlyHint=False, destructiveHint=False
-        )
-    )
+    return _register(title, read_only=False, destructive=False)
 
 
 def _destructive(title: str):
@@ -271,11 +323,7 @@ def _destructive(title: str):
     :param title: the tool's title, as a client shows it
     :returns: the decorator
     """
-    return mcp.tool(
-        annotations=ToolAnnotations(
-            title=title, readOnlyHint=False, destructiveHint=True
-        )
-    )
+    return _register(title, read_only=False, destructive=True)
 
 
 #: What the client reads when something other than a refusal goes wrong.
@@ -290,7 +338,19 @@ Reason = Annotated[
         )
     ),
 ]
-"""The ``reason`` every tool but ``search`` and ``fetch`` asks for."""
+"""The ``reason`` every tool but ``search`` and ``fetch`` asks for.
+
+Each shell gives it a default of ``""``, and the listing still marks it
+required: see :func:`_reason_required`. What follows it in a shell is
+keyword-only, as Python requires after a default; MCP passes every argument
+by name anyway."""
+
+#: What the client reads when arguments do not fit a tool. Names only: a
+#: value can be anything the person said.
+INVALID_ARGUMENTS = (
+    "These arguments were missing or not valid: {names}. Check them against "
+    "the tool's description, and send the call again. [invalid_arguments]"
+)
 
 
 def _error(text: str) -> ToolResult:
@@ -331,20 +391,21 @@ async def _run[**P, R: dict | list](
 
 
 @_read_only("Load index")
-async def load_index(reason: Reason) -> dict:
+async def load_index(reason: Reason = "") -> dict:
     """Start here, once per conversation.
 
     Returns your operating protocol and the person's persona (follow both),
-    and the index: each space with its members, and every engram and file
-    in it with a one-line description. The index holds no engram text: use
-    recall to answer from memory.
+    and the index: each space with its members, its owner, the person's
+    role there (an owner or member may write, a viewer only reads), and
+    every engram and file in it with a one-line description. The index
+    holds no engram text: use recall to answer from memory.
     """
     return await _run(find.load_index, reason)
 
 
 @_read_only("Recall")
 async def recall(
-    reason: Reason, question: str, space: str | None = None, limit: int = 5
+    reason: Reason = "", *, question: str, space: str | None = None, limit: int = 5
 ) -> list[dict]:
     """Answer a question from memory.
 
@@ -362,7 +423,7 @@ async def recall(
 
 @_read_only("Brief")
 async def brief(
-    reason: Reason, topic: str, space: str | None = None, entries: int = 10
+    reason: Reason = "", *, topic: str, space: str | None = None, entries: int = 10
 ) -> dict:
     """Get ready to advise or prepare on a topic.
 
@@ -379,7 +440,9 @@ async def brief(
 
 
 @_read_only("Open")
-async def open(reason: Reason, refs: list[str], as_of: str | None = None) -> list[dict]:
+async def open(
+    reason: Reason = "", *, refs: list[str], as_of: str | None = None
+) -> list[dict]:
     """Read whole engrams and stored files.
 
     Use it when passages are not enough, or to read an engram's current
@@ -394,7 +457,7 @@ async def open(reason: Reason, refs: list[str], as_of: str | None = None) -> lis
 
 
 @_read_only("Catch up")
-async def catch_up(reason: Reason, since: str | None = None) -> dict:
+async def catch_up(reason: Reason = "", *, since: str | None = None) -> dict:
     """List what changed in the person's spaces: who wrote what, where, when.
 
     Use it when the person returns after time away, or asks what others have
@@ -406,7 +469,7 @@ async def catch_up(reason: Reason, since: str | None = None) -> dict:
 
 
 @_additive("Remember")
-async def remember(reason: Reason, fact: str, space: str = "personal") -> dict:
+async def remember(reason: Reason = "", *, fact: str, space: str = "personal") -> dict:
     """Keep one quick fact, in a space's inbox.
 
     Use it for a fact said in passing. Facts stay private unless they
@@ -420,7 +483,7 @@ async def remember(reason: Reason, fact: str, space: str = "personal") -> dict:
 
 @_additive("Log")
 async def log(
-    reason: Reason, space: str, engram: str, heading: str, entry: str
+    reason: Reason = "", *, space: str, engram: str, heading: str, entry: str
 ) -> dict:
     """Add an entry at the end of a log, and change nothing else.
 
@@ -441,7 +504,7 @@ async def log(
 
 @_destructive("Write")
 async def write(
-    reason: Reason, space: str, engrams: list[dict], message: str
+    reason: Reason = "", *, space: str, engrams: list[dict], message: str
 ) -> list[dict]:
     """Create or replace whole engrams, up to 20 in one call, all or nothing.
 
@@ -462,7 +525,8 @@ async def write(
 
 @_additive("Store file")
 async def store_file(
-    reason: Reason,
+    reason: Reason = "",
+    *,
     space: str,
     filename: str,
     data_base64: str,
@@ -497,7 +561,8 @@ async def store_file(
 
 @_destructive("Correct")
 async def correct(
-    reason: Reason,
+    reason: Reason = "",
+    *,
     space: str,
     engram: str,
     old_text: str,
@@ -532,7 +597,7 @@ async def correct(
 
 @_destructive("Undo")
 async def undo(
-    reason: Reason, space: str, engram: str, version: int | None = None
+    reason: Reason = "", *, space: str, engram: str, version: int | None = None
 ) -> dict:
     """Restore an earlier version of an engram, as a new change.
 
@@ -551,7 +616,8 @@ async def undo(
 
 @_destructive("Forget")
 async def forget(
-    reason: Reason,
+    reason: Reason = "",
+    *,
     space: str,
     engram: str | None = None,
     file: str | None = None,
@@ -580,7 +646,8 @@ async def forget(
 
 @_destructive("Share")
 async def share(
-    reason: Reason,
+    reason: Reason = "",
+    *,
     engram: str,
     to_space: str,
     section: str | None = None,
@@ -613,7 +680,9 @@ async def share(
 
 
 @_destructive("Instruct")
-async def instruct(reason: Reason, body: str, confirm: str | None = None) -> dict:
+async def instruct(
+    reason: Reason = "", *, body: str, confirm: str | None = None
+) -> dict:
     """Replace the person's persona: what every assistant they use follows.
 
     Two calls. The first changes nothing: it returns the effect and a
@@ -659,7 +728,7 @@ async def fetch(id: str) -> dict:
     return await _run(connector.fetch, "", id=id)
 
 
-# --- old names -------------------------------------------------------------------
+# --- the gate: old names, and arguments that do not fit -------------------------
 
 _WEBSITE = "the Reef website"
 
@@ -712,14 +781,40 @@ def _retired_message(name: str) -> str:
     return f"{name} is no longer a Reef tool. {advice} [retired_tool]"
 
 
-class _RetiredTools(Middleware):
-    """Answer a call to an old tool with the name of what replaces it.
+def _misfit(name: str, arguments: dict) -> str | None:
+    """Check a call's arguments as FastMCP would, and name what does not fit.
 
+    The check is the one FastMCP runs, on the same signature, so a call that
+    passes here passes there. Calling the shell only builds its coroutine,
+    which is closed unrun.
+
+    :param name: the tool
+    :param arguments: the arguments the client sent
+    :returns: the message naming each argument that is missing, not valid
+        or unknown; None when they all fit
+    """
+    try:
+        call = _ARGUMENTS[name].validate_python(arguments)
+    except ValidationError as error:
+        problems = error.errors(include_url=False, include_input=False)
+        names = sorted(
+            {str(problem["loc"][0]) for problem in problems if problem["loc"]}
+        )
+        return INVALID_ARGUMENTS.format(names=", ".join(names) or "arguments")
+    call.close()
+    return None
+
+
+class _Gate(Middleware):
+    """Answer, before FastMCP does, the calls FastMCP would answer badly.
+
+    Two kinds. A call to an old tool gets the name of what replaces it:
     FastMCP can hide a tool from the list and keep it callable only for an
-    app's own interface, never for an ordinary client by its name; a hidden
-    tool is as unknown to that client as one that never existed. So the old
-    names are not registered at all, and this answers them before FastMCP
-    looks for a tool.
+    app's own interface, never for an ordinary client by its name, so the
+    old names are not registered at all. A call whose arguments do not fit
+    gets their names: FastMCP's own refusal quotes every argument's value,
+    in the app log and on the trace, and a value can be anything the person
+    said.
     """
 
     async def on_call_tool(
@@ -727,18 +822,49 @@ class _RetiredTools(Middleware):
         context: MiddlewareContext[CallToolRequestParams],
         call_next: CallNext[CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        """Answer an old name; pass every other call on.
+        """Answer an old name or misfit arguments; pass every other call on.
 
         :param context: the call
         :param call_next: the rest of the chain
-        :returns: the error for an old name, or the call's own result
+        :returns: the error, or the call's own result
         """
-        if context.message.name in RETIRED:
-            return _error(_retired_message(context.message.name))
+        name = context.message.name
+        if name in RETIRED:
+            return _error(_retired_message(name))
+        if name in _ARGUMENTS:
+            misfit = _misfit(name, context.message.arguments or {})
+            if misfit is not None:
+                return _error(misfit)
         return await call_next(context)
 
 
-mcp.add_middleware(_RetiredTools())
+mcp.add_middleware(_Gate())
+
+
+class _ArgumentNamesOnly(logging.Filter):
+    """Keep argument values out of FastMCP's debug record of each call.
+
+    FastMCP logs every call it receives, before any middleware runs, with
+    its arguments in full. This keeps the record, with the arguments' names
+    in place of the arguments.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Replace each mapping among the record's arguments by its keys.
+
+        :param record: the record
+        :returns: True: the record is kept
+        """
+        if isinstance(record.args, tuple):
+            record.args = tuple(
+                sorted(arg) if isinstance(arg, dict) else arg for arg in record.args
+            )
+        return True
+
+
+logging.getLogger("fastmcp.server.mixins.mcp_operations").addFilter(
+    _ArgumentNamesOnly()
+)
 
 
 # --- the transport ---------------------------------------------------------------

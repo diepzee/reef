@@ -634,7 +634,7 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
     )
     async with transaction_scope():
         await _boilers(me)
-    results = await recall("", "boiler")
+    results = await recall("", question="boiler")
     assert results and results[0]["engram"] == "answer.md"
     connector = await search("boiler")
     assert len(connector["results"]) > 1
