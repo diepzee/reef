@@ -2,9 +2,8 @@ import base64
 import binascii
 import mimetypes
 import os
-import re
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
 from typing import TYPE_CHECKING
@@ -22,7 +21,6 @@ from reef.access import (
     Principal,
     accessible_spaces,
     alias_map,
-    resolve_writable_space,
 )
 from reef.activity import whats_new as run_whats_new
 from reef.attachments import (
@@ -55,6 +53,7 @@ from reef.engrams import (
 )
 from reef.invitations import InviteBudgetExceeded
 from reef.links import links_of
+from reef.methods import capture
 from reef.models import AccessKind, Engram, MemberRole, Membership
 from reef.promotion import PromotionError, confirm_promotion, prepare_promotion
 from reef.protocol import PERSONA_PATH, build_instructions
@@ -674,72 +673,23 @@ async def tool_leave_cove(principal: Principal, cove: str) -> dict:
         return {"error": "cove_error", "detail": str(exc)}
 
 
-_INBOX = "inbox.md"
-
-_ENTRY_RE = re.compile(r"^- \(\d{4}-\d{2}-\d{2}\) (?P<fact>.*)$")
-"""One recorded inbox line. The fact is whatever follows the date stamp."""
-
-
-def _already_recorded(body: str, fact: str) -> bool:
-    """Report whether this exact fact is already an entry in the inbox.
-
-    Entry-by-entry, not ``fact in body``. A substring test calls a genuinely
-    new fact a duplicate whenever some longer entry happens to contain its
-    words -- "allergic to penicillin" is silently discarded once "allergic to
-    penicillin and nuts" has been written -- and in a memory product a write
-    that reports success and stores nothing is the worst failure available.
-    It also let anyone sharing a cove suppress future writes to its inbox by
-    padding the page with likely phrasings.
-
-    :param body: the inbox page's markdown body
-    :param fact: the fact about to be appended
-    :returns: True if an entry already records exactly this fact
-    """
-    wanted = fact.strip()
-    for line in body.splitlines():
-        match = _ENTRY_RE.match(line.strip())
-        if match and match.group("fact").strip() == wanted:
-            return True
-    return False
-
-
 async def tool_remember(
     principal: Principal, fact: str, cove: str = "personal"
 ) -> dict:
     """Append one fact to a cove's inbox, locking the row and deduplicating.
 
-    The personal default is deliberate: sharing is irreversible in effect, so
-    the default destination must be the private one. The row lock serializes
-    concurrent appends; the exact-entry check makes transport retries
-    harmless without swallowing facts that merely resemble an existing one.
+    The logic is :func:`reef.methods.capture.add_to_inbox`, shared with the
+    ``remember`` method; this keeps the tool's own result shape.
 
     :param principal: the authenticated person
     :param fact: the text to record
     :param cove: ``personal`` or a cove name from list_coves
     :returns: what was written, with a duplicate flag
     """
-    resolved = await resolve_writable_space(principal, cove)
-    inbox = (
-        await Engram.objects()
-        .where(Engram.space_id == resolved.id, Engram.path == _INBOX)
-        .lock_rows()
-        .first()
-    )
-    if inbox is not None and _already_recorded(inbox.body, fact):
-        return {"cove": cove, "path": _INBOX, "duplicate": True}
-    stamp = datetime.now(UTC).date().isoformat()
-    entry = f"- ({stamp}) {fact}"
-    body = f"{inbox.body}\n{entry}" if inbox else f"# Inbox\n\n{entry}"
-    await save_engram(
-        principal,
-        cove,
-        _INBOX,
-        body,
-        message=f"remember: {fact[:60]}",
-        title="Inbox",
-        via=AccessKind.REMEMBER,
-    )
-    return {"cove": cove, "path": _INBOX, "appended": entry, "duplicate": False}
+    entry = await capture.add_to_inbox(principal, cove, fact, channel="assistant")
+    if entry is None:
+        return {"cove": cove, "path": capture.INBOX, "duplicate": True}
+    return {"cove": cove, "path": capture.INBOX, "appended": entry, "duplicate": False}
 
 
 @_read_only("Load memory index")

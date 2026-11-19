@@ -6,6 +6,7 @@ Like the other find tests, these manage their own transactions.
 import pytest
 
 from reef.methods import REGISTRY, MethodError, find, logs
+from reef.models import Engram
 from tests.test_method_find import _save, caller_for
 
 
@@ -166,3 +167,10 @@ async def test_last_entries_use_level_two_without_level_three(household):
     parts = await logs.series(me, "personal", "l.md")
     assert logs.last_entries(parts, 5) == ["## One\nx", "## Two\ny"]
     assert logs.last_entries(parts, 0) == []
+
+
+def test_last_entries_skip_a_tilde_line_inside_a_backtick_fence():
+    """A fence closes only on its own marker, as when sections are cut."""
+    body = "### Day 1\n```\n~~~\n### not an entry\n```\n\n### Day 2\nx\n"
+    entries = logs.last_entries([Engram(body=body, tags=["log"])], 5)
+    assert [entry.splitlines()[0] for entry in entries] == ["### Day 1", "### Day 2"]
