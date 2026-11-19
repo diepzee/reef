@@ -70,6 +70,76 @@ MESSAGES = {
         "Reef has no space by that name for this person. Call load_index to "
         "see their spaces, then use one of those names."
     ),
+    "read_only": (
+        "The person can read this space but not change it: only its full "
+        "members can. Tell the person, and ask where to keep this instead."
+    ),
+    "version_conflict": (
+        "This engram changed after you read it. Open it again, then send "
+        "your change based on what it says now."
+    ),
+    "protected_path": (
+        "Engrams under meta/ belong to Reef and cannot be written here. To "
+        "change how assistants work with the person, use instruct."
+    ),
+    "use_instruct": (
+        "The persona changes only through instruct, which shows the person "
+        "the new text before it is saved. Send it there, not to write."
+    ),
+    "invalid_path": (
+        "Reef cannot use this path. Use lower-case letters, digits, '-', '_', "
+        "'.' and '/', with no empty or '..' folder and no '/' at the start."
+    ),
+    "engram_too_large": (
+        "This text is too long for one engram. Split it into several engrams."
+    ),
+    "private_content": (
+        "This would copy text from the person's personal space into a shared "
+        "space. Use share for that: it shows the person what others will see. "
+        "If the words only match by chance, write them differently."
+    ),
+    "not_a_log": (
+        "This engram is not a log, so Reef does not add entries to it. Name "
+        "a log, or a new engram to start one. To change this engram, use "
+        "write or correct."
+    ),
+    "empty_heading": (
+        "An entry needs a heading. Send a short one in the style of the "
+        "log's earlier entries, such as the date."
+    ),
+    "entry_too_long": (
+        "This entry is too long for one engram, even on its own. Split it "
+        "into shorter entries, or keep the text as a file with store_file."
+    ),
+    "empty_batch": "The list of engrams is empty. Send at least one to write.",
+    "batch_too_large": (
+        "This is more engrams than Reef writes in one call. Send them in several calls."
+    ),
+    "malformed_item": (
+        "Each engram in the list needs a path and a body, as text. A title "
+        "and a message are text, tags a list of text, and expected_version a "
+        "whole number."
+    ),
+    "invalid_filename": (
+        "The file name is empty or longer than 512 characters. Send the "
+        "file's own name, with its extension."
+    ),
+    "invalid_mime": (
+        "Reef cannot read this content type. Send it as type/subtype, such "
+        "as application/pdf or image/png."
+    ),
+    "description_required": (
+        "A file needs a description: later conversations find and understand "
+        "the file through it. Say concretely what is in the file."
+    ),
+    "invalid_base64": (
+        "The file's data is not valid base64. Encode the file's bytes as "
+        "base64 and send them again."
+    ),
+    "file_too_large": (
+        "This file is larger than Reef keeps. Send a smaller file, or only "
+        "the part that matters."
+    ),
 }
 """The plain message for each error code that has a standard one."""
 

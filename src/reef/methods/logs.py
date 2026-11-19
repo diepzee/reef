@@ -13,8 +13,8 @@ stay inside it. Text before the first entry heading, such as a part's
 opening link or the log's intro, is not an entry.
 
 :func:`series` finds the parts and :func:`last_entries` reads the end of
-them. :func:`reef.methods.find.brief` uses both; the methods that append to a
-log use them too.
+them. :func:`reef.methods.find.brief` uses both; :func:`reef.methods.capture.log`
+uses :func:`series` and names new parts with :func:`part_path`.
 """
 
 import re
@@ -23,7 +23,7 @@ from reef.access import resolve_space
 from reef.db import transaction_scope
 from reef.methods import Caller
 from reef.models import Engram
-from reef.sections import _FENCE, _heading
+from reef.sections import headings
 
 #: The tag that makes an engram a log.
 LOG_TAG = "log"
@@ -54,6 +54,46 @@ def _split_path(path: str) -> tuple[str, str]:
     """
     folder, slash, name = path.rpartition("/")
     return folder + slash, name.removesuffix(".md")
+
+
+def base_path(path: str) -> str | None:
+    """Name the first part of the log a later part's path would belong to.
+
+    :param path: an engram's path
+    :returns: ``<stem>.md`` for a path ``<stem>-<n>.md`` with n of 2 or
+        more; None for any other path
+    """
+    folder, name = _split_path(path)
+    suffix = _PART_SUFFIX.search(name)
+    if suffix is None or int(suffix.group(1)) < 2:
+        return None
+    return f"{folder}{name[: suffix.start()]}.md"
+
+
+def part_path(base: str, number: int) -> str:
+    """Name a part of a log.
+
+    :param base: the path of the log's first part
+    :param number: the part's number, 1 for the first
+    :returns: the base for part 1, else ``<stem>-<number>.md`` beside it
+    """
+    if number == 1:
+        return base
+    folder, stem = _split_path(base)
+    return f"{folder}{stem}-{number}.md"
+
+
+def part_number(base: str, path: str) -> int:
+    """Read a part's number from its path.
+
+    :param base: the path of the log's first part
+    :param path: the path of one of its parts, as :func:`series` gives them
+    :returns: 1 for the base, else the ``<n>`` of ``<stem>-<n>.md``
+    """
+    if path == base:
+        return 1
+    folder, stem = _split_path(base)
+    return int(path.removeprefix(f"{folder}{stem}-").removesuffix(".md"))
 
 
 def _escape_like(text: str) -> str:
@@ -94,20 +134,16 @@ async def series(caller: Caller, space: str, path: str) -> list[Engram]:
         )
         if not _is_log(engram):
             return []
-        folder, name = _split_path(path)
-        suffix = _PART_SUFFIX.search(name)
-        stem, base = name, engram
-        if suffix is not None and int(suffix.group(1)) >= 2:
+        base = engram
+        if (named := base_path(path)) is not None:
             candidate = (
                 await Engram.objects()
-                .where(
-                    Engram.space_id == found.id,
-                    Engram.path == f"{folder}{name[: suffix.start()]}.md",
-                )
+                .where(Engram.space_id == found.id, Engram.path == named)
                 .first()
             )
             if _is_log(candidate):
-                stem, base = name[: suffix.start()], candidate
+                base = candidate
+        folder, stem = _split_path(base.path)
         pattern = re.compile(rf"^{re.escape(folder + stem)}-([1-9]\d*)\.md$")
         siblings = await Engram.objects().where(
             Engram.space_id == found.id,
@@ -121,22 +157,6 @@ async def series(caller: Caller, space: str, path: str) -> list[Engram]:
     return [base, *(part for _, part in sorted(numbered, key=lambda pair: pair[0]))]
 
 
-def _headings(body: str) -> list[tuple[int, int]]:
-    """Find the headings of a body, skipping fenced code.
-
-    :param body: the engram's markdown
-    :returns: the line number and level of each heading, in order
-    """
-    found = []
-    fenced = False
-    for number, line in enumerate(body.splitlines()):
-        if _FENCE.match(line):
-            fenced = not fenced
-        elif not fenced and (heading := _heading(line)) is not None:
-            found.append((number, heading[0]))
-    return found
-
-
 def _entries_of(body: str, level: int) -> list[str]:
     """Cut one part's body into its entries.
 
@@ -145,13 +165,13 @@ def _entries_of(body: str, level: int) -> list[str]:
     :returns: each entry with its heading line, in order
     """
     lines = body.splitlines()
-    headings = _headings(body)
+    found = headings(body)
     entries = []
-    for index, (number, found) in enumerate(headings):
-        if found != level:
+    for index, (number, depth, _) in enumerate(found):
+        if depth != level:
             continue
         end = len(lines)
-        for later, deeper in headings[index + 1 :]:
+        for later, deeper, _ in found[index + 1 :]:
             if deeper <= level:
                 end = later
                 break
@@ -169,7 +189,7 @@ def last_entries(parts: list[Engram], n: int) -> list[str]:
     if n <= 0:
         return []
     bodies = [part.body for part in parts]
-    deep = any(level == _DEEP for body in bodies for _, level in _headings(body))
+    deep = any(level == _DEEP for body in bodies for _, level, _ in headings(body))
     level = _DEEP if deep else _SHALLOW
     entries = [entry for body in bodies for entry in _entries_of(body, level)]
     return entries[-n:]

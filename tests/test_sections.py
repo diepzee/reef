@@ -98,6 +98,12 @@ def test_a_hash_sign_in_a_code_block_is_not_a_heading():
     assert _anchors(split("T", "", body)) == [None, "setup", "setup~2"]
 
 
+def test_headings_skip_fenced_code_until_the_same_marker_closes_it():
+    """A ``~~~`` line inside a backtick fence is code; it does not close the fence."""
+    body = "# Log\n```\n~~~\n## not a heading\n```\n## Real\n#### Deep\n"
+    assert sections.headings(body) == [(0, 1, "Log"), (5, 2, "Real"), (6, 4, "Deep")]
+
+
 def test_level_four_headings_stay_inside_their_parent():
     body = _engram("## Car", LONG, "#### Detail", LONG * 4)
     pieces = split("T", "", body)

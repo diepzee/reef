@@ -95,10 +95,34 @@ def _heading(line: str) -> tuple[int, str] | None:
     return (len(match.group(1)), text) if text else None
 
 
+def headings(body: str) -> list[tuple[int, int, str]]:
+    """Find the headings of a body, skipping fenced code.
+
+    A ``#`` inside a fenced code block is code, not a heading. A fence opens
+    on a line starting with three backticks or three tildes, and closes only
+    on a line starting with the same three, so a ``~~~`` line inside a
+    backtick fence is code too.
+
+    :param body: the engram's markdown
+    :returns: the line number, counted from 0 as in ``body.splitlines()``,
+        the level and the text of each heading, in order
+    """
+    found = []
+    fence: str | None = None
+    for number, line in enumerate(body.splitlines()):
+        mark = _FENCE.match(line)
+        if mark:
+            if fence is None:
+                fence = mark.group(1)
+            elif mark.group(1) == fence:
+                fence = None
+        elif fence is None and (heading := _heading(line)) is not None:
+            found.append((number, *heading))
+    return found
+
+
 def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
     """Split a body at its level 1 to 3 headings.
-
-    A ``#`` inside a fenced code block is code, not a heading.
 
     :param body: the engram's markdown
     :returns: the heading path and the text of each block, in engram order.
@@ -107,15 +131,9 @@ def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
     """
     blocks: list[tuple[tuple[str, ...], list[str]]] = [((), [])]
     path: dict[int, str] = {}
-    fence: str | None = None
-    for line in body.splitlines():
-        mark = _FENCE.match(line)
-        if mark:
-            if fence is None:
-                fence = mark.group(1)
-            elif mark.group(1) == fence:
-                fence = None
-        heading = _heading(line) if fence is None else None
+    found = {number: (level, text) for number, level, text in headings(body)}
+    for number, line in enumerate(body.splitlines()):
+        heading = found.get(number)
         if heading is None or heading[0] > 3:
             blocks[-1][1].append(line)
             continue
