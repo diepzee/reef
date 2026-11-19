@@ -734,18 +734,19 @@ railway up deploy/rerank --path-as-root --service reef-rerank --environment prod
 | Service | Model | Image | Memory |
 |---|---|---|---|
 | `reef-embed` | EmbeddingGemma 300m, built into the image | Ollama 0.40.14 | about 0.8 GB |
-| `reef-rerank` | BAAI bge-reranker-v2-m3, official weights at a pinned revision, converted to 8-bit during the build | llama.cpp `b12464` | about 1.1 GB |
+| `reef-rerank` | BAAI bge-reranker-v2-m3, official weights at a pinned revision, converted to 8-bit during the build | llama.cpp `b12464` | about 0.6 GB |
 
-- **Threads are capped at 8.** Railway's hosts have 96 cores. Left alone,
+- **Threads are fixed.** Railway's hosts have 96 cores. Left alone,
   llama.cpp, inside Ollama too, starts 48 threads on a 24-core allowance,
   and they stall each other: an 11-token request took over a minute.
-  `reef-embed` sets `num_thread` on the model, `reef-rerank` sets
-  `LLAMA_ARG_THREADS`.
+  `reef-embed` sets `num_thread` 8 on the model, `reef-rerank` sets
+  `LLAMA_ARG_THREADS` 16, the fastest of 8, 16 and 24.
 - **The first request after a deploy loads the model**, about a second
   for `reef-embed`. Searches meanwhile answer by keywords.
 - **Measured from `reef-app`:** a query vector takes 23 ms.
-- **`reef-rerank` is not deployed.** Without a graphics chip it is too slow
-  at a setting that helps. See "Reranking".
+- **`reef-rerank` sleeps** until a search needs it: sleeping is on, and
+  only memories of at least `REEF_RERANK_MIN_PAGES` pages are reranked.
+  See "Reranking".
 - **Checking one by hand** from inside `reef-app`, with a made-up sentence,
   never with page text:
   `railway ssh -s reef-app -- python3 -c "..."` posting to
@@ -776,6 +777,14 @@ worker does not use it.
   status, never text. A status of 400, 413 or 422 is the service refusing
   one query and does not count as a failure; any other does, a redirect,
   401, 404 or 429 included.
+- **In production since 19 November 2026,** set on `reef-app`:
+  `REEF_RERANK_URL=http://reef-rerank.railway.internal:8080`,
+  `REEF_RERANK_PASSAGES=1`, `REEF_RERANK_PASSAGE_CHARS=1000` and
+  `REEF_RERANK_SECONDS=5`. Without a graphics chip the default of 2
+  passages of 2,000 characters is too slow: 32 seconds on Railway with 8
+  threads, 7 seconds on a laptop's 8 cores. One passage of 1,000
+  characters takes 2 to 3 seconds on Railway with 16 threads and found
+  51.5% of benchmark questions, against 46.8% for hybrid alone.
 - **Only large memories are reranked.** A search is reranked only when
   the memory searched holds at least `REEF_RERANK_MIN_PAGES` (1,000)
   pages: in the one cove searched, or in all the caller can see. A small

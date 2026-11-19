@@ -26,9 +26,11 @@ FROM ghcr.io/ggml-org/llama.cpp:server-b12464
 
 COPY --from=convert /reranker.gguf /models/reranker.gguf
 
-# One thread per core the service may use. llama.cpp otherwise starts one
-# per core of the host, many more than the service is given.
-ENV LLAMA_ARG_THREADS=8
+# A fixed number of threads. llama.cpp otherwise starts one per core of
+# the host, 48 on Railway's, more than the service's 24 cores allow.
+# Measured on Railway on 19 November 2026, 15 passages of 1,000
+# characters: 8 threads 8.3 s, 16 threads 2.0 to 3.2 s, 24 threads 2.1 s.
+ENV LLAMA_ARG_THREADS=16
 
 # Reranking only. Listens on IPv6 and IPv4 for Railway's private network.
 # Eight requests at once, each up to 1,024 tokens: a passage of 2,000
