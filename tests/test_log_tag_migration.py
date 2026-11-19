@@ -21,6 +21,8 @@ DATABASE = "reef_log_tag_drill"
 
 OWNER = "00000000-0000-0000-0000-0000000000a1"
 SPACE = "00000000-0000-0000-0000-0000000000c1"
+#: A space with no log in it, whose version must not move.
+OTHER = "00000000-0000-0000-0000-0000000000c2"
 
 #: Each seeded engram's path, its tags before, and its tags after.
 ENGRAMS = {
@@ -37,8 +39,9 @@ ENGRAMS = {
 async def as_of_the_tagging() -> AsyncIterator[str]:
     """Build the schema as it stood right after this migration ran, with engrams.
 
-    One person owns one space holding engrams, some named like logs. Seeded
-    as the superuser, which row security does not bind.
+    One person owns two spaces: one holding engrams, some named like logs,
+    and one holding no log. Seeded as the superuser, which row security does
+    not bind.
 
     :returns: the DSN of the database, as the owning role
     """
@@ -52,15 +55,23 @@ async def as_of_the_tagging() -> AsyncIterator[str]:
         )
         await admin.execute(
             "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
-            "VALUES ($1, 'personal-a1', 'personal', $2, 7)",
+            "VALUES ($1, 'personal-a1', 'personal', $3, 7), "
+            "($2, 'other', 'shared', $3, 4)",
             SPACE,
+            OTHER,
             OWNER,
         )
         await admin.execute(
             "INSERT INTO memberships (person_id, space_id, role, alias) "
-            "VALUES ($1, $2, 'member', 'personal')",
+            "VALUES ($1, $2, 'member', 'personal'), ($1, $3, 'member', 'other')",
             OWNER,
             SPACE,
+            OTHER,
+        )
+        await admin.execute(
+            "INSERT INTO engrams (id, space_id, path, title, tags, body, version) "
+            "VALUES (gen_random_uuid(), $1, 'notes.md', 'Notes', '{}', 'Body.', 2)",
+            OTHER,
         )
         for path, (tags, _) in ENGRAMS.items():
             await admin.execute(
@@ -96,8 +107,8 @@ async def _state(connection: asyncpg.Connection) -> dict:
 
     :param connection: a superuser connection to the database under test
     :returns: each of the space's engrams' tags, version and update time;
-        the number of revisions anywhere; the space's version; and whether
-        row security is forced
+        the number of revisions anywhere; every space's version; and whether
+        row security is forced on engrams and on spaces
     """
     rows = await connection.fetch(
         "SELECT path, tags, version, updated_at FROM engrams WHERE space_id = $1",
@@ -109,25 +120,32 @@ async def _state(connection: asyncpg.Connection) -> dict:
             for row in rows
         },
         "revisions": await connection.fetchval("SELECT count(*) FROM revisions"),
-        "space_version": await connection.fetchval(
-            "SELECT version FROM spaces WHERE id = $1", SPACE
-        ),
-        "forced": await connection.fetchval(
-            "SELECT relforcerowsecurity FROM pg_class WHERE relname = 'engrams'"
-        ),
+        "space_versions": {
+            str(row["id"]): row["version"]
+            for row in await connection.fetch("SELECT id, version FROM spaces")
+        },
+        "forced": {
+            row["relname"]: row["relforcerowsecurity"]
+            for row in await connection.fetch(
+                "SELECT relname, relforcerowsecurity FROM pg_class "
+                "WHERE relname IN ('engrams', 'spaces')"
+            )
+        },
     }
 
 
 async def test_it_tags_the_logs_as_the_owning_role(as_of_the_tagging):
     """Under forced row security, as the owner, every ``*-log.md`` gets the tag.
 
-    Nothing else changes: no other engram, no version, no history, and row
-    security is forced again afterwards. Running it again changes nothing.
+    The space holding them moves one version, however many were tagged, so a
+    client caching its index loads it again. Nothing else changes: no other
+    engram, no engram version, no history, no other space, and row security
+    is forced again afterwards. Running it again changes nothing.
     """
     admin = await asyncpg.connect(_admin_dsn(DATABASE))
     try:
         before = await _state(admin)
-        assert before["forced"] is True
+        assert before["forced"] == {"engrams": True, "spaces": True}
 
         await _migrate(as_of_the_tagging)
         after = await _state(admin)
@@ -139,8 +157,9 @@ async def test_it_tags_the_logs_as_the_owning_role(as_of_the_tagging):
             path: rest for path, (_, *rest) in before["engrams"].items()
         }
         assert after["revisions"] == before["revisions"] == 0
-        assert after["space_version"] == before["space_version"] == 7
-        assert after["forced"] is True
+        assert before["space_versions"][SPACE] == 7
+        assert after["space_versions"] == {**before["space_versions"], SPACE: 8}
+        assert after["forced"] == {"engrams": True, "spaces": True}
 
         await _migrate(as_of_the_tagging)
         assert await _state(admin) == after
