@@ -7,6 +7,8 @@
   comes from and giving a reference to open it.
 - :func:`open` reads whole engrams and stored files by reference.
 - :func:`catch_up` lists what changed in the caller's spaces.
+- :func:`brief` prepares the assistant on a topic: the engrams that bear on
+  it, and for a log only its last entries.
 
 **References.** A reference names an engram or a file through the caller's
 own name for its space: ``<space>/<path>`` for an engram,
@@ -35,7 +37,7 @@ from reef.context import build_index, latest_editors
 from reef.db import transaction_scope
 from reef.engrams import get_engram, get_engram_as_of
 from reef.links import links_of
-from reef.methods import Caller, MethodError, method
+from reef.methods import Caller, MethodError, logs, method
 from reef.models import AccessKind, Attachment, Engram
 from reef.protocol import build_instructions
 from reef.search import search_engrams
@@ -47,6 +49,18 @@ FILE_PREFIX = "file/"
 #: The window :func:`catch_up` reports when it is given no moment, in words.
 #: The same window :func:`reef.activity.whats_new` uses.
 DEFAULT_WINDOW = "the last 7 days"
+
+#: The most characters of text :func:`brief` returns in all.
+BRIEF_BUDGET = 30_000
+
+#: The most characters of one engram body :func:`brief` returns.
+BRIEF_BODY_CHARS = 8_000
+
+#: How many engrams :func:`brief` asks the ranking for.
+BRIEF_ENGRAMS = 5
+
+#: The fewest and most entries :func:`brief` returns from one log.
+BRIEF_ENTRIES = (1, 100)
 
 NOT_FOUND = "not_found"
 """The answer for a reference to nothing, or to something the caller may not read."""
@@ -101,12 +115,16 @@ async def recall(
         ``engram`` (its path; None for a file), ``title``, ``passage``,
         ``author`` (who changed it last; None for a file), ``updated_at`` and
         ``ref``, the reference :func:`open` takes
-    :raises AccessDenied: when ``space`` names no space of the caller's
+    :raises MethodError: ``unknown_space`` when ``space`` names no space of
+        the caller's
     """
     principal = caller.principal
-    hits = await search_engrams(
-        principal, question, space, limit, log=True, passages=True
-    )
+    try:
+        hits = await search_engrams(
+            principal, question, space, limit, log=True, passages=True
+        )
+    except AccessDenied:
+        raise MethodError("unknown_space") from None
     if not hits:
         return []
     async with transaction_scope():
@@ -388,3 +406,121 @@ def _moment(text: str | None, code: str) -> datetime | None:
         return datetime.fromisoformat(text)
     except ValueError:
         raise MethodError(code) from None
+
+
+@method("brief")
+async def brief(
+    caller: Caller,
+    reason: str,
+    topic: str,
+    space: str | None = None,
+    entries: int = 10,
+) -> dict:
+    """Return the engrams that bear on a topic, ready to advise or prepare on.
+
+    Ranked by :func:`reef.search.search_engrams`, engrams only. A log, an
+    engram tagged ``log``, gives its last ``entries`` entries across all its
+    parts (see :mod:`reef.methods.logs`); several hits in one log make one
+    item, at the best hit's place. Any other engram gives its body, cut to
+    :data:`BRIEF_BODY_CHARS`. In all the text is cut to
+    :data:`BRIEF_BUDGET` characters: items fill in rank order, the one that
+    would pass the budget is cut to what remains, and later ones are left
+    out. A log drops its oldest entries first, a body is cut at its end.
+
+    :param caller: who is calling
+    :param reason: why, in the caller's words
+    :param topic: what to prepare on, in the person's words
+    :param space: search one space, by the caller's name for it; all when None
+    :param entries: how many entries to take from a log, from 1 to 100
+    :returns: ``engrams``, best first, each with ``space``, ``engram`` (the
+        path; a log's first part), ``title``, ``entries`` for a log or
+        ``body`` for anything else, and ``parts``, the paths read, first to
+        last
+    :raises MethodError: ``unknown_space`` when ``space`` names no space of
+        the caller's
+    """
+    principal = caller.principal
+    wanted = max(BRIEF_ENTRIES[0], min(entries, BRIEF_ENTRIES[1]))
+    try:
+        hits = await search_engrams(principal, topic, space, BRIEF_ENGRAMS, log=False)
+    except AccessDenied:
+        raise MethodError("unknown_space") from None
+    items: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    remaining = BRIEF_BUDGET
+    async with transaction_scope():
+        for hit in hits:
+            if hit["kind"] != "page" or remaining <= 0:
+                continue
+            item = await _brief_item(caller, hit, wanted, remaining)
+            if item is None:
+                continue
+            key = (item["space"], item["engram"])
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(item)
+            remaining -= len(
+                "".join(item["entries"]) if "entries" in item else item["body"]
+            )
+    return {"engrams": items}
+
+
+async def _brief_item(
+    caller: Caller, hit: dict, wanted: int, remaining: int
+) -> dict | None:
+    """Read what one hit contributes to a brief.
+
+    :param caller: who is calling
+    :param hit: an engram hit from the search
+    :param wanted: how many entries to take from a log
+    :param remaining: how many characters the brief may still add
+    :returns: the item, or None when the engram is gone since the search
+    """
+    principal = caller.principal
+    space, path = hit["cove"], hit["path"]
+    parts = await logs.series(caller, space, path)
+    if parts:
+        taken = logs.last_entries(parts, wanted)
+        item = {
+            "space": space,
+            "engram": parts[0].path,
+            "title": parts[0].title,
+            "entries": _fit_entries(taken, remaining),
+            "parts": [part.path for part in parts],
+        }
+    else:
+        engram = await get_engram(principal, space, path)
+        if engram is None:
+            return None
+        parts = [engram]
+        item = {
+            "space": space,
+            "engram": engram.path,
+            "title": engram.title,
+            "body": engram.body[: min(BRIEF_BODY_CHARS, remaining)],
+            "parts": [engram.path],
+        }
+    for part in parts:
+        await usage.record(principal, part.id, AccessKind.READ)
+    return item
+
+
+def _fit_entries(entries: list[str], room: int) -> list[str]:
+    """Keep the newest entries that fit in a number of characters.
+
+    :param entries: the entries, oldest first
+    :param room: how many characters may be used
+    :returns: the newest entries that fit, oldest first; when not even the
+        newest fits, that one cut at its end
+    """
+    kept: list[str] = []
+    used = 0
+    for entry in reversed(entries):
+        if used + len(entry) > room:
+            break
+        kept.append(entry)
+        used += len(entry)
+    if not kept and entries:
+        kept = [entries[-1][:room]]
+    return kept[::-1]
