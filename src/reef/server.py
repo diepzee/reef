@@ -54,6 +54,7 @@ from reef.engrams import (
 from reef.invitations import InviteBudgetExceeded
 from reef.links import links_of
 from reef.methods import capture
+from reef.methods.share import write_persona
 from reef.models import AccessKind, Engram, MemberRole, Membership
 from reef.promotion import PromotionError, confirm_promotion, prepare_promotion
 from reef.protocol import PERSONA_PATH, build_instructions
@@ -1362,9 +1363,7 @@ async def tool_update_meta_page(
             "error": "not_confirmed",
             "detail": "describe the change to the user first, then confirm",
         }
-    page = await save_engram(
-        principal, cove, path, body, message=message, allow_protected=True
-    )
+    page = await write_persona(principal, body, message)
     return {"cove": cove, "path": page.path, "version": page.version}
 
 

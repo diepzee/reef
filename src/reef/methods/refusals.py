@@ -17,6 +17,7 @@ from reef.engrams import (
     VersionConflict,
 )
 from reef.methods import MESSAGES, MethodError
+from reef.promotion import PromotionError
 
 #: The code for each refusal of an engram write.
 ENGRAM_REFUSALS: dict[type[Exception], str] = {
@@ -46,6 +47,8 @@ def refusals(path: str | None = None) -> Iterator[None]:
         raise MethodError("read_only") from None
     except AccessDenied:
         raise MethodError("unknown_space") from None
+    except PromotionError as error:
+        raise MethodError(error.code) from None
     except tuple(ENGRAM_REFUSALS) as error:
         code = ENGRAM_REFUSALS[type(error)]
         message = MESSAGES[code] if path is None else f"{path}: {MESSAGES[code]}"

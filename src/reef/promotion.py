@@ -10,6 +10,7 @@ from uuid import UUID
 from reef.access import (
     AccessDenied,
     Principal,
+    ReadOnlyMembership,
     alias_map,
     resolve_space,
     resolve_writable_space,
@@ -22,7 +23,29 @@ NONCE_TTL = timedelta(minutes=10)
 
 
 class PromotionError(Exception):
-    """Raised when a promotion cannot proceed; the message says why."""
+    """Raised when a promotion cannot proceed; the message says why.
+
+    The message is for the older tools. The ``code`` is for the methods,
+    which map it to a plain message of their own.
+    """
+
+    def __init__(self, message: str, code: str = "share_refused") -> None:
+        """Build the error.
+
+        :param message: what went wrong, in words
+        :param code: a stable code naming the refusal
+        """
+        super().__init__(message)
+        self.code = code
+
+
+def _access_code(error: AccessDenied) -> str:
+    """Name an access refusal: a read-only membership, or an unknown space.
+
+    :param error: what the access layer raised
+    :returns: ``read_only`` or ``unknown_space``
+    """
+    return "read_only" if isinstance(error, ReadOnlyMembership) else "unknown_space"
 
 
 async def prepare_promotion(
@@ -58,26 +81,29 @@ async def prepare_promotion(
     if dest_space == "personal":
         raise PromotionError(
             "sharing moves content out of the personal space; pick a shared "
-            "space from list_coves as the destination"
+            "space from list_coves as the destination",
+            "share_to_personal",
         )
     try:
         dest = await resolve_writable_space(principal, dest_space)
     except AccessDenied as exc:
-        raise PromotionError(str(exc)) from exc
+        raise PromotionError(str(exc), _access_code(exc)) from exc
     engram = await get_engram(principal, "personal", path)
     if engram is None:
-        raise PromotionError(f"no personal engram at {path!r}")
+        raise PromotionError(f"no personal engram at {path!r}", "not_found")
     if section is not None:
         if dest_path is None:
             raise PromotionError(
                 "a section share needs a dest_path: the extracted section "
-                "becomes its own engram, and its name is a deliberate choice"
+                "becomes its own engram, and its name is a deliberate choice",
+                "share_needs_path",
             )
         occurrences = engram.body.count(section)
         if occurrences != 1:
             raise PromotionError(
                 f"the section text must appear exactly once in {path!r}, "
-                f"found {occurrences}"
+                f"found {occurrences}",
+                "passage_not_found" if occurrences == 0 else "passage_ambiguous",
             )
     staged = Promotion(
         person_id=principal.person_id,
@@ -121,7 +147,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
         await Promotion.objects().where(Promotion.id == UUID(nonce)).lock_rows().first()
     )
     if staged is None or staged.person_id != principal.person_id:
-        raise PromotionError("unknown promotion nonce")
+        raise PromotionError("unknown promotion nonce", "stale_token")
     aliases = await alias_map(principal)
     dest = await Space.objects().where(Space.id == staged.dest_space_id).first()
     # The caller's own name for the destination. A space has no single name
@@ -134,7 +160,9 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
     # below dereferences None and the caller gets an AttributeError where it
     # should get a refusal.
     if dest is None or dest_alias is None:
-        raise PromotionError("you are no longer a member of that space")
+        raise PromotionError(
+            "you are no longer a member of that space", "unknown_space"
+        )
     if staged.consumed_at is not None:
         return {
             "promoted": True,
@@ -144,19 +172,22 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
         }
     now = utc_now()
     if now - staged.created_at > NONCE_TTL:
-        raise PromotionError("promotion expired; prepare it again")
+        raise PromotionError("promotion expired; prepare it again", "stale_token")
 
     source = await Engram.objects().where(Engram.id == staged.source_engram_id).first()
     if source is None or source.version != staged.source_version:
-        raise PromotionError("the engram changed since it was prepared; prepare again")
+        raise PromotionError(
+            "the engram changed since it was prepared; prepare again", "stale_token"
+        )
     try:
         await resolve_writable_space(principal, dest_alias)
     except AccessDenied as exc:
-        raise PromotionError(str(exc)) from exc
+        raise PromotionError(str(exc), _access_code(exc)) from exc
     if await get_engram(principal, dest_alias, staged.dest_path) is not None:
         raise PromotionError(
             f"{staged.dest_path!r} already exists in the {dest_alias} space; "
-            "merge through normal edits instead"
+            "merge through normal edits instead",
+            "share_target_exists",
         )
 
     if staged.section_text is not None:

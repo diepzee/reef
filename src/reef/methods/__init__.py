@@ -166,6 +166,22 @@ MESSAGES = {
         "There is no earlier version to go back to. The engram is at its "
         "first version, or you named the version it is at now."
     ),
+    "share_to_personal": (
+        "Sharing moves content out of the personal space. Name a shared "
+        "space as to_space; load_index lists the person's spaces."
+    ),
+    "share_needs_path": (
+        "A section becomes an engram of its own, and its name is a choice "
+        "for the person. Ask what to call it, then send it as to_path."
+    ),
+    "share_target_exists": (
+        "The shared space already has an engram at that path. Send another "
+        "to_path, or merge the text with correct."
+    ),
+    "share_refused": (
+        "Reef could not share this. Tell the person, and make the first "
+        "call again if they still want it."
+    ),
     "no_such_version": (
         "The engram has no such version. Versions count from 1 up to the "
         "current one. Open the engram to see its current version."
