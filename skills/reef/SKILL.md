@@ -127,7 +127,8 @@ reef share profile.md family --confirm TOKEN        # after the user's yes
 
 - **Share.** `reef share <engram> <to-space>` moves a personal engram into a
   shared space for good. To share one section, add `--section-file <path>
-  --to-path <new-engram.md>`.
+  --to-path <new-engram.md>`. The first call returns `text`: the exact
+  words that would be shared. Show them to the user as they are.
 - **Forget.** `reef forget <space> --engram <path>` deletes an engram with its
   history. `--file <key>` deletes a stored file. Deletion cannot be undone.
 - **Instruct.** `reef instruct --body-file /tmp/persona.md` replaces the

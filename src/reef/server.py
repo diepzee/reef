@@ -36,7 +36,7 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
 from fastmcp.tools import FunctionTool, ToolResult
 from mcp.types import CallToolRequestParams, Icon, TextContent, ToolAnnotations
-from pydantic import Field, TypeAdapter, ValidationError
+from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 
 if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
@@ -203,6 +203,12 @@ def _brand_icons() -> list[Icon] | None:
 mcp = FastMCP(
     "reef",
     auth=_build_auth(),
+    # Pinned, not left to FASTMCP_STRICT_INPUT_VALIDATION. Strict validation
+    # checks each call against the listed schema, which marks the reason
+    # required, so a weaker model that leaves it out would fail. No call may
+    # fail for its reason. Calls are checked against the shells' signatures
+    # instead, by _Gate first.
+    strict_input_validation=False,
     icons=_brand_icons(),
     website_url=get_settings().web.base_url or None,
     instructions=(
@@ -329,8 +335,19 @@ def _destructive(title: str):
 #: What the client reads when something other than a refusal goes wrong.
 FAILED = "Reef could not do that just now."
 
+
+def _none_as_empty(value: object) -> object:
+    """Read a reason sent as ``null`` as an empty one.
+
+    :param value: the reason as the client sent it
+    :returns: ``""`` for None; anything else unchanged, to be checked as text
+    """
+    return "" if value is None else value
+
+
 Reason = Annotated[
     str,
+    BeforeValidator(_none_as_empty),
     Field(
         description=(
             "Why you make this call, in a few words taken from the person's "
@@ -341,9 +358,10 @@ Reason = Annotated[
 """The ``reason`` every tool but ``search`` and ``fetch`` asks for.
 
 Each shell gives it a default of ``""``, and the listing still marks it
-required: see :func:`_reason_required`. What follows it in a shell is
-keyword-only, as Python requires after a default; MCP passes every argument
-by name anyway."""
+required: see :func:`_reason_required`. A reason sent as ``null`` counts as
+empty too, and the listing still says it is a string. What follows it in a
+shell is keyword-only, as Python requires after a default; MCP passes every
+argument by name anyway."""
 
 #: What the client reads when arguments do not fit a tool. Names only: a
 #: value can be anything the person said.
@@ -663,10 +681,11 @@ async def share(
     """Move a personal engram, or one section of it, into a shared space.
 
     Use it when the person wants to share something private. Every member of
-    that space can then read it, for good. Two calls. The
-    first changes nothing: it returns the effect and a token. Show the
-    person the effect and wait for their yes. Then call again with the same
-    arguments and the token as confirm.
+    that space can then read it, for good. Two calls. The first changes
+    nothing: it returns `text`, the exact words that would be shared, with
+    the effect and a token. Show the person those words as they are, and the
+    effect, and wait for their yes. Then call again with the same arguments
+    and the token as confirm.
 
     :param engram: the path of the engram in the personal space
     :param to_space: the shared space's name from load_index

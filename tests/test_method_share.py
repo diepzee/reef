@@ -3,6 +3,8 @@
 Like the other method tests, these manage their own transactions.
 """
 
+from dataclasses import replace
+
 import pytest
 
 from reef.config import get_settings
@@ -58,6 +60,36 @@ async def test_share_moves_and_leaves_a_pointer(household):
     assert "household" in stub.body and "Vaillant" not in stub.body
 
 
+async def test_share_shows_the_exact_text_first(household):
+    """The first call returns, as ``text``, exactly what will be shared.
+
+    The whole body for an engram, the section alone for a section. The
+    effect stays a description and quotes none of it.
+    """
+    me = caller_for(household["wouter"])
+    await _save(me, "personal", "boiler.md", BOILER)
+    await _save(me, "personal", "notes.md", f"Keep this private.\n\n{BOILER}")
+    whole = await share.share(me, "", "boiler.md", "household")
+    assert whole["text"] == BOILER
+    section = await share.share(
+        me, "", "notes.md", "household", section=BOILER, to_path="boiler-2.md"
+    )
+    assert section["text"] == BOILER
+    assert BOILER not in section["effect"]
+
+
+async def test_share_refuses_a_taken_path_at_the_first_call(household):
+    """A path already used in the shared space is refused before the person is asked."""
+    me = caller_for(household["wouter"])
+    await _save(me, "household", "boiler.md", "Joint notes.")
+    await _save(me, "personal", "boiler.md", BOILER)
+    with pytest.raises(MethodError) as refused:
+        await share.share(me, "", "boiler.md", "household")
+    assert refused.value.code == "share_target_exists"
+    assert "to_path" in refused.value.message
+    assert "correct" not in refused.value.message
+
+
 async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     """A section share without a path is refused; with one, the rest stays."""
     me = caller_for(household["wouter"])
@@ -80,6 +112,37 @@ async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     )
     assert (await _read(partner, "household", "boiler.md")).body == BOILER
     assert "Keep." in (await _read(me, "personal", "notes.md")).body
+
+
+async def _last_channel(caller: Caller, space: str, path: str) -> str:
+    """Say who made the latest change to an engram.
+
+    :param caller: who reads the history
+    :param space: the caller's name for the space
+    :param path: the engram's path
+    :returns: the writer kind on its latest revision
+    """
+    async with transaction_scope():
+        engram = await get_engram(caller.principal, space, path)
+        [row] = (
+            await Revision.select(Revision.channel)
+            .where(Revision.engram_id == engram.id)
+            .order_by(Revision.created_at, ascending=False)
+            .limit(1)
+        )
+    return row["channel"]
+
+
+@pytest.mark.parametrize("section", [None, BOILER])
+async def test_share_keeps_who_shared_on_both_revisions(household, section):
+    """The shared copy and what stays behind both name the caller's writer kind."""
+    me = replace(caller_for(household["wouter"]), writer="person")
+    await _save(me, "personal", "boiler.md", f"Keep.\n\n{BOILER}")
+    args = {"section": section, "to_path": "shared-boiler.md"}
+    first = await share.share(me, "", "boiler.md", "household", **args)
+    await share.share(me, "", "boiler.md", "household", confirm=first["token"], **args)
+    assert await _last_channel(me, "household", "shared-boiler.md") == "person"
+    assert await _last_channel(me, "personal", "boiler.md") == "person"
 
 
 async def test_share_token_does_not_act_twice(household):
@@ -167,6 +230,40 @@ async def test_instruct_replay_writes_no_second_revision(household):
         engram = await get_engram(me.principal, "personal", PERSONA_PATH)
         revisions = await Revision.objects().where(Revision.engram_id == engram.id)
     assert len(revisions) == 1
+
+
+async def _edit_persona(caller: Caller, body: str) -> None:
+    """Change the persona as the website would, outside :func:`share.instruct`.
+
+    :param caller: whose persona
+    :param body: the new text
+    """
+    async with transaction_scope():
+        await share.write_persona(caller.principal, body, "x", channel="person")
+
+
+async def test_instruct_refuses_when_the_persona_changed_between_the_calls(household):
+    """A change made after the first call is not overwritten by the second."""
+    me = caller_for(household["wouter"])
+    first = await share.instruct(me, "", "Be blunt.")
+    await _edit_persona(me, "Be kind.")
+    with pytest.raises(MethodError) as refused:
+        await share.instruct(me, "", "Be blunt.", confirm=first["token"])
+    assert refused.value.code == "stale_token"
+    assert (await _read(me, "personal", PERSONA_PATH)).body == "Be kind."
+
+
+async def test_instruct_replay_after_a_later_change_is_refused(household):
+    """Replaying a used token does not undo a change made since."""
+    me = caller_for(household["wouter"])
+    first = await share.instruct(me, "", "Be blunt.")
+    await share.instruct(me, "", "Be blunt.", confirm=first["token"])
+    await _edit_persona(me, "Be kind.")
+    with pytest.raises(MethodError) as refused:
+        await share.instruct(me, "", "Be blunt.", confirm=first["token"])
+    assert refused.value.code == "stale_token"
+    persona = await _read(me, "personal", PERSONA_PATH)
+    assert (persona.body, persona.version) == ("Be kind.", 2)
 
 
 async def test_instruct_writes_only_the_personal_persona(household):

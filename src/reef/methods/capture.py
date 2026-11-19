@@ -267,13 +267,15 @@ async def log(
 ) -> dict:
     """Add one entry at the end of a log, and change nothing else.
 
-    The entry is ``### heading``, a blank line and the text, after a blank
-    line, at the end of the log's last part. A log that does not exist yet
-    is created, tagged ``log``. When the entry would take the last part past
-    the engram size cap, the log goes on in a new part, ``<stem>-<n>.md``:
-    tagged ``log``, titled like the first part with ``(part n)``, opening
-    with a link back. The part before gets a closing link to it. No text
-    moves.
+    The entry is its heading, a blank line and the text, after a blank
+    line, at the end of the log's last part. The heading takes the level the
+    log's entries already use (see :func:`reef.methods.logs.entry_level`):
+    ``##`` in a log of ``##`` entries, else ``###``. A log that does not
+    exist yet is created, tagged ``log``. When the entry would take the last
+    part past the engram size cap, the log goes on in a new part,
+    ``<stem>-<n>.md``: tagged ``log``, titled like the first part with
+    ``(part n)``, opening with a link back. The part before gets a closing
+    link to it. No text moves.
 
     Calls on one log take turns, so entries sent at the same time all land.
 
@@ -295,24 +297,39 @@ async def log(
     heading = " ".join(heading.split())
     if not heading:
         raise MethodError("empty_heading")
-    block = f"\n\n### {heading}\n\n{entry}\n"
     try:
-        return await _log(caller, space, engram, heading, block)
+        return await _log(caller, space, engram, heading, entry)
     except _Raced:
         # The other call has committed the log, so this time it is found.
-        return await _log(caller, space, engram, heading, block)
+        return await _log(caller, space, engram, heading, entry)
+
+
+def _block(parts: list[Engram], heading: str, entry: str) -> str:
+    """Write the text one entry adds at the end of a log.
+
+    :param parts: the log's parts, first to last; none for a new log
+    :param heading: the entry's heading, on one line
+    :param entry: the entry's text
+    :returns: a blank line, the heading at the log's entry level, a blank
+        line and the text
+    """
+    marks = "#" * logs.entry_level(parts)
+    return f"\n\n{marks} {heading}\n\n{entry}\n"
 
 
 async def _log(
-    caller: Caller, space: str, engram: str, heading: str, block: str
+    caller: Caller, space: str, engram: str, heading: str, entry: str
 ) -> dict:
-    """Add one entry block to a log, in a transaction of its own.
+    """Add one entry to a log, in a transaction of its own.
+
+    The entry's heading level is read from the parts once they are locked,
+    so it follows the log as it is now.
 
     :param caller: who is calling
     :param space: the caller's name for the space
     :param engram: the path of any part of the log, or of a log to start
-    :param heading: the entry's heading, for the revision message
-    :param block: the text to add at the end
+    :param heading: the entry's heading, on one line
+    :param entry: the entry's text
     :returns: what :func:`log` returns
     :raises _Raced: when another call created the log first
     :raises MethodError: as :func:`log` does
@@ -324,8 +341,10 @@ async def _log(
             await resolve_writable_space(caller.principal, space)
             path, parts = await _named_log(caller, space, engram)
             if not parts:
+                block = _block([], heading, entry)
                 return await _start_log(caller, space, path, block, message, cap)
             parts, last = await _lock_last(caller, space, parts)
+            block = _block(parts, heading, entry)
             base = parts[0].path
             number = logs.part_number(base, last.path)
             body = last.body + block

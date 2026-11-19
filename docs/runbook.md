@@ -1305,8 +1305,9 @@ members are managed on the website, not through a tool.
 | `fetch` | Fetch a result of `search` by its id. |
 
 **Staged actions.** `share`, `forget` and `instruct` take two calls. The first
-changes nothing: it returns the effect in plain words and a token. The
-assistant shows the person the effect, waits for a yes, then calls again with
+changes nothing: it returns the effect in plain words and a token. `share`
+also returns `text`: the exact words that would be shared. The assistant
+shows the person the effect, waits for a yes, then calls again with
 the token as `confirm`. A token works for ten minutes, for one person and one
 action.
 
@@ -1356,6 +1357,16 @@ app's own code. It never touches the development or production database.
 **Expect a short outage.** The app is unavailable while the rename runs,
 because it holds locks on every renamed table. Deploy when nobody is likely
 to be mid-conversation.
+
+**`reef-worker` switches over too.** It redeploys from the same merge. A job
+that fails during the window is tried again on its own: after 30 seconds,
+then 2, 8 and 32 minutes, five attempts in all. While the worker cannot read
+the queue, it logs the error class and tries again; queued jobs wait.
+
+**Update saved Logfire queries.** Audit events are now named `space.*`, not
+`cove.*`: for example `space.member_removed`, and `space.engram_deleted` for
+the old `cove.page_deleted`. A saved query or alert that filters `action` on
+the old names finds nothing after the deploy.
 
 **After the deploy, tell people to reload.** Assistants keep the old tool
 list until they reload it. Until then they call retired names and get the

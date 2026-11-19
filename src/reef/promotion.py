@@ -75,7 +75,8 @@ async def prepare_promotion(
         section
     :raises PromotionError: if the destination is not a shared space the
         principal belongs to, the engram is missing, the section is absent or
-        ambiguous, or a section share names no destination
+        ambiguous, a section share names no destination, or the destination
+        already has an engram at that path
     :returns: nonce, disclosure text, destination, and its members
     """
     if dest_space == "personal":
@@ -105,6 +106,10 @@ async def prepare_promotion(
                 f"found {occurrences}",
                 "passage_not_found" if occurrences == 0 else "passage_ambiguous",
             )
+    # Checked again at confirm time, since the path may be taken in between.
+    # Checked here too, so the person is never asked about a share that
+    # cannot happen.
+    await _refuse_taken_path(principal, dest_space, dest_path or path)
     staged = Promotion(
         person_id=principal.person_id,
         source_engram_id=engram.id,
@@ -129,7 +134,25 @@ async def prepare_promotion(
     }
 
 
-async def confirm_promotion(principal: Principal, nonce: str) -> dict:
+async def _refuse_taken_path(principal: Principal, alias: str, path: str) -> None:
+    """Refuse a share whose destination path already holds an engram.
+
+    A share never overwrites: the shared text belongs at a free path.
+
+    :param principal: the authenticated person
+    :param alias: the person's name for the destination space
+    :param path: the destination path
+    :raises PromotionError: ``share_target_exists`` when the path is taken
+    """
+    if await get_engram(principal, alias, path) is not None:
+        raise PromotionError(
+            f"{path!r} already exists in the {alias} space; "
+            "merge through normal edits instead",
+            "share_target_exists",
+        )
+
+
+async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -> dict:
     """Execute a staged promotion: copy to the staged space, stub the original.
 
     Validates ownership, expiry, source-unchanged, continued membership in
@@ -139,6 +162,8 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
 
     :param principal: the authenticated person
     :param nonce: the id returned by prepare_promotion
+    :param channel: who confirmed the share, kept on every revision it
+        writes: ``assistant`` over MCP, ``person`` on the website
     :raises PromotionError: on any failed validation
     :returns: outcome, with already_done=True on an idempotent retry
     """
@@ -183,12 +208,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
         await resolve_writable_space(principal, dest_alias)
     except AccessDenied as exc:
         raise PromotionError(str(exc), _access_code(exc)) from exc
-    if await get_engram(principal, dest_alias, staged.dest_path) is not None:
-        raise PromotionError(
-            f"{staged.dest_path!r} already exists in the {dest_alias} space; "
-            "merge through normal edits instead",
-            "share_target_exists",
-        )
+    await _refuse_taken_path(principal, dest_alias, staged.dest_path)
 
     if staged.section_text is not None:
         await save_engram(
@@ -203,6 +223,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             # one place it must not fire.
             allow_private_copy=True,
             title=staged.dest_path.removesuffix(".md"),
+            channel=channel,
         )
         marker = (
             f"*(section moved to the {dest_alias} space — see "
@@ -216,6 +237,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             message=f"section extracted to {dest_alias} as {staged.dest_path}",
             title=source.title,
             tags=list(source.tags),
+            channel=channel,
         )
     else:
         await save_engram(
@@ -227,6 +249,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             allow_private_copy=True,
             title=source.title,
             tags=list(source.tags),
+            channel=channel,
         )
         # The stub replaces the *source* engram, whatever the destination is
         # named: it is what stays behind in the personal space. Writing it to
@@ -242,6 +265,7 @@ async def confirm_promotion(principal: Principal, nonce: str) -> dict:
             message="stubbed after promotion",
             title=source.title,
             expected_version=source.version,
+            channel=channel,
         )
     staged.consumed_at = now
     await staged.save()
