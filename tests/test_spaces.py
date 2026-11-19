@@ -409,3 +409,12 @@ async def test_invite_tells_the_inviter_to_relay_it_themselves(tx, household):
     result = await invite(me, "household", "anna@example.test")
     assert "sends no invitation email" in result["next_step"]
     assert "anna@example.test" in result["email"]
+
+
+async def test_the_persona_stub_is_written_by_the_system(tx, graph):
+    from reef.models import Revision
+
+    person = await graph.person("channel@example.test", "Chan")
+    await ensure_personal_space(person.id, person.email)
+    [revision] = await Revision.select().where(Revision.author_id == person.id)
+    assert revision["channel"] == "system"

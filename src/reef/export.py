@@ -307,6 +307,7 @@ async def build_full_dump(
             Revision.body,
             Revision.message,
             Revision.author_id,
+            Revision.channel,
             Revision.created_at,
         )
         .where(Revision.engram_id.is_in(list(engram_by_id)))
@@ -356,6 +357,7 @@ async def build_full_dump(
                 "body": revision["body"],
                 "message": revision["message"],
                 "author": author_names.get(revision["author_id"]),
+                "channel": revision["channel"],
                 "created": revision["created_at"].isoformat(),
             }
         )

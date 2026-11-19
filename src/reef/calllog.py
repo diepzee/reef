@@ -31,7 +31,7 @@ from uuid import uuid4
 
 from reef.access import Principal, arm
 from reef.config import get_settings
-from reef.db import DB
+from reef.db import DB, transaction_scope
 from reef.models import CallLog
 from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON
 
@@ -54,10 +54,14 @@ async def record(
 ) -> None:
     """Record one call, if logging is switched on.
 
-    Recording must never be what makes a call fail. A failed statement
-    aborts the whole transaction, so the insert runs inside a savepoint. If
-    it fails, the savepoint is rolled back, the class of the error is logged
-    and the call goes on. The reason is never logged.
+    Recording must never be what makes a call fail, so every error is
+    caught, including from arming and from the savepoint, and only its class
+    is logged. The reason is never logged. A transaction the caller already
+    aborted makes the insert fail and be skipped, nothing more.
+
+    Call it after the method has returned or raised, outside the method's own
+    transactions: it opens its own scope, so the row of a failed call is
+    committed instead of rolled back with it.
 
     :param principal: the person on whose behalf the call was made
     :param session_id: a label for the conversation, or None
@@ -70,6 +74,51 @@ async def record(
     """
     if not get_settings().calls.log:
         return
+    try:
+        # Its own scope: a no-op inside an open transaction, and a
+        # transaction of its own outside one, so a call that failed still
+        # leaves its row.
+        async with transaction_scope():
+            await _insert(
+                principal,
+                session_id=session_id,
+                writer=writer,
+                method=method,
+                reason=reason,
+                duration_ms=duration_ms,
+                returned=returned,
+                outcome=outcome,
+            )
+    # Broad on purpose: whatever went wrong, the call must still answer.
+    except Exception as error:  # noqa: BLE001
+        log.warning("call log: a call was not recorded (%s)", type(error).__name__)
+
+
+async def _insert(
+    principal: Principal,
+    *,
+    session_id: str | None,
+    writer: str,
+    method: str,
+    reason: str,
+    duration_ms: int,
+    returned: int,
+    outcome: str,
+) -> None:
+    """Insert one row inside a savepoint, so a refusal leaves the transaction usable.
+
+    Any error is raised to :func:`record`, which logs its class. The
+    savepoint is rolled back only if it was created.
+
+    :param principal: the person on whose behalf the call was made
+    :param session_id: a label for the conversation, or None
+    :param writer: ``assistant``, ``person`` or ``system``
+    :param method: the name of the method called
+    :param reason: why it was called; cut to the stored length
+    :param duration_ms: how long the call took, in milliseconds
+    :param returned: how many items the call returned
+    :param outcome: ``ok``, or the class of the error that ended the call
+    """
     await arm(principal)
     savepoint = await DB.current_transaction.get().savepoint()
     try:
@@ -87,12 +136,10 @@ async def record(
             returned,
             outcome,
         )
-    # Broad on purpose: whatever went wrong, the call must still answer.
-    except Exception as error:  # noqa: BLE001
+    except Exception:
         await savepoint.rollback_to()
-        log.warning("call log: a call was not recorded (%s)", type(error).__name__)
-    else:
-        await savepoint.release()
+        raise
+    await savepoint.release()
 
 
 async def purge() -> int:

@@ -597,4 +597,5 @@ async def ensure_personal_space(person_id: UUID, email: str) -> None:
         # Reef wrote this, not the person: it is not their use of the engram.
         via=None,
         allow_protected=True,
+        channel="system",
     )
