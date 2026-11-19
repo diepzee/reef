@@ -35,7 +35,7 @@ def _env(monkeypatch, seats: str | None, until: str | None) -> None:
 
 @pytest.fixture(autouse=True)
 def _clear_settings_cache():
-    """Drop the settings singleton around each test, so env changes take.
+    """Drop the settings singleton around each test, so each starts clean.
 
     :yields: nothing; the cache is cleared before and after
     """

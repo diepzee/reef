@@ -208,6 +208,12 @@ async def drain(worker: str) -> int:
     return attempted
 
 
+#: How often the worker deletes search log rows that are past their time.
+#: A constant, not a setting: the privacy page promises deletion after 90
+#: days, and only this keeps the promise on time.
+PURGE_EVERY_SECONDS = 3600.0
+
+
 async def purge_search_log() -> int:
     """Delete logged searches that are older than they may be kept.
 
@@ -246,9 +252,7 @@ async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
             if time.monotonic() >= next_purge:
                 # Set first, so a purge that fails is tried again in an hour
                 # and not on every pass.
-                next_purge = (
-                    time.monotonic() + get_settings().worker.purge_every_seconds
-                )
+                next_purge = time.monotonic() + PURGE_EVERY_SECONDS
                 await purge_search_log()
             while not stop.is_set() and (job := await claim(worker)) is not None:
                 await run_job(job, worker)

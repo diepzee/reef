@@ -13,6 +13,7 @@ os.environ["DATABASE_URL"] = get_settings().database.test_url
 
 import asyncpg
 import httpx
+import pytest
 import pytest_asyncio
 from piccolo.table import create_db_tables, drop_db_tables
 
@@ -136,6 +137,22 @@ fresh volume. On a cluster that predates it, create it once as the superuser:
     PGPASSWORD=postgres psql -h localhost -p 5433 -U postgres -d reef_test \\
       -c "GRANT CREATE ON SCHEMA public TO {AUTHZ_ROLE}"
 """
+
+
+@pytest.fixture(autouse=True)
+def _restore_environment():
+    """Leave the process environment as each test found it.
+
+    Building the settings copies legacy ``RIF_`` variables onto their
+    ``REEF_`` names straight into the environment, where monkeypatch cannot
+    undo it. A copied ``REEF_DEV_INSECURE`` would put every later test in
+    insecure mode.
+    """
+    saved = dict(os.environ)
+    yield
+    if dict(os.environ) != saved:
+        os.environ.clear()
+        os.environ.update(saved)
 
 
 @pytest_asyncio.fixture(scope="session", autouse=True)

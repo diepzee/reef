@@ -65,7 +65,10 @@ def service(monkeypatch):
     monkeypatch.setattr(
         embedding,
         "breaker",
-        Breaker(),
+        Breaker(
+            get_settings().embedding.rest_after_failures,
+            get_settings().embedding.rest_seconds,
+        ),
     )
     return fake
 

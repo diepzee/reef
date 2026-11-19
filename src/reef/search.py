@@ -348,8 +348,7 @@ def fuse(
     outranks a row at the same place in one.
 
     A place in the meaning ranking counts ``REEF_SEARCH_SEMANTIC_WEIGHT``
-    times a
-    place in the keyword ranking. Left at that, any page close in meaning
+    times a place in the keyword ranking. Left at that, any page close in meaning
     would outrank the best keyword hit that is not, and two kinds of row
     would vanish from the first results: a file or a fresh page, which has
     no vector to be close with, and the one page that holds the exact

@@ -36,9 +36,10 @@ def legacy_environment_names() -> list[str]:
 def adopt_legacy_environment() -> None:
     """Copy any legacy variable onto its new name, where the new one is unset.
 
-    Done once, before :class:`Settings` reads the environment, because
-    pydantic-settings takes a single prefix and the alternative is declaring
-    an alias on all seventeen fields.
+    Done before :class:`Settings` reads the environment, each time the
+    settings are built, because the groups read ``REEF_`` names only and
+    the alternative is declaring a second alias on every field. It writes
+    into the process environment, which tests must restore.
     """
     for name in legacy_environment_names():
         os.environ[f"{PREFIX}{name[len(LEGACY_PREFIX) :]}"] = os.environ[name]
@@ -83,10 +84,11 @@ class PageSettings(BaseSettings):
     model_config = _group(PREFIX)
 
     context_char_budget: int = Field(
-        150_000, description="The most text one context load returns."
+        150_000, ge=1_000, description="The most text one context load returns."
     )
     max_chars: int = Field(
         200_000,
+        ge=1_000,
         validation_alias=f"{PREFIX}PAGE_MAX_CHARS",
         description=(
             "The longest page. Above the context budget on purpose: a page "
@@ -107,11 +109,14 @@ class FileSettings(BaseSettings):
     secret_key: str = Field("", description="The bucket's secret key. Secret.")
     max_bytes: int = Field(
         25_000_000,
+        ge=1,
         validation_alias=f"{PREFIX}FILE_MAX_BYTES",
         description="The largest file that may be stored.",
     )
     signed_url_ttl_seconds: int = Field(
         300,
+        ge=1,
+        le=86_400,
         validation_alias=f"{PREFIX}SIGNED_URL_TTL_SECONDS",
         description="How long a link to a stored file works.",
     )
@@ -150,7 +155,7 @@ class DoorSettings(BaseSettings):
 
     model_config = _group(f"{PREFIX}OPEN_")
 
-    seats: int = Field(0, description="How many people may still come in.")
+    seats: int = Field(0, ge=0, description="How many people may still come in.")
     until: str = Field("", description="When the door closes, as an ISO date.")
 
 
@@ -203,12 +208,19 @@ class AuthSettings(BaseSettings):
 
 
 class DevSettings(BaseSettings):
-    """Escape hatches for local development. Never set in production."""
+    """Escape hatches for local development. Never set in production.
 
-    model_config = _group(f"{PREFIX}DEV_")
+    Read as strictly as before they were settings: the exact upper-case name
+    and, for the switch, the exact value ``1``. Other groups match names in
+    any case, as pydantic-settings does; this one opens an authentication
+    bypass, so ``reef_dev_insecure`` or `` 1`` must not.
+    """
+
+    model_config = SettingsConfigDict(case_sensitive=True)
 
     insecure: bool = Field(
         False,
+        validation_alias=f"{PREFIX}DEV_INSECURE",
         description=(
             "Admit an HTTP connection without a token, as the dev person. "
             "On only when set to exactly 1."
@@ -226,10 +238,12 @@ class DevSettings(BaseSettings):
         :param value: the raw value
         :returns: whether the hatch is open
         """
-        return value is True or str(value).strip() == "1"
+        return value is True or value == "1"
 
     principal_email: str = Field(
-        "", description="Who a connection without a token is, in development."
+        "",
+        validation_alias=f"{PREFIX}DEV_PRINCIPAL_EMAIL",
+        description="Who a connection without a token is, in development.",
     )
 
 
@@ -239,10 +253,7 @@ class WorkerSettings(BaseSettings):
     model_config = _group(f"{PREFIX}WORKER_")
 
     poll_seconds: float = Field(
-        5.0, description="How long it waits before looking again when idle."
-    )
-    purge_every_seconds: float = Field(
-        3600.0, description="How often it deletes search log rows past their time."
+        5.0, gt=0, description="How long it waits before looking again when idle."
     )
 
 
@@ -262,12 +273,17 @@ class SearchSettings(BaseSettings):
             "page promises that people are told first."
         ),
     )
-    max_results: int = Field(50, description="The most results one search returns.")
+    max_results: int = Field(
+        50, ge=1, le=200, description="The most results one search returns."
+    )
     fusion_depth: int = Field(
-        50, description="How many results of each ranking take part in the fusion."
+        50,
+        ge=1,
+        le=500,
+        description="How many results of each ranking take part in the fusion.",
     )
     rrf_k: int = Field(
-        60, description="The constant of reciprocal rank fusion, from the paper."
+        60, ge=1, description="The constant of reciprocal rank fusion, from the paper."
     )
     # Measured through the product code on 19 November 2026, on the benchmark
     # in scripts/eval and on a private set of real pages. Share of questions
@@ -280,6 +296,7 @@ class SearchSettings(BaseSettings):
     #   3          46.0%      100%
     semantic_weight: float = Field(
         2.0,
+        ge=0,
         description=(
             "Measured. How much a place in the meaning ranking counts, against "
             "1 for a place in the keyword ranking."
@@ -291,6 +308,7 @@ class SearchSettings(BaseSettings):
     # 46.0% without (19 November 2026).
     sure_words: int = Field(
         3,
+        ge=0,
         description=(
             "Measured. The longest query in which a page holding every word "
             "keeps its keyword place in the fusion."
@@ -319,48 +337,58 @@ class EmbeddingSettings(BaseSettings):
         ),
     )
     daily_cap: int = Field(
-        2000, description="The most pieces embedded for one person in one day."
+        2000, ge=0, description="The most pieces embedded for one person in one day."
     )
     delay_seconds: float = Field(
         120.0,
+        ge=0,
         description="How long after a save a page is embedded, so five edits embed once.",
     )
     seconds: float = Field(
         2.0,
+        gt=0,
         description="How long a search waits for its query's vector, then uses keywords.",
     )
-    batch: int = Field(16, description="How many pieces go in one request.")
+    batch: int = Field(
+        16, ge=1, le=256, description="How many pieces go in one request."
+    )
     page_seconds: float = Field(
         300.0,
+        gt=0,
         description="The longest one page's embedding may take. The job holds a connection.",
     )
     cap_retry_seconds: float = Field(
-        6 * 3600.0, description="How long a page waits when the cap is reached."
+        6 * 3600.0, gt=0, description="How long a page waits when the cap is reached."
     )
     failure_retry_seconds: float = Field(
-        30 * 60.0, description="How long a page waits after a failure."
+        30 * 60.0, gt=0, description="How long a page waits after a failure."
     )
     question_chars: int = Field(
-        500, description="How much of a query is embedded, in characters."
+        500, ge=1, description="How much of a query is embedded, in characters."
     )
     rest_after_failures: int = Field(
-        3, description="Failures in a row before searches leave the service alone."
+        3,
+        ge=1,
+        description="Failures in a row before searches leave the service alone.",
     )
-    rest_seconds: float = Field(60.0, description="How long they leave it alone.")
+    rest_seconds: float = Field(60.0, ge=0, description="How long they leave it alone.")
     piece_min_chars: int = Field(
         200,
+        ge=0,
         description="Measured. A section shorter than this joins the one before it. "
-        "Changing it re-embeds every page.",
+        "A change reaches a page when it is next saved. Same value on app and worker.",
     )
     piece_max_chars: int = Field(
         2000,
+        ge=100,
         description="Measured. A section longer than this is cut. "
-        "Changing it re-embeds every page.",
+        "A change reaches a page when it is next saved. Same value on app and worker.",
     )
     page_chars: int = Field(
         8000,
+        ge=100,
         description="How much of a long page the whole-page piece holds. "
-        "Changing it re-embeds every page.",
+        "A change reaches a page when it is next saved. Same value on app and worker.",
     )
 
 
@@ -382,22 +410,27 @@ class RerankSettings(BaseSettings):
         True, description="The off switch. On: the reranker runs when there is one."
     )
     candidates: int = Field(
-        15, description="Measured. How many of the first results are read again."
+        15,
+        ge=2,
+        le=50,
+        description="Measured. How many of the first results are read again.",
     )
     passages: int = Field(
-        2, description="Measured. How many pieces of each page are read."
+        2, ge=1, le=10, description="Measured. How many pieces of each page are read."
     )
     seconds: float = Field(
-        3.0, description="How long a search waits for it, then keeps its order."
+        3.0, gt=0, description="How long a search waits for it, then keeps its order."
     )
-    query_chars: int = Field(500, description="How much of the query is sent.")
+    query_chars: int = Field(500, ge=1, description="How much of the query is sent.")
     passage_chars: int = Field(
-        2000, description="How much of one passage is sent, in characters."
+        2000, ge=1, description="How much of one passage is sent, in characters."
     )
     rest_after_failures: int = Field(
-        3, description="Failures in a row before searches leave the service alone."
+        3,
+        ge=1,
+        description="Failures in a row before searches leave the service alone.",
     )
-    rest_seconds: float = Field(60.0, description="How long they leave it alone.")
+    rest_seconds: float = Field(60.0, ge=0, description="How long they leave it alone.")
 
 
 class UsageSettings(BaseSettings):
@@ -406,28 +439,18 @@ class UsageSettings(BaseSettings):
     model_config = _group(f"{PREFIX}USAGE_")
 
     decay: float = Field(
-        0.5, description="How fast a use fades. 0.5 is the value ACT-R has used."
+        0.5, gt=0, description="How fast a use fades. 0.5 is the value ACT-R has used."
     )
-    window: int = Field(50, description="How many of a page's most recent uses count.")
+    window: int = Field(
+        50, ge=1, description="How many of a page's most recent uses count."
+    )
     min_age_hours: float = Field(
-        1 / 60, description="The youngest a use is treated as, so none dominates."
+        1 / 60, gt=0, description="The youngest a use is treated as, so none dominates."
     )
     refresh_delay_seconds: float = Field(
         5 * 60.0,
+        ge=0,
         description="How long after a use the refresh runs, once per busy session.",
-    )
-
-
-class InvitationSettings(BaseSettings):
-    """How many people one member may invite."""
-
-    model_config = _group(f"{PREFIX}INVITE_")
-
-    budget: int = Field(
-        5, description="New invitations one member may make per window."
-    )
-    window_days: int = Field(
-        30, description="The rolling window, in days, so nothing refills at midnight."
     )
 
 
@@ -441,7 +464,8 @@ class Settings(BaseModel):
 
     A setting may change behaviour or cost. What would weaken a guarantee,
     or needs a migration to change, stays a constant in its module: the
-    search log's 90 days, the job lease, the longest vector a table takes.
+    search log's 90 days and how often they are enforced, the invitation
+    budget, the job lease, the longest vector a table takes.
     """
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -456,7 +480,6 @@ class Settings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     rerank: RerankSettings = Field(default_factory=RerankSettings)
     usage: UsageSettings = Field(default_factory=UsageSettings)
-    invitations: InvitationSettings = Field(default_factory=InvitationSettings)
 
     @property
     def dsn(self) -> str:

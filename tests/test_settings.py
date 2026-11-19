@@ -33,6 +33,13 @@ NAMES_BEFORE_GROUPING = {
     "REEF_EMBEDDING_MODEL",
     "REEF_EMBEDDING_DAILY_CAP",
     "REEF_EMBEDDING_DELAY_SECONDS",
+    "REEF_EMBEDDING_SECONDS",
+    "REEF_RERANK_URL",
+    "REEF_RERANK_MODEL",
+    "REEF_RERANK_ENABLED",
+    "REEF_RERANK_CANDIDATES",
+    "REEF_RERANK_PASSAGES",
+    "REEF_RERANK_SECONDS",
     "REEF_GLAMA_MAINTAINER_EMAIL",
     "REEF_JWT_SIGNING_KEY",
     "REEF_OAUTH_STORE_DIR",
@@ -63,6 +70,49 @@ def test_every_name_a_deployment_may_set_is_still_read():
     assert NAMES_BEFORE_GROUPING <= set(_names())
 
 
+def _sample(default: object) -> tuple[str, object]:
+    """Pick a value unlike the default, as a variable and as read back."""
+    if isinstance(default, bool):
+        return ("0", False) if default else ("1", True)
+    if isinstance(default, int):
+        return str(default + 1), default + 1
+    if isinstance(default, float):
+        return str(default + 1.0), default + 1.0
+    return "probe-value", "probe-value"
+
+
+def _fields():
+    """Every setting: its group, field name, variable name and default."""
+    for group, holder in config.Settings.model_fields.items():
+        model = holder.default_factory
+        prefix = model.model_config.get("env_prefix", "")
+        for name, info in model.model_fields.items():
+            alias = info.validation_alias
+            variable = alias if isinstance(alias, str) else f"{prefix}{name}".upper()
+            yield group, name, variable, info.default
+
+
+@pytest.mark.parametrize(
+    ("group", "name", "variable", "default"),
+    list(_fields()),
+    ids=[variable for _, _, variable, _ in _fields()],
+)
+@pytest.mark.parametrize("legacy", [False, True], ids=["REEF", "RIF"])
+def test_every_variable_reaches_its_setting(
+    monkeypatch, group, name, variable, default, legacy
+):
+    """Set it for real and read it back, under both prefixes."""
+    if legacy and not variable.startswith(config.PREFIX):
+        pytest.skip("not a reef name, so it has no legacy spelling")
+    raw, expected = _sample(default)
+    spelled = (
+        config.LEGACY_PREFIX + variable[len(config.PREFIX) :] if legacy else variable
+    )
+    monkeypatch.delenv(variable, raising=False)
+    monkeypatch.setenv(spelled, raw)
+    assert getattr(getattr(config.get_settings(), group), name) == expected
+
+
 def test_no_two_settings_share_a_name():
     assert len(_names()) == len(set(_names()))
 
@@ -74,7 +124,7 @@ def test_every_setting_says_what_it_does():
 @pytest.mark.parametrize(
     ("variable", "value", "read"),
     [
-        ("REEF_PAGE_MAX_CHARS", "7", lambda s: s.pages.max_chars == 7),
+        ("REEF_PAGE_MAX_CHARS", "7000", lambda s: s.pages.max_chars == 7000),
         ("REEF_SEARCH_LOG", "1", lambda s: s.search.log is True),
         ("WORKOS_CLIENT_ID", "abc", lambda s: s.auth.workos_client_id == "abc"),
         ("REEF_RERANK_ENABLED", "0", lambda s: s.rerank.enabled is False),
@@ -104,7 +154,15 @@ def test_a_variable_named_like_a_group_cannot_stop_the_app(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("value", "on"), [("1", True), ("true", False), ("yes", False), ("0", False)]
+    ("value", "on"),
+    [
+        ("1", True),
+        ("true", False),
+        ("yes", False),
+        ("0", False),
+        (" 1", False),
+        ("1\n", False),
+    ],
 )
 def test_the_dev_escape_hatch_opens_for_exactly_one(monkeypatch, value, on):
     monkeypatch.setenv("REEF_DEV_INSECURE", value)
@@ -118,3 +176,27 @@ def test_the_runbook_lists_every_setting_as_it_is():
     spec.loader.exec_module(table)
     found = table.current(table.RUNBOOK.read_text())
     assert found == table.section(), "run `just settings-table`"
+
+
+def test_the_dev_escape_hatch_wants_its_exact_name(monkeypatch):
+    """``reef_dev_insecure`` is not ``REEF_DEV_INSECURE``, and cannot outvote it."""
+    monkeypatch.setenv("REEF_DEV_INSECURE", "0")
+    monkeypatch.setenv("reef_dev_insecure", "1")
+    assert config.get_settings().dev.insecure is False
+
+
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "REEF_EMBEDDING_PIECE_MAX_CHARS",
+        "REEF_EMBEDDING_BATCH",
+        "REEF_RERANK_CANDIDATES",
+        "REEF_USAGE_WINDOW",
+        "REEF_SEARCH_MAX_RESULTS",
+    ],
+)
+def test_a_value_that_would_break_search_is_refused(monkeypatch, variable):
+    """Zero here hangs or breaks a search; better not to start at all."""
+    monkeypatch.setenv(variable, "0")
+    with pytest.raises(ValueError):
+        config.get_settings()

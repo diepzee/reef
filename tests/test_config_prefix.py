@@ -11,8 +11,6 @@ which legacy names it is still relying on. That last part is what makes
 removing the fallback an evidenced decision rather than a guess.
 """
 
-import os
-
 import pytest
 
 from reef import config
@@ -20,18 +18,13 @@ from reef import config
 
 @pytest.fixture(autouse=True)
 def clear_settings_cache():
-    """Give each case a fresh read, and leave the environment as it was.
+    """Give each case a fresh read.
 
-    `get_settings` is cached. Reading it also copies every legacy variable
-    onto its new name, straight into the process environment, where
-    monkeypatch cannot undo it. Left there, a ``REEF_DEV_INSECURE`` copied
-    from ``RIF_DEV_INSECURE`` would switch every later test to insecure mode.
+    The environment itself is restored by ``_restore_environment`` in
+    ``conftest.py``: reading the settings copies legacy names into it.
     """
-    saved = dict(os.environ)
     config.get_settings.cache_clear()
     yield
-    os.environ.clear()
-    os.environ.update(saved)
     config.get_settings.cache_clear()
 
 

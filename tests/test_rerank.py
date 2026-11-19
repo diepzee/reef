@@ -82,7 +82,14 @@ def reranker(monkeypatch):
     monkeypatch.setattr(settings.rerank, "passages", 2)
     monkeypatch.setattr(settings.rerank, "seconds", 3.0)
     monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
-    monkeypatch.setattr(rerank, "breaker", Breaker())
+    monkeypatch.setattr(
+        rerank,
+        "breaker",
+        Breaker(
+            get_settings().rerank.rest_after_failures,
+            get_settings().rerank.rest_seconds,
+        ),
+    )
     return fake
 
 
@@ -94,7 +101,14 @@ def embedder(monkeypatch):
     monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
     monkeypatch.setattr(settings.embedding, "model", fake.model_id)
     monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
-    monkeypatch.setattr(embedding, "breaker", Breaker())
+    monkeypatch.setattr(
+        embedding,
+        "breaker",
+        Breaker(
+            get_settings().embedding.rest_after_failures,
+            get_settings().embedding.rest_seconds,
+        ),
+    )
     return fake
 
 
@@ -613,7 +627,9 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
     from reef.server import search_pages as search_tool
 
     me = principal_for(household["wouter"])
-    monkeypatch.setenv("REEF_DEV_PRINCIPAL_EMAIL", household["wouter"].email)
+    monkeypatch.setattr(
+        get_settings().dev, "principal_email", household["wouter"].email
+    )
     async with transaction_scope():
         await _boilers(me)
     results = await search_tool("boiler")

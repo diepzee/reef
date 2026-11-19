@@ -24,11 +24,11 @@ def _default(value: object) -> str:
     if value == "":
         return "(none)"
     if isinstance(value, bool):
-        return "1" if value else "0"
+        return "`1`" if value else "`0`"
     if isinstance(value, float) and value.is_integer():
-        return str(int(value))
+        return f"`{int(value)}`"
     if isinstance(value, float):
-        return f"{value:.4g}"
+        return f"`{value:.4g}`"
     return f"`{value}`"
 
 

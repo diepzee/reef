@@ -43,6 +43,8 @@ from reef.db import transaction_scope
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
 from reef.identity import person_by_email, person_session_epoch
 from reef.invitations import (
+    INVITE_BUDGET,
+    INVITE_WINDOW_DAYS,
     InviteBudgetExceeded,
     invite_to_reef,
     invites_left,
@@ -745,8 +747,8 @@ async def _invites_left(request: Request, principal: Principal) -> dict:
     """
     return {
         "invites_left": await invites_left(principal),
-        "budget": get_settings().invitations.budget,
-        "window_days": get_settings().invitations.window_days,
+        "budget": INVITE_BUDGET,
+        "window_days": INVITE_WINDOW_DAYS,
     }
 
 

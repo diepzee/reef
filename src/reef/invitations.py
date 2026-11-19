@@ -19,6 +19,14 @@ from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.models import Person
 
+#: New allowlist entries one member may mint per window. A constant, not a
+#: setting: it limits abuse, and a setting could switch that off.
+INVITE_BUDGET = 5
+#: Length of the rolling window, in days. Rolling rather than calendar so
+#: there is no burst at midnight on the 1st, and so the refusal can name a
+#: date rather than a quota that silently refills.
+INVITE_WINDOW_DAYS = 30
+
 
 class InviteBudgetExceeded(Exception):
     """Raised when an inviter has spent their allowlist budget."""
@@ -52,7 +60,7 @@ def _window_start(now: datetime | None = None) -> datetime:
     :param now: clock override for tests; defaults to wall time
     :returns: the window's lower bound, naive local time
     """
-    return (now or _now()) - timedelta(days=get_settings().invitations.window_days)
+    return (now or _now()) - timedelta(days=INVITE_WINDOW_DAYS)
 
 
 async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
@@ -69,9 +77,9 @@ async def invites_left(inviter: Principal, now: datetime | None = None) -> int:
     # hand out unlimited invites rather than fail closed.
     rows = await Person.raw(
         "SELECT reef_invites_minted({}) AS spent",
-        get_settings().invitations.window_days,
+        INVITE_WINDOW_DAYS,
     )
-    return max(0, get_settings().invitations.budget - (rows[0]["spent"] if rows else 0))
+    return max(0, INVITE_BUDGET - (rows[0]["spent"] if rows else 0))
 
 
 async def next_invite_at(
@@ -89,12 +97,12 @@ async def next_invite_at(
     await arm(inviter)
     rows = await Person.raw(
         "SELECT reef_oldest_invite({}) AS oldest",
-        get_settings().invitations.window_days,
+        INVITE_WINDOW_DAYS,
     )
     oldest = rows[0]["oldest"] if rows else None
     if oldest is None:
         return None
-    return oldest + timedelta(days=get_settings().invitations.window_days)
+    return oldest + timedelta(days=INVITE_WINDOW_DAYS)
 
 
 def relay_instructions() -> str:
@@ -164,21 +172,20 @@ async def allowlist(
     # INSERT ... RETURNING, and Postgres applies SELECT policies to what a
     # RETURNING gives back, so a self-only persons policy refuses the inviter
     # their own invitee and reports it as a check-policy violation.
-    limits = get_settings().invitations
     rows = await Person.raw(
         "SELECT reef_allowlist_person({}, {}, {}, {}) AS id",
         email,
         display_name or email.split("@")[0],
-        limits.window_days,
-        limits.budget,
+        INVITE_WINDOW_DAYS,
+        INVITE_BUDGET,
     )
     new_id = rows[0]["id"] if rows else None
     if new_id is None:
         unlocks = await next_invite_at(inviter, now)
         when = f" Your next invite unlocks {unlocks:%-d %B %Y}." if unlocks else ""
         raise InviteBudgetExceeded(
-            f"You have invited {limits.budget} new people in the last "
-            f"{limits.window_days} days, which is the limit.{when}"
+            f"You have invited {INVITE_BUDGET} new people in the last "
+            f"{INVITE_WINDOW_DAYS} days, which is the limit.{when}"
         )
     audit.record(audit.INVITE_MINTED, actor=inviter.person_id, invitee_id=new_id)
     return AllowlistEntry(person_id=new_id, email=email), True
