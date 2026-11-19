@@ -61,6 +61,78 @@ async def test_index_is_sliced_per_person(api, world):
     assert aliases == {"personal", "team"}
 
 
+class _NullStore:
+    """An object store that accepts every upload, for attachment rows."""
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Discard the bytes.
+
+        :param key: object key
+        :param data: raw bytes
+        :param mime: content type
+        """
+
+
+async def test_index_uses_the_web_vocabulary_throughout(api, world):
+    """The index speaks ``spaces`` / ``engrams`` / ``engram_path`` only.
+
+    ``build_index`` still emits the MCP tools' old keys; the web edge
+    translates them. This pins every translated key, so a typo there cannot
+    slip past hand-written frontend fixtures.
+    """
+    from reef.access import Principal
+    from reef.attachments import add_attachment
+
+    alice, _bob, _ = world
+    me = Principal(person_id=alice.id, email=alice.email)
+    async with transaction_scope():
+        await save_engram(me, "team", "a.md", "# A\n\nSee [[b.md]].\n", message="s")
+        await save_engram(me, "team", "b.md", "# B\n\nTarget.\n", message="s")
+    await add_attachment(
+        me,
+        "team",
+        b"bytes",
+        "image/png",
+        filename="plate.png",
+        description="a plate",
+        store=_NullStore(),
+        engram_path="a.md",
+    )
+    _login(api, alice)
+
+    body = (await api.get("/api/index")).json()
+
+    assert set(body) == {"version", "spaces"}
+    team = next(space for space in body["spaces"] if space["alias"] == "team")
+    assert set(team) == {"alias", "version", "engrams", "attachments"}
+    by_path = {engram["path"]: engram for engram in team["engrams"]}
+    assert set(by_path) == {"a.md", "b.md"}
+    assert by_path["a.md"]["references"] == [{"space": "team", "path": "b.md"}]
+    assert by_path["b.md"]["references"] == []
+    [attachment] = team["attachments"]
+    assert attachment["engram_path"] == "a.md"
+    assert attachment["filename"] == "plate.png"
+    assert attachment["description"] == "a plate"
+
+    leaked = {"coves", "pages", "cove", "page_path"}
+    assert not leaked & set(_all_keys(body))
+
+
+def _all_keys(value):
+    """Yield every dict key anywhere inside a JSON value.
+
+    :param value: a decoded JSON value
+    :returns: the keys, depth first
+    """
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            yield key
+            yield from _all_keys(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _all_keys(inner)
+
+
 async def test_me(api, world):
     """/api/me reports the logged-in person's identity."""
     alice, _, _ = world
