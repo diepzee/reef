@@ -776,6 +776,18 @@ worker does not use it.
   status, never text. A status of 400, 413 or 422 is the service refusing
   one query and does not count as a failure; any other does, a redirect,
   401, 404 or 429 included.
+- **Only large memories are reranked.** A search is reranked only when
+  the memory searched holds at least `REEF_RERANK_MIN_PAGES` (1,000)
+  pages: in the one cove searched, or in all the caller can see. A small
+  memory is found well without it and skips its wait. The value is a
+  judgement: hybrid found 95% of real questions over 37 pages and 47% of
+  benchmark questions over 18,000, with nothing measured in between.
+- **`reef-rerank` sleeps while nobody needs it.** With sleeping on, Railway
+  stops it after about ten minutes without traffic, and a request over the
+  private network wakes it. The first searches after that answer in the
+  hybrid order while the model loads. So the threshold is the automatic
+  switch: nothing calls the service, and it costs next to nothing, until a
+  memory crosses it.
 - **The off switch** is `REEF_RERANK_ENABLED=0`. It stops reranking at once
   without removing the address.
 - **No model call holds a database connection.** A search embeds its
@@ -1357,6 +1369,7 @@ constant in its module.
 | rerank | `REEF_RERANK_PASSAGE_CHARS` | `2000` | How much of one passage is sent, in characters. |
 | rerank | `REEF_RERANK_REST_AFTER_FAILURES` | `3` | Failures in a row before searches leave the service alone. |
 | rerank | `REEF_RERANK_REST_SECONDS` | `60` | How long they leave it alone. |
+| rerank | `REEF_RERANK_MIN_PAGES` | `1000` | Rerank only a search over at least this many pages. A small memory is found well without it and skips its wait. 0 reranks every search. |
 | usage | `REEF_USAGE_DECAY` | `0.5` | How fast a use fades. 0.5 is the value ACT-R has used. |
 | usage | `REEF_USAGE_WINDOW` | `50` | How many of a page's most recent uses count. |
 | usage | `REEF_USAGE_MIN_AGE_HOURS` | `0.01667` | The youngest a use is treated as, so none dominates. |

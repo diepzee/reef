@@ -81,6 +81,7 @@ def reranker(monkeypatch):
     monkeypatch.setattr(settings.rerank, "candidates", 15)
     monkeypatch.setattr(settings.rerank, "passages", 2)
     monkeypatch.setattr(settings.rerank, "seconds", 3.0)
+    monkeypatch.setattr(settings.rerank, "min_pages", 0)
     monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
     monkeypatch.setattr(
         rerank,
@@ -638,3 +639,49 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
     assert len(connector["results"]) > 1
     assert reranker.in_transaction == [False, False]
     assert embedder.in_transaction == [False, False]
+
+
+# --- only a large memory is reread ---------------------------------------------
+
+
+async def test_a_small_memory_is_not_reread(tx, household, reranker, monkeypatch):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    monkeypatch.setattr(get_settings().rerank, "min_pages", 1000)
+    assert _paths(await search_pages(me, "boiler"))[0] != "answer.md"
+    assert reranker.calls == []
+
+
+async def test_a_memory_at_the_threshold_is_reread(
+    tx, household, reranker, monkeypatch
+):
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+
+
+async def test_only_the_pages_of_the_cove_searched_count(
+    tx, household, reranker, monkeypatch
+):
+    partner = principal_for(household["partner"])
+    for n in range(2):
+        await save_page(partner, "household", f"h{n}.md", f"boiler {n}", message="x")
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    await search_pages(me, "boiler", cove="household")
+    assert reranker.calls == []
+
+
+async def test_nobody_elses_pages_count(tx, household, reranker, monkeypatch):
+    """Row security does the counting."""
+    partner = principal_for(household["partner"])
+    for n in range(10):
+        await save_page(partner, "personal", f"p{n}.md", f"boiler {n}", message="x")
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "a.md", "boiler one", message="x")
+    await save_page(me, "personal", "b.md", "boiler two", message="x")
+    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
+    await search_pages(me, "boiler")
+    assert reranker.calls == []
