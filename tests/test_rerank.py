@@ -9,7 +9,7 @@ import pytest
 from reef import embedding, rerank
 from reef.access import Principal, arm
 from reef.breaker import Breaker
-from reef.config import get_settings
+from reef.config import RerankSettings, get_settings
 from reef.db import DB, transaction_scope
 from reef.models import Attachment, AttachmentStatus
 from reef.pages import save_page
@@ -76,15 +76,13 @@ def reranker(monkeypatch):
     """Configure a reranking service, switched on, and answer for it."""
     fake = FakeReranker()
     settings = get_settings()
-    monkeypatch.setattr(settings, "rerank_url", "http://reranker.internal")
-    monkeypatch.setattr(settings, "rerank_enabled", True)
-    monkeypatch.setattr(settings, "rerank_candidates", 15)
-    monkeypatch.setattr(settings, "rerank_passages", 2)
-    monkeypatch.setattr(settings, "rerank_seconds", 3.0)
+    monkeypatch.setattr(settings.rerank, "url", "http://reranker.internal")
+    monkeypatch.setattr(settings.rerank, "enabled", True)
+    monkeypatch.setattr(settings.rerank, "candidates", 15)
+    monkeypatch.setattr(settings.rerank, "passages", 2)
+    monkeypatch.setattr(settings.rerank, "seconds", 3.0)
     monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
-    monkeypatch.setattr(
-        rerank, "breaker", Breaker(rerank.FAILURES_TO_REST, rerank.REST_SECONDS)
-    )
+    monkeypatch.setattr(rerank, "breaker", Breaker())
     return fake
 
 
@@ -93,8 +91,8 @@ def embedder(monkeypatch):
     """Configure an embedding service, and answer for it."""
     fake = SubjectEmbedder()
     settings = get_settings()
-    monkeypatch.setattr(settings, "embedding_url", "http://embedder.internal")
-    monkeypatch.setattr(settings, "embedding_model", fake.model_id)
+    monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
+    monkeypatch.setattr(settings.embedding, "model", fake.model_id)
     monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
     monkeypatch.setattr(embedding, "breaker", Breaker())
     return fake
@@ -133,13 +131,13 @@ async def test_the_reranker_puts_the_answer_first(tx, household, reranker):
 
 
 async def test_it_is_on_by_default():
-    assert type(get_settings()).model_fields["rerank_enabled"].default is True
+    assert RerankSettings.model_fields["enabled"].default is True
 
 
 async def test_the_switch_turns_it_off(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings(), "rerank_enabled", False)
+    monkeypatch.setattr(get_settings().rerank, "enabled", False)
     assert _paths(await search_pages(me, "boiler"))[0] != "answer.md"
     assert reranker.calls == []
 
@@ -147,7 +145,7 @@ async def test_the_switch_turns_it_off(tx, household, reranker, monkeypatch):
 async def test_without_an_address_nothing_is_sent(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings(), "rerank_url", "")
+    monkeypatch.setattr(get_settings().rerank, "url", "")
     await search_pages(me, "boiler")
     assert reranker.calls == []
 
@@ -172,7 +170,7 @@ async def test_only_the_candidates_are_read_and_the_limit_holds(
 ):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings(), "rerank_candidates", 2)
+    monkeypatch.setattr(get_settings().rerank, "candidates", 2)
     results = await search_pages(me, "boiler", limit=3)
     assert len(results) == 3
     assert len(reranker.calls[-1][1]) == 2
@@ -203,7 +201,7 @@ async def test_a_page_is_read_by_its_pieces_closest_to_the_query(
     tx, household, reranker, embedder, monkeypatch
 ):
     me = principal_for(household["wouter"])
-    monkeypatch.setattr(get_settings(), "rerank_passages", 1)
+    monkeypatch.setattr(get_settings().rerank, "passages", 1)
     # Long enough to be cut into sections: a short page is one piece.
     body = (
         "Plans for the year.\n\n"
@@ -259,7 +257,7 @@ async def test_a_failing_reranker_keeps_the_order(tx, household, reranker, failu
 async def test_a_slow_reranker_is_not_waited_for(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings(), "rerank_seconds", 0.01)
+    monkeypatch.setattr(get_settings().rerank, "seconds", 0.01)
 
     async def slow(query: str, documents: list[str]) -> list[float]:
         await asyncio.sleep(1)
@@ -285,7 +283,7 @@ async def test_a_reranker_that_keeps_failing_is_left_alone(tx, household, rerank
     me = principal_for(household["wouter"])
     await _boilers(me)
     reranker.fail = httpx.ConnectError("down")
-    for _ in range(rerank.FAILURES_TO_REST):
+    for _ in range(get_settings().rerank.rest_after_failures):
         await search_pages(me, "boiler")
     asked = len(reranker.calls)
     reranker.fail = None
@@ -300,7 +298,7 @@ async def test_a_refused_query_never_rests_the_reranker(tx, household, reranker)
     reranker.fail = httpx.HTTPStatusError(
         "refused", request=request, response=httpx.Response(413, request=request)
     )
-    for _ in range(rerank.FAILURES_TO_REST + 2):
+    for _ in range(get_settings().rerank.rest_after_failures + 2):
         await search_pages(me, "boiler")
     reranker.fail = None
     assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
@@ -597,7 +595,7 @@ async def test_the_search_log_works_outside_a_transaction(
 ):
     from reef.models import SearchLog
 
-    monkeypatch.setattr(get_settings(), "search_log", True)
+    monkeypatch.setattr(get_settings().search, "log", True)
     me = principal_for(household["wouter"])
     async with transaction_scope():
         await _boilers(me)

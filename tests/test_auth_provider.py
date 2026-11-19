@@ -18,28 +18,28 @@ KEY = "ab" * 32
 @pytest.fixture
 def proxy_env(monkeypatch, tmp_path):
     """Environment + settings for the full proxy branch."""
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("REEF_BASE_URL", BASE)
-    monkeypatch.setenv("WORKOS_MCP_CLIENT_ID", "client_mcp_123")
-    monkeypatch.setenv("WORKOS_MCP_CLIENT_SECRET", "sk_test_456")
-    monkeypatch.setattr(get_settings(), "jwt_signing_key", KEY)
-    monkeypatch.setattr(get_settings(), "oauth_store_dir", str(tmp_path / "oauth"))
-    monkeypatch.setattr(get_settings(), "allowed_client_redirects", "")
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", DOMAIN)
+    monkeypatch.setattr(get_settings().web, "base_url", BASE)
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_id", "client_mcp_123")
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_secret", "sk_test_456")
+    monkeypatch.setattr(get_settings().auth, "jwt_signing_key", KEY)
+    monkeypatch.setattr(get_settings().auth, "oauth_store_dir", str(tmp_path / "oauth"))
+    monkeypatch.setattr(get_settings().auth, "allowed_client_redirects", "")
 
 
 def test_unconfigured_returns_none(monkeypatch):
     """No domain/base: stdio dev and the test suite stay auth-free."""
-    monkeypatch.delenv("WORKOS_AUTHKIT_DOMAIN", raising=False)
-    monkeypatch.delenv("REEF_BASE_URL", raising=False)
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", "")
+    monkeypatch.setattr(get_settings().web, "base_url", "")
     assert _build_auth() is None
 
 
 def test_domain_alone_still_builds_authkit(monkeypatch):
     """Without the MCP client vars, today's remote-AS world is unchanged."""
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("REEF_BASE_URL", BASE)
-    monkeypatch.delenv("WORKOS_MCP_CLIENT_ID", raising=False)
-    monkeypatch.delenv("WORKOS_MCP_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", DOMAIN)
+    monkeypatch.setattr(get_settings().web, "base_url", BASE)
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_id", "")
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_secret", "")
     assert isinstance(_build_auth(), AuthKitProvider)
 
 
@@ -50,12 +50,12 @@ def test_partial_proxy_config_refuses_to_boot(monkeypatch):
     otherwise deploy the old AuthKit boundary while believing the proxy
     is live -- the worst failure mode this branch can have.
     """
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", DOMAIN)
-    monkeypatch.setenv("REEF_BASE_URL", BASE)
-    monkeypatch.setenv("WORKOS_MCP_CLIENT_ID", "client_mcp_123")
-    monkeypatch.delenv("WORKOS_MCP_CLIENT_SECRET", raising=False)
-    monkeypatch.setattr(get_settings(), "jwt_signing_key", "")
-    monkeypatch.setattr(get_settings(), "oauth_store_dir", "")
+    monkeypatch.setattr(get_settings().auth, "workos_authkit_domain", DOMAIN)
+    monkeypatch.setattr(get_settings().web, "base_url", BASE)
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_id", "client_mcp_123")
+    monkeypatch.setattr(get_settings().auth, "workos_mcp_client_secret", "")
+    monkeypatch.setattr(get_settings().auth, "jwt_signing_key", "")
+    monkeypatch.setattr(get_settings().auth, "oauth_store_dir", "")
     with pytest.raises(RuntimeError, match="WORKOS_MCP_CLIENT_SECRET"):
         _build_auth()
 
@@ -93,7 +93,7 @@ def test_disallowed_redirect_uri_is_refused(proxy_env):
 def test_custom_allowed_redirects_replace_the_default(monkeypatch, proxy_env):
     """REEF_ALLOWED_CLIENT_REDIRECTS, when set, fully replaces the default list."""
     monkeypatch.setattr(
-        get_settings(), "allowed_client_redirects", "https://only.example/*"
+        get_settings().auth, "allowed_client_redirects", "https://only.example/*"
     )
     provider = _build_auth()
     assert provider._allowed_client_redirect_uris == ["https://only.example/*"]

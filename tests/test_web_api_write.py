@@ -2,7 +2,9 @@
 
 from conftest import _login
 
-from reef.invitations import INVITE_BUDGET
+from reef.config import get_settings
+
+INVITE_BUDGET = get_settings().invitations.budget
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
 # test_web_api_read.py.

@@ -106,7 +106,7 @@ async def test_a_body_over_the_ceiling_is_refused(tx, household):
     the cheapest way to bloat a cove -- and every body is parsed on save and
     loaded whole on read, so one oversized page taxes everyone who opens it."""
     me = principal_for(household["wouter"])
-    ceiling = get_settings().page_max_chars
+    ceiling = get_settings().pages.max_chars
     with pytest.raises(PageTooLarge):
         await save_page(me, "household", "bloat.md", "A" * (ceiling + 1), message="x")
     assert await get_page(me, "household", "bloat.md") is None
@@ -114,6 +114,6 @@ async def test_a_body_over_the_ceiling_is_refused(tx, household):
 
 async def test_a_body_at_the_ceiling_is_allowed(tx, household):
     me = principal_for(household["wouter"])
-    ceiling = get_settings().page_max_chars
+    ceiling = get_settings().pages.max_chars
     page = await save_page(me, "household", "big.md", "A" * ceiling, message="x")
     assert len(page.body) == ceiling

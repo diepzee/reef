@@ -72,7 +72,7 @@ async def measure(
     """
     settings = get_settings()
     evalkit.refuse_unless_local(settings.dsn)
-    for address in (settings.embedding_url, settings.rerank_url):
+    for address in (settings.embedding.url, settings.rerank.url):
         if address:
             # The hybrid and rerank modes send questions and pages here.
             evalkit.refuse_unless_local(address)

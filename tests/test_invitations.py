@@ -11,10 +11,9 @@ from datetime import timedelta
 import pytest
 
 from reef.access import Principal
+from reef.config import get_settings
 from reef.coves import invite
 from reef.invitations import (
-    INVITE_BUDGET,
-    INVITE_WINDOW_DAYS,
     InviteBudgetExceeded,
     _now,
     allowlist,
@@ -23,6 +22,9 @@ from reef.invitations import (
     next_invite_at,
 )
 from reef.models import Membership, Person
+
+INVITE_BUDGET = get_settings().invitations.budget
+INVITE_WINDOW_DAYS = get_settings().invitations.window_days
 
 
 def principal_for(person) -> Principal:

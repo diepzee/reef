@@ -1,7 +1,12 @@
 """Cutting a page into the pieces that get embedded."""
 
 from reef import sections
-from reef.sections import INTRO, MAX_CHARS, MIN_CHARS, PAGE_CHARS, split
+from reef.config import get_settings
+from reef.sections import INTRO, split
+
+MAX_CHARS = get_settings().embedding.piece_max_chars
+MIN_CHARS = get_settings().embedding.piece_min_chars
+PAGE_CHARS = get_settings().embedding.page_chars
 
 LONG = "word " * 100  # 500 characters: a section worth embedding
 SHORT = "A short note."

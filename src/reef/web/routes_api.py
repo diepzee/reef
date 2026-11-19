@@ -26,7 +26,7 @@ from reef.access import AccessDenied, Principal, arm, resolve_cove
 from reef.account import delete_account_rows
 from reef.appearance import AppearanceError, get_appearances, set_appearance
 from reef.attachments import S3ObjectStore, erase_objects, get_attachment
-from reef.config import env, get_settings
+from reef.config import get_settings
 from reef.context import build_index, latest_editors
 from reef.coves import (
     CoveError,
@@ -43,8 +43,6 @@ from reef.db import transaction_scope
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
 from reef.identity import person_by_email, person_session_epoch
 from reef.invitations import (
-    INVITE_BUDGET,
-    INVITE_WINDOW_DAYS,
     InviteBudgetExceeded,
     invite_to_reef,
     invites_left,
@@ -376,7 +374,7 @@ def _feed_path() -> Path:
 
     :returns: the path to ``release-notes.json``
     """
-    return Path(get_settings().site_dir) / "release-notes.json"
+    return Path(get_settings().web.site_dir) / "release-notes.json"
 
 
 async def _release_notes(request: Request, principal: Principal) -> dict:
@@ -747,8 +745,8 @@ async def _invites_left(request: Request, principal: Principal) -> dict:
     """
     return {
         "invites_left": await invites_left(principal),
-        "budget": INVITE_BUDGET,
-        "window_days": INVITE_WINDOW_DAYS,
+        "budget": get_settings().invitations.budget,
+        "window_days": get_settings().invitations.window_days,
     }
 
 
@@ -831,7 +829,7 @@ async def _get_file(request: Request, principal: Principal) -> Response:
     settings = get_settings()
     url = await S3ObjectStore().signed_url(
         key,
-        settings.signed_url_ttl_seconds,
+        settings.files.signed_url_ttl_seconds,
         mime=attachment.mime,
         filename=attachment.filename or key.rsplit("/", 1)[-1],
     )
@@ -931,7 +929,9 @@ async def _delete_account(request: Request, principal: Principal) -> Response:
         query = urlencode(
             {
                 "session_id": sid,
-                "return_to": (f"{(env('BASE_URL') or '')}/app/signed-out?deleted=1"),
+                "return_to": (
+                    f"{get_settings().web.base_url}/app/signed-out?deleted=1"
+                ),
             }
         )
         body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"

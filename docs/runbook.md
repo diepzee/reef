@@ -1252,6 +1252,85 @@ and is bound by the same ceiling.
 | `REEF_GLAMA_MAINTAINER_EMAIL` | Email on the Glama account that owns the directory listing, served at `/.well-known/glama.json`. **Optional** — unset means that route 404s and the listing stays unclaimed. See "Why Glama says unhealthy" below |
 | `PORT` | Set by Railway; presence = HTTP mode = auth required |
 
+**Every setting.** All settings live in `src/reef/config.py`, grouped
+by what they are for. Each has a default; set a variable only where a
+deployment needs something else. The table below is generated from that
+file: after changing a setting, run `just settings-table`. A test fails
+when the table is out of date. A setting may change behaviour or cost.
+What would weaken a guarantee, or needs a migration to change, stays a
+constant in its module.
+
+<!-- settings:start -->
+| Group | Variable | Default | What it does |
+|---|---|---|---|
+| database | `REEF_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef` | The database, when Railway's DATABASE_URL is not set. |
+| database | `REEF_TEST_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef_test` | The database the test suite empties and fills. |
+| database | `REEF_MIGRATION_DATABASE_URL` | (none) | A role that may change the schema. Empty: the app's own role. See Settings.migration_dsn. |
+| pages | `REEF_CONTEXT_CHAR_BUDGET` | `150000` | The most text one context load returns. |
+| pages | `REEF_PAGE_MAX_CHARS` | `200000` | The longest page. Above the context budget on purpose: a page bigger than the whole budget cannot be loaded in one piece anyway, so this refuses only what was never usable memory. |
+| files | `REEF_S3_ENDPOINT` | (none) | The S3-compatible bucket's address. |
+| files | `REEF_S3_BUCKET` | (none) | The bucket's name. |
+| files | `REEF_S3_ACCESS_KEY` | (none) | The bucket's access key. Secret. |
+| files | `REEF_S3_SECRET_KEY` | (none) | The bucket's secret key. Secret. |
+| files | `REEF_FILE_MAX_BYTES` | `25000000` | The largest file that may be stored. |
+| files | `REEF_SIGNED_URL_TTL_SECONDS` | `300` | How long a link to a stored file works. |
+| web | `REEF_BASE_URL` | (none) | Where this reef is reached, without a trailing slash. |
+| web | `REEF_SESSION_SECRET` | (none) | Seals the web app's session cookie. Secret. |
+| web | `REEF_STATIC_DIR` | `frontend/dist` | The built web app. |
+| web | `REEF_SITE_DIR` | `site` | The public pages. |
+| web | `REEF_GLAMA_MAINTAINER_EMAIL` | (none) | Claims this deployment's Glama listing at /.well-known/glama.json. Unset: the route answers 404, the honest answer for a deployment nobody has claimed. |
+| door | `REEF_OPEN_SEATS` | `0` | How many people may still come in. |
+| door | `REEF_OPEN_UNTIL` | (none) | When the door closes, as an ISO date. |
+| auth | `WORKOS_CLIENT_ID` | (none) | WorkOS sign-in. |
+| auth | `WORKOS_AUTHKIT_DOMAIN` | (none) | The WorkOS AuthKit domain. |
+| auth | `WORKOS_MCP_CLIENT_ID` | (none) | The WorkOS client assistants sign in through. |
+| auth | `WORKOS_MCP_CLIENT_SECRET` | (none) | Its secret. Secret. |
+| auth | `REEF_JWT_SIGNING_KEY` | (none) | Signs reef-issued tokens and keys the OAuth store's encryption. Secret. Explicit, never derived from the WorkOS client secret: a rotation of that would silently invalidate every token. |
+| auth | `REEF_OAUTH_STORE_DIR` | (none) | Where OAuth state lives. Production: the volume. |
+| auth | `REEF_ALLOWED_CLIENT_REDIRECTS` | (none) | Comma-separated redirect patterns assistants may register. Empty: the default allowlist in reef.server. |
+| dev | `REEF_DEV_INSECURE` | 0 | Admit an HTTP connection without a token, as the dev person. On only when set to exactly 1. |
+| dev | `REEF_DEV_PRINCIPAL_EMAIL` | (none) | Who a connection without a token is, in development. |
+| worker | `REEF_WORKER_POLL_SECONDS` | 5 | How long it waits before looking again when idle. |
+| worker | `REEF_WORKER_PURGE_EVERY_SECONDS` | 3600 | How often it deletes search log rows past their time. |
+| search | `REEF_SEARCH_LOG` | 0 | Log searches for 90 days. Off unless switched on: the privacy page promises that people are told first. |
+| search | `REEF_SEARCH_MAX_RESULTS` | `50` | The most results one search returns. |
+| search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |
+| search | `REEF_SEARCH_RRF_K` | `60` | The constant of reciprocal rank fusion, from the paper. |
+| search | `REEF_SEARCH_SEMANTIC_WEIGHT` | 2 | Measured. How much a place in the meaning ranking counts, against 1 for a place in the keyword ranking. |
+| search | `REEF_SEARCH_SURE_WORDS` | `3` | Measured. The longest query in which a page holding every word keeps its keyword place in the fusion. |
+| embedding | `REEF_EMBEDDING_URL` | (none) | Where the embedding service is. Empty: none, nothing is embedded or queued. Page text goes there, so it must be a service this deployment runs itself, on a private network. |
+| embedding | `REEF_EMBEDDING_MODEL` | `embeddinggemma:300m` | Which model it serves. Stored with every vector: a change of model re-embeds everything. Must match on app and worker. |
+| embedding | `REEF_EMBEDDING_DAILY_CAP` | `2000` | The most pieces embedded for one person in one day. |
+| embedding | `REEF_EMBEDDING_DELAY_SECONDS` | 120 | How long after a save a page is embedded, so five edits embed once. |
+| embedding | `REEF_EMBEDDING_SECONDS` | 2 | How long a search waits for its query's vector, then uses keywords. |
+| embedding | `REEF_EMBEDDING_BATCH` | `16` | How many pieces go in one request. |
+| embedding | `REEF_EMBEDDING_PAGE_SECONDS` | 300 | The longest one page's embedding may take. The job holds a connection. |
+| embedding | `REEF_EMBEDDING_CAP_RETRY_SECONDS` | 21600 | How long a page waits when the cap is reached. |
+| embedding | `REEF_EMBEDDING_FAILURE_RETRY_SECONDS` | 1800 | How long a page waits after a failure. |
+| embedding | `REEF_EMBEDDING_QUESTION_CHARS` | `500` | How much of a query is embedded, in characters. |
+| embedding | `REEF_EMBEDDING_REST_AFTER_FAILURES` | `3` | Failures in a row before searches leave the service alone. |
+| embedding | `REEF_EMBEDDING_REST_SECONDS` | 60 | How long they leave it alone. |
+| embedding | `REEF_EMBEDDING_PIECE_MIN_CHARS` | `200` | Measured. A section shorter than this joins the one before it. Changing it re-embeds every page. |
+| embedding | `REEF_EMBEDDING_PIECE_MAX_CHARS` | `2000` | Measured. A section longer than this is cut. Changing it re-embeds every page. |
+| embedding | `REEF_EMBEDDING_PAGE_CHARS` | `8000` | How much of a long page the whole-page piece holds. Changing it re-embeds every page. |
+| rerank | `REEF_RERANK_URL` | (none) | Where the reranker is. Empty: none. The query and passages of pages the person can read go there, so it must be a service this deployment runs itself. |
+| rerank | `REEF_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Which model it serves. |
+| rerank | `REEF_RERANK_ENABLED` | 1 | The off switch. On: the reranker runs when there is one. |
+| rerank | `REEF_RERANK_CANDIDATES` | `15` | Measured. How many of the first results are read again. |
+| rerank | `REEF_RERANK_PASSAGES` | `2` | Measured. How many pieces of each page are read. |
+| rerank | `REEF_RERANK_SECONDS` | 3 | How long a search waits for it, then keeps its order. |
+| rerank | `REEF_RERANK_QUERY_CHARS` | `500` | How much of the query is sent. |
+| rerank | `REEF_RERANK_PASSAGE_CHARS` | `2000` | How much of one passage is sent, in characters. |
+| rerank | `REEF_RERANK_REST_AFTER_FAILURES` | `3` | Failures in a row before searches leave the service alone. |
+| rerank | `REEF_RERANK_REST_SECONDS` | 60 | How long they leave it alone. |
+| usage | `REEF_USAGE_DECAY` | 0.5 | How fast a use fades. 0.5 is the value ACT-R has used. |
+| usage | `REEF_USAGE_WINDOW` | `50` | How many of a page's most recent uses count. |
+| usage | `REEF_USAGE_MIN_AGE_HOURS` | 0.01667 | The youngest a use is treated as, so none dominates. |
+| usage | `REEF_USAGE_REFRESH_DELAY_SECONDS` | 300 | How long after a use the refresh runs, once per busy session. |
+| invitations | `REEF_INVITE_BUDGET` | `5` | New invitations one member may make per window. |
+| invitations | `REEF_INVITE_WINDOW_DAYS` | `30` | The rolling window, in days, so nothing refills at midnight. |
+<!-- settings:end -->
+
 **Escape hatches, in order of severity:**
 
 - AuthKit misbehaves with Claude's DCR → `GoogleProvider` fallback documented

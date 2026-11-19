@@ -16,7 +16,7 @@ a model of human memory::
 
 Each use adds to it, and each contribution fades with the square root of
 its age, so ten uses last month count for about as much as two today. Only
-the most recent :data:`WINDOW` uses of a page are counted.
+the most recent ``REEF_USAGE_WINDOW`` uses of a page are counted.
 
 Activation changes as time passes, without any new use. The stored value
 is therefore a snapshot, refreshed by a job a little after each use. It is
@@ -31,18 +31,9 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 from reef.access import Principal, arm
+from reef.config import get_settings
 from reef.jobs import REFRESH_ACTIVATION, enqueue
 from reef.models import AccessKind, PageAccess
-
-#: How fast a use fades. 0.5 is the value ACT-R has used for decades.
-DECAY = 0.5
-
-#: How many of a page's most recent uses count toward its activation.
-WINDOW = 50
-
-#: The youngest a use is treated as, in hours. Without a floor, a use from
-#: this very second would have an age near zero and dominate everything.
-MIN_AGE_HOURS = 1 / 60
 
 #: How much each kind of use counts. Something a person explicitly asked to
 #: have remembered counts three times a routine read or write.
@@ -52,10 +43,6 @@ WEIGHTS: dict[AccessKind, float] = {
     AccessKind.WEB: 1.0,
     AccessKind.REMEMBER: 3.0,
 }
-
-#: How long after a use the refresh runs. Long enough that a busy session
-#: is refreshed once, not once per page opened.
-REFRESH_DELAY = timedelta(minutes=5)
 
 
 def current_session_id() -> str | None:
@@ -108,7 +95,11 @@ async def record(principal: Principal, page_id: UUID, via: AccessKind) -> None:
         page_id,
     )
     if recorded:
-        await enqueue(principal, REFRESH_ACTIVATION, delay=REFRESH_DELAY)
+        await enqueue(
+            principal,
+            REFRESH_ACTIVATION,
+            delay=timedelta(seconds=get_settings().usage.refresh_delay_seconds),
+        )
 
 
 async def refresh_activation(principal: Principal) -> int:
@@ -139,9 +130,9 @@ async def refresh_activation(principal: Principal) -> int:
         "FROM page_access WHERE person_id = {}) AS uses "
         "GROUP BY page_id RETURNING page_id",
         principal.person_id,
-        MIN_AGE_HOURS,
-        -DECAY,
-        WINDOW,
+        get_settings().usage.min_age_hours,
+        -get_settings().usage.decay,
+        get_settings().usage.window,
         principal.person_id,
     )
     return len(stored)

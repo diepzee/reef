@@ -35,19 +35,6 @@ import httpx
 from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 
-#: How much of the query is sent, in characters.
-QUERY_CHARS = 500
-
-#: How much of one passage is sent, in characters. About 500 tokens, the
-#: window the reranker was measured with.
-PASSAGE_CHARS = 2000
-
-#: Failures in a row before searches leave the service alone.
-FAILURES_TO_REST = 3
-
-#: How long they leave it alone, in seconds.
-REST_SECONDS = 60.0
-
 #: The largest score accepted. Cross-encoders give logits or probabilities;
 #: anything beyond this is not a score.
 _MAX_SCORE = 1e6
@@ -151,10 +138,10 @@ def get_reranker() -> Reranker | None:
     :returns: the reranker, or None without an address or with the switch off
     """
     settings = get_settings()
-    if not settings.rerank_url or not settings.rerank_enabled:
+    if not settings.rerank.url or not settings.rerank.enabled:
         return None
     return HttpReranker(
-        settings.rerank_url, settings.rerank_model, settings.rerank_seconds
+        settings.rerank.url, settings.rerank.model, settings.rerank.seconds
     )
 
 
@@ -164,7 +151,11 @@ PROBE_SECONDS = 10.0
 
 #: Whether searches may ask the service now. See :mod:`reef.breaker`.
 #: :func:`wanted` asks it, once per search; :func:`rerank` reports to it.
-breaker = Breaker(FAILURES_TO_REST, REST_SECONDS, PROBE_SECONDS)
+breaker = Breaker(
+    get_settings().rerank.rest_after_failures,
+    get_settings().rerank.rest_seconds,
+    PROBE_SECONDS,
+)
 
 
 def wanted() -> bool:
@@ -198,13 +189,14 @@ async def rerank(query: str, documents: list[str]) -> list[float] | None:
     reranker = get_reranker()
     if reranker is None or not documents:
         return None
-    seconds = get_settings().rerank_seconds
+    seconds = get_settings().rerank.seconds
     if not breaker.ready(probe_seconds=seconds + 1):
         return None
     try:
         async with asyncio.timeout(seconds):
             scores = await reranker.score(
-                query[:QUERY_CHARS], [text[:PASSAGE_CHARS] for text in documents]
+                query[: get_settings().rerank.query_chars],
+                [text[: get_settings().rerank.passage_chars] for text in documents],
             )
         if (
             not isinstance(scores, list)

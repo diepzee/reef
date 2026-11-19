@@ -11,6 +11,7 @@ import pytest_asyncio
 from conftest import seed_dsn
 from test_web_auth_routes import FakeOIDC
 
+from reef.config import get_settings
 from reef.opendoor import admit, door_policy
 from reef.server import mcp
 from reef.web.routes_auth import register_auth_routes
@@ -19,18 +20,17 @@ from reef.web.routes_auth import register_auth_routes
 def _env(monkeypatch, seats: str | None, until: str | None) -> None:
     """Set or clear the two settings the door reads.
 
-    :param monkeypatch: pytest's environment patcher
+    They are read through the settings, as ``REEF_OPEN_SEATS`` and
+    ``REEF_OPEN_UNTIL`` would be. Set on the settings object, not in the
+    environment: rebuilding the settings would drop what the fixtures set.
+
+    :param monkeypatch: pytest's patcher
     :param seats: value for ``REEF_OPEN_SEATS``, or None to leave it unset
     :param until: value for ``REEF_OPEN_UNTIL``, or None to leave it unset
     """
-    from reef.config import get_settings
-
-    for name, value in (("REEF_OPEN_SEATS", seats), ("REEF_OPEN_UNTIL", until)):
-        if value is None:
-            monkeypatch.delenv(name, raising=False)
-        else:
-            monkeypatch.setenv(name, value)
-    get_settings.cache_clear()
+    door = get_settings().door
+    monkeypatch.setattr(door, "seats", int(seats) if seats is not None else 0)
+    monkeypatch.setattr(door, "until", until if until is not None else "")
 
 
 @pytest.fixture(autouse=True)
@@ -256,12 +256,12 @@ async def door(monkeypatch, graph):
 
     :returns: the HTTP client and the fake OIDC client
     """
-    monkeypatch.setenv("WORKOS_AUTHKIT_DOMAIN", "fake.authkit.app")
-    monkeypatch.setenv("WORKOS_CLIENT_ID", "client_123")
-    monkeypatch.setenv("REEF_BASE_URL", "https://reef.example")
-    from reef.config import get_settings
-
-    monkeypatch.setattr(get_settings(), "session_secret", "test-secret")
+    monkeypatch.setattr(
+        get_settings().auth, "workos_authkit_domain", "fake.authkit.app"
+    )
+    monkeypatch.setattr(get_settings().auth, "workos_client_id", "client_123")
+    monkeypatch.setattr(get_settings().web, "base_url", "https://reef.example")
+    monkeypatch.setattr(get_settings().web, "session_secret", "test-secret")
     fake = FakeOIDC(
         {
             "sub": "sub_stranger",

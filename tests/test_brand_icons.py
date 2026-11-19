@@ -7,18 +7,18 @@ still a correct answer. Stamping the version into the query is what makes a
 new mark a new URL, and the only lever we have over caches we do not own.
 """
 
+from reef.config import get_settings
 from reef.server import APP_VERSION, _brand_icons
 
 
 def test_no_origin_means_no_icons(monkeypatch):
     """Relative icon srcs would be broken ones, so offer none at all."""
-    monkeypatch.delenv("REEF_BASE_URL", raising=False)
-    monkeypatch.delenv("RIF_BASE_URL", raising=False)
+    monkeypatch.setattr(get_settings().web, "base_url", "")
     assert _brand_icons() is None
 
 
 def test_icons_are_absolute_and_carry_the_version(monkeypatch):
-    monkeypatch.setenv("REEF_BASE_URL", "https://reefwith.me/")
+    monkeypatch.setattr(get_settings().web, "base_url", "https://reefwith.me/")
     assert [icon.src for icon in _brand_icons()] == [
         f"https://reefwith.me/favicon.svg?v={APP_VERSION}",
         f"https://reefwith.me/apple-touch-icon.png?v={APP_VERSION}",

@@ -256,7 +256,7 @@ async def test_the_migrated_schema_matches_the_one_the_suite_builds(drilled, par
     Split per part so a mismatch says *what* diverged in the failure line.
     """
     fresh = await _shape(drilled)
-    built = await _shape(get_settings().test_database_url)
+    built = await _shape(get_settings().database.test_url)
     assert fresh[part] == built[part]
 
 

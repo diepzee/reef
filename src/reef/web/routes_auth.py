@@ -8,7 +8,6 @@ open (:mod:`reef.opendoor`), and ``POST /api/auth/logout`` clears it.
 """
 
 import hmac
-import os
 import secrets
 from collections.abc import Callable
 from html import escape
@@ -21,7 +20,7 @@ from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Re
 from reef import audit
 from reef.access import AccessDenied, Principal, arm
 from reef.auth import principal_from_claims
-from reef.config import env, get_settings
+from reef.config import get_settings
 from reef.coves import ensure_personal_cove
 from reef.db import transaction_scope
 from reef.identity import person_session_epoch, revoke_sessions
@@ -83,7 +82,7 @@ def _open_door_page(email: str) -> str:
     :param email: the verified address the button will admit
     :returns: the page's HTML
     """
-    path = Path(get_settings().site_dir) / "open-door.html"
+    path = Path(get_settings().web.site_dir) / "open-door.html"
     try:
         template = path.read_text(encoding="utf-8")
     except OSError:
@@ -113,7 +112,7 @@ def _wall(claims: dict) -> Response:
             email,
             subject,
             claims.get("name") or email.split("@")[0],
-            secret=get_settings().session_secret,
+            secret=get_settings().web.session_secret,
         ),
         max_age=OAUTH_COOKIE_TTL_SECONDS,
         httponly=True,
@@ -143,7 +142,7 @@ def _denied_page(email: str | None) -> str:
     :returns: the page's HTML
     """
     shown = escape(email) if email else "an address this site doesn't recognise"
-    path = Path(get_settings().site_dir) / "invite-only.html"
+    path = Path(get_settings().web.site_dir) / "invite-only.html"
     try:
         template = path.read_text(encoding="utf-8")
     except OSError:
@@ -183,8 +182,8 @@ def register_auth_routes(
         :returns: a 302 redirect, or 503 if auth is unconfigured
         """
         domain = authkit_domain()
-        client_id = os.environ.get("WORKOS_CLIENT_ID", "")
-        base_url = env("BASE_URL") or ""
+        client_id = get_settings().auth.workos_client_id
+        base_url = get_settings().web.base_url
         if not domain or not client_id or not base_url:
             return JSONResponse({"error": "auth_unconfigured"}, status_code=503)
         state = secrets.token_hex(16)
@@ -204,7 +203,7 @@ def register_auth_routes(
         response = RedirectResponse(
             f"{domain}/oauth2/authorize?{query}", status_code=302
         )
-        token = _seal_oauth(state, verifier, secret=get_settings().session_secret)
+        token = _seal_oauth(state, verifier, secret=get_settings().web.session_secret)
         response.set_cookie(
             OAUTH_COOKIE,
             token,
@@ -228,7 +227,7 @@ def register_auth_routes(
         state = request.query_params.get("state")
         oauth_token = request.cookies.get(OAUTH_COOKIE)
         unsealed = (
-            _unseal_oauth(oauth_token, secret=get_settings().session_secret)
+            _unseal_oauth(oauth_token, secret=get_settings().web.session_secret)
             if oauth_token
             else None
         )
@@ -239,7 +238,7 @@ def register_auth_routes(
             return JSONResponse({"error": "oauth_state"}, status_code=400)
 
         client = _factories[id(mcp)]()
-        redirect_uri = f"{(env('BASE_URL') or '')}/api/auth/callback"
+        redirect_uri = f"{get_settings().web.base_url}/api/auth/callback"
         try:
             access_token = await client.exchange(code, verifier, redirect_uri)
             claims = await client.userinfo(access_token)
@@ -319,7 +318,7 @@ def register_auth_routes(
             query = urlencode(
                 {
                     "session_id": sid,
-                    "return_to": (f"{(env('BASE_URL') or '')}/app/signed-out"),
+                    "return_to": (f"{get_settings().web.base_url}/app/signed-out"),
                 }
             )
             body["logout_url"] = f"{WORKOS_LOGOUT_URL}?{query}"
@@ -348,7 +347,7 @@ def register_auth_routes(
             return JSONResponse({"error": "csrf"}, status_code=403)
         sealed = request.cookies.get(OPEN_DOOR_COOKIE)
         unsealed = (
-            unseal_join(sealed, secret=get_settings().session_secret)
+            unseal_join(sealed, secret=get_settings().web.session_secret)
             if sealed
             else None
         )

@@ -40,9 +40,9 @@ def service(monkeypatch):
     """Configure an embedding service, and answer for it."""
     fake = FakeEmbedder()
     settings = get_settings()
-    monkeypatch.setattr(settings, "embedding_url", "http://embedder.internal")
-    monkeypatch.setattr(settings, "embedding_model", fake.model_id)
-    monkeypatch.setattr(settings, "embedding_delay_seconds", 0.0)
+    monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
+    monkeypatch.setattr(settings.embedding, "model", fake.model_id)
+    monkeypatch.setattr(settings.embedding, "delay_seconds", 0.0)
     monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
     return fake
 
@@ -216,7 +216,7 @@ async def test_a_failing_service_cannot_be_sent_text_without_limit(
     import httpx
 
     me = principal_for(household["wouter"])
-    monkeypatch.setattr(get_settings(), "embedding_daily_cap", 2)
+    monkeypatch.setattr(get_settings().embedding, "daily_cap", 2)
     calls = 0
 
     async def refusing(texts):
@@ -242,13 +242,13 @@ async def test_a_failing_service_cannot_be_sent_text_without_limit(
 async def test_one_refused_page_does_not_undo_the_others(household, service):
     me = principal_for(household["wouter"])
     settings = get_settings()
-    url, settings.embedding_url = settings.embedding_url, ""
+    url, settings.embedding.url = settings.embedding.url, ""
     try:
         async with transaction_scope():
             await save_page(me, "personal", "good.md", "Fine.", message="x")
             await save_page(me, "personal", "bad.md", "REFUSE this.", message="x")
     finally:
-        settings.embedding_url = url
+        settings.embedding.url = url
     sound = service.embed
 
     async def picky(texts):
@@ -268,7 +268,7 @@ async def test_a_page_larger_than_the_whole_cap_is_left_alone(
     household, service, monkeypatch
 ):
     me = principal_for(household["wouter"])
-    monkeypatch.setattr(get_settings(), "embedding_daily_cap", 2)
+    monkeypatch.setattr(get_settings().embedding, "daily_cap", 2)
     async with transaction_scope():
         await save_page(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
@@ -362,7 +362,7 @@ async def test_a_page_over_the_cap_waits_whole_and_keeps_its_old_vectors(
     async with transaction_scope():
         await save_page(me, "personal", "insurance.md", BODY, message="x")
     await drain("test")
-    monkeypatch.setattr(get_settings(), "embedding_daily_cap", 4)
+    monkeypatch.setattr(get_settings().embedding, "daily_cap", 4)
     service.sent.clear()
     async with transaction_scope():
         await save_page(me, "personal", "insurance.md", BODY + " more", message="x")
@@ -383,10 +383,10 @@ async def test_loading_the_index_backfills_pages_without_vectors(
 ):
     me = principal_for(household["wouter"])
     settings = get_settings()
-    monkeypatch.setattr(settings, "embedding_url", "")
+    monkeypatch.setattr(settings.embedding, "url", "")
     async with transaction_scope():
         await save_page(me, "personal", "old.md", "Written before.", message="x")
-    monkeypatch.setattr(settings, "embedding_url", "http://embedder.internal")
+    monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
     async with transaction_scope():
         await build_index(me)
         assert await _jobs(me, BACKFILL_EMBEDDINGS) == 1

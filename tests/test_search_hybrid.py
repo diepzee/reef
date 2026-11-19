@@ -11,7 +11,9 @@ from reef.breaker import Breaker
 from reef.config import get_settings
 from reef.models import Attachment, AttachmentStatus, SearchLog
 from reef.pages import save_page
-from reef.search import FUSION_DEPTH, fuse, search_pages
+from reef.search import fuse, search_pages
+
+FUSION_DEPTH = get_settings().search.fusion_depth
 
 #: The fake model knows three subjects. A text about none of them points
 #: in a fourth direction.
@@ -57,13 +59,13 @@ def service(monkeypatch):
     """Configure an embedding service, and answer for it."""
     fake = SubjectEmbedder()
     settings = get_settings()
-    monkeypatch.setattr(settings, "embedding_url", "http://embedder.internal")
-    monkeypatch.setattr(settings, "embedding_model", fake.model_id)
+    monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
+    monkeypatch.setattr(settings.embedding, "model", fake.model_id)
     monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
     monkeypatch.setattr(
         embedding,
         "breaker",
-        Breaker(embedding.FAILURES_TO_REST, embedding.REST_SECONDS),
+        Breaker(),
     )
     return fake
 
@@ -219,7 +221,7 @@ async def test_a_service_that_keeps_failing_is_left_alone(tx, household, service
     me = principal_for(household["wouter"])
     await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
     service.fail = httpx.ConnectError("down")
-    for _ in range(embedding.FAILURES_TO_REST):
+    for _ in range(get_settings().embedding.rest_after_failures):
         await search_pages(me, "vehicle")
     asked = service.calls
     service.fail = None
@@ -244,7 +246,7 @@ async def test_a_refused_question_never_switches_meaning_off(tx, household, serv
     service.fail = httpx.HTTPStatusError(
         "refused", request=request, response=httpx.Response(400, request=request)
     )
-    for _ in range(embedding.FAILURES_TO_REST + 2):
+    for _ in range(get_settings().embedding.rest_after_failures + 2):
         assert await search_pages(me, "vehicle") == []
     service.fail = None
     assert _paths(await search_pages(me, "vehicle")) == ["auto.md"]
@@ -256,7 +258,7 @@ async def test_after_the_rest_one_search_tries_again(
     me = principal_for(household["wouter"])
     await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
     service.fail = httpx.ConnectError("down")
-    for _ in range(embedding.FAILURES_TO_REST):
+    for _ in range(get_settings().embedding.rest_after_failures):
         await search_pages(me, "vehicle")
     embedding.breaker.resting_until = 0.0  # the rest is over
     asked = service.calls
@@ -322,7 +324,7 @@ async def test_a_failure_logs_no_query(tx, household, service, caplog):
 async def test_a_slow_service_is_not_waited_for(tx, household, service, monkeypatch):
     me = principal_for(household["wouter"])
     await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
-    monkeypatch.setattr(get_settings(), "embedding_seconds", 0.01)
+    monkeypatch.setattr(get_settings().embedding, "seconds", 0.01)
 
     async def slow(texts: list[str]) -> list[list[float]]:
         import asyncio
@@ -423,7 +425,7 @@ async def test_a_limit_above_the_fusion_depth_holds(tx, household, service):
 async def test_the_search_log_gets_the_merged_pages(
     tx, household, service, monkeypatch
 ):
-    monkeypatch.setattr(get_settings(), "search_log", True)
+    monkeypatch.setattr(get_settings().search, "log", True)
     me = principal_for(household["wouter"])
     await _page(me, service, "personal", "auto.md", "The garage visit is in May.")
     await search_pages(me, "vehicle", log=True)

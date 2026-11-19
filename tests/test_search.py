@@ -271,7 +271,7 @@ async def test_a_file_with_an_enormous_description_is_stored_and_found(tx, house
 async def test_a_page_of_unique_words_at_the_ceiling_is_stored(tx, household):
     """The worst realistic page still fits: every word distinct, at full size."""
     me = principal_for(household["wouter"])
-    ceiling = get_settings().page_max_chars
+    ceiling = get_settings().pages.max_chars
     words = " ".join(f"é{number:x}" for number in range(40_000))[:ceiling]
     await save_page(me, "personal", "big.md", words, message="x")
     assert await search_pages(me, "é1f") != []

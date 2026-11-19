@@ -17,7 +17,7 @@ from reef.server import _lift_transport_body_limit, transport_body_limit
 
 
 def test_limit_fits_the_largest_allowed_file():
-    raw = get_settings().file_max_bytes
+    raw = get_settings().files.max_bytes
     limit = transport_body_limit(raw)
     assert limit > raw * 4 // 3
 
@@ -25,7 +25,7 @@ def test_limit_fits_the_largest_allowed_file():
 def test_fastmcp_manager_comes_out_sized_for_file_max_bytes():
     _lift_transport_body_limit()
     manager = FastMCPStreamableHTTPSessionManager(app=Mock())
-    expected = transport_body_limit(get_settings().file_max_bytes)
+    expected = transport_body_limit(get_settings().files.max_bytes)
     assert manager.max_request_body_size == expected
     assert manager.asgi_app.max_body_size == expected
 

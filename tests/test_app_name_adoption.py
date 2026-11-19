@@ -41,7 +41,7 @@ async def connection():
     A TEMP table takes precedence in the search path, so the statement under
     test resolves to this one and the real table is never touched.
     """
-    conn = await asyncpg.connect(get_settings().test_database_url)
+    conn = await asyncpg.connect(get_settings().database.test_url)
     await conn.execute(
         "CREATE TEMP TABLE migration (name TEXT, app_name TEXT, ran_on TIMESTAMPTZ)"
     )
@@ -104,7 +104,7 @@ async def test_another_app_is_not_touched(connection):
 
 async def test_a_database_without_the_table_is_not_an_error():
     """A fresh database has no migration table until Piccolo makes one."""
-    conn = await asyncpg.connect(get_settings().test_database_url)
+    conn = await asyncpg.connect(get_settings().database.test_url)
     try:
         # No TEMP table here, and the real one does not exist in the test
         # database -- which is exactly the first-boot case.

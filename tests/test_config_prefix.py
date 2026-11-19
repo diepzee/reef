@@ -11,6 +11,8 @@ which legacy names it is still relying on. That last part is what makes
 removing the fallback an evidenced decision rather than a guess.
 """
 
+import os
+
 import pytest
 
 from reef import config
@@ -18,29 +20,38 @@ from reef import config
 
 @pytest.fixture(autouse=True)
 def clear_settings_cache():
-    """`get_settings` is cached; each case needs a fresh read."""
+    """Give each case a fresh read, and leave the environment as it was.
+
+    `get_settings` is cached. Reading it also copies every legacy variable
+    onto its new name, straight into the process environment, where
+    monkeypatch cannot undo it. Left there, a ``REEF_DEV_INSECURE`` copied
+    from ``RIF_DEV_INSECURE`` would switch every later test to insecure mode.
+    """
+    saved = dict(os.environ)
     config.get_settings.cache_clear()
     yield
+    os.environ.clear()
+    os.environ.update(saved)
     config.get_settings.cache_clear()
 
 
 def test_the_new_prefix_is_read(monkeypatch):
     monkeypatch.setenv("REEF_OPEN_SEATS", "7")
-    assert config.get_settings().open_seats == 7
+    assert config.get_settings().door.seats == 7
 
 
 def test_the_old_prefix_still_works(monkeypatch):
     """A Railway variable nobody has renamed yet must keep working."""
     monkeypatch.delenv("REEF_OPEN_SEATS", raising=False)
     monkeypatch.setenv("RIF_OPEN_SEATS", "5")
-    assert config.get_settings().open_seats == 5
+    assert config.get_settings().door.seats == 5
 
 
 def test_the_new_prefix_wins_when_both_are_set(monkeypatch):
     """During a cutover both exist; the one being moved to decides."""
     monkeypatch.setenv("RIF_OPEN_SEATS", "5")
     monkeypatch.setenv("REEF_OPEN_SEATS", "7")
-    assert config.get_settings().open_seats == 7
+    assert config.get_settings().door.seats == 7
 
 
 def test_legacy_names_in_use_are_reported(monkeypatch):
@@ -70,16 +81,17 @@ def test_nothing_reported_when_the_environment_is_already_moved(monkeypatch):
     assert config.legacy_environment_names() == []
 
 
-def test_direct_reads_honour_both_prefixes(monkeypatch):
-    """Not everything goes through Settings; these are read by hand."""
+def test_the_old_prefix_works_for_a_former_direct_read(monkeypatch):
+    """BASE_URL and the dev switches were read straight from the environment."""
     monkeypatch.delenv("REEF_DEV_INSECURE", raising=False)
     monkeypatch.setenv("RIF_DEV_INSECURE", "1")
-    assert config.env("DEV_INSECURE") == "1"
+    assert config.get_settings().dev.insecure is True
+    config.get_settings.cache_clear()
     monkeypatch.setenv("REEF_DEV_INSECURE", "0")
-    assert config.env("DEV_INSECURE") == "0"
+    assert config.get_settings().dev.insecure is False
 
 
-def test_direct_read_returns_none_when_neither_is_set(monkeypatch):
+def test_an_unset_base_url_is_empty(monkeypatch):
     monkeypatch.delenv("REEF_BASE_URL", raising=False)
     monkeypatch.delenv("RIF_BASE_URL", raising=False)
-    assert config.env("BASE_URL") is None
+    assert config.get_settings().web.base_url == ""

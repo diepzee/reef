@@ -57,8 +57,8 @@ def door_policy(today: date | None = None) -> DoorPolicy:
     :returns: the policy, carrying the seat ceiling when open
     """
     settings = get_settings()
-    seats = settings.open_seats
-    until = settings.open_until.strip()
+    seats = settings.door.seats
+    until = settings.door.until.strip()
     if seats <= 0:
         return DoorPolicy(False, 0, "REEF_OPEN_SEATS is unset or zero")
     if not until:

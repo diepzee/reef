@@ -23,7 +23,7 @@ RENAME = __import__(
 @pytest.fixture
 async def scratch():
     """A connection with a throwaway function, table and policy."""
-    connection = await asyncpg.connect(get_settings().test_database_url)
+    connection = await asyncpg.connect(get_settings().database.test_url)
     await connection.execute("""
         DROP TABLE IF EXISTS rename_fixture CASCADE;
         DROP FUNCTION IF EXISTS rif_fixture_ids() CASCADE;

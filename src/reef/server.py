@@ -34,7 +34,7 @@ from reef.attachments import (
     get_attachment,
 )
 from reef.auth import current_principal
-from reef.config import env, get_settings
+from reef.config import get_settings
 from reef.context import build_index, load_context
 from reef.coves import CoveError, member_names, member_roster
 from reef.db import transaction_scope
@@ -100,13 +100,13 @@ def _build_auth() -> "AuthProvider | None":
     :raises RuntimeError: when the proxy is half-configured
     :returns: the configured provider, or None if unconfigured
     """
-    domain = os.environ.get("WORKOS_AUTHKIT_DOMAIN")
-    base_url = env("BASE_URL")
+    domain = get_settings().auth.workos_authkit_domain or None
+    base_url = get_settings().web.base_url or None
     if not domain or not base_url:
         return None
 
-    client_id = os.environ.get("WORKOS_MCP_CLIENT_ID")
-    client_secret = os.environ.get("WORKOS_MCP_CLIENT_SECRET")
+    client_id = get_settings().auth.workos_mcp_client_id or None
+    client_secret = get_settings().auth.workos_mcp_client_secret or None
     if not client_id and not client_secret:
         from fastmcp.server.auth.providers.workos import AuthKitProvider
 
@@ -116,8 +116,8 @@ def _build_auth() -> "AuthProvider | None":
     required = {
         "WORKOS_MCP_CLIENT_ID": client_id,
         "WORKOS_MCP_CLIENT_SECRET": client_secret,
-        "REEF_JWT_SIGNING_KEY": settings.jwt_signing_key,
-        "REEF_OAUTH_STORE_DIR": settings.oauth_store_dir,
+        "REEF_JWT_SIGNING_KEY": settings.auth.jwt_signing_key,
+        "REEF_OAUTH_STORE_DIR": settings.auth.oauth_store_dir,
     }
     missing = [name for name, value in required.items() if not value]
     if missing:
@@ -133,7 +133,7 @@ def _build_auth() -> "AuthProvider | None":
     from reef.oauth_store import build_oauth_store
     from reef.web.consent import install_consent_page
 
-    configured = settings.allowed_client_redirects
+    configured = settings.auth.allowed_client_redirects
     redirects = [p.strip() for p in configured.split(",") if p.strip()]
 
     install_consent_page()
@@ -143,9 +143,9 @@ def _build_auth() -> "AuthProvider | None":
         client_secret=client_secret,
         authkit_domain=domain,
         base_url=base_url,
-        jwt_signing_key=settings.jwt_signing_key,
+        jwt_signing_key=settings.auth.jwt_signing_key,
         client_storage=build_oauth_store(
-            settings.oauth_store_dir, settings.jwt_signing_key
+            settings.auth.oauth_store_dir, settings.auth.jwt_signing_key
         ),
         allowed_client_redirect_uris=redirects or _DEFAULT_CLIENT_REDIRECTS,
         # Without offline_access AuthKit issues no refresh token, and every
@@ -192,7 +192,7 @@ def _brand_icons() -> list[Icon] | None:
 
     :returns: the icon list, or None when the public origin is unknown
     """
-    base_url = env("BASE_URL")
+    base_url = get_settings().web.base_url or None
     if not base_url:
         return None
     origin = base_url.rstrip("/")
@@ -214,7 +214,7 @@ mcp = FastMCP(
     "reef",
     auth=_build_auth(),
     icons=_brand_icons(),
-    website_url=env("BASE_URL") or None,
+    website_url=get_settings().web.base_url or None,
     instructions=(
         "Long-term memory shared between you and the people in your coves. "
         "Start every conversation by calling load_index: it returns your "
@@ -291,7 +291,9 @@ async def tool_load_context(principal: Principal) -> dict:
     :returns: the context payload as a plain dict
     """
     payload = asdict(
-        await load_context(principal, char_budget=get_settings().context_char_budget)
+        await load_context(
+            principal, char_budget=get_settings().pages.context_char_budget
+        )
     )
     payload["operating_protocol"] = await build_instructions(principal)
     return payload
@@ -359,13 +361,13 @@ def _split_connector_id(identifier: str) -> tuple[str, str, str] | None:
 
 def _page_url(cove: str, path: str) -> str:
     """Return where a person would read this page in the browser app."""
-    base = (env("BASE_URL") or "").rstrip("/")
+    base = get_settings().web.base_url.rstrip("/")
     return f"{base}/app/s/{cove}/p/{path}"
 
 
 def _docs_url() -> str:
     """Return where a person would read about reef itself."""
-    base = (env("BASE_URL") or "").rstrip("/")
+    base = get_settings().web.base_url.rstrip("/")
     return f"{base}/docs"
 
 
@@ -1509,8 +1511,8 @@ async def _store_file(
         data = base64.b64decode(data_base64, validate=True)
     except (binascii.Error, ValueError):
         return {"error": "invalid_base64"}
-    if len(data) > get_settings().file_max_bytes:
-        return {"error": "too_large", "max_bytes": get_settings().file_max_bytes}
+    if len(data) > get_settings().files.max_bytes:
+        return {"error": "too_large", "max_bytes": get_settings().files.max_bytes}
     # add_attachment opens its own two transactions -- the pending row must
     # commit before the bytes are written -- so it must not be nested inside
     # one here. Only the principal lookup is wrapped.
@@ -1542,7 +1544,7 @@ async def _read_file(cove: str, key: str) -> dict:
         attachment = await get_attachment(principal, cove, key)
         if attachment is None:
             return {"error": "not_found", "key": key}
-        ttl = get_settings().signed_url_ttl_seconds
+        ttl = get_settings().files.signed_url_ttl_seconds
         filename = attachment.filename or key.rsplit("/", 1)[-1]
         return {
             "url": await S3ObjectStore().signed_url(
@@ -1671,7 +1673,7 @@ def _lift_transport_body_limit() -> None:
 
     if getattr(StreamableHTTPSessionManager, "_reef_body_limit", False):
         return
-    limit = transport_body_limit(get_settings().file_max_bytes)
+    limit = transport_body_limit(get_settings().files.max_bytes)
     original = StreamableHTTPSessionManager.__init__
 
     def sized_init(self, *args, **kwargs):
@@ -1717,7 +1719,7 @@ def main() -> None:
     port = os.environ.get("PORT")
     if port:
         if mcp.auth is None:
-            if env("DEV_INSECURE") != "1":
+            if not get_settings().dev.insecure:
                 raise RuntimeError(
                     "refusing to serve HTTP without an auth provider: set "
                     "WORKOS_AUTHKIT_DOMAIN and REEF_BASE_URL"
@@ -1725,8 +1727,8 @@ def main() -> None:
             print(
                 "REEF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
             )
-        if len(get_settings().session_secret) < 32:
-            if env("DEV_INSECURE") != "1":
+        if len(get_settings().web.session_secret) < 32:
+            if not get_settings().dev.insecure:
                 raise RuntimeError(
                     "refusing to serve HTTP with a missing or weak "
                     "REEF_SESSION_SECRET: set it to a random value at least "

@@ -25,7 +25,7 @@ async def resolve(connection, present: str | None) -> str | None:
 
 @pytest.fixture
 async def connection():
-    conn = await asyncpg.connect(get_settings().test_database_url)
+    conn = await asyncpg.connect(get_settings().database.test_url)
     yield conn
     await conn.close()
 

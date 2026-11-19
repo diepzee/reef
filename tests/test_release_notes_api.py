@@ -39,7 +39,7 @@ def feed(tmp_path, monkeypatch):
     """
     (tmp_path / "release-notes.json").write_text(json.dumps(FEED))
     # site_dir is a str on Settings, not a Path -- see src/reef/config.py.
-    monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
+    monkeypatch.setattr(get_settings().web, "site_dir", str(tmp_path))
     return tmp_path
 
 
@@ -90,7 +90,7 @@ async def test_a_missing_feed_is_empty_rather_than_broken(
     api, world, tmp_path, monkeypatch
 ):
     """Before the first release there is no file, and the panel must open."""
-    monkeypatch.setattr(get_settings(), "site_dir", str(tmp_path))
+    monkeypatch.setattr(get_settings().web, "site_dir", str(tmp_path))
     alice, _bob, _ = world
     _login(api, alice)
     response = await api.get("/api/release-notes")
