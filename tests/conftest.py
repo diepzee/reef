@@ -25,6 +25,7 @@ from reef.rls import (
     alias_statements,
     appearance_statements,
     avatar_statements,
+    call_log_statements,
     constraint_statements,
     drop_avatar_statements,
     drop_disclosure_statements,
@@ -226,6 +227,7 @@ async def schema():
         "engram_access",
         "engram_heat",
         "search_log",
+        "call_log",
         "engram_embeddings",
         "embedding_spend",
     ):
@@ -273,6 +275,7 @@ async def schema():
         + link_statements()
         + usage_statements()
         + search_log_statements()
+        + call_log_statements()
         + embedding_statements()
         + session_epoch_statements()
         + alias_statements()

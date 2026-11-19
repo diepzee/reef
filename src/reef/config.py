@@ -481,6 +481,21 @@ class UsageSettings(BaseSettings):
     )
 
 
+class CallSettings(BaseSettings):
+    """The call log. See :mod:`reef.calllog`."""
+
+    model_config = _group(f"{PREFIX}CALL_")
+
+    log: bool = Field(
+        False,
+        description=(
+            "Log each call and the reason the assistant gave, for 90 days. "
+            "Off unless switched on: the privacy page promises that people "
+            "are told first."
+        ),
+    )
+
+
 class Settings(BaseModel):
     """Every setting of reef, grouped by what it is for.
 
@@ -507,6 +522,7 @@ class Settings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     rerank: RerankSettings = Field(default_factory=RerankSettings)
     usage: UsageSettings = Field(default_factory=UsageSettings)
+    calls: CallSettings = Field(default_factory=CallSettings)
 
     @property
     def dsn(self) -> str:

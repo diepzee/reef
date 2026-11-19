@@ -39,6 +39,8 @@ SCRUB_PATTERNS = [
     # The same path under the tools' and the web API's name for it.
     "page_path",
     "query",
+    # The assistant's own words for why it called a method.
+    "reason",
     "section_text",
     "subject",
     "title",
