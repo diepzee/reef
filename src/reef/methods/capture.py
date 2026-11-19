@@ -331,7 +331,8 @@ async def log(
     :raises MethodError: ``unknown_space``, ``read_only``, ``not_a_log``
         for an engram that is not tagged ``log``, ``empty_heading``,
         ``entry_too_long`` for an entry that does not fit in an engram on its
-        own, ``invalid_path``, ``protected_path`` or ``private_content``
+        own, ``log_needs_rename`` for a full log with an old-style path,
+        ``invalid_path``, ``protected_path`` or ``private_content``
     """
     heading = " ".join(heading.split())
     if not heading:
@@ -525,6 +526,11 @@ async def _next_part(
     closing link is left out only when the part before is too full for it,
     which happens only when something other than :func:`log` filled it.
 
+    A log whose first part has an old-style path, stored before paths were
+    normalized, cannot go on: its new part would be stored under the
+    normalized name, which :func:`reef.methods.logs.series` does not find
+    beside the old one. It is refused before anything is written.
+
     :param caller: who is calling
     :param space: the caller's name for the space
     :param first: the log's first part
@@ -533,9 +539,12 @@ async def _next_part(
     :param message: the revision message
     :param cap: the most characters an engram may hold
     :returns: what :func:`log` returns, for the new part
-    :raises MethodError: ``entry_too_long``, or when a write is refused
+    :raises MethodError: ``log_needs_rename`` for an old-style path,
+        ``entry_too_long``, or when a write is refused
     """
     base = first.path
+    if not _is_normalized(base):
+        raise MethodError("log_needs_rename")
     number = logs.part_number(base, last.path) + 1
     while await Engram.exists().where(
         Engram.space_id == first.space_id,
@@ -568,6 +577,18 @@ async def _next_part(
             via=None,
         )
     return _written(saved, number)
+
+
+def _is_normalized(path: str) -> bool:
+    """Say whether a stored path is already in the form new paths take.
+
+    :param path: the path as stored
+    :returns: True when :func:`reef.engrams.normalize_path` leaves it as it is
+    """
+    try:
+        return normalize_path(path) == path
+    except InvalidPath:
+        return False
 
 
 # --- write -----------------------------------------------------------------------

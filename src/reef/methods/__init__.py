@@ -111,6 +111,12 @@ MESSAGES = {
         "This entry is too long for one engram, even on its own. Split it "
         "into shorter entries, or keep the text as a file with store_file."
     ),
+    "log_needs_rename": (
+        "This log is full, and its name is in an old style Reef no longer "
+        "uses, so it cannot go on in a second part. Tell the person, and ask "
+        "whether to start a new log under a name in lower-case letters, "
+        "digits and '-'. Then send the entry there."
+    ),
     "empty_batch": "The list of engrams is empty. Send at least one to write.",
     "batch_too_large": (
         "This is more engrams than Reef writes in one call. Send them in several calls."

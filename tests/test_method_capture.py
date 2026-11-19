@@ -243,6 +243,41 @@ async def test_log_leaves_out_a_closing_link_that_does_not_fit(household, small_
     assert (await _read(me, "personal", "climbing-log.md")).body == full
 
 
+async def test_log_with_an_old_style_path_refuses_to_start_part_two(
+    household, small_cap, seed
+):
+    """A log stored before paths were normalized keeps taking entries that fit.
+
+    It cannot go on in a second part: that part would be stored under the
+    normalized name, where the log's other parts are not looked for. So the
+    entry that would start it is refused, and nothing is written.
+    """
+    me = caller_for(household["wouter"])
+    first = "### Day 1\n\n" + "x" * 600 + "\n"
+    await _save(me, "personal", "notes/climbing-log.md", first, tags=["log"])
+    # As it was stored before normalize_path existed.
+    await seed.execute(
+        "UPDATE engrams SET path = 'Notes/climbing-log.md' "
+        "WHERE path = 'notes/climbing-log.md'"
+    )
+    fits = await capture.log(me, "", "personal", "Notes/climbing-log.md", "Day 2", "y")
+    assert fits == {"engram": "Notes/climbing-log.md", "part": 1, "version": 2}
+    before = await _read(me, "personal", "Notes/climbing-log.md")
+
+    with pytest.raises(MethodError) as refused:
+        await capture.log(
+            me, "", "personal", "Notes/climbing-log.md", "Day 3", "z" * 400
+        )
+
+    assert refused.value.code == "log_needs_rename"
+    assert refused.value.message != "log_needs_rename"
+    after = await _read(me, "personal", "Notes/climbing-log.md")
+    assert (after.body, after.version) == (before.body, before.version)
+    assert "Continued in" not in after.body
+    for orphan in ("notes/climbing-log-2.md", "Notes/climbing-log-2.md"):
+        assert await _read(me, "personal", orphan) is None
+
+
 @pytest.mark.parametrize("exists", [True, False])
 async def test_two_logs_at_once_both_land(household, exists):
     """Calls to one log at the same time, each in its own transaction, all land."""
