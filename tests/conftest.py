@@ -15,6 +15,11 @@ import asyncpg
 import httpx
 import pytest
 import pytest_asyncio
+from opentelemetry.sdk.trace.export import (
+    SimpleSpanProcessor,
+    SpanExporter,
+    SpanExportResult,
+)
 from piccolo.table import create_db_tables, drop_db_tables
 
 from reef.db import DB, transaction_scope
@@ -648,3 +653,49 @@ async def world(graph: Graph):
     await graph.personal_space(bob)
     team = await graph.shared_space("team", alice, bob)
     return alice, bob, team
+
+
+class SpanCapture(SpanExporter):
+    """Collects spans in memory instead of shipping them anywhere."""
+
+    def __init__(self) -> None:
+        """Start with no spans."""
+        self.spans: list = []
+
+    def export(self, spans) -> SpanExportResult:
+        """Record the batch.
+
+        :param spans: spans being exported
+        :returns: always success
+        """
+        self.spans.extend(spans)
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        """Nothing to release."""
+
+
+@pytest.fixture
+def captured() -> SpanCapture:
+    """Configure Logfire with scrubbing and an in-memory exporter.
+
+    The same configuration production uses, minus the export: Logfire
+    becomes the tracer provider, so FastMCP's spans arrive here too.
+    ``send_to_logfire=False`` keeps this offline: no credentials, no network,
+    nothing that could make the suite depend on a third party being up.
+
+    :returns: the exporter holding whatever was exported
+    """
+    import logfire
+
+    from reef import telemetry
+
+    sink = SpanCapture()
+    logfire.configure(
+        service_name="reef-test",
+        send_to_logfire=False,
+        console=False,
+        scrubbing=logfire.ScrubbingOptions(extra_patterns=telemetry.SCRUB_PATTERNS),
+        additional_span_processors=[SimpleSpanProcessor(sink)],
+    )
+    return sink

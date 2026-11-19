@@ -17,13 +17,9 @@ from collections.abc import AsyncIterator
 import pydantic_core
 import pytest
 import pytest_asyncio
+from conftest import SpanCapture
 from fastmcp import Client
-from fastmcp.server import telemetry as fastmcp_telemetry
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-    InMemorySpanExporter,
-)
+from opentelemetry.trace import SpanKind
 
 from reef import server
 from reef.access import AccessDenied, Principal, arm
@@ -176,7 +172,11 @@ async def test_exactly_sixteen_tools(client):
 
 
 async def test_reason_is_required_except_search_and_fetch(client):
-    """Every method but the connector pair asks why; the pair keep their schemas."""
+    """Every method but the connector pair asks why; the pair keep their schemas.
+
+    The listing says the reason is required, so assistants send one, though
+    a call without it still works (see below).
+    """
     for name, tool in (await _listed(client)).items():
         schema = tool.inputSchema
         if name in CONNECTOR:
@@ -186,6 +186,7 @@ async def test_reason_is_required_except_search_and_fetch(client):
         reason = schema["properties"]["reason"]
         assert reason["type"] == "string", name
         assert "maxLength" not in reason, f"{name}: a long reason is cut, not refused"
+        assert "default" not in reason, f"{name}: the reason is listed as required"
         assert "privately" in reason["description"], name
         assert "improve Reef" in reason["description"], name
     listed = await _listed(client)
@@ -401,7 +402,51 @@ async def test_a_failure_to_know_the_caller_is_plain_too(client, monkeypatch, ca
     assert "secret@example.test" not in caplog.text
 
 
-async def test_a_refusal_leaves_no_message_on_the_trace(client, monkeypatch):
+def _traced(sink: SpanCapture) -> str:
+    """Flatten every span the server exported into one searchable string.
+
+    Names, attributes, events and status, so a value that leaks through any
+    of them is found. The test's own client runs in this process and traces
+    its side of each call too, with what it was told; in production the
+    client is somebody else's program, so its spans are left out.
+
+    :param sink: the capturing exporter
+    :returns: all of it, as text
+    """
+    return "".join(
+        f"{span.name}{dict(span.attributes or {})}{span.status.description}"
+        + "".join(
+            f"{event.name}{dict(event.attributes or {})}" for event in span.events
+        )
+        for span in sink.spans
+        if span.kind is not SpanKind.CLIENT
+    )
+
+
+def _logged(caplog: pytest.LogCaptureFixture) -> str:
+    """Return every record logged, formatted, with tracebacks.
+
+    :param caplog: pytest's log capture, set to DEBUG
+    :returns: all of it, as text
+    """
+    return caplog.text + "".join(record.getMessage() for record in caplog.records)
+
+
+@pytest.fixture
+def every_log(caplog) -> pytest.LogCaptureFixture:
+    """Capture every record at DEBUG, FastMCP's and the MCP SDK's included.
+
+    FastMCP's loggers do not propagate to the root, so each is set apart.
+
+    :param caplog: pytest's log capture
+    :returns: the capture
+    """
+    for name in (None, "fastmcp", "mcp", "reef"):
+        caplog.set_level(logging.DEBUG, logger=name)
+    return caplog
+
+
+async def test_a_refusal_leaves_no_message_on_the_trace(client, captured):
     """What a refusal says stays between Reef and the client.
 
     FastMCP records an exception raised by a tool on its trace span,
@@ -409,24 +454,74 @@ async def test_a_refusal_leaves_no_message_on_the_trace(client, monkeypatch):
     can name an engram's path, so it is returned as an error result rather
     than raised.
     """
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    monkeypatch.setattr(
-        fastmcp_telemetry, "get_tracer", lambda *args: provider.get_tracer("test")
-    )
     await _error(
         client,
         "open",
         {"reason": "", "refs": ["personal/house.md"], "as_of": "last March"},
     )
-    spans = exporter.get_finished_spans()
-    assert spans, "no span was recorded"
-    message = MESSAGES["invalid_as_of"]
-    for span in spans:
-        assert message not in (span.status.description or "")
-        for event in span.events:
-            assert message not in json.dumps(dict(event.attributes or {}))
+    assert any(span.name == "tools/call open" for span in captured.spans)
+    assert MESSAGES["invalid_as_of"] not in _traced(captured)
+
+
+#: A value no log line or span should ever hold.
+PRIVATE = "zebra-crossing-7731"
+
+
+async def test_a_call_without_a_reason_works_and_leaks_nothing(
+    client, household, monkeypatch, captured, every_log
+):
+    """A weaker model that leaves out the reason is not failed for it.
+
+    The call runs, with an empty reason in the call log, and none of its
+    arguments reaches a log line or a span.
+    """
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    result = await client.call_tool("recall", {"question": PRIVATE})
+    assert result.is_error is False
+    async with transaction_scope():
+        await arm(principal_for(household["wouter"]))
+        [row] = await CallLog.select()
+    assert (row["method"], row["reason"]) == ("recall", "")
+    leaked = {
+        "log": PRIVATE in _logged(every_log),
+        "trace": PRIVATE in _traced(captured),
+    }
+    assert leaked == {"log": False, "trace": False}
+
+
+@pytest.mark.parametrize(
+    ("arguments", "named"),
+    [
+        ({"reason": "", "question": "boiler", "limit": PRIVATE}, "limit"),
+        ({"reason": "", "space": PRIVATE}, "question"),
+        ({"reason": "", "question": "boiler", "colour": PRIVATE}, "colour"),
+        ({"reason": ["a", PRIVATE], "question": "boiler"}, "reason"),
+    ],
+)
+async def test_bad_arguments_are_refused_by_name_and_leak_nothing(
+    client, captured, every_log, arguments, named
+):
+    """A wrong, missing or unknown argument is named, and no value goes anywhere.
+
+    FastMCP's own refusal quotes every argument's value, in its log and on
+    its trace, so these are answered before FastMCP sees them.
+    """
+    text = await _error(client, "recall", arguments)
+    leaked = {
+        "log": PRIVATE in _logged(every_log),
+        "trace": PRIVATE in _traced(captured),
+        "client": PRIVATE in text,
+    }
+    assert leaked == {"log": False, "trace": False, "client": False}
+    assert text.startswith(f"These arguments were missing or not valid: {named}.")
+    assert text.endswith("[invalid_arguments]")
+
+
+async def test_the_connector_pair_refuses_bad_arguments_by_name(client):
+    """``search`` and ``fetch`` are checked the same way."""
+    text = await _error(client, "fetch", {"id": 7, "extra": PRIVATE})
+    assert text.startswith("These arguments were missing or not valid: extra, id.")
+    assert PRIVATE not in text
 
 
 # --- the call log ----------------------------------------------------------------
