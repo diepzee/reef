@@ -217,3 +217,36 @@ async def test_a_write_through_the_website_api_records_person(api, world, seed):
     )
     assert response.status_code == 200
     assert await seed.fetchval("SELECT channel FROM revisions") == "person"
+
+
+async def test_record_in_an_aborted_transaction_returns_and_logs_the_class(
+    household, logging_on, caplog
+):
+    """The caller's own transaction is already dead; recording must not add to it."""
+    me = principal_for(household["wouter"])
+    async with transaction_scope():
+        with pytest.raises(asyncpg.PostgresError):
+            await CallLog.raw("SELECT * FROM no_such_table")
+        await _call(me, reason="private diagnosis")
+    assert "call log: a call was not recorded" in caplog.text
+    assert "InFailedSQLTransactionError" in caplog.text
+    assert "private diagnosis" not in caplog.text
+
+
+async def test_record_without_an_open_transaction_writes_its_row(household, logging_on):
+    me = principal_for(household["wouter"])
+    await _call(me, reason="outside any scope")
+    async with transaction_scope():
+        assert [row["reason"] for row in await _rows(me)] == ["outside any scope"]
+
+
+async def test_an_exported_revision_carries_its_channel(tx, household):
+    me = principal_for(household["wouter"])
+    await save_engram(me, "personal", "a.md", "Text.", message="x")
+    await save_engram(me, "personal", "b.md", "Text.", message="x", channel="person")
+    with ZipFile(BytesIO(await build_full_dump(me))) as archive:
+        revisions = json.loads(archive.read("data/revisions.json"))
+    assert {r["path"]: r["channel"] for r in revisions} == {
+        "a.md": "assistant",
+        "b.md": "person",
+    }
