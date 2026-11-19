@@ -1,9 +1,9 @@
 import pytest
 
-from reef.access import Principal, resolve_cove
+from reef.access import Principal, resolve_space
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.pages import get_page, save_page
+from reef.engrams import get_engram, save_engram
 from reef.server import tool_remember, write_pages
 
 
@@ -14,15 +14,15 @@ def principal_for(person) -> Principal:
 async def test_remember_defaults_to_personal(tx, household):
     me = principal_for(household["wouter"])
     await tool_remember(me, "the boiler is a Vaillant")
-    assert await get_page(me, "household", "inbox.md") is None
-    assert "Vaillant" in (await get_page(me, "personal", "inbox.md")).body
+    assert await get_engram(me, "household", "inbox.md") is None
+    assert "Vaillant" in (await get_engram(me, "personal", "inbox.md")).body
 
 
 async def test_remember_appends(tx, household):
     me = principal_for(household["wouter"])
     await tool_remember(me, "first fact")
     await tool_remember(me, "second fact")
-    body = (await get_page(me, "personal", "inbox.md")).body
+    body = (await get_engram(me, "personal", "inbox.md")).body
     assert "first fact" in body and "second fact" in body
 
 
@@ -31,7 +31,7 @@ async def test_remember_retry_does_not_duplicate(tx, household):
     first = await tool_remember(me, "bin day is Tuesday")
     second = await tool_remember(me, "bin day is Tuesday")
     assert second["duplicate"] is True
-    body = (await get_page(me, "personal", "inbox.md")).body
+    body = (await get_engram(me, "personal", "inbox.md")).body
     assert body.count("bin day is Tuesday") == 1
     assert first["duplicate"] is False
 
@@ -39,7 +39,7 @@ async def test_remember_retry_does_not_duplicate(tx, household):
 async def test_remember_can_target_household_explicitly(tx, household):
     me = principal_for(household["wouter"])
     await tool_remember(me, "school run swaps to me on Fridays", cove="household")
-    assert "Fridays" in (await get_page(me, "household", "inbox.md")).body
+    assert "Fridays" in (await get_engram(me, "household", "inbox.md")).body
 
 
 # write_pages tests intentionally skip the ``tx`` fixture. ``write_pages``
@@ -51,15 +51,15 @@ async def test_remember_can_target_household_explicitly(tx, household):
 # reading the database back afterwards.
 
 
-async def _cove_version(principal: Principal, cove: str) -> int:
-    """Read a cove's version counter in its own fresh transaction.
+async def _space_version(principal: Principal, space: str) -> int:
+    """Read a space's version counter in its own fresh transaction.
 
     :param principal: the authenticated person
-    :param cove: ``personal`` or a cove name from list_coves
-    :returns: the cove's current version
+    :param space: ``personal`` or a space name from list_coves
+    :returns: the space's current version
     """
     async with transaction_scope():
-        resolved = await resolve_cove(principal, cove)
+        resolved = await resolve_space(principal, space)
         return resolved.version
 
 
@@ -67,15 +67,15 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
     """Two creates and one update in a single call all land; versions bump.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household cove
+    :param household: two people sharing a household space
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
     monkeypatch.setattr(get_settings().dev, "principal_email", wouter.email)
 
     async with transaction_scope():
-        await save_page(me, "household", "existing.md", "old body", message="setup")
-    before = await _cove_version(me, "household")
+        await save_engram(me, "household", "existing.md", "old body", message="setup")
+    before = await _space_version(me, "household")
 
     result = await write_pages(
         "household",
@@ -93,12 +93,12 @@ async def test_write_pages_happy_batch_lands_all_items(monkeypatch, household):
         {"path": "new2.md", "version": 1},
         {"path": "existing.md", "version": 2},
     ]
-    assert await _cove_version(me, "household") == before + 3
+    assert await _space_version(me, "household") == before + 3
 
     async with transaction_scope():
-        assert (await get_page(me, "household", "new1.md")).body == "one"
-        assert (await get_page(me, "household", "new2.md")).body == "two"
-        assert (await get_page(me, "household", "existing.md")).body == "updated"
+        assert (await get_engram(me, "household", "new1.md")).body == "one"
+        assert (await get_engram(me, "household", "new2.md")).body == "two"
+        assert (await get_engram(me, "household", "existing.md")).body == "updated"
 
 
 async def test_write_pages_stale_version_rolls_back_the_whole_batch(
@@ -107,14 +107,14 @@ async def test_write_pages_stale_version_rolls_back_the_whole_batch(
     """A stale expected_version anywhere aborts the batch; earlier items never land.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household cove
+    :param household: two people sharing a household space
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
     monkeypatch.setattr(get_settings().dev, "principal_email", wouter.email)
 
     async with transaction_scope():
-        await save_page(me, "household", "y.md", "old", message="setup")
+        await save_engram(me, "household", "y.md", "old", message="setup")
 
     result = await write_pages(
         "household",
@@ -129,10 +129,10 @@ async def test_write_pages_stale_version_rolls_back_the_whole_batch(
     assert result["note"] == "nothing was written"
 
     async with transaction_scope():
-        assert await get_page(me, "household", "x.md") is None
-        page_y = await get_page(me, "household", "y.md")
-        assert page_y.body == "old"
-        assert page_y.version == 1
+        assert await get_engram(me, "household", "x.md") is None
+        engram_y = await get_engram(me, "household", "y.md")
+        assert engram_y.body == "old"
+        assert engram_y.version == 1
 
 
 async def test_write_pages_meta_path_is_protected_and_writes_nothing(
@@ -141,7 +141,7 @@ async def test_write_pages_meta_path_is_protected_and_writes_nothing(
     """A meta/ item anywhere in the batch is refused; nothing lands, not even earlier items.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household cove
+    :param household: two people sharing a household space
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -160,8 +160,8 @@ async def test_write_pages_meta_path_is_protected_and_writes_nothing(
     assert result["note"] == "nothing was written"
 
     async with transaction_scope():
-        assert await get_page(me, "household", "a.md") is None
-        assert await get_page(me, "household", "meta/protocol.md") is None
+        assert await get_engram(me, "household", "a.md") is None
+        assert await get_engram(me, "household", "meta/protocol.md") is None
 
 
 async def test_write_pages_oversize_and_empty_batches_are_rejected_up_front():
@@ -181,7 +181,7 @@ async def test_write_pages_malformed_item_names_it_and_writes_nothing(
     """A malformed item (missing body) is named in the error; nothing lands.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household cove
+    :param household: two people sharing a household space
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -199,7 +199,7 @@ async def test_write_pages_malformed_item_names_it_and_writes_nothing(
     assert "1" in result["detail"] and "b.md" in result["detail"]
 
     async with transaction_scope():
-        assert await get_page(me, "household", "a.md") is None
+        assert await get_engram(me, "household", "a.md") is None
 
 
 async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, household):
@@ -210,7 +210,7 @@ async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, house
     version number.
 
     :param monkeypatch: pytest's monkeypatch fixture
-    :param household: two people sharing a household cove
+    :param household: two people sharing a household space
     """
     wouter = household["wouter"]
     me = principal_for(wouter)
@@ -225,16 +225,16 @@ async def test_write_pages_bool_expected_version_is_malformed(monkeypatch, house
     assert "expected_version" in result["detail"]
 
     async with transaction_scope():
-        assert await get_page(me, "household", "a.md") is None
+        assert await get_engram(me, "household", "a.md") is None
 
 
 async def test_remember_records_a_fact_contained_in_an_existing_entry(tx, household):
-    """The duplicate check is per entry, not a substring of the whole page.
+    """The duplicate check is per entry, not a substring of the whole engram.
 
     A substring test discarded genuinely new facts whenever a longer entry
     happened to contain their words -- reporting success and storing nothing,
     which is the worst failure a memory product has -- and let anyone sharing
-    a cove suppress its inbox by padding the page with likely phrasings.
+    a space suppress its inbox by padding the engram with likely phrasings.
     """
     me = principal_for(household["wouter"])
     await tool_remember(me, "Wouter is allergic to penicillin and nuts")
@@ -242,7 +242,7 @@ async def test_remember_records_a_fact_contained_in_an_existing_entry(tx, househ
     second = await tool_remember(me, "allergic to penicillin")
 
     assert second["duplicate"] is False
-    body = (await get_page(me, "personal", "inbox.md")).body
+    body = (await get_engram(me, "personal", "inbox.md")).body
     assert body.count("allergic to penicillin") == 2
 
 

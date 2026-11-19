@@ -2,18 +2,18 @@
 
 Two kinds of operation earn an entry, and they earn it for different reasons.
 
-Some legitimately reach past the policies: admitting somebody to a cove,
-removing them, handing a cove to a successor. They run inside ``SECURITY
+Some legitimately reach past the policies: admitting somebody to a space,
+removing them, handing a space to a successor. They run inside ``SECURITY
 DEFINER`` functions owned by a ``BYPASSRLS`` role because no row policy can
 express them without permitting far more. That is the right design, and it
 means the guarantee those operations carry is *accountability*, not
 *prevention*.
 
-The others are the irreversible ones: erasing an account, destroying a cove.
-Both stay inside the policies -- ``coves_owner_delete`` restricts a cove's
+The others are the irreversible ones: erasing an account, destroying a space.
+Both stay inside the policies -- ``spaces_owner_delete`` restricts a space's
 deletion to its owner, and Postgres enforces that whether or not anything is
 logged. They are here because of what they leave behind, which is nothing.
-Every other question about a cove can be answered by reading it; once it is
+Every other question about a space can be answered by reading it; once it is
 gone, a record made at the time is the only thing that can say it existed and
 who ended it. Prevention is the database's job in both cases; this is the
 memory of the act.
@@ -25,10 +25,10 @@ different kind of access. It does **not** make reef secure from whoever can
 deploy it -- nothing here does, and the module that ships telemetry says the
 same thing at more length.
 
-Identifiers only. Never an email, a display name, a page path or a body: a
+Identifiers only. Never an email, a display name, an engram path or a body: a
 trail that carried those would be a copy of the corpus in a third party's
 database, which is the exposure the whole row-level-security effort exists to
-shrink. Who acted, on which cove, to what effect -- enough to answer "what
+shrink. Who acted, on which space, to what effect -- enough to answer "what
 happened to my invitation" without becoming a second place the answer leaks
 from.
 """
@@ -46,11 +46,11 @@ INVITE_MINTED = "invite.minted"
 # uniquely among these: nobody else is accountable for the admission, which is
 # exactly why it is worth a line in the log.
 OPEN_DOOR_ADMITTED = "invite.open_door_admitted"
-MEMBER_ADMITTED = "cove.member_admitted"
-MEMBER_REMOVED = "cove.member_removed"
-OWNERSHIP_TRANSFERRED = "cove.ownership_transferred"
-COVE_DELETED = "cove.deleted"
-PAGE_DELETED = "cove.page_deleted"
+MEMBER_ADMITTED = "space.member_admitted"
+MEMBER_REMOVED = "space.member_removed"
+OWNERSHIP_TRANSFERRED = "space.ownership_transferred"
+SPACE_DELETED = "space.deleted"
+ENGRAM_DELETED = "space.engram_deleted"
 ACCOUNT_ERASED = "account.erased"
 
 

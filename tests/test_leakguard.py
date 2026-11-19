@@ -2,16 +2,16 @@
 
 The attack these are written against: a co-member plants instruction-shaped
 text where it lands in the victim's ``load_index`` output, and the assistant
--- holding both ``read_page(personal, …)`` and ``write_page(<cove>, …)`` --
-copies a private page into the cove. Being persuaded used to be sufficient.
+-- holding both ``read_page(personal, …)`` and ``write_page(<space>, …)`` --
+copies a private engram into the space. Being persuaded used to be sufficient.
 """
 
 import pytest
 
-from reef.access import Principal, resolve_cove
+from reef.access import Principal, resolve_space
 from reef.db import transaction_scope
+from reef.engrams import PrivateContentLeak, edit_section, get_engram, save_engram
 from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
-from reef.pages import PrivateContentLeak, edit_section, get_page, save_page
 from reef.promotion import confirm_promotion, prepare_promotion
 from reef.server import tool_remember
 
@@ -32,13 +32,13 @@ def principal_for(person) -> Principal:
 
 
 async def _seed_private(principal: Principal, body: str = DIARY) -> None:
-    """Write a private page into the principal's personal cove.
+    """Write a private engram into the principal's personal space.
 
     :param principal: the authenticated person
     :param body: the private text
     """
     async with transaction_scope():
-        await save_page(principal, "personal", "health.md", body, message="private")
+        await save_engram(principal, "personal", "health.md", body, message="private")
 
 
 def test_shingles_ignore_formatting_but_not_wording():
@@ -55,32 +55,32 @@ def test_text_shorter_than_a_shingle_cannot_match():
     assert overlaps(short, "", [short]) is False
 
 
-async def test_a_personal_page_cannot_be_written_straight_into_a_cove(household):
+async def test_a_personal_engram_cannot_be_written_straight_into_a_space(household):
     """The exfiltration itself: one call, no nonce, no disclosure."""
     wouter = principal_for(household["wouter"])
     await _seed_private(wouter)
 
     async with transaction_scope():
-        private = await get_page(wouter, "personal", "health.md")
+        private = await get_engram(wouter, "personal", "health.md")
         with pytest.raises(PrivateContentLeak, match="prepare_to_share"):
-            await save_page(
+            await save_engram(
                 wouter, "household", "notes.md", private.body, message="notes"
             )
 
     async with transaction_scope():
-        assert await get_page(wouter, "household", "notes.md") is None
+        assert await get_engram(wouter, "household", "notes.md") is None
 
 
 async def test_the_co_member_never_sees_it(household):
-    """End to end, from the other side of the cove."""
+    """End to end, from the other side of the space."""
     wouter = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     await _seed_private(wouter)
 
     async with transaction_scope():
-        private = await get_page(wouter, "personal", "health.md")
+        private = await get_engram(wouter, "personal", "health.md")
         with pytest.raises(PrivateContentLeak):
-            await save_page(
+            await save_engram(
                 wouter,
                 "household",
                 "leak.md",
@@ -89,7 +89,7 @@ async def test_the_co_member_never_sees_it(household):
             )
 
     async with transaction_scope():
-        assert await get_page(partner, "household", "leak.md") is None
+        assert await get_engram(partner, "household", "leak.md") is None
 
 
 async def test_edit_section_is_guarded_too(household):
@@ -97,7 +97,7 @@ async def test_edit_section_is_guarded_too(household):
     wouter = principal_for(household["wouter"])
     await _seed_private(wouter)
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             wouter, "household", "notes.md", "# Notes\n\nplaceholder\n", message="seed"
         )
 
@@ -108,8 +108,8 @@ async def test_edit_section_is_guarded_too(household):
             )
 
 
-async def test_remember_cannot_smuggle_a_private_page_into_a_cove(household):
-    """It appends through save_page, so it inherits the guard."""
+async def test_remember_cannot_smuggle_a_private_engram_into_a_space(household):
+    """It appends through save_engram, so it inherits the guard."""
     wouter = principal_for(household["wouter"])
     await _seed_private(wouter)
 
@@ -130,7 +130,7 @@ async def test_the_share_ceremony_still_works(household):
 
     assert outcome["promoted"] is True
     async with transaction_scope():
-        shared = await get_page(
+        shared = await get_engram(
             principal_for(household["partner"]), "household", "health.md"
         )
     assert "HIV positive" in shared.body
@@ -149,58 +149,58 @@ async def test_a_section_share_still_works(household):
         assert (await confirm_promotion(wouter, staged["nonce"]))["promoted"] is True
 
 
-async def test_ordinary_cove_writing_is_unaffected(household):
+async def test_ordinary_space_writing_is_unaffected(household):
     """The guard must be invisible to somebody simply using the product."""
     wouter = principal_for(household["wouter"])
     await _seed_private(wouter)
 
     async with transaction_scope():
-        page = await save_page(
+        engram = await save_engram(
             wouter,
             "household",
             "shopping.md",
             "# Shopping\n\nMilk, bread, and a new filter for the coffee machine.\n",
             message="list",
         )
-    assert page.version == 1
+    assert engram.version == 1
 
 
-async def test_re_saving_an_already_shared_page_does_not_start_failing(household):
+async def test_re_saving_an_already_shared_engram_does_not_start_failing(household):
     """The false positive that would make the guard unusable.
 
-    Content legitimately shared, then re-added to the personal cove, must
-    not make every later edit of the shared page fail -- so only the text a
+    Content legitimately shared, then re-added to the personal space, must
+    not make every later edit of the shared engram fail -- so only the text a
     write *introduces* is judged.
     """
     wouter = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(wouter, "household", "trip.md", DIARY, message="shared first")
+        await save_engram(wouter, "household", "trip.md", DIARY, message="shared first")
     # The same words now also exist privately.
     await _seed_private(wouter)
 
     async with transaction_scope():
-        page = await save_page(
+        engram = await save_engram(
             wouter,
             "household",
             "trip.md",
             f"{DIARY}\n\nAdded a line.\n",
             message="edit",
         )
-    assert page.version == 2
+    assert engram.version == 2
 
 
 async def test_a_co_member_can_still_write_their_own_words(household):
-    """The guard is per-caller: it reads the writer's personal cove, never
+    """The guard is per-caller: it reads the writer's personal space, never
     anybody else's, so it cannot leak whether a stranger wrote something."""
     wouter = principal_for(household["wouter"])
     partner = principal_for(household["partner"])
     await _seed_private(wouter)
 
     async with transaction_scope():
-        page = await save_page(
+        engram = await save_engram(
             partner, "household", "theirs.md", DIARY, message="partner's own words"
         )
-    assert page.version == 1
+    assert engram.version == 1
 
 
 async def test_the_persona_is_exempt(household):
@@ -208,15 +208,15 @@ async def test_the_persona_is_exempt(household):
     matching against it would refuse writes over nothing private."""
     wouter = principal_for(household["wouter"])
     async with transaction_scope():
-        persona = await get_page(wouter, "personal", "meta/persona.md")
+        persona = await get_engram(wouter, "personal", "meta/persona.md")
     assert persona is None or persona.body
 
     async with transaction_scope():
-        await resolve_cove(wouter, "personal")
+        await resolve_space(wouter, "personal")
         stub = (
             "Not yet written. This is a first meeting: introduce yourself, ask "
             "what the user would like to call you, and interview gently to fill "
-            "this page in."
+            "this engram in."
         )
-        page = await save_page(wouter, "household", "about.md", stub, message="ok")
-    assert page.version == 1
+        engram = await save_engram(wouter, "household", "about.md", stub, message="ok")
+    assert engram.version == 1

@@ -2,14 +2,14 @@
 
 reef's whole corpus is private memory. A telemetry backend that mirrored it
 would recreate exactly the exposure the RLS work has been shrinking -- the
-pages would simply leak somewhere else, to a third party, outside every
+engrams would simply leak somewhere else, to a third party, outside every
 policy Postgres enforces. So the rule here is narrower than "avoid PII":
-**no page body, no page title, no email address, and no page path ever
+**no engram body, no engram title, no email address, and no engram path ever
 leaves this process.**
 
 Instrumentation is therefore deliberately partial. ``instrument_asyncpg``
 would attach every statement's parameters to a span, and those parameters are
-page bodies, so it is not enabled; ``instrument_starlette`` captures request
+engram bodies, so it is not enabled; ``instrument_starlette`` captures request
 metadata but is configured not to record headers, which carry the session
 cookie. What is left -- request timing, status codes, error types, spans
 around the expensive paths -- is enough to answer "is it up, is it slow, what
@@ -35,6 +35,8 @@ SCRUB_PATTERNS = [
     "body",
     "display_name",
     "email",
+    "engram_path",
+    # The same path under the tools' and the web API's name for it.
     "page_path",
     "query",
     "section_text",
@@ -197,7 +199,7 @@ def forward_logs(logger: logging.Logger) -> None:
 
     Takes a single named logger on purpose. The root logger would also carry
     whatever libraries log, and a database driver's error can quote a
-    statement's parameters, which are page bodies. Only pass a logger whose
+    statement's parameters, which are engram bodies. Only pass a logger whose
     every message is known to be free of content and identity.
 
     Besides the message and its arguments, the handler sends where in the

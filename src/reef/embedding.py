@@ -1,13 +1,13 @@
-"""Embed the pieces of a page, and keep the vectors current.
+"""Embed the pieces of an engram, and keep the vectors current.
 
 **Where the text goes.** To the address in ``REEF_EMBEDDING_URL`` and
 nowhere else. That must be a service this deployment runs itself, on a
-private network: reef promises that pages are sent nowhere on their own.
+private network: reef promises that engrams are sent nowhere on their own.
 With no address set there is no embedding at all. Nothing is queued, the
 tables stay empty, and search stays keyword search.
 
-**When.** A saved page is embedded a little later, by the worker, so a
-page edited five times in a row is embedded once. Old pages are picked up
+**When.** A saved engram is embedded a little later, by the worker, so an
+engram edited five times in a row is embedded once. Old engrams are picked up
 by a backfill that the person's own index load asks for.
 
 **What it costs.** As little as possible:
@@ -15,19 +15,19 @@ by a backfill that the person's own index load asks for.
 - A piece whose text did not change is never embedded again. Each stored
   vector carries the digest of the exact text it was made from, and that
   digest is compared *in the job*, at the moment of embedding.
-- At most one job waits per page and person.
+- At most one job waits per engram and person.
 - At most ``REEF_EMBEDDING_DAILY_CAP`` pieces are sent for one person in
-  one day, counting the ones the service failed on. A page that does not
+  one day, counting the ones the service failed on. An engram that does not
   fit in what is left waits whole, and keeps its old vectors meanwhile.
 
-**In a shared cove** the vectors are shared and the cap is not. Whoever's
-job embeds a page pays for it from their own day. A member whose own cap
-is spent can therefore leave pages for another member's backfill to pay
+**In a shared space** the vectors are shared and the cap is not. Whoever's
+job embeds an engram pays for it from their own day. A member whose own cap
+is spent can therefore leave engrams for another member's backfill to pay
 for. That costs the other member allowance, never privacy or correctness:
-a vector is made from the page's text and nothing else.
+a vector is made from the engram's text and nothing else.
 
-**Whose it is.** A vector is as private as its page. Row security shows a
-vector exactly when it shows the page, and a job runs as the person it is
+**Whose it is.** A vector is as private as its engram. Row security shows a
+vector exactly when it shows the engram, and a job runs as the person it is
 for, so it embeds only what that person may read and write.
 
 **What is logged.** Nothing about content. A failed job records the class
@@ -49,8 +49,8 @@ from reef.access import Principal, arm
 from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 from reef.indexfields import summary
-from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_PAGE, enqueue
-from reef.models import EmbeddingSpend, Job, Page, PageEmbedding
+from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_ENGRAM, enqueue
+from reef.models import EmbeddingSpend, Engram, EngramEmbedding, Job
 
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
@@ -87,7 +87,7 @@ FORMATS: dict[str, tuple[str, str]] = {
 
 
 class CapReached(Exception):
-    """Raised when a page does not fit in what is left of the day's cap."""
+    """Raised when an engram does not fit in what is left of the day's cap."""
 
 
 class BadEmbedding(Exception):
@@ -95,11 +95,11 @@ class BadEmbedding(Exception):
 
 
 class ServiceFailed(Exception):
-    """Raised when the service could not embed a page.
+    """Raised when the service could not embed an engram.
 
     The pieces that were sent are already charged to the day's spend when
     this is raised. Whoever catches it must let the transaction commit, or
-    the charge is lost and a failing page could be sent without limit.
+    the charge is lost and a failing engram could be sent without limit.
     """
 
 
@@ -172,7 +172,7 @@ class HttpEmbedder:
         """
         batch = get_settings().embedding.batch
         vectors: list[list[float]] = []
-        # trust_env=False: a proxy set in the environment would carry page
+        # trust_env=False: a proxy set in the environment would carry engram
         # text somewhere other than this address.
         async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             for start in range(0, len(texts), batch):
@@ -218,7 +218,7 @@ def get_embedder() -> Embedder | None:
 async def embed_question(text: str) -> tuple[str, list[float]] | None:
     """Embed a search question, quickly or not at all.
 
-    The question goes to the same service the pages go to, and nowhere
+    The question goes to the same service the engrams go to, and nowhere
     else. Whatever goes wrong, the answer is None and the search carries on
     with keywords alone: a search must never fail because of this service.
 
@@ -326,43 +326,47 @@ async def _charge(principal: Principal, pieces: int) -> None:
     )
 
 
-async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) -> int:
-    """Bring one page's vectors up to date.
+async def embed_engram(
+    principal: Principal, engram_id: UUID, embedder: Embedder
+) -> int:
+    """Bring one engram's vectors up to date.
 
     Embeds the pieces whose text changed, removes the vectors of pieces
     that are gone, and leaves the rest alone. Vectors of another model are
     removed: they cannot be compared with this model's.
 
-    Does nothing for a page the person cannot write to, and answers the
-    same for a page that does not exist.
+    Does nothing for an engram the person cannot write to, and answers the
+    same for an engram that does not exist.
 
     :param principal: the person the work is for
-    :param page_id: the page
+    :param engram_id: the engram
     :param embedder: the embedding service
-    :returns: how many pieces were embedded. Zero also for a page with more
+    :returns: how many pieces were embedded. Zero also for an engram with more
         changed pieces than the whole daily cap: it could never fit.
-    :raises CapReached: if the page does not fit in what is left of today's
+    :raises CapReached: if the engram does not fit in what is left of today's
         cap. Its old vectors are kept.
     :raises ServiceFailed: if the service failed or answered badly. The
         pieces sent are charged, and the old vectors are kept.
     """
     await arm(principal)
-    rows = await Page.raw(
-        "SELECT title, description, body FROM pages WHERE id = {} "
-        "AND cove_id IN (SELECT reef_member_cove_ids())",
-        page_id,
+    rows = await Engram.raw(
+        "SELECT title, description, body FROM engrams WHERE id = {} "
+        "AND space_id IN (SELECT reef_member_space_ids())",
+        engram_id,
     )
     if not rows:
         return 0
-    page = rows[0]
+    engram = rows[0]
     pieces = sections.split(
-        page["title"] or "", page["description"] or summary(page["body"]), page["body"]
+        engram["title"] or "",
+        engram["description"] or summary(engram["body"]),
+        engram["body"],
     )
     wanted = {piece.anchor: piece for piece in pieces}
-    stored = await PageEmbedding.raw(
-        "SELECT id, section_anchor, model_id, content_hash FROM page_embeddings "
-        "WHERE page_id = {}",
-        page_id,
+    stored = await EngramEmbedding.raw(
+        "SELECT id, section_anchor, model_id, content_hash FROM engram_embeddings "
+        "WHERE engram_id = {}",
+        engram_id,
     )
     current: set[str | None] = set()
     stale: list[UUID] = []
@@ -398,19 +402,19 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
             await _charge(principal, len(missing))
             raise ServiceFailed(type(error).__name__) from error
     if stale:
-        await PageEmbedding.raw(
-            "DELETE FROM page_embeddings WHERE id = ANY({}::uuid[])",
+        await EngramEmbedding.raw(
+            "DELETE FROM engram_embeddings WHERE id = ANY({}::uuid[])",
             [str(row_id) for row_id in stale],
         )
     if not missing:
         return 0
     for piece, vector in zip(missing, vectors, strict=True):
-        await PageEmbedding.raw(
-            "INSERT INTO page_embeddings "
-            "(id, page_id, section_anchor, model_id, dims, content_hash, embedding) "
+        await EngramEmbedding.raw(
+            "INSERT INTO engram_embeddings "
+            "(id, engram_id, section_anchor, model_id, dims, content_hash, embedding) "
             "VALUES ({}, {}, {}, {}, {}, {}, {}::vector)",
             uuid4(),
-            page_id,
+            engram_id,
             piece.anchor,
             embedder.model_id,
             len(vector),
@@ -422,10 +426,10 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
 
 
 async def backfill(principal: Principal) -> int:
-    """Queue an embedding job for every page of the person's without vectors.
+    """Queue an embedding job for every engram of the person's without vectors.
 
-    It embeds nothing itself. Each page then gets its own job and its own
-    transaction, so one page the service refuses cannot undo the others,
+    It embeds nothing itself. Each engram then gets its own job and its own
+    transaction, so one engram the service refuses cannot undo the others,
     and one that does not fit in the cap cannot block the rest.
 
     :param principal: the person the work is for
@@ -433,28 +437,28 @@ async def backfill(principal: Principal) -> int:
     """
     return sum(
         [
-            await request(principal, page_id, delay=timedelta(0))
-            for page_id in await _lacking(principal)
+            await request(principal, engram_id, delay=timedelta(0))
+            for engram_id in await _lacking(principal)
         ]
     )
 
 
 async def _lacking(principal: Principal, limit: int | None = None) -> list[UUID]:
-    """Find the person's writable pages with no whole-page vector of this model.
+    """Find the person's writable engrams with no whole-engram vector of this model.
 
-    A page with only white space has no pieces and can have no vector, so
+    An engram with only white space has no pieces and can have no vector, so
     it does not count: it would be asked for on every index load, forever.
 
     :param principal: the person
     :param limit: stop after this many
-    :returns: the pages' ids, most recently changed first
+    :returns: the engrams' ids, most recently changed first
     """
     await arm(principal)
-    rows = await Page.raw(
-        "SELECT p.id FROM pages p "
-        "WHERE p.cove_id IN (SELECT reef_member_cove_ids()) "
+    rows = await Engram.raw(
+        "SELECT p.id FROM engrams p "
+        "WHERE p.space_id IN (SELECT reef_member_space_ids()) "
         "AND p.body ~ '\\S' AND NOT EXISTS ("
-        "SELECT 1 FROM page_embeddings e WHERE e.page_id = p.id "
+        "SELECT 1 FROM engram_embeddings e WHERE e.engram_id = p.id "
         "AND e.model_id = {} AND e.section_anchor IS NULL) "
         "ORDER BY p.updated_at DESC" + (f" LIMIT {int(limit)}" if limit else ""),
         get_settings().embedding.model,
@@ -463,15 +467,15 @@ async def _lacking(principal: Principal, limit: int | None = None) -> list[UUID]
 
 
 async def request(
-    principal: Principal, page_id: UUID, delay: timedelta | None = None
+    principal: Principal, engram_id: UUID, delay: timedelta | None = None
 ) -> bool:
-    """Ask for a page to be embedded, a little later.
+    """Ask for an engram to be embedded, a little later.
 
     Does nothing when there is no embedding service, or when a job for this
-    page is already waiting.
+    engram is already waiting.
 
-    :param principal: the person who saved the page
-    :param page_id: the page
+    :param principal: the person who saved the engram
+    :param engram_id: the engram
     :param delay: how long to wait; the configured delay by default
     :returns: True if a job was added
     """
@@ -483,20 +487,20 @@ async def request(
         "SELECT 1 FROM jobs WHERE person_id = {} AND kind = {} "
         "AND status = 'queued' AND subject_ids = ARRAY[{}]::uuid[]",
         principal.person_id,
-        EMBED_PAGE,
-        str(page_id),
+        EMBED_ENGRAM,
+        str(engram_id),
     )
     if waiting:
         return False
     if delay is None:
         delay = timedelta(seconds=settings.embedding.delay_seconds)
-    return await enqueue(principal, EMBED_PAGE, (page_id,), delay=delay)
+    return await enqueue(principal, EMBED_ENGRAM, (engram_id,), delay=delay)
 
 
 async def request_backfill(principal: Principal) -> bool:
-    """Ask for the person's pages to be embedded, if any has no vectors.
+    """Ask for the person's engrams to be embedded, if any has no vectors.
 
-    Called when the person's index is loaded. That is how old pages get
+    Called when the person's index is loaded. That is how old engrams get
     their vectors without anything looking across people.
 
     :param principal: the person whose index was just built

@@ -18,25 +18,25 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 import yaml
 
-from reef.access import AccessDenied, Principal, accessible_coves, alias_map
+from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
 from reef.attachments import S3ObjectStore
 from reef.config import get_settings
 from reef.context import build_index
-from reef.coves import display_names, member_names
+from reef.engrams import list_engrams
 from reef.models import (
     Attachment,
     AttachmentStatus,
+    Engram,
+    EngramAccess,
+    EngramHeat,
     Link,
     Membership,
-    Page,
-    PageAccess,
-    PageHeat,
     Person,
     Promotion,
     Revision,
     SearchLog,
 )
-from reef.pages import list_pages
+from reef.spaces import display_names, member_names
 
 
 class FileReader(Protocol):
@@ -68,9 +68,9 @@ def _json_bytes(payload: object) -> bytes:
 
 
 def _safe_archive_path(value: str, *, fallback: str) -> str:
-    """Turn an untrusted page path or filename into a ZIP-safe relative path.
+    """Turn an untrusted engram path or filename into a ZIP-safe relative path.
 
-    Page paths predate web export and are not syntactically constrained. ZIP
+    Engram paths predate web export and are not syntactically constrained. ZIP
     entries must therefore remove absolute roots, traversal segments, control
     characters, and Windows separators before a user extracts the archive.
 
@@ -89,33 +89,37 @@ def _safe_archive_path(value: str, *, fallback: str) -> str:
 
 async def _export_rows(
     principal: Principal, alias: str | None = None
-) -> tuple[Person, list, list[Page], list[Attachment], dict]:
-    """Load the current rows for one cove or every accessible cove.
+) -> tuple[Person, list, list[Engram], list[Attachment], dict]:
+    """Load the current rows for one space or every accessible space.
 
-    Returns the alias map too: cove names live on memberships now, so a
+    Returns the alias map too: space names live on memberships now, so a
     caller rendering one needs this reader's own names rather than a
     property of the row.
     """
-    # accessible_coves arms the principal, so it must precede the person
+    # accessible_spaces arms the principal, so it must precede the person
     # lookup: read first and that query runs unarmed, returning nothing once
     # persons carries a policy, and the export would name nobody.
-    coves = await accessible_coves(principal)
+    spaces = await accessible_spaces(principal)
     aliases = await alias_map(principal)
     person = await Person.objects().where(Person.id == principal.person_id).first()
     if alias is not None:
-        coves = [cove for cove in coves if aliases.get(cove.id) == alias]
-        if not coves:
-            raise AccessDenied(f"no cove {alias!r} for {principal.email}")
-    cove_ids = [cove.id for cove in coves]
-    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids)).order_by(Page.path)
+        spaces = [space for space in spaces if aliases.get(space.id) == alias]
+        if not spaces:
+            raise AccessDenied(f"no space {alias!r} for {principal.email}")
+    space_ids = [space.id for space in spaces]
+    engrams = (
+        await Engram.objects()
+        .where(Engram.space_id.is_in(space_ids))
+        .order_by(Engram.path)
+    )
     files = await Attachment.objects().where(
-        Attachment.cove_id.is_in(cove_ids),
+        Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
-    return person, coves, pages, files, aliases
+    return person, spaces, engrams, files, aliases
 
 
-def _file_metadata(file: Attachment, page_paths: dict[object, str]) -> dict:
+def _file_metadata(file: Attachment, engram_paths: dict[object, str]) -> dict:
     """Render portable metadata for one stored file."""
     return {
         "key": file.object_key,
@@ -123,74 +127,74 @@ def _file_metadata(file: Attachment, page_paths: dict[object, str]) -> dict:
         "mime": file.mime,
         "size": file.byte_size,
         "description": file.description,
-        "page_path": page_paths.get(file.page_id),
+        "page_path": engram_paths.get(file.engram_id),
         "status": file.status,
         "created": file.created_at.isoformat(),
     }
 
 
-def _page_payload(page: Page) -> dict:
-    """Render one complete current page for JSON export."""
+def _engram_payload(engram: Engram) -> dict:
+    """Render one complete current engram for JSON export."""
     return {
-        "path": page.path,
-        "title": page.title,
-        "tags": list(page.tags),
-        "body": page.body,
-        "version": page.version,
-        "created": page.created_at.isoformat(),
-        "updated": page.updated_at.isoformat(),
+        "path": engram.path,
+        "title": engram.title,
+        "tags": list(engram.tags),
+        "body": engram.body,
+        "version": engram.version,
+        "created": engram.created_at.isoformat(),
+        "updated": engram.updated_at.isoformat(),
     }
 
 
-def render_page(page: Page) -> str:
-    """Render a page as markdown with YAML frontmatter, import-compatible.
+def render_engram(engram: Engram) -> str:
+    """Render an engram as markdown with YAML frontmatter, import-compatible.
 
-    :param page: the page to render
+    :param engram: the engram to render
     :returns: markdown text
     """
     meta = {
-        "title": page.title,
-        "tags": list(page.tags),
-        "updated": page.updated_at.date().isoformat(),
+        "title": engram.title,
+        "tags": list(engram.tags),
+        "updated": engram.updated_at.date().isoformat(),
     }
     front = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True).strip()
-    return f"---\n{front}\n---\n\n{page.body}\n"
+    return f"---\n{front}\n---\n\n{engram.body}\n"
 
 
-async def export_cove(principal: Principal, alias: str, target: Path) -> int:
-    """Write every page in a cove to a directory as markdown.
+async def export_space(principal: Principal, alias: str, target: Path) -> int:
+    """Write every engram in a space to a directory as markdown.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
+    :param alias: ``personal`` or a shared-space slug
     :param target: directory to write into
     :returns: number of files written
     """
     target.mkdir(parents=True, exist_ok=True)
-    pages = await list_pages(principal, alias)
-    for page in pages:
-        destination = target / _safe_archive_path(page.path, fallback="untitled.md")
+    engrams = await list_engrams(principal, alias)
+    for engram in engrams:
+        destination = target / _safe_archive_path(engram.path, fallback="untitled.md")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(render_page(page))
-    return len(pages)
+        destination.write_text(render_engram(engram))
+    return len(engrams)
 
 
 async def build_json_export(principal: Principal, alias: str | None = None) -> bytes:
-    """Build a current-content JSON export for one cove or all coves.
+    """Build a current-content JSON export for one space or all spaces.
 
     File metadata is included, while actual file bytes live in the full dump.
 
     :param principal: authenticated person
-    :param alias: one cove alias, or ``None`` for every accessible cove
+    :param alias: one space alias, or ``None`` for every accessible space
     :returns: UTF-8 JSON bytes
     """
-    person, coves, pages, files, aliases = await _export_rows(principal, alias)
-    pages_by_cove: dict[object, list[Page]] = {cove.id: [] for cove in coves}
-    files_by_cove: dict[object, list[Attachment]] = {cove.id: [] for cove in coves}
-    for page in pages:
-        pages_by_cove[page.cove_id].append(page)
+    person, spaces, engrams, files, aliases = await _export_rows(principal, alias)
+    engrams_by_space: dict[object, list[Engram]] = {space.id: [] for space in spaces}
+    files_by_space: dict[object, list[Attachment]] = {space.id: [] for space in spaces}
+    for engram in engrams:
+        engrams_by_space[engram.space_id].append(engram)
     for file in files:
-        files_by_cove[file.cove_id].append(file)
-    page_paths = {page.id: page.path for page in pages}
+        files_by_space[file.space_id].append(file)
+    engram_paths = {engram.id: engram.path for engram in engrams}
 
     return _json_bytes(
         {
@@ -202,15 +206,17 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
             },
             "coves": [
                 {
-                    "alias": aliases[cove.id],
-                    "version": cove.version,
-                    "pages": [_page_payload(page) for page in pages_by_cove[cove.id]],
+                    "alias": aliases[space.id],
+                    "version": space.version,
+                    "pages": [
+                        _engram_payload(engram) for engram in engrams_by_space[space.id]
+                    ],
                     "files": [
-                        _file_metadata(file, page_paths)
-                        for file in files_by_cove[cove.id]
+                        _file_metadata(file, engram_paths)
+                        for file in files_by_space[space.id]
                     ],
                 }
-                for cove in coves
+                for space in spaces
             ],
         }
     )
@@ -219,15 +225,15 @@ async def build_json_export(principal: Principal, alias: str | None = None) -> b
 async def build_markdown_archive(
     principal: Principal, alias: str | None = None
 ) -> bytes:
-    """Build a ZIP of current pages as import-compatible Markdown.
+    """Build a ZIP of current engrams as import-compatible Markdown.
 
     :param principal: authenticated person
-    :param alias: one cove alias, or ``None`` for every accessible cove
+    :param alias: one space alias, or ``None`` for every accessible space
     :returns: ZIP bytes
     """
-    person, coves, pages, files, aliases = await _export_rows(principal, alias)
-    alias_by_cove = aliases
-    page_paths = {page.id: page.path for page in pages}
+    person, spaces, engrams, files, aliases = await _export_rows(principal, alias)
+    alias_by_space = aliases
+    engram_paths = {engram.id: engram.path for engram in engrams}
     output = BytesIO()
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -241,16 +247,16 @@ async def build_markdown_archive(
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": [aliases[cove.id] for cove in coves],
+                    "coves": [aliases[space.id] for space in spaces],
                     "note": "Current pages only. Use Dump my data for history and file bytes.",
                 }
             ),
         )
-        for page in pages:
-            page_path = _safe_archive_path(page.path, fallback="untitled.md")
+        for engram in engrams:
+            engram_path = _safe_archive_path(engram.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_cove[page.cove_id]}/pages/{page_path}",
-                render_page(page),
+                f"coves/{alias_by_space[engram.space_id]}/pages/{engram_path}",
+                render_engram(engram),
             )
         if files:
             archive.writestr(
@@ -258,8 +264,8 @@ async def build_markdown_archive(
                 _json_bytes(
                     [
                         {
-                            "cove": alias_by_cove[file.cove_id],
-                            **_file_metadata(file, page_paths),
+                            "cove": alias_by_space[file.space_id],
+                            **_file_metadata(file, engram_paths),
                         }
                         for file in files
                     ]
@@ -273,9 +279,9 @@ async def build_full_dump(
 ) -> bytes:
     """Build the complete data-portability ZIP visible to a principal.
 
-    Includes current Markdown pages, the exact index, revision bodies and
-    authors, stored file metadata and bytes, cove membership display names,
-    the principal's sharing audit rows, the links between the pages they can
+    Includes current Markdown engrams, the exact index, revision bodies and
+    authors, stored file metadata and bytes, space membership display names,
+    the principal's sharing audit rows, the links between the engrams they can
     read, and their own usage log, activation and search log. Other members' usage
     and searches are never part of it: row security does not return them. Missing object-store bytes are
     recorded explicitly in ``data/file-errors.json`` rather than omitted
@@ -285,15 +291,15 @@ async def build_full_dump(
     :param store: injectable object reader; defaults to R2 when files exist
     :returns: complete ZIP bytes
     """
-    person, coves, pages, files, aliases = await _export_rows(principal)
-    alias_by_cove = aliases
-    cove_by_id = {cove.id: cove for cove in coves}
-    page_by_id = {page.id: page for page in pages}
-    page_paths = {page.id: page.path for page in pages}
+    person, spaces, engrams, files, aliases = await _export_rows(principal)
+    alias_by_space = aliases
+    space_by_id = {space.id: space for space in spaces}
+    engram_by_id = {engram.id: engram for engram in engrams}
+    engram_paths = {engram.id: engram.path for engram in engrams}
 
     revisions = (
         await Revision.select(
-            Revision.page_id,
+            Revision.engram_id,
             Revision.path,
             Revision.title,
             Revision.tags,
@@ -302,28 +308,28 @@ async def build_full_dump(
             Revision.author_id,
             Revision.created_at,
         )
-        .where(Revision.page_id.is_in(list(page_by_id)))
+        .where(Revision.engram_id.is_in(list(engram_by_id)))
         .order_by(Revision.created_at)
     )
     memberships = await Membership.objects().where(
         Membership.person_id == principal.person_id,
-        Membership.cove_id.is_in(list(cove_by_id)),
+        Membership.space_id.is_in(list(space_by_id)),
     )
-    role_by_cove = {membership.cove_id: membership.role for membership in memberships}
+    role_by_space = {membership.space_id: membership.role for membership in memberships}
     shares = await Promotion.objects().where(Promotion.person_id == principal.person_id)
     index = await build_index(principal)
 
-    cove_manifest = []
-    for cove in coves:
-        cove_manifest.append(
+    space_manifest = []
+    for space in spaces:
+        space_manifest.append(
             {
-                "alias": aliases[cove.id],
-                "version": cove.version,
-                "you_are_owner": cove.owner_person_id == principal.person_id,
-                "your_role": role_by_cove.get(cove.id),
-                "members": await member_names(cove.id),
-                "page_count": sum(page.cove_id == cove.id for page in pages),
-                "file_count": sum(file.cove_id == cove.id for file in files),
+                "alias": aliases[space.id],
+                "version": space.version,
+                "you_are_owner": space.owner_person_id == principal.person_id,
+                "your_role": role_by_space.get(space.id),
+                "members": await member_names(space.id),
+                "page_count": sum(engram.space_id == space.id for engram in engrams),
+                "file_count": sum(file.space_id == space.id for file in files),
             }
         )
 
@@ -337,12 +343,12 @@ async def build_full_dump(
 
     revision_payload = []
     for revision in revisions:
-        page = page_by_id.get(revision["page_id"])
-        if page is None:
+        engram = engram_by_id.get(revision["engram_id"])
+        if engram is None:
             continue
         revision_payload.append(
             {
-                "cove": alias_by_cove[page.cove_id],
+                "cove": alias_by_space[engram.space_id],
                 "path": revision["path"],
                 "title": revision["title"],
                 "tags": list(revision["tags"]),
@@ -355,11 +361,11 @@ async def build_full_dump(
 
     share_payload = []
     for share in shares:
-        source = page_by_id.get(share.source_page_id)
-        destination = cove_by_id.get(share.dest_cove_id)
+        source = engram_by_id.get(share.source_engram_id)
+        destination = space_by_id.get(share.dest_space_id)
         share_payload.append(
             {
-                "source_cove": alias_by_cove.get(source.cove_id) if source else None,
+                "source_cove": alias_by_space.get(source.space_id) if source else None,
                 "source_path": source.path if source else None,
                 "source_version": share.source_version,
                 "destination_cove": (
@@ -381,17 +387,17 @@ async def build_full_dump(
         store = S3ObjectStore()
 
     with ZipFile(output, "w", compression=ZIP_DEFLATED) as archive:
-        for page in pages:
-            path = _safe_archive_path(page.path, fallback="untitled.md")
+        for engram in engrams:
+            path = _safe_archive_path(engram.path, fallback="untitled.md")
             archive.writestr(
-                f"coves/{alias_by_cove[page.cove_id]}/pages/{path}",
-                render_page(page),
+                f"coves/{alias_by_space[engram.space_id]}/pages/{path}",
+                render_engram(engram),
             )
 
         for file in files:
             metadata = {
-                "cove": alias_by_cove[file.cove_id],
-                **_file_metadata(file, page_paths),
+                "cove": alias_by_space[file.space_id],
+                **_file_metadata(file, engram_paths),
             }
             token = _safe_archive_path(
                 file.object_key.rsplit("/", 1)[-1], fallback="stored-file"
@@ -418,17 +424,17 @@ async def build_full_dump(
                 )
             file_metadata.append(metadata)
 
-        def named(page_id: object) -> dict | None:
-            """Name a page the way the rest of the dump does, if it is in it."""
-            page = page_by_id.get(page_id)
-            if page is None:
+        def named(engram_id: object) -> dict | None:
+            """Name an engram the way the rest of the dump does, if it is in it."""
+            engram = engram_by_id.get(engram_id)
+            if engram is None:
                 return None
-            return {"cove": alias_by_cove[page.cove_id], "path": page.path}
+            return {"cove": alias_by_space[engram.space_id], "path": engram.path}
 
         link_payload = [
             {
-                "from": named(row["from_page_id"]),
-                "to": named(row["to_page_id"]),
+                "from": named(row["from_engram_id"]),
+                "to": named(row["to_engram_id"]),
                 "kind": row["kind"],
                 "source": row["source"],
                 "status": row["status"],
@@ -440,33 +446,33 @@ async def build_full_dump(
         ]
         usage_payload = [
             {
-                "page": named(row["page_id"]),
+                "page": named(row["engram_id"]),
                 "via": row["via"],
                 "weight": row["weight"],
                 "session": row["session_id"],
                 "at": row["accessed_at"],
             }
-            for row in await PageAccess.select()
-            .where(PageAccess.person_id == principal.person_id)
-            .order_by(PageAccess.accessed_at)
+            for row in await EngramAccess.select()
+            .where(EngramAccess.person_id == principal.person_id)
+            .order_by(EngramAccess.accessed_at)
         ]
         activation_payload = [
             {
-                "page": named(row["page_id"]),
+                "page": named(row["engram_id"]),
                 "activation": row["activation"],
                 "uses": row["accesses"],
                 "last_use": row["last_access"],
                 "computed_at": row["updated_at"],
             }
-            for row in await PageHeat.select()
-            .where(PageHeat.person_id == principal.person_id)
-            .order_by(PageHeat.activation, ascending=False)
+            for row in await EngramHeat.select()
+            .where(EngramHeat.person_id == principal.person_id)
+            .order_by(EngramHeat.activation, ascending=False)
         ]
 
         search_payload = [
             {
                 "query": row["query"],
-                "returned": [named(page_id) for page_id in row["page_ids"]],
+                "returned": [named(engram_id) for engram_id in row["engram_ids"]],
                 "session": row["session_id"],
                 "at": row["searched_at"],
             }
@@ -496,9 +502,9 @@ async def build_full_dump(
                         "email": person.email,
                         "display_name": person.display_name,
                     },
-                    "coves": cove_manifest,
+                    "coves": space_manifest,
                     "contents": {
-                        "current_pages": len(pages),
+                        "current_pages": len(engrams),
                         "revisions": len(revision_payload),
                         "files": len(file_metadata),
                         "file_errors": len(file_errors),
@@ -515,9 +521,9 @@ async def build_full_dump(
 
 
 async def _main(alias: str, target: str) -> None:
-    """CLI entrypoint: export one cove as the dev principal.
+    """CLI entrypoint: export one space as the dev principal.
 
-    :param alias: ``personal`` or a shared-cove slug
+    :param alias: ``personal`` or a shared-space slug
     :param target: output directory
     """
 
@@ -532,8 +538,8 @@ async def _main(alias: str, target: str) -> None:
         if identity is None:
             raise SystemExit("REEF_DEV_PRINCIPAL_EMAIL names no known person")
         principal = Principal(person_id=identity.person_id, email=identity.email)
-        count = await export_cove(principal, alias, Path(target))
-    print(f"exported {count} page(s) to {target}")
+        count = await export_space(principal, alias, Path(target))
+    print(f"exported {count} engram(s) to {target}")
 
 
 if __name__ == "__main__":

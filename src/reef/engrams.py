@@ -1,7 +1,7 @@
-"""Page reads and versioned writes.
+"""Engram reads and versioned writes.
 
 Every function here assumes it runs inside :func:`reef.db.transaction_scope`
-and arms RLS through :func:`reef.access.resolve_cove` before touching
+and arms RLS through :func:`reef.access.resolve_space` before touching
 content. There is no session parameter to thread: Piccolo binds queries to
 the ambient transaction, and an unarmed one returns nothing.
 """
@@ -10,23 +10,23 @@ import re
 from datetime import datetime
 
 from reef import audit, embedding, usage
-from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
+from reef.access import AccessDenied, Principal, resolve_space, resolve_writable_space
 from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
 from reef.links import Resolver, connect_waiting_links, sync_wiki_links
-from reef.models import AccessKind, Attachment, Cove, CoveKind, Page, Revision
+from reef.models import AccessKind, Attachment, Engram, Revision, Space, SpaceKind
 
 PROTECTED_PREFIX = "meta/"
 
 PERSONA_PATH = "meta/persona.md"
-"""The persona page, and the one personal page exempt from the leak guard.
+"""The persona engram, and the one personal engram exempt from the leak guard.
 
 Defined here rather than in :mod:`reef.protocol`, which re-exports it: that
 module imports this one, so the reverse would be a cycle.
 """
 
-#: Characters a normalized page path may contain.
+#: Characters a normalized engram path may contain.
 _ALLOWED = re.compile(r"[a-z0-9\-/._]")
 
 
@@ -35,7 +35,7 @@ class SectionNotFound(Exception):
 
 
 class VersionConflict(Exception):
-    """Raised when expected_version does not match the current page version."""
+    """Raised when expected_version does not match the current engram version."""
 
 
 class ProtectedPath(Exception):
@@ -43,11 +43,11 @@ class ProtectedPath(Exception):
 
 
 class InvalidPath(Exception):
-    """Raised when a page path cannot be repaired into a usable one."""
+    """Raised when an engram path cannot be repaired into a usable one."""
 
 
 class PrivateContentLeak(Exception):
-    """Raised when a cove write carries text copied from the personal cove."""
+    """Raised when a space write carries text copied from the personal space."""
 
 
 async def _refuse_private_copy(
@@ -55,91 +55,91 @@ async def _refuse_private_copy(
     alias: str,
     path: str,
     body: str,
-    existing: Page | None,
+    existing: Engram | None,
 ) -> None:
-    """Refuse a shared write that copies the caller's own personal pages.
+    """Refuse a shared write that copies the caller's own personal engrams.
 
     This is what makes the share ceremony a boundary rather than a
     convention; :mod:`reef.leakguard` explains the threat it answers and,
     just as importantly, what it does not catch.
 
-    The personal pages are read as the caller, under the same policies as
+    The personal engrams are read as the caller, under the same policies as
     any other read, so this discloses nothing the caller could not already
     fetch. The persona is skipped: it is seeded from a fixed template, so
     every person's copy shares its wording with every other's, and matching
     against it would refuse writes over text that is not private at all.
 
     :param principal: the authenticated person
-    :param alias: the destination cove
-    :param path: the page being written, for the message
+    :param alias: the destination space
+    :param path: the engram being written, for the message
     :param body: the body about to be written
-    :param existing: the stored page, whose text is exempt
+    :param existing: the stored engram, whose text is exempt
     :raises PrivateContentLeak: when the write introduces private text
     """
     try:
-        personal = await resolve_cove(principal, "personal")
+        personal = await resolve_space(principal, "personal")
     except AccessDenied:
-        # No personal cove, so nothing private to copy out of. Onboarding
+        # No personal space, so nothing private to copy out of. Onboarding
         # creates one for everybody, but a principal without one must still
-        # be able to write to a cove -- a guard that refuses the write it
+        # be able to write to a space -- a guard that refuses the write it
         # cannot evaluate would turn a missing row into a lockout.
         return
     private = (
-        await Page.select(Page.body)
-        .where(Page.cove_id == personal.id, Page.path != PERSONA_PATH)
+        await Engram.select(Engram.body)
+        .where(Engram.space_id == personal.id, Engram.path != PERSONA_PATH)
         .output(as_list=True)
     )
-    # Re-arm: resolve_cove above bound the principal for the personal
+    # Re-arm: resolve_space above bound the principal for the personal
     # lookup, and the caller's next statement expects the same principal.
     # It is the same value, so this is belt and braces rather than a fix.
-    await resolve_cove(principal, alias)
+    await resolve_space(principal, alias)
     if not overlaps(body, existing.body if existing else "", private):
         return
     raise PrivateContentLeak(
-        f"this would copy text from your personal cove into {alias!r} "
+        f"this would copy text from your personal space into {alias!r} "
         f"({path!r}). Sharing is permanent, so it goes through "
         "prepare_to_share: it shows the user the exact text and who will be "
         "able to read it, and confirm_share performs the move after they "
         "agree. If the wording only coincides, rewrite it in your own words "
-        "for this cove."
+        "for this space."
     )
 
 
-class PageTooLarge(Exception):
-    """Raised when a body exceeds the per-page character ceiling."""
+class EngramTooLarge(Exception):
+    """Raised when a body exceeds the per-engram character ceiling."""
 
 
 def validate_body(path: str, body: str) -> None:
-    """Reject a page body past the per-page ceiling.
+    """Reject an engram body past the per-engram ceiling.
 
-    Pages had no size limit at all while files were capped at 25 MB, so the
-    cheapest way to bloat a cove was to write prose into it. The cost is not
+    Engrams had no size limit at all while files were capped at 25 MB, so the
+    cheapest way to bloat a space was to write prose into it. The cost is not
     storage: every body is parsed for search and for the index on each save,
-    and loaded whole by anything that reads the page, so one oversized page
+    and loaded whole by anything that reads the engram, so one oversized engram
     is paid for by every member who opens it.
 
-    The ceiling is deliberately above ``context_char_budget`` -- a page
+    The ceiling is deliberately above ``context_char_budget`` -- an engram
     larger than the whole context budget cannot be loaded in one piece
     anyway, so anything at that size is already past the point of being
     useful memory.
 
-    :param path: the page path, for the message
+    :param path: the engram path, for the message
     :param body: the full markdown body
-    :raises PageTooLarge: if the body exceeds ``REEF_PAGE_MAX_CHARS``
+    :raises EngramTooLarge: if the body exceeds ``REEF_PAGE_MAX_CHARS``
     """
     ceiling = get_settings().pages.max_chars
     if len(body) > ceiling:
-        raise PageTooLarge(
+        raise EngramTooLarge(
             f"{path!r} is {len(body)} characters, over the {ceiling}-character "
-            "page limit; split it into several pages"
+            "engram limit; split it into several engrams"
         )
 
 
 def normalize_path(path: str) -> str:
-    """Return the path a new page will actually be stored under.
+    """Return the path a new engram will actually be stored under.
 
     Mirrors ``frontend/src/pagePath.ts`` so the browser, the CLI, and an
-    assistant calling ``write_page`` all name a page the same way. Before
+    assistant calling ``write_page`` all name an engram the same way. Before
     this existed the ``.md`` rule was enforced only by the web form, and the
     MCP surface happily stored ``notes/NO-EXTENSION`` and ``notes/Spaced
     Out.md`` beside it.
@@ -156,7 +156,7 @@ def normalize_path(path: str) -> str:
     """
     cleaned = re.sub(r"\s+", "-", path.strip().lower())
     if not cleaned:
-        raise InvalidPath("a page needs a path")
+        raise InvalidPath("an engram needs a path")
     if not cleaned.endswith(".md"):
         cleaned = f"{cleaned}.md"
     if cleaned.startswith("/"):
@@ -173,7 +173,7 @@ def normalize_path(path: str) -> str:
             f"{path!r} contains {shown}; use letters, digits, '-', '_', '.' and '/'"
         )
     if segments[-1] == ".md":
-        raise InvalidPath(f"{path!r} names no page, only an extension")
+        raise InvalidPath(f"{path!r} names no engram, only an extension")
     return cleaned
 
 
@@ -194,56 +194,60 @@ def _refuse_protected(path: str, allow_protected: bool) -> None:
         )
 
 
-async def list_pages(principal: Principal, alias: str) -> list[Page]:
-    """List every page in one of the principal's coves.
+async def list_engrams(principal: Principal, alias: str) -> list[Engram]:
+    """List every engram in one of the principal's spaces.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :returns: pages ordered by path
+    :param alias: ``personal`` or a shared-space slug
+    :returns: engrams ordered by path
     """
-    cove = await resolve_cove(principal, alias)
-    return await Page.objects().where(Page.cove_id == cove.id).order_by(Page.path)
-
-
-async def get_page(principal: Principal, alias: str, path: str) -> Page | None:
-    """Fetch a single page by path.
-
-    :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :param path: page path, for example ``house.md``
-    :returns: the page, or None if absent from that cove
-    """
-    cove = await resolve_cove(principal, alias)
+    space = await resolve_space(principal, alias)
     return (
-        await Page.objects().where(Page.cove_id == cove.id, Page.path == path).first()
+        await Engram.objects().where(Engram.space_id == space.id).order_by(Engram.path)
     )
 
 
-async def get_page_as_of(
-    principal: Principal, alias: str, path: str, as_of: datetime
-) -> dict | None:
-    """Fetch the state a page had at a moment in the past.
-
-    Each revision snapshots the state its write produced, so the newest
-    revision at or before ``as_of`` *is* the page as it stood then. The
-    lookup runs under the same armed RLS as a present-day read: history is
-    exactly as private as the page it belongs to.
+async def get_engram(principal: Principal, alias: str, path: str) -> Engram | None:
+    """Fetch a single engram by path.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :param path: page path, for example ``house.md``
+    :param alias: ``personal`` or a shared-space slug
+    :param path: engram path, for example ``house.md``
+    :returns: the engram, or None if absent from that space
+    """
+    space = await resolve_space(principal, alias)
+    return (
+        await Engram.objects()
+        .where(Engram.space_id == space.id, Engram.path == path)
+        .first()
+    )
+
+
+async def get_engram_as_of(
+    principal: Principal, alias: str, path: str, as_of: datetime
+) -> dict | None:
+    """Fetch the state an engram had at a moment in the past.
+
+    Each revision snapshots the state its write produced, so the newest
+    revision at or before ``as_of`` *is* the engram as it stood then. The
+    lookup runs under the same armed RLS as a present-day read: history is
+    exactly as private as the engram it belongs to.
+
+    :param principal: the authenticated person
+    :param alias: ``personal`` or a shared-space slug
+    :param path: engram path, for example ``house.md``
     :param as_of: the moment to reconstruct; aware datetimes are converted
         to the naive local time the revision timestamps are stored in
-    :returns: the page fields at that moment, or None if it did not exist
+    :returns: the engram fields at that moment, or None if it did not exist
     """
     if as_of.tzinfo is not None:
         as_of = as_of.astimezone().replace(tzinfo=None)
-    page = await get_page(principal, alias, path)
-    if page is None:
+    engram = await get_engram(principal, alias, path)
+    if engram is None:
         return None
     revision = (
         await Revision.objects()
-        .where(Revision.page_id == page.id, Revision.created_at <= as_of)
+        .where(Revision.engram_id == engram.id, Revision.created_at <= as_of)
         .order_by(Revision.created_at, ascending=False)
         .first()
     )
@@ -258,7 +262,7 @@ async def get_page_as_of(
     }
 
 
-async def save_page(
+async def save_engram(
     principal: Principal,
     alias: str,
     path: str,
@@ -271,63 +275,63 @@ async def save_page(
     allow_protected: bool = False,
     allow_private_copy: bool = False,
     via: AccessKind | None = AccessKind.WRITE,
-) -> Page:
-    """Create or overwrite a page: snapshot a revision, bump page and cove versions.
+) -> Engram:
+    """Create or overwrite an engram: snapshot a revision, bump engram and space versions.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :param path: page path
+    :param alias: ``personal`` or a shared-space slug
+    :param path: engram path
     :param body: full markdown body
     :param message: why this write happened, stored on the revision
     :param title: human-readable title; defaults to the path stem on creation
-    :param tags: page tags; unchanged on update when omitted
+    :param tags: engram tags; unchanged on update when omitted
     :param expected_version: optimistic lock; mismatch raises VersionConflict
     :param allow_protected: permit writes under ``meta/`` (dedicated tools only)
     :param allow_private_copy: permit shared text copied from the personal
-        cove. Only the share ceremony passes this -- it *is* the sanctioned
+        space. Only the share ceremony passes this -- it *is* the sanctioned
         copy, having already shown the user the exact disclosure.
     :param via: how to record this write in the principal's usage log, or
         None to record nothing -- for a write that is not the person using
-        the page
-    :raises PrivateContentLeak: for personal text written into a cove
+        the engram
+    :raises PrivateContentLeak: for personal text written into a space
     :raises ProtectedPath: for meta/ paths without allow_protected
-    :raises InvalidPath: when a new page's path cannot be normalized
-    :raises PageTooLarge: for a body over the per-page ceiling
+    :raises InvalidPath: when a new engram's path cannot be normalized
+    :raises EngramTooLarge: for a body over the per-engram ceiling
     :raises VersionConflict: when expected_version is stale
-    :returns: the saved page
+    :returns: the saved engram
     """
     validate_body(path, body)
     _refuse_protected(path, allow_protected)
-    cove = await resolve_writable_cove(principal, alias)
-    # An existing page is addressed by exactly the name it already carries.
+    space = await resolve_writable_space(principal, alias)
+    # An existing engram is addressed by exactly the name it already carries.
     # reef stored arbitrary paths before normalize_path existed, and
-    # normalizing unconditionally would not *rename* such a page -- it would
+    # normalizing unconditionally would not *rename* such an engram -- it would
     # write a second one beside it under the tidy name and strand the
-    # original. So: old pages keep their names, new pages get good ones, and
+    # original. So: old engrams keep their names, new engrams get good ones, and
     # the mess stops growing without anything already stored breaking.
-    page = (
-        await Page.objects()
-        .where(Page.cove_id == cove.id, Page.path == path)
+    engram = (
+        await Engram.objects()
+        .where(Engram.space_id == space.id, Engram.path == path)
         .lock_rows()
         .first()
     )
-    if page is None:
+    if engram is None:
         path = normalize_path(path)
         _refuse_protected(path, allow_protected)
-        page = (
-            await Page.objects()
-            .where(Page.cove_id == cove.id, Page.path == path)
+        engram = (
+            await Engram.objects()
+            .where(Engram.space_id == space.id, Engram.path == path)
             .lock_rows()
             .first()
         )
-    if not allow_private_copy and cove.kind == CoveKind.SHARED.value:
-        await _refuse_private_copy(principal, alias, path, body, page)
+    if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
+        await _refuse_private_copy(principal, alias, path, body, engram)
     created = False
-    if page is None:
+    if engram is None:
         if expected_version not in (None, 0):
             raise VersionConflict(f"{path!r} does not exist yet")
-        page = Page(
-            cove_id=cove.id,
+        engram = Engram(
+            space_id=space.id,
             path=path,
             title=title or path.removesuffix(".md"),
             tags=tags or [],
@@ -337,45 +341,45 @@ async def save_page(
             linked_version=1,
             **index_fields(body),
         )
-        await page.save()
+        await engram.save()
         created = True
     else:
-        if expected_version is not None and page.version != expected_version:
+        if expected_version is not None and engram.version != expected_version:
             raise VersionConflict(
-                f"{path!r} is at version {page.version}, expected {expected_version}"
+                f"{path!r} is at version {engram.version}, expected {expected_version}"
             )
-        page.body = body
-        page.version += 1
-        page.indexed_version = page.version
-        page.linked_version = page.version
+        engram.body = body
+        engram.version += 1
+        engram.indexed_version = engram.version
+        engram.linked_version = engram.version
         for field, value in index_fields(body).items():
-            setattr(page, field, value)
+            setattr(engram, field, value)
         if title is not None:
-            page.title = title
+            engram.title = title
         if tags is not None:
-            page.tags = tags
-        await page.save()
+            engram.tags = tags
+        await engram.save()
 
     await Revision(
-        page_id=page.id,
-        path=page.path,
-        title=page.title,
-        tags=list(page.tags),
+        engram_id=engram.id,
+        path=engram.path,
+        title=engram.title,
+        tags=list(engram.tags),
         body=body,
         message=message,
         author_id=principal.person_id,
     ).save()
-    await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
-    # After the page row is written: the links point at it, and retiring old
+    await Space.update({Space.version: Space.version + 1}).where(Space.id == space.id)
+    # After the engram row is written: the links point at it, and retiring old
     # ones reads the targets it now stores.
     resolver = await Resolver.for_person(principal)
-    await sync_wiki_links(resolver, page.id, cove.id, page.reference_targets)
+    await sync_wiki_links(resolver, engram.id, space.id, engram.reference_targets)
     if created:
-        await connect_waiting_links(resolver, page.id, cove.id, page.path)
+        await connect_waiting_links(resolver, engram.id, space.id, engram.path)
     if via is not None:
-        await usage.record(principal, page.id, via)
-    await embedding.request(principal, page.id)
-    return page
+        await usage.record(principal, engram.id, via)
+    await embedding.request(principal, engram.id)
+    return engram
 
 
 async def edit_section(
@@ -389,99 +393,99 @@ async def edit_section(
     expected_version: int | None = None,
     allow_protected: bool = False,
     allow_private_copy: bool = False,
-) -> Page:
-    """Replace an exact, unique span of a page, leaving the rest untouched.
+) -> Engram:
+    """Replace an exact, unique span of an engram, leaving the rest untouched.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :param path: page path
+    :param alias: ``personal`` or a shared-space slug
+    :param path: engram path
     :param old_text: exact text to replace; must occur exactly once
     :param new_text: replacement text
     :param message: why this write happened
-    :param expected_version: optimistic lock passed through to save_page
+    :param expected_version: optimistic lock passed through to save_engram
     :param allow_protected: permit edits under ``meta/``
-    :raises SectionNotFound: if the page is missing or the span absent/ambiguous
-    :returns: the saved page
+    :raises SectionNotFound: if the engram is missing or the span absent/ambiguous
+    :returns: the saved engram
     """
-    page = await get_page(principal, alias, path)
-    if page is None:
-        raise SectionNotFound(f"no page at {path!r}")
-    occurrences = page.body.count(old_text)
+    engram = await get_engram(principal, alias, path)
+    if engram is None:
+        raise SectionNotFound(f"no engram at {path!r}")
+    occurrences = engram.body.count(old_text)
     if occurrences != 1:
         raise SectionNotFound(
             f"expected exactly one occurrence in {path!r}, found {occurrences}"
         )
-    return await save_page(
+    return await save_engram(
         principal,
         alias,
         path,
-        page.body.replace(old_text, new_text),
+        engram.body.replace(old_text, new_text),
         message=message,
         expected_version=expected_version
         if expected_version is not None
-        else page.version,
+        else engram.version,
         allow_protected=allow_protected,
     )
 
 
-class PageNotFound(Exception):
-    """Raised when a page to be deleted is not in that cove."""
+class EngramNotFound(Exception):
+    """Raised when an engram to be deleted is not in that space."""
 
 
-async def delete_page(principal: Principal, alias: str, path: str) -> dict:
-    """Delete a page and its history, permanently.
+async def delete_engram(principal: Principal, alias: str, path: str) -> dict:
+    """Delete an engram and its history, permanently.
 
-    The counterpart to a mistyped path. Until this existed a page could be
+    The counterpart to a mistyped path. Until this existed an engram could be
     blanked but never removed, so a fat-fingered name was a permanent
-    resident of the cove and the only way out was deleting the whole cove.
+    resident of the space and the only way out was deleting the whole space.
 
     Any member may delete, which is the same authority they already have to
-    overwrite the page with nothing -- the difference is that this also takes
+    overwrite the engram with nothing -- the difference is that this also takes
     the revisions, so it is a genuine loss and the caller is expected to have
-    confirmed it. ``meta/`` is refused: the persona and protocol pages are
-    part of the machinery, and a cove without them is not a state the rest of
+    confirmed it. ``meta/`` is refused: the persona and protocol engrams are
+    part of the machinery, and a space without them is not a state the rest of
     the code is written to expect.
 
-    Attachments that hung off the page survive it -- ``page_id`` is
+    Attachments that hung off the engram survive it -- ``engram_id`` is
     ``ON DELETE SET NULL`` -- because the bytes were uploaded deliberately
-    and are reachable in the cove's file list on their own.
+    and are reachable in the space's file list on their own.
 
-    Recorded in the audit trail for the reason ``audit`` gives for cove
-    deletion: once the page and its revisions are gone, nothing left in the
+    Recorded in the audit trail for the reason ``audit`` gives for space
+    deletion: once the engram and its revisions are gone, nothing left in the
     database can say it existed or who ended it.
 
     :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-cove slug
-    :param path: the exact path of the page to delete
-    :raises ProtectedPath: for a page under ``meta/``
-    :raises PageNotFound: if that cove has no page at that path
+    :param alias: ``personal`` or a shared-space slug
+    :param path: the exact path of the engram to delete
+    :raises ProtectedPath: for an engram under ``meta/``
+    :raises EngramNotFound: if that space has no engram at that path
     :returns: the deleted path and how many revisions went with it
     """
     _refuse_protected(path, allow_protected=False)
-    cove = await resolve_writable_cove(principal, alias)
-    page = (
-        await Page.objects()
-        .where(Page.cove_id == cove.id, Page.path == path)
+    space = await resolve_writable_space(principal, alias)
+    engram = (
+        await Engram.objects()
+        .where(Engram.space_id == space.id, Engram.path == path)
         .lock_rows()
         .first()
     )
-    if page is None:
-        raise PageNotFound(f"no page at {path!r}")
+    if engram is None:
+        raise EngramNotFound(f"no engram at {path!r}")
 
-    revisions = await Revision.count().where(Revision.page_id == page.id)
-    # Explicitly, and before the page: the revision -> page foreign key has no
+    revisions = await Revision.count().where(Revision.engram_id == engram.id)
+    # Explicitly, and before the engram: the revision -> engram foreign key has no
     # cascade, so leaving this to the database would refuse the delete rather
     # than tidy up after it.
-    await Revision.delete().where(Revision.page_id == page.id)
-    await Attachment.update({Attachment.page_id: None}).where(
-        Attachment.page_id == page.id
+    await Revision.delete().where(Revision.engram_id == engram.id)
+    await Attachment.update({Attachment.engram_id: None}).where(
+        Attachment.engram_id == engram.id
     )
-    await Page.delete().where(Page.id == page.id)
-    await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
+    await Engram.delete().where(Engram.id == engram.id)
+    await Space.update({Space.version: Space.version + 1}).where(Space.id == space.id)
     audit.record(
-        audit.PAGE_DELETED,
+        audit.ENGRAM_DELETED,
         actor=principal.person_id,
-        cove_id=cove.id,
+        space_id=space.id,
         revisions=revisions,
     )
     return {"deleted": True, "path": path, "revisions": revisions}

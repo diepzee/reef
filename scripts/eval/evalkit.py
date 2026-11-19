@@ -1,9 +1,9 @@
-"""Measure how well search finds the right page, on a public benchmark.
+"""Measure how well search finds the right engram, on a public benchmark.
 
 The benchmark is LongMemEval-S (Wu et al., MIT licence): 500 questions, each
 with the chat sessions that hold its answer and some forty that do not. Here
-every session becomes an ordinary page in the personal cove of one dedicated
-person, written through the same ``save_page`` an assistant uses, so a run
+every session becomes an ordinary engram in the personal space of one dedicated
+person, written through the same ``save_engram`` an assistant uses, so a run
 exercises the real write path, row security and search.
 
 Two deliberate differences from the benchmark's own protocol:
@@ -13,8 +13,8 @@ Two deliberate differences from the benchmark's own protocol:
   harder than the published setting, so these numbers are not comparable to
   published ones. They are comparable to each other, which is what a gate
   between two search modes needs.
-- **Retrieval only.** A question counts as answered when a page holding its
-  evidence is among the first results. No model reads the page.
+- **Retrieval only.** A question counts as answered when an engram holding its
+  evidence is among the first results. No model reads the engram.
 
 Nothing here may touch a database that is not on this machine. See
 :func:`refuse_unless_local`.
@@ -35,18 +35,18 @@ from uuid import uuid4
 import asyncpg
 
 from reef.access import Principal
-from reef.coves import ensure_personal_cove
 from reef.db import transaction_scope
+from reef.engrams import list_engrams, save_engram
 from reef.identity import person_by_email
-from reef.pages import list_pages, save_page
-from reef.search import search_pages
+from reef.search import search_engrams
+from reef.spaces import ensure_personal_space
 
-#: The person every benchmark page belongs to. The address cannot receive
+#: The person every benchmark engram belongs to. The address cannot receive
 #: mail and names no real domain.
 EVAL_EMAIL = "eval@reef.local"
 
-#: The person the private set's pages belong to: a second local person, so
-#: your own pages and the benchmark never mix in one search.
+#: The person the private set's engrams belong to: a second local person, so
+#: your own engrams and the benchmark never mix in one search.
 PRIVATE_EMAIL = "private-eval@reef.local"
 
 #: A small account of made-up facts, for trying things by hand: the slice of
@@ -83,7 +83,7 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 #: ``k``; the reciprocal rank looks at all of them.
 SEARCH_LIMIT = 10
 
-_COVE = "personal"
+_SPACE = "personal"
 _FOLDER = "sessions"
 _BATCH = 50
 
@@ -96,7 +96,7 @@ def refuse_unless_local(*dsns: str) -> None:
     """Stop unless every database or service named is on this machine.
 
     The benchmark must never be loaded into production: it would create a
-    person nobody invited and thousands of pages of other people's chats.
+    person nobody invited and thousands of engrams of other people's chats.
     Railway sets ``RAILWAY_ENVIRONMENT`` in every service and in a
     ``railway run`` shell, so its presence is refused as well, whatever the
     address says.
@@ -115,12 +115,12 @@ def refuse_unless_local(*dsns: str) -> None:
             )
 
 
-# --- the benchmark, as pages ---------------------------------------------------
+# --- the benchmark, as engrams ---------------------------------------------------
 
 
 @dataclass(frozen=True)
-class EvalPage:
-    """One benchmark session, as the page it becomes."""
+class EvalEngram:
+    """One benchmark session, as the engram it becomes."""
 
     path: str
     title: str
@@ -129,7 +129,7 @@ class EvalPage:
 
 @dataclass(frozen=True)
 class EvalQuestion:
-    """One benchmark question and the pages that hold its answer."""
+    """One benchmark question and the engrams that hold its answer."""
 
     id: str
     kind: str
@@ -140,10 +140,11 @@ class EvalQuestion:
 
 @dataclass(frozen=True)
 class EvalSet:
-    """Questions, and every page their sessions become."""
+    """Questions, and every engram their sessions become."""
 
     questions: tuple[EvalQuestion, ...]
-    pages: tuple[EvalPage, ...]
+    #: Named as the slice file, ``tests/fixtures/longmemeval_slice.json``, names it.
+    pages: tuple[EvalEngram, ...]
     source: str = ATTRIBUTION
 
     def to_json(self) -> str:
@@ -166,7 +167,7 @@ class EvalSet:
                 EvalQuestion(**{**q, "expected": tuple(q["expected"])})
                 for q in raw["questions"]
             ),
-            pages=tuple(EvalPage(**p) for p in raw["pages"]),
+            pages=tuple(EvalEngram(**p) for p in raw["pages"]),
             source=raw["source"],
         )
 
@@ -175,7 +176,7 @@ def _session_text(turns: list[dict]) -> str:
     """Render a chat session as markdown.
 
     :param turns: the session's turns, each with ``role`` and ``content``
-    :returns: the page body
+    :returns: the engram body
     """
     labels = {"user": "User", "assistant": "Assistant"}
     return "\n\n".join(
@@ -184,27 +185,27 @@ def _session_text(turns: list[dict]) -> str:
     )
 
 
-def session_page(session_id: str, date: str, turns: list[dict]) -> EvalPage:
-    """Turn one benchmark session into a page.
+def session_engram(session_id: str, date: str, turns: list[dict]) -> EvalEngram:
+    """Turn one benchmark session into an engram.
 
     The path carries a digest of the text. The benchmark reuses a session id
     across questions, sometimes with different text, and one memory cannot
-    hold two pages at one path. With the digest, equal text shares a page and
+    hold two engrams at one path. With the digest, equal text shares an engram and
     different text gets its own.
 
     The session's date goes in the title only. The benchmark gives the same
     session different dates under different questions, so a date cannot be
-    stored as a fact about the page.
+    stored as a fact about the engram.
 
     :param session_id: the benchmark's id for the session
     :param date: the session's date as the benchmark writes it
     :param turns: the session's turns
-    :returns: the page
+    :returns: the engram
     """
     body = _session_text(turns)
     digest = hashlib.sha256(body.encode()).hexdigest()[:8]
     slug = re.sub(r"[^a-z0-9]+", "-", session_id.lower()).strip("-")
-    return EvalPage(
+    return EvalEngram(
         path=f"{_FOLDER}/{slug}-{digest}.md",
         title=f"Conversation on {date.split(' ')[0]}",
         body=body,
@@ -215,7 +216,7 @@ def is_abstention(record: dict) -> bool:
     """Say whether a benchmark question has no answer in its sessions.
 
     Such a question tests whether a model declines to answer. There is no
-    page to find, so it says nothing about retrieval.
+    engram to find, so it says nothing about retrieval.
 
     :param record: one question as the benchmark file holds it
     :returns: True for an abstention question
@@ -252,15 +253,15 @@ def choose(records: list[dict], count: int | None, seed: int = 0) -> list[dict]:
 
 
 def convert(records: Iterable[dict], *, distractors: int | None = None) -> EvalSet:
-    """Turn benchmark questions into pages and the paths each one expects.
+    """Turn benchmark questions into engrams and the paths each one expects.
 
     :param records: the questions to convert
     :param distractors: keep only this many sessions without evidence per
         question, the shortest first; None keeps them all. For building a
         small slice.
-    :returns: the questions and the pages
+    :returns: the questions and the engrams
     """
-    pages: dict[str, EvalPage] = {}
+    engrams: dict[str, EvalEngram] = {}
     questions: list[EvalQuestion] = []
     for record in records:
         evidence = set(record["answer_session_ids"])
@@ -280,10 +281,10 @@ def convert(records: Iterable[dict], *, distractors: int | None = None) -> EvalS
             sessions = [s for s in sessions if s[0] in evidence] + others[:distractors]
         expected: list[str] = []
         for session_id, date, turns in sessions:
-            page = session_page(session_id, date, turns)
-            pages.setdefault(page.path, page)
+            engram = session_engram(session_id, date, turns)
+            engrams.setdefault(engram.path, engram)
             if session_id in evidence:
-                expected.append(page.path)
+                expected.append(engram.path)
         questions.append(
             EvalQuestion(
                 id=record["question_id"],
@@ -295,7 +296,7 @@ def convert(records: Iterable[dict], *, distractors: int | None = None) -> EvalS
         )
     return EvalSet(
         questions=tuple(questions),
-        pages=tuple(sorted(pages.values(), key=lambda p: p.path)),
+        pages=tuple(sorted(engrams.values(), key=lambda p: p.path)),
     )
 
 
@@ -316,41 +317,41 @@ def load_benchmark(path: Path = DATA_FILE) -> list[dict]:
 # --- the private set, from your own export --------------------------------------
 
 
-def private_pages(export: dict) -> list[EvalPage]:
-    """Turn a person's own JSON export into pages for the private set.
+def private_engrams(export: dict) -> list[EvalEngram]:
+    """Turn a person's own JSON export into engrams for the private set.
 
-    The export is the file the site's "export as JSON" produces. Every cove
-    in it lands in one local cove, so each page's path gets its cove's alias
-    in front: two coves may hold a page at the same path.
+    The export is the file the site's "export as JSON" produces. Every space
+    in it lands in one local space, so each engram's path gets its space's alias
+    in front: two spaces may hold an engram at the same path.
 
     :param export: the parsed export file
-    :returns: the pages, in path order
+    :returns: the engrams, in path order
     :raises ValueError: if the file is not a version 1 export
     """
     if export.get("schema_version") != 1:
         raise ValueError("not a version 1 reef JSON export")
-    pages = [
-        EvalPage(
-            path=f"{cove['alias']}/{page['path']}",
-            title=page["title"] or "",
-            body=page["body"],
+    engrams = [
+        EvalEngram(
+            path=f"{space['alias']}/{engram['path']}",
+            title=engram["title"] or "",
+            body=engram["body"],
         )
-        for cove in export["coves"]
-        for page in cove["pages"]
+        for space in export["coves"]
+        for engram in space["pages"]
     ]
-    return sorted(pages, key=lambda page: page.path)
+    return sorted(engrams, key=lambda engram: engram.path)
 
 
 def private_questions(raw: list[dict], known: Iterable[str]) -> list[EvalQuestion]:
-    """Read the private set's questions and check their expected pages exist.
+    """Read the private set's questions and check their expected engrams exist.
 
     Each entry holds ``id``, ``kind``, ``text`` and ``expected``, a list of
-    page paths as :func:`private_pages` writes them. ``answer`` is optional.
+    engram paths as :func:`private_engrams` writes them. ``answer`` is optional.
 
     :param raw: the parsed questions file
     :param known: every path in the private set
     :returns: the questions
-    :raises ValueError: if a question expects a page that is not in the set
+    :raises ValueError: if a question expects an engram that is not in the set
     """
     paths = set(known)
     questions = [
@@ -367,7 +368,7 @@ def private_questions(raw: list[dict], known: Iterable[str]) -> list[EvalQuestio
         missing = set(question.expected) - paths
         if missing or not question.expected:
             raise ValueError(
-                f"question {question.id} expects pages that are not in the set: "
+                f"question {question.id} expects engrams that are not in the set: "
                 f"{sorted(missing) or 'none given'}"
             )
     return questions
@@ -379,7 +380,7 @@ def private_questions(raw: list[dict], known: Iterable[str]) -> list[EvalQuestio
 async def ensure_eval_person(
     superuser_dsn: str, email: str = EVAL_EMAIL, name: str = "Eval"
 ) -> Principal:
-    """Make sure an eval person and their personal cove exist.
+    """Make sure an eval person and their personal space exist.
 
     A person with no inviter cannot be created by the application: the
     policies demand one. So the person row is written out of band, as the
@@ -419,46 +420,46 @@ async def ensure_eval_person(
     identity = await person_by_email(email)
     principal = Principal(person_id=identity.person_id, email=identity.email)
     async with transaction_scope():
-        await ensure_personal_cove(principal.person_id, principal.email)
+        await ensure_personal_space(principal.person_id, principal.email)
     return principal
 
 
-async def seed_pages(
+async def seed_engrams(
     principal: Principal,
-    pages: Iterable[EvalPage],
+    engrams: Iterable[EvalEngram],
     *,
     progress: Callable[[int, int], None] | None = None,
     tag: str = "benchmark",
 ) -> int:
-    """Write the pages that are not there yet.
+    """Write the engrams that are not there yet.
 
-    Safe to run again: a page whose path exists already is skipped. A
-    benchmark path carries a digest of its text, so there an existing page
-    holds the right text. A private page has no digest: to pick up a newer
+    Safe to run again: an engram whose path exists already is skipped. A
+    benchmark path carries a digest of its text, so there an existing engram
+    holds the right text. A private engram has no digest: to pick up a newer
     export, recreate the local database first.
 
     A write is not recorded in the usage log. The eval person did not use
-    these pages; a script loaded them.
+    these engrams; a script loaded them.
 
     :param principal: the eval person
-    :param pages: the pages to write
-    :param progress: called with pages done and pages to do, after each batch
-    :param tag: the tag every written page gets
-    :returns: how many pages were written
+    :param engrams: the engrams to write
+    :param progress: called with engrams done and engrams to do, after each batch
+    :param tag: the tag every written engram gets
+    :returns: how many engrams were written
     """
     async with transaction_scope():
-        present = {page.path for page in await list_pages(principal, _COVE)}
-    missing = [page for page in pages if page.path not in present]
+        present = {engram.path for engram in await list_engrams(principal, _SPACE)}
+    missing = [engram for engram in engrams if engram.path not in present]
     for start in range(0, len(missing), _BATCH):
         async with transaction_scope():
-            for page in missing[start : start + _BATCH]:
-                await save_page(
+            for engram in missing[start : start + _BATCH]:
+                await save_engram(
                     principal,
-                    _COVE,
-                    page.path,
-                    page.body,
+                    _SPACE,
+                    engram.path,
+                    engram.body,
                     message=f"{tag} seed",
-                    title=page.title,
+                    title=engram.title,
                     tags=[tag],
                     via=None,
                 )
@@ -477,7 +478,7 @@ _WORD = re.compile(r"[^\W_]+", re.UNICODE)
 async def _paths(
     principal: Principal, query: str, *, semantic: bool = False, rerank: bool = False
 ) -> list[str]:
-    """Search the eval person's pages and return the paths found, best first.
+    """Search the eval person's engrams and return the paths found, best first.
 
     :param principal: the eval person
     :param query: the search text
@@ -485,14 +486,14 @@ async def _paths(
         when it has an embedding service
     :param rerank: let the reranker reorder the first results, as the
         product does when it has a reranker
-    :returns: page paths in rank order
+    :returns: engram paths in rank order
     """
     # No transaction around it: search opens its own, as it does for the
     # tools, so model calls happen outside them here too.
-    hits = await search_pages(
+    hits = await search_engrams(
         principal,
         query,
-        cove=_COVE,
+        space=_SPACE,
         limit=SEARCH_LIMIT,
         semantic=semantic,
         rerank=rerank,
@@ -503,19 +504,19 @@ async def _paths(
 async def lexical(principal: Principal, question: str) -> list[str]:
     """Search with the question exactly as asked.
 
-    This is search as it ships. Since 18 November 2026 it matches pages
+    This is search as it ships. Since 18 November 2026 it matches engrams
     holding any word of the query and ranks those holding every word first.
     Before that it required every word.
 
     :param principal: the eval person
     :param question: the question
-    :returns: page paths in rank order
+    :returns: engram paths in rank order
     """
     return await _paths(principal, question)
 
 
 async def lexical_any(principal: Principal, question: str) -> list[str]:
-    """Search for pages holding any word of the question, best match first.
+    """Search for engrams holding any word of the question, best match first.
 
     The shipped search, with the query rewritten as alternatives. It drops
     the "every word first" ordering, so the gap to :func:`lexical` shows
@@ -523,7 +524,7 @@ async def lexical_any(principal: Principal, question: str) -> list[str]:
 
     :param principal: the eval person
     :param question: the question
-    :returns: page paths in rank order
+    :returns: engram paths in rank order
     """
     words = list(dict.fromkeys(w.lower() for w in _WORD.findall(question)))
     return await _paths(principal, " or ".join(w for w in words if w != "or"))
@@ -533,13 +534,13 @@ async def hybrid(principal: Principal, question: str) -> list[str]:
     """Search by words and by meaning together, without the reranker.
 
     Needs ``REEF_EMBEDDING_URL`` to point at an embedding service on this
-    machine, and the eval person's pages to have their vectors. Without
+    machine, and the eval person's engrams to have their vectors. Without
     either it measures keyword search again, which is how the product
     behaves: compare its score with :func:`lexical` to see which you got.
 
     :param principal: the eval person
     :param question: the question
-    :returns: page paths in rank order
+    :returns: engram paths in rank order
     """
     return await _paths(principal, question, semantic=True)
 
@@ -552,7 +553,7 @@ async def reranked(principal: Principal, question: str) -> list[str]:
 
     :param principal: the eval person
     :param question: the question
-    :returns: page paths in rank order
+    :returns: engram paths in rank order
     """
     return await _paths(principal, question, semantic=True, rerank=True)
 
@@ -581,9 +582,9 @@ class Tally:
     def add(self, any_hit: bool, all_hit: bool, reciprocal_rank: float) -> None:
         """Count one question.
 
-        :param any_hit: an expected page was in the first ``k`` results
-        :param all_hit: every expected page was
-        :param reciprocal_rank: one over the rank of the first expected page,
+        :param any_hit: an expected engram was in the first ``k`` results
+        :param all_hit: every expected engram was
+        :param reciprocal_rank: one over the rank of the first expected engram,
             or zero when none was returned
         """
         self.questions += 1
@@ -654,9 +655,9 @@ def score(
 ) -> Report:
     """Score a mode's results over a set of questions.
 
-    A failure is a question none of whose expected pages reached the first
+    A failure is a question none of whose expected engrams reached the first
     ``k`` results. The failure list names the question and the paths, never
-    page text.
+    engram text.
 
     :param mode: the mode's name, for the report
     :param questions: the questions asked

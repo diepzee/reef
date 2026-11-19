@@ -18,9 +18,9 @@ from opentelemetry.sdk.trace.export import (
 
 from reef import audit, telemetry
 from reef.access import Principal
-from reef.coves import create_cove, delete_cove, invite, remove_member
 from reef.db import DB
 from reef.invitations import allowlist
+from reef.spaces import create_space, delete_space, invite, remove_member
 
 
 def principal_for(person) -> Principal:
@@ -109,7 +109,7 @@ async def test_minting_an_invitation_is_recorded(tx, household, recorded):
 async def test_admitting_and_removing_a_member_are_both_recorded(
     tx, household, recorded
 ):
-    """The two acts that change who can read a cove."""
+    """The two acts that change who can read a space."""
     me = principal_for(household["wouter"])
     await invite(me, "household", "joiner@example.test", display_name="Joiner")
     await remove_member(me, "household", "joiner@example.test")
@@ -140,7 +140,7 @@ async def test_erasing_an_account_is_recorded(graph, recorded):
     from reef.account import delete_account_rows
 
     alice = await graph.person("erased@example.test", "Alice")
-    await graph.personal_cove(alice)
+    await graph.personal_space(alice)
     async with DB.transaction():
         await delete_account_rows(principal_for(alice))
 
@@ -153,33 +153,33 @@ async def test_the_trail_is_inert_when_telemetry_is_off(monkeypatch):
     audit.record(audit.INVITE_MINTED, actor=__import__("uuid").uuid4())
 
 
-async def test_destroying_a_cove_is_recorded(tx, household, recorded):
+async def test_destroying_a_space_is_recorded(tx, household, recorded):
     """The one act that leaves nothing behind to read afterwards.
 
     Unlike the acts above this stays inside the policies -- an owner deleting
-    their own cove is exactly what ``coves_owner_delete`` permits. It is
+    their own space is exactly what ``spaces_owner_delete`` permits. It is
     recorded because the rows are gone: without an entry made at the time,
-    nothing can say the cove existed or who ended it.
+    nothing can say the space existed or who ended it.
     """
     me = principal_for(household["wouter"])
-    cove_id = household["shared"].id
+    space_id = household["shared"].id
     await remove_member(me, "household", "partner@example.test")
-    await delete_cove(me, "household")
+    await delete_space(me, "household")
 
-    assert audit.COVE_DELETED in _actions(recorded)
-    assert str(cove_id) in _blob(recorded)
+    assert audit.SPACE_DELETED in _actions(recorded)
+    assert str(space_id) in _blob(recorded)
 
 
-async def test_the_trail_never_carries_a_cove_name(tx, household, recorded):
-    """A slug is the user's words, so it stays out of the record like a page would.
+async def test_the_trail_never_carries_a_space_name(tx, household, recorded):
+    """A slug is the user's words, so it stays out of the record like an engram would.
 
     Worth its own test because the deletion path is the one place a slug is
     the natural thing to reach for -- the id it records identifies a row that
     no longer exists, which is precisely the trade the trail makes.
     """
     me = principal_for(household["wouter"])
-    await create_cove(me, "sailing-holiday")
-    await delete_cove(me, "sailing-holiday")
+    await create_space(me, "sailing-holiday")
+    await delete_space(me, "sailing-holiday")
 
-    assert audit.COVE_DELETED in _actions(recorded)
+    assert audit.SPACE_DELETED in _actions(recorded)
     assert "sailing-holiday" not in _blob(recorded)

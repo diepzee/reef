@@ -2,7 +2,7 @@
 
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
-from reef import rls
+from reef import frozen_ddl
 from reef.db import run_ddl_atomically
 
 ID = "2026-08-20T12:00:00:000000"
@@ -220,12 +220,12 @@ def _refresh() -> list[str]:
     :returns: SQL statements to execute in order
     """
     return (
-        rls.authz_statements()
-        + rls.identity_statements()
-        + rls.disclosure_statements()
-        + rls.mutation_statements()
-        + rls.alias_statements()
-        + rls.session_epoch_statements()
+        frozen_ddl.authz_statements()
+        + frozen_ddl.identity_statements()
+        + frozen_ddl.disclosure_statements()
+        + frozen_ddl.mutation_statements()
+        + frozen_ddl.alias_statements()
+        + frozen_ddl.session_epoch_statements()
     )
 
 

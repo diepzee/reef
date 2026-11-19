@@ -1,4 +1,4 @@
-"""Per-person cove appearance: chosen looks are private and per viewer."""
+"""Per-person space appearance: chosen looks are private and per viewer."""
 
 from conftest import _login
 
@@ -15,7 +15,7 @@ async def test_nothing_chosen_is_an_empty_map(api, world):
 
 
 async def test_a_choice_round_trips(api, world):
-    """A stored look comes back keyed by the cove's slug."""
+    """A stored look comes back keyed by the space's slug."""
     alice, _bob, _ = world
     _login(api, alice)
     stored = await api.put(
@@ -31,7 +31,7 @@ async def test_a_choice_round_trips(api, world):
 
 
 async def test_choosing_again_replaces_rather_than_stacks(api, world):
-    """The second choice for a cove overwrites the first."""
+    """The second choice for a space overwrites the first."""
     alice, _bob, _ = world
     _login(api, alice)
     for color in ("violet", "amber", "sky"):
@@ -64,7 +64,7 @@ async def test_clearing_both_removes_the_choice_entirely(api, world):
 
 
 async def test_one_persons_look_is_invisible_to_another(api, world):
-    """The whole point: two members see the same cove differently.
+    """The whole point: two members see the same space differently.
 
     Bob shares ``team`` with Alice. Alice restyling it must not change what
     Bob is served, and must not even be visible to him.
@@ -79,7 +79,7 @@ async def test_one_persons_look_is_invisible_to_another(api, world):
     _login(api, bob)
     assert (await api.get("/api/appearance")).json() == {"coves": {}}
 
-    # And Bob's own choice for the same cove leaves Alice's untouched.
+    # And Bob's own choice for the same space leaves Alice's untouched.
     await api.put(
         "/api/coves/team/appearance",
         json={"color": "orange", "glyph": None},
@@ -119,8 +119,8 @@ async def test_a_retired_body_plan_is_refused(api, world):
     assert response.status_code == 400
 
 
-async def test_a_cove_you_cannot_see_cannot_be_styled(api, world):
-    """Appearance resolves the cove first, so it is no way to probe for one."""
+async def test_a_space_you_cannot_see_cannot_be_styled(api, world):
+    """Appearance resolves the space first, so it is no way to probe for one."""
     _alice, bob, _ = world
     _login(api, bob)
     response = await api.put(
@@ -131,7 +131,7 @@ async def test_a_cove_you_cannot_see_cannot_be_styled(api, world):
     assert response.status_code in (403, 404)
 
 
-async def test_the_personal_cove_can_be_styled_too(api, world):
+async def test_the_personal_space_can_be_styled_too(api, world):
     """Personal is pinned seafoam by derivation, not by decree."""
     alice, _bob, _ = world
     _login(api, alice)

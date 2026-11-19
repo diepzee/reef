@@ -33,19 +33,21 @@ from reef.db import transaction_scope
 from reef.models import Job, Person
 from reef.rls import JOB_MAX_ATTEMPTS
 
-#: Bring the stored index fields of a person's pages up to date.
+#: Bring the stored index fields of a person's engrams up to date.
 BACKFILL_INDEX_FIELDS = "backfill_index_fields"
 
-#: Store the wiki links of the pages a person may change.
+#: Store the wiki links of the engrams a person may change.
 BACKFILL_LINKS = "backfill_links"
 
 #: Recompute a person's activation from their usage log.
 REFRESH_ACTIVATION = "refresh_activation"
 
-#: Embed the changed pieces of the pages named in ``subject_ids``.
-EMBED_PAGE = "embed_page"
+#: Embed the changed pieces of the engrams named in ``subject_ids``. The
+#: value keeps the old word: it is stored in every job queued before the
+#: rename, and a worker that no longer knew it would fail them all.
+EMBED_ENGRAM = "embed_page"
 
-#: Embed every page of the person's that has no current vectors.
+#: Embed every engram of the person's that has no current vectors.
 BACKFILL_EMBEDDINGS = "backfill_embeddings"
 
 #: Seconds to wait before the second attempt. Each later attempt waits four

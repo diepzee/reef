@@ -15,14 +15,14 @@ from mcp.types import Icon, ToolAnnotations
 if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
 
-from reef import coves as cove_admin
 from reef import invitations, telemetry, usage
+from reef import spaces as space_admin
 from reef.access import (
     AccessDenied,
     Principal,
-    accessible_coves,
+    accessible_spaces,
     alias_map,
-    resolve_writable_cove,
+    resolve_writable_space,
 )
 from reef.activity import whats_new as run_whats_new
 from reef.attachments import (
@@ -36,30 +36,30 @@ from reef.attachments import (
 from reef.auth import current_principal
 from reef.config import get_settings
 from reef.context import build_index, load_context
-from reef.coves import CoveError, member_names, member_roster
 from reef.db import transaction_scope
-from reef.invitations import InviteBudgetExceeded
-from reef.links import links_of
-from reef.models import AccessKind, MemberRole, Membership, Page
-from reef.pages import (
+from reef.engrams import (
+    EngramNotFound,
+    EngramTooLarge,
     InvalidPath,
-    PageNotFound,
-    PageTooLarge,
     PrivateContentLeak,
     ProtectedPath,
     SectionNotFound,
     VersionConflict,
     edit_section,
-    get_page,
-    get_page_as_of,
-    save_page,
+    get_engram,
+    get_engram_as_of,
+    save_engram,
 )
-from reef.pages import (
-    delete_page as delete_page_rows,
+from reef.engrams import (
+    delete_engram as delete_engram_rows,
 )
+from reef.invitations import InviteBudgetExceeded
+from reef.links import links_of
+from reef.models import AccessKind, Engram, MemberRole, Membership
 from reef.promotion import PromotionError, confirm_promotion, prepare_promotion
 from reef.protocol import PERSONA_PATH, build_instructions
-from reef.search import search_pages as run_search
+from reef.search import search_engrams as run_search
+from reef.spaces import SpaceError, member_names, member_roster
 from reef.web.routes_api import register_api_routes
 from reef.web.routes_auth import register_auth_routes
 from reef.web.static import register_static_routes
@@ -491,11 +491,11 @@ async def tool_read_page(
             moment = datetime.fromisoformat(as_of)
         except ValueError:
             return {"error": "invalid_as_of", "as_of": as_of}
-        state = await get_page_as_of(principal, cove, path, moment)
+        state = await get_engram_as_of(principal, cove, path, moment)
         if state is None:
             return {"error": "not_found", "path": path, "as_of": as_of}
         return {**state, "as_of": as_of}
-    page = await get_page(principal, cove, path)
+    page = await get_engram(principal, cove, path)
     if page is None:
         return {"error": "not_found", "path": path}
     await usage.record(principal, page.id, AccessKind.READ)
@@ -545,13 +545,13 @@ async def tool_list_coves(principal: Principal) -> list[dict]:
     """
     aliases = await alias_map(principal)
     rows = []
-    for s in await accessible_coves(principal):
+    for s in await accessible_spaces(principal):
         roster = await member_roster(s.id)
         roles = {
             m["person_id"]: m["role"]
             for m in await Membership.select(
                 Membership.person_id, Membership.role
-            ).where(Membership.cove_id == s.id)
+            ).where(Membership.space_id == s.id)
         }
         rows.append(
             {
@@ -577,8 +577,8 @@ async def tool_create_cove(principal: Principal, slug: str) -> dict:
     :returns: name, members, ownership — or an error dict
     """
     try:
-        cove = await cove_admin.create_cove(principal, slug)
-    except CoveError as exc:
+        cove = await space_admin.create_space(principal, slug)
+    except SpaceError as exc:
         return {"error": "cove_error", "detail": str(exc)}
     return {
         "name": cove.slug,
@@ -604,12 +604,12 @@ async def tool_invite(
     :returns: the invite outcome with disclosure, or an error dict
     """
     try:
-        return await cove_admin.invite(
+        return await space_admin.invite(
             principal, cove, email, display_name=display_name, role=role
         )
     except InviteBudgetExceeded as exc:
         return {"error": "invite_budget", "detail": str(exc)}
-    except (CoveError, AccessDenied) as exc:
+    except (SpaceError, AccessDenied) as exc:
         return {"error": "cove_error", "detail": str(exc)}
 
 
@@ -640,8 +640,8 @@ async def tool_remove_member(principal: Principal, cove: str, email: str) -> dic
     :returns: the removal outcome, or an error dict
     """
     try:
-        return await cove_admin.remove_member(principal, cove, email)
-    except (CoveError, AccessDenied) as exc:
+        return await space_admin.remove_member(principal, cove, email)
+    except (SpaceError, AccessDenied) as exc:
         return {"error": "cove_error", "detail": str(exc)}
 
 
@@ -656,8 +656,8 @@ async def tool_delete_cove(principal: Principal, cove: str) -> dict:
     :returns: the deletion outcome, or an error dict
     """
     try:
-        return await cove_admin.delete_cove(principal, cove)
-    except (CoveError, AccessDenied) as exc:
+        return await space_admin.delete_space(principal, cove)
+    except (SpaceError, AccessDenied) as exc:
         return {"error": "cove_error", "detail": str(exc)}
 
 
@@ -669,8 +669,8 @@ async def tool_leave_cove(principal: Principal, cove: str) -> dict:
     :returns: the departure outcome, or an error dict
     """
     try:
-        return await cove_admin.leave_cove(principal, cove)
-    except (CoveError, AccessDenied) as exc:
+        return await space_admin.leave_space(principal, cove)
+    except (SpaceError, AccessDenied) as exc:
         return {"error": "cove_error", "detail": str(exc)}
 
 
@@ -718,10 +718,10 @@ async def tool_remember(
     :param cove: ``personal`` or a cove name from list_coves
     :returns: what was written, with a duplicate flag
     """
-    resolved = await resolve_writable_cove(principal, cove)
+    resolved = await resolve_writable_space(principal, cove)
     inbox = (
-        await Page.objects()
-        .where(Page.cove_id == resolved.id, Page.path == _INBOX)
+        await Engram.objects()
+        .where(Engram.space_id == resolved.id, Engram.path == _INBOX)
         .lock_rows()
         .first()
     )
@@ -730,7 +730,7 @@ async def tool_remember(
     stamp = datetime.now(UTC).date().isoformat()
     entry = f"- ({stamp}) {fact}"
     body = f"{inbox.body}\n{entry}" if inbox else f"# Inbox\n\n{entry}"
-    await save_page(
+    await save_engram(
         principal,
         cove,
         _INBOX,
@@ -882,7 +882,7 @@ async def search_pages(
     async with transaction_scope():
         principal = await current_principal()
     # Outside the transaction: see search().
-    return await run_search(principal, query, cove=cove, limit=limit, log=True)
+    return await run_search(principal, query, space=cove, limit=limit, log=True)
 
 
 @_read_only("What's new")
@@ -1046,8 +1046,8 @@ async def delete_page(cove: str, path: str) -> dict:
     async with transaction_scope():
         principal = await current_principal()
         try:
-            return await delete_page_rows(principal, cove, path)
-        except PageNotFound as exc:
+            return await delete_engram_rows(principal, cove, path)
+        except EngramNotFound as exc:
             return {"error": "not_found", "detail": str(exc)}
         except ProtectedPath as exc:
             return {"error": "protected_path", "detail": str(exc)}
@@ -1062,8 +1062,8 @@ async def tool_rename_cove(principal: Principal, cove: str, new_name: str) -> di
     :returns: the rename outcome, or an error dict
     """
     try:
-        return await cove_admin.rename_cove(principal, cove, new_name)
-    except (CoveError, AccessDenied) as exc:
+        return await space_admin.rename_space(principal, cove, new_name)
+    except (SpaceError, AccessDenied) as exc:
         return {"error": "cove_error", "detail": str(exc)}
 
 
@@ -1128,7 +1128,7 @@ async def write_page(
     async with transaction_scope():
         principal = await current_principal()
         try:
-            page = await save_page(
+            page = await save_engram(
                 principal,
                 cove,
                 path,
@@ -1144,7 +1144,7 @@ async def write_page(
             return {"error": "protected_path", "detail": str(exc)}
         except InvalidPath as exc:
             return {"error": "invalid_path", "detail": str(exc)}
-        except PageTooLarge as exc:
+        except EngramTooLarge as exc:
             return {"error": "page_too_large", "detail": str(exc)}
         except PrivateContentLeak as exc:
             return {"error": "private_content", "detail": str(exc)}
@@ -1223,7 +1223,7 @@ def _validate_batch(pages: list[dict]) -> dict | None:
 
 async def tool_write_pages(
     principal: Principal, cove: str, pages: list[dict], message: str = ""
-) -> list[Page]:
+) -> list[Engram]:
     """Save every batch item via save_page; split from the tool for testability.
 
     Raises on the first failure rather than catching, so the ``@mcp.tool``
@@ -1242,7 +1242,7 @@ async def tool_write_pages(
     saved = []
     for item in pages:
         saved.append(
-            await save_page(
+            await save_engram(
                 principal,
                 cove,
                 item["path"],
@@ -1301,7 +1301,7 @@ async def write_pages(cove: str, pages: list[dict], message: str = "") -> dict:
             "detail": str(exc),
             "note": "nothing was written",
         }
-    except PageTooLarge as exc:
+    except EngramTooLarge as exc:
         return {
             "error": "page_too_large",
             "detail": str(exc),
@@ -1354,7 +1354,7 @@ async def edit_page_section(
             SectionNotFound,
             VersionConflict,
             ProtectedPath,
-            PageTooLarge,
+            EngramTooLarge,
             PrivateContentLeak,
         ) as exc:
             return {"error": type(exc).__name__, "detail": str(exc)}
@@ -1412,7 +1412,7 @@ async def tool_update_meta_page(
             "error": "not_confirmed",
             "detail": "describe the change to the user first, then confirm",
         }
-    page = await save_page(
+    page = await save_engram(
         principal, cove, path, body, message=message, allow_protected=True
     )
     return {"cove": cove, "path": page.path, "version": page.version}
@@ -1526,7 +1526,7 @@ async def _store_file(
         filename=filename,
         description=description,
         store=S3ObjectStore(),
-        page_path=page_path,
+        engram_path=page_path,
     )
     return {
         "key": attachment.object_key,

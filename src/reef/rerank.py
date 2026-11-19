@@ -2,14 +2,14 @@
 
 A reranker is a cross-encoder: it reads the query and one passage together
 and says how well the passage answers it. That is more exact than
-comparing two vectors, and far too slow to run over every page. So search
+comparing two vectors, and far too slow to run over every engram. So search
 first finds candidates by words and by meaning, and the reranker reorders
 only the first few. Measured on the benchmark on 18 November 2026, this
-lifted the share of questions with a right page in the first five results
+lifted the share of questions with a right engram in the first five results
 from 47.4% to 54.0%.
 
 **Where the text goes.** To the address in ``REEF_RERANK_URL`` and nowhere
-else: the query, and passages of pages the person can already read. That
+else: the query, and passages of engrams the person can already read. That
 must be a service this deployment runs itself, on a private network.
 
 **On by default.** The reranker runs whenever an address is set.
@@ -84,7 +84,7 @@ class HttpReranker:
         :raises BadAnswer: if the answer is not one score per passage
         :raises httpx.HTTPError: if the service cannot be reached or refuses
         """
-        # trust_env=False: a proxy set in the environment would carry page
+        # trust_env=False: a proxy set in the environment would carry engram
         # text somewhere other than this address.
         async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             response = await client.post(

@@ -1,12 +1,12 @@
-"""The search log: what a person asked, and which pages came back.
+"""The search log: what a person asked, and which engrams came back.
 
 **Why it exists.** To measure search on real questions. A search followed,
-in the same session, by a read of a page the search did not return is a
+in the same session, by a read of an engram the search did not return is a
 miss. Enough of those say where search fails, at no cost to anybody.
 
-**What is recorded.** The query text, the ids of the pages returned in rank
+**What is recorded.** The query text, the ids of the engrams returned in rank
 order, a label for the session, and the time. Not the snippets, not the
-page text, and not the files returned.
+engram text, and not the files returned.
 
 **Whose it is.** One person's. A query is what somebody asked their own
 memory, so the log is private to them: row security enforces that, and
@@ -23,7 +23,7 @@ The privacy page promises that people are told before this takes effect.
 the assistant, and they still are: a logged search changes nothing the
 person or their assistant can see in the memory.
 
-It is not the usage log. A page that appears in a search result was not
+It is not the usage log. An engram that appears in a search result was not
 used, and nothing here feeds activation. See :mod:`reef.usage`.
 
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
@@ -45,7 +45,7 @@ log = logging.getLogger("reef.searchlog")
 RETENTION_DAYS = SEARCH_LOG_DAYS
 
 
-async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None:
+async def record(principal: Principal, query: str, engram_ids: list[UUID]) -> None:
     """Record one search, if logging is switched on.
 
     Recording must never be what makes a search fail. No refusal is expected
@@ -58,7 +58,7 @@ async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None
 
     :param principal: the person who searched
     :param query: the search text, already stripped and not empty
-    :param page_ids: the pages returned, best first
+    :param engram_ids: the engrams returned, best first
     """
     if not get_settings().search.log:
         return
@@ -66,12 +66,12 @@ async def record(principal: Principal, query: str, page_ids: list[UUID]) -> None
     savepoint = await DB.current_transaction.get().savepoint()
     try:
         await SearchLog.raw(
-            "INSERT INTO search_log (id, person_id, query, page_ids, session_id) "
+            "INSERT INTO search_log (id, person_id, query, engram_ids, session_id) "
             "VALUES ({}, {}, {}, {}, {})",
             uuid4(),
             principal.person_id,
             query[:SEARCH_LOG_MAX_QUERY],
-            page_ids,
+            engram_ids,
             current_session_id(),
         )
     # Broad on purpose: whatever went wrong, the search must still answer.
@@ -96,7 +96,7 @@ async def purge() -> int:
 async def misses(principal: Principal) -> list[dict]:
     """List the person's own searches that were followed by a read they missed.
 
-    A miss is a page the person opened in the same session, within the hour
+    A miss is an engram the person opened in the same session, within the hour
     after a search, that the search had not returned. Only the person's own
     rows are read: row security hides everybody else's.
 
@@ -105,16 +105,16 @@ async def misses(principal: Principal) -> list[dict]:
     which read followed which search.
 
     :param principal: the person
-    :returns: one dict per miss with the query, the page id and the time,
+    :returns: one dict per miss with the query, the engram id and the time,
         newest first
     """
     await arm(principal)
     return await SearchLog.raw(
-        "SELECT s.query, a.page_id, s.searched_at "
-        "FROM search_log s JOIN page_access a "
+        "SELECT s.query, a.engram_id, s.searched_at "
+        "FROM search_log s JOIN engram_access a "
         "ON a.person_id = s.person_id AND a.session_id = s.session_id "
         "AND a.via = 'read' AND a.accessed_at >= s.searched_at "
         "AND a.accessed_at < s.searched_at + interval '1 hour' "
-        "WHERE NOT (a.page_id = ANY (s.page_ids)) "
+        "WHERE NOT (a.engram_id = ANY (s.engram_ids)) "
         "ORDER BY s.searched_at DESC, a.accessed_at"
     )
