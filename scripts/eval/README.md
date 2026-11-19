@@ -86,6 +86,42 @@ keyword search finds them.
 
 Add a row to the table whenever a change to search moves the numbers.
 
+## Experiments: embeddings and a reranker
+
+Two offline scripts measure what is not built yet. Neither is part of the
+product. Both send text to models on this machine and nowhere else.
+
+```bash
+ollama pull embeddinggemma:300m
+uv run --with numpy python scripts/eval/experiment_embed.py \
+    --set benchmark --model gemma --sections --questions 500
+uv run --with numpy --with sentence-transformers python \
+    scripts/eval/experiment_rerank.py --set benchmark --questions 500 \
+    --reranker bge-m3 --candidates 15 --passages 2
+```
+
+All 470 questions, 18,239 pages, first five results, 18 Nov 2026.
+Embeddings are EmbeddingGemma 300m. The reranker is
+`BAAI/bge-reranker-v2-m3`. Times are from an M4 Pro.
+
+| Search | any@5 | all@5 | MRR | Seconds per question |
+|---|---|---|---|---|
+| Keyword, as it ships | 37.5% | 18.7% | 0.271 | |
+| Embeddings alone | 44.9% | | | |
+| Hybrid, embeddings weighted 3 | 47.4% | 26.2% | 0.340 | |
+| Hybrid, reranker reads 15 pages, 1 passage each | 51.3% | 29.1% | 0.373 | 0.90 |
+| Hybrid, reranker reads 15 pages, 2 passages each | 54.0% | 31.5% | 0.405 | 1.74 |
+| Hybrid, reranker reads 30 pages, 1 passage each | 51.1% | 30.0% | 0.380 | 1.75 |
+| Hybrid, reranker reads 30 pages, 2 passages each | 55.5% | 34.0% | 0.420 | 3.6 |
+| Hybrid, reranker reads 50 pages, 2 passages each | 55.3% | 34.9% | 0.420 | 5.48 |
+
+- A second passage per page is worth about 4 points. More pages are not.
+- The small reranker `mmarco-mMiniLMv2-L12-H384-v1` scored 48.3% and is not
+  worth having.
+- The fusion weight was chosen on these same questions, so the hybrid
+  numbers are a little flattering.
+- Speed on a server without a graphics card is not measured.
+
 ## The slice in the test suite
 
 `tests/fixtures/longmemeval_slice.json` holds 24 questions with their
