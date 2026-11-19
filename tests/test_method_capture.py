@@ -97,6 +97,34 @@ async def test_remember_adds_the_fact_to_the_inbox(household):
     assert inbox.body.count("Vaillant") == 1
 
 
+async def test_remember_keeps_a_fact_an_earlier_entry_contains(household):
+    """The duplicate check is per entry, not a substring of the whole inbox.
+
+    A substring test discarded genuinely new facts whenever a longer entry
+    happened to contain their words -- reporting success and storing
+    nothing, which is the worst failure a memory product has -- and let
+    anyone sharing a space suppress its inbox by padding it with likely
+    phrasings.
+    """
+    me = caller_for(household["wouter"])
+    await capture.remember(me, "", "Wouter is allergic to penicillin and nuts")
+    second = await capture.remember(me, "", "allergic to penicillin")
+    assert second["duplicate"] is False
+    inbox = await _read(me, "personal", "inbox.md")
+    assert inbox.body.count("allergic to penicillin") == 2
+
+
+async def test_remember_into_a_named_space(household):
+    """A fact for a group goes to that space's inbox, and only there."""
+    me = caller_for(household["wouter"])
+    result = await capture.remember(
+        me, "", "school run swaps to me on Fridays", "household"
+    )
+    assert result["space"] == "household"
+    assert "Fridays" in (await _read(me, "household", "inbox.md")).body
+    assert await _read(me, "personal", "inbox.md") is None
+
+
 async def test_capture_records_who_wrote(household):
     """The writer kind of the caller is kept on each change."""
     person = Caller(
@@ -393,6 +421,18 @@ async def test_write_refuses_what_write_pages_refuses(household, engrams, code):
     assert refused.value.message != code
 
 
+async def test_write_names_the_malformed_engram(household):
+    """The refusal says which engram in the list is wrong, and nothing lands."""
+    me = caller_for(household["wouter"])
+    with pytest.raises(MethodError) as refused:
+        await capture.write(
+            me, "", "personal", [{"path": "a.md", "body": "ok"}, {"path": "b.md"}], "x"
+        )
+    assert refused.value.code == "malformed_item"
+    assert "Engram 2 in the list has no body" in refused.value.message
+    assert await _read(me, "personal", "a.md") is None
+
+
 # --- store_file ------------------------------------------------------------------
 
 
@@ -426,6 +466,16 @@ async def test_store_file_then_open(household, store):
         ("a.pdf", "not base64!", "application/pdf", "A file.", "invalid_base64"),
         ("  ", "eA==", "application/pdf", "A file.", "invalid_filename"),
         ("a.pdf", "eA==", "pdf", "A file.", "invalid_mime"),
+        # Stored, sent to the object store and signed into a URL: a header
+        # smuggled in after a line break must not get through.
+        (
+            "a.pdf",
+            "eA==",
+            "text/html; charset=utf-8\r\nX-Evil: 1",
+            "A file.",
+            "invalid_mime",
+        ),
+        ("a.pdf", "eA==", "text/", "A file.", "invalid_mime"),
         ("a.pdf", "eA==", "application/pdf", "  ", "description_required"),
     ],
 )

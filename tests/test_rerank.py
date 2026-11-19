@@ -626,8 +626,7 @@ async def test_the_search_log_works_outside_a_transaction(
 async def test_the_search_tools_ask_no_model_inside_a_transaction(
     household, reranker, embedder, monkeypatch
 ):
-    from reef.server import search
-    from reef.server import search_pages as search_tool
+    from reef.server import recall, search
 
     me = principal_for(household["wouter"])
     monkeypatch.setattr(
@@ -635,8 +634,8 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
     )
     async with transaction_scope():
         await _boilers(me)
-    results = await search_tool("boiler")
-    assert results and results[0]["path"] == "answer.md"
+    results = await recall("", "boiler")
+    assert results and results[0]["engram"] == "answer.md"
     connector = await search("boiler")
     assert len(connector["results"]) > 1
     assert reranker.in_transaction == [False, False]

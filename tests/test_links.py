@@ -14,8 +14,8 @@ from reef.db import DB, transaction_scope
 from reef.engrams import delete_engram, get_engram, save_engram
 from reef.jobs import BACKFILL_LINKS
 from reef.links import backfill_links, links_of, parse_target
+from reef.methods import Caller, find
 from reef.models import Engram, Job, Link
-from reef.server import tool_read_page
 from reef.worker import drain
 
 
@@ -390,11 +390,12 @@ async def test_an_editor_who_cannot_see_a_link_neither_breaks_nor_keeps_it(
 # --- surfaces ------------------------------------------------------------------
 
 
-async def test_read_page_carries_links_and_backlinks(tx, household):
+async def test_open_carries_links_and_backlinks(tx, household):
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "a.md", "x", message="x")
     await save_engram(me, "personal", "b.md", "[[a.md]]", message="x")
-    payload = await tool_read_page(me, "personal", "a.md")
+    caller = Caller(principal=me, writer="assistant", session_id=None)
+    [payload] = await find.open(caller, "", ["personal/a.md"])
     assert payload["links"] == []
     assert _targets(payload["linked_from"]) == [("personal", "b.md")]
 

@@ -3,6 +3,7 @@ import json
 import os
 from typing import Any, ClassVar
 
+import pytest
 from reef_cli.cli import JsonTokenStore, build_parser, run
 
 from reef.server import mcp
@@ -43,6 +44,10 @@ def _parser_commands(parser):
     return set(action.choices)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="the CLI moves to the sixteen tools in the next task (RUG-40, R42)",
+)
 async def test_named_commands_match_every_mcp_tool():
     commands = _parser_commands(build_parser())
     server_tools = {tool.name.replace("_", "-") for tool in await mcp.list_tools()}

@@ -5,19 +5,50 @@ the clearest case — it restricts a connector to `search` and `fetch` and
 ignores every other tool — and the same pair is what makes reef usable as a
 company knowledge source.
 
-These are adapters, not new capability: `search` is `search_pages` reshaped,
-and `fetch` is `read_page`/`read_file` behind a single opaque id. They inherit
-the access rules of what they wrap, which is the point — a connector shape
-must not become a way around the boundary.
+These are adapters, not new capability: `search` is the search `recall` uses,
+reshaped, and `fetch` is what `open` reads, behind a single opaque id. They
+inherit the access rules of what they wrap, which is the point — a connector
+shape must not become a way around the boundary.
+
+The exact shapes, through a real client, are pinned in
+``test_tool_surface.py``; these call the methods.
 """
 
 from reef.access import Principal
 from reef.engrams import save_engram
-from reef.server import PROTOCOL_ID, tool_fetch, tool_search
+from reef.methods import Caller, connector
+from reef.methods.connector import PROTOCOL_ID
 
 
 def principal_for(person) -> Principal:
+    """Build the principal for a seeded person.
+
+    :param person: a seeded person
+    :returns: the principal
+    """
     return Principal(person_id=person.id, email=person.email)
+
+
+async def tool_search(principal: Principal, query: str) -> dict:
+    """Search as the connector tool does: as the assistant, with no reason.
+
+    :param principal: who searches
+    :param query: words to search for
+    :returns: the connector payload
+    """
+    caller = Caller(principal=principal, writer="assistant", session_id=None)
+    return await connector.search(caller, "", query)
+
+
+async def tool_fetch(principal: Principal, identifier: str) -> dict:
+    """Fetch as the connector tool does: as the assistant, with no reason.
+
+    :param principal: who fetches
+    :param identifier: an id from search
+    :returns: the connector payload
+    """
+    caller = Caller(principal=principal, writer="assistant", session_id=None)
+    return await connector.fetch(caller, "", identifier)
 
 
 def first_hit(payload: dict) -> dict:
@@ -134,6 +165,17 @@ async def test_search_cannot_see_another_persons_space(tx, household):
     )
     results = (await tool_search(partner, "Vaillant"))["results"]
     assert all("secret.md" not in r["id"] for r in results)
+
+
+async def test_fetch_of_a_space_the_caller_has_no_name_for_is_not_found(tx, household):
+    """An id naming somebody else's space answers as one naming nothing."""
+    partner = principal_for(household["partner"])
+    assert (await tool_fetch(partner, "page:wouter/secret.md")) == {
+        "error": "not_found"
+    }
+    assert (await tool_fetch(partner, "file:wouter/attachments/x")) == {
+        "error": "not_found"
+    }
 
 
 async def test_fetch_refuses_an_engram_the_caller_cannot_read(tx, household):

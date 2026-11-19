@@ -16,9 +16,9 @@ from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.export import build_full_dump
 from reef.jobs import REFRESH_ACTIVATION
+from reef.methods import Caller, capture, find
 from reef.models import AccessKind, EngramAccess, EngramHeat, Job
 from reef.search import search_engrams
-from reef.server import tool_read_page, tool_remember
 from reef.usage import activations, record, refresh_activation
 
 DECAY = get_settings().usage.decay
@@ -28,6 +28,41 @@ from reef.worker import drain
 
 def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
+
+
+def _caller(principal: Principal) -> Caller:
+    """Build the caller the MCP transport would build.
+
+    :param principal: the person
+    :returns: the caller
+    """
+    return Caller(principal=principal, writer="assistant", session_id=None)
+
+
+async def _open(
+    principal: Principal, space: str, path: str, as_of: str | None = None
+) -> dict:
+    """Open one engram as an assistant would.
+
+    :param principal: who opens it
+    :param space: the person's name for the space
+    :param path: the engram's path
+    :param as_of: a moment to read it as of, or None for now
+    :returns: what ``open`` gives for it
+    """
+    [opened] = await find.open(_caller(principal), "", [f"{space}/{path}"], as_of)
+    return opened
+
+
+async def _remember(principal: Principal, fact: str, space: str) -> dict:
+    """Remember a fact as an assistant would.
+
+    :param principal: who remembers it
+    :param fact: the fact
+    :param space: the person's name for the space
+    :returns: what ``remember`` gives
+    """
+    return await capture.remember(_caller(principal), "", fact, space)
 
 
 async def _log(principal) -> list[tuple[str, float]]:
@@ -53,13 +88,13 @@ async def _age(seed, hours: float, via: str | None = None) -> None:
 async def test_writing_and_reading_an_engram_are_recorded(tx, household):
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "house.md", "x", message="x")
-    await tool_read_page(me, "personal", "house.md")
+    await _open(me, "personal", "house.md")
     assert await _log(me) == [("write", 1.0), ("read", 1.0)]
 
 
 async def test_something_the_person_asked_to_remember_counts_three_times(tx, household):
     me = principal_for(household["wouter"])
-    await tool_remember(me, "The boiler is a Vaillant.", "personal")
+    await _remember(me, "The boiler is a Vaillant.", "personal")
     assert await _log(me) == [("remember", 3.0)]
 
 
@@ -76,8 +111,8 @@ async def test_being_shown_is_not_being_used(tx, household):
 async def test_a_miss_and_a_read_of_the_past_record_nothing(tx, household):
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "house.md", "x", message="x", via=None)
-    assert (await tool_read_page(me, "personal", "nope.md"))["error"] == "not_found"
-    await tool_read_page(me, "personal", "house.md", as_of="2999-01-01T00:00:00")
+    assert (await _open(me, "personal", "nope.md"))["error"] == "not_found"
+    await _open(me, "personal", "house.md", "2999-01-01T00:00:00")
     assert await _log(me) == []
 
 
@@ -103,7 +138,7 @@ async def test_one_members_use_of_a_shared_engram_is_invisible_to_another(
     partner = principal_for(household["partner"])
     async with transaction_scope():
         await save_engram(me, "household", "house.md", "x", message="x")
-        await tool_read_page(me, "household", "house.md")
+        await _open(me, "household", "house.md")
         await refresh_activation(me)
     async with transaction_scope():
         assert await _log(partner) == []
@@ -242,8 +277,8 @@ async def test_activation_follows_the_formula(household, seed):
     me = principal_for(household["wouter"])
     async with transaction_scope():
         engram = await save_engram(me, "personal", "house.md", "x", message="x")
-        await tool_read_page(me, "personal", "house.md")
-        await tool_remember(me, "x", "personal")
+        await _open(me, "personal", "house.md")
+        await _remember(me, "x", "personal")
     await seed.execute("DELETE FROM engram_access WHERE engram_id <> $1", engram.id)
     await seed.execute(
         "INSERT INTO engram_access (id, person_id, engram_id, via, weight) "
@@ -270,7 +305,7 @@ async def test_recent_and_frequent_use_both_raise_activation(household, seed):
         once = await save_engram(me, "personal", "once.md", "x", message="x")
         often = await save_engram(me, "personal", "often.md", "x", message="x")
         for _ in range(4):
-            await tool_read_page(me, "personal", "often.md")
+            await _open(me, "personal", "often.md")
     await _age(seed, 2)
     async with transaction_scope():
         await refresh_activation(me)
@@ -328,7 +363,7 @@ async def test_use_queues_one_refresh_which_the_worker_runs_later(household, see
     async with transaction_scope():
         await save_engram(me, "personal", "a.md", "x", message="x")
         await save_engram(me, "personal", "b.md", "x", message="x")
-        await tool_read_page(me, "personal", "a.md")
+        await _open(me, "personal", "a.md")
     async with transaction_scope():
         await arm(me)
         jobs = await Job.select().where(Job.kind == REFRESH_ACTIVATION)
@@ -363,7 +398,7 @@ async def test_a_session_is_stored_as_a_digest_never_as_the_id(
     monkeypatch.setattr(dependencies, "get_context", lambda: _Context())
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "a.md", "x", message="x")
-    await tool_read_page(me, "personal", "a.md")
+    await _open(me, "personal", "a.md")
     await arm(me)
     sessions = {row["session_id"] for row in await EngramAccess.select()}
     assert len(sessions) == 1
@@ -384,7 +419,7 @@ async def test_the_full_export_carries_links_and_only_the_persons_own_usage(
     partner = principal_for(household["partner"])
     await save_engram(me, "household", "a.md", "x", message="x")
     await save_engram(partner, "household", "b.md", "[[a.md]]", message="x")
-    await tool_read_page(partner, "household", "a.md")
+    await _open(partner, "household", "a.md")
     await refresh_activation(me)
     await refresh_activation(partner)
 

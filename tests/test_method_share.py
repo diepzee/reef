@@ -10,7 +10,6 @@ from reef.db import transaction_scope
 from reef.engrams import PERSONA_PATH, get_engram
 from reef.methods import REGISTRY, Caller, MethodError, share
 from reef.models import Engram, Revision
-from reef.server import tool_update_meta_page
 from tests.test_method_find import _save, caller_for
 
 BOILER = "Vaillant ecoTEC, serviced every autumn."
@@ -189,14 +188,3 @@ async def test_instruct_refuses_a_body_over_the_limit(household, monkeypatch):
     with pytest.raises(MethodError) as refused:
         await share.instruct(me, "", "too long a persona")
     assert refused.value.code == "engram_too_large"
-
-
-async def test_the_old_persona_tool_still_writes_the_same(household):
-    """After the move, the old tool returns the same shape and writes the persona."""
-    me = caller_for(household["wouter"])
-    async with transaction_scope():
-        written = await tool_update_meta_page(
-            me.principal, "personal", PERSONA_PATH, "Blunt.", "x", confirm=True
-        )
-    assert written == {"cove": "personal", "path": PERSONA_PATH, "version": 1}
-    assert (await _read(me, "personal", PERSONA_PATH)).body == "Blunt."

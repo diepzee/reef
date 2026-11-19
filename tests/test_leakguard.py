@@ -12,8 +12,8 @@ from reef.access import Principal, resolve_space
 from reef.db import transaction_scope
 from reef.engrams import PrivateContentLeak, edit_section, get_engram, save_engram
 from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
+from reef.methods import Caller, MethodError, capture
 from reef.promotion import confirm_promotion, prepare_promotion
-from reef.server import tool_remember
 
 DIARY = (
     "I was diagnosed HIV positive in the spring of 2019 and have been on "
@@ -113,9 +113,10 @@ async def test_remember_cannot_smuggle_a_private_engram_into_a_space(household):
     wouter = principal_for(household["wouter"])
     await _seed_private(wouter)
 
-    async with transaction_scope():
-        with pytest.raises(PrivateContentLeak):
-            await tool_remember(wouter, DIARY, cove="household")
+    caller = Caller(principal=wouter, writer="assistant", session_id=None)
+    with pytest.raises(MethodError) as refused:
+        await capture.remember(caller, "", DIARY, "household")
+    assert refused.value.code == "private_content"
 
 
 async def test_the_share_ceremony_still_works(household):
