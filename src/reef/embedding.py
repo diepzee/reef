@@ -37,7 +37,8 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
 import asyncio
-import math
+import logging
+import time
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -66,6 +67,36 @@ PAGE_SECONDS = 300.0
 
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
+
+#: How long a search waits for its question's vector, in seconds. A search
+#: that waits longer than this is worse than a keyword search that answers.
+QUESTION_SECONDS = 2.0
+
+#: How much of a question is embedded, in characters. Short on purpose: a
+#: long text takes the model long, and nobody should be able to make the
+#: service slow for everybody by searching for an essay.
+QUESTION_CHARS = 500
+
+#: How many searches in a row the service must fail before searches leave
+#: it alone. One failure is not enough: one person's odd query must not
+#: switch search by meaning off for everybody.
+FAILURES_TO_REST = 3
+
+#: How long searches leave the service alone after that, in seconds.
+#: Without it every search would wait out the full
+#: :data:`QUESTION_SECONDS` for as long as the service is down.
+REST_SECONDS = 60.0
+
+#: The largest number a stored vector can hold: pgvector keeps 32-bit floats.
+_FLOAT32_MAX = 3.4028234e38
+
+#: How many searches in a row the service failed.
+_failures = 0
+
+#: When searches may ask the service again, on the monotonic clock.
+_resting_until = 0.0
+
+log = logging.getLogger(__name__)
 
 #: How each model wants a passage and a question written, by the start of
 #: its name. These are the forms the experiment of 18 November 2026 was
@@ -212,6 +243,60 @@ def get_embedder() -> Embedder | None:
     return HttpEmbedder(settings.embedding_url, settings.embedding_model)
 
 
+async def embed_question(text: str) -> tuple[str, list[float]] | None:
+    """Embed a search question, quickly or not at all.
+
+    The question goes to the same service the pages go to, and nowhere
+    else. Whatever goes wrong, the answer is None and the search carries on
+    with keywords alone: a search must never fail because of this service.
+
+    After :data:`FAILURES_TO_REST` failures in a row the service is left
+    alone for :data:`REST_SECONDS`. Then one search tries it again while
+    the others keep to keywords, so a service that is still down costs one
+    search its wait and not all of them. A question the service refuses, or
+    an answer that is not a vector, does not count as a failure: those say
+    something about one question, not about the service.
+
+    Only the class of an error is logged, never the question.
+
+    :param text: the question as typed
+    :returns: the model's name and the question's vector, or None when
+        there is no service or it gave no usable answer in time
+    """
+    global _resting_until, _failures
+    embedder = get_embedder()
+    if embedder is None or time.monotonic() < _resting_until:
+        return None
+    if _failures >= FAILURES_TO_REST:
+        # The rest is over. This search tries; the ones beside it do not.
+        _resting_until = time.monotonic() + QUESTION_SECONDS
+    try:
+        async with asyncio.timeout(QUESTION_SECONDS):
+            vector = _checked(
+                await embedder.embed(
+                    [question(embedder.model_id, text[:QUESTION_CHARS])]
+                ),
+                1,
+            )[0]
+        if not any(vector):
+            # Nothing is close to a vector without a direction.
+            raise BadEmbedding("a vector of zeros")
+    # Broad on purpose: whatever went wrong, the search must still answer.
+    except Exception as error:  # noqa: BLE001
+        refused = (
+            isinstance(error, httpx.HTTPStatusError)
+            and error.response.status_code < 500
+        )
+        if not refused and not isinstance(error, BadEmbedding):
+            _failures += 1
+            if _failures >= FAILURES_TO_REST:
+                _resting_until = time.monotonic() + REST_SECONDS
+        log.warning("search answers by keywords alone (%s)", type(error).__name__)
+        return None
+    _failures = 0
+    return embedder.model_id, vector
+
+
 def _checked(vectors: list[list[float]], count: int) -> list[list[float]]:
     """Refuse an answer that is not one sound vector per piece.
 
@@ -228,13 +313,14 @@ def _checked(vectors: list[list[float]], count: int) -> list[list[float]]:
     for vector in vectors:
         if not isinstance(vector, list) or len(vector) != dims:
             raise BadEmbedding("a vector is malformed")
-        # type() and not isinstance(): True is an int to isinstance.
-        if not all(type(x) in (int, float) and math.isfinite(x) for x in vector):
+        # type() and not isinstance(): True is an int to isinstance. The
+        # bound also refuses NaN and infinity, which compare false.
+        if not all(type(x) in (int, float) and abs(x) <= _FLOAT32_MAX for x in vector):
             raise BadEmbedding("a vector holds something that is not a number")
     return vectors
 
 
-def _literal(vector: list[float]) -> str:
+def literal(vector: list[float]) -> str:
     """Write a vector the way pgvector reads it.
 
     :param vector: the numbers
@@ -364,7 +450,7 @@ async def embed_page(principal: Principal, page_id: UUID, embedder: Embedder) ->
             embedder.model_id,
             len(vector),
             piece.content_hash,
-            _literal(vector),
+            literal(vector),
         )
     await _charge(principal, len(missing))
     return len(missing)

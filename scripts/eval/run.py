@@ -70,7 +70,11 @@ async def measure(
     :param private: ask the private set of your own pages, not the benchmark
     :returns: one report per mode
     """
-    evalkit.refuse_unless_local(get_settings().dsn)
+    settings = get_settings()
+    evalkit.refuse_unless_local(settings.dsn)
+    if settings.embedding_url:
+        # The hybrid mode sends each question to this address.
+        evalkit.refuse_unless_local(settings.embedding_url)
     if private:
         questions = _private_questions()
         email = evalkit.PRIVATE_EMAIL

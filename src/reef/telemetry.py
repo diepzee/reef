@@ -129,15 +129,18 @@ def instrument_clients() -> None:
 
     A no-op when :func:`configure` did not run.
 
-    httpx carries the WorkOS token exchange. Headers and bodies are not
-    captured, so the authorization code and client secret stay out of spans.
+    httpx carries the WorkOS token exchange, and each search's query on its
+    way to the embedding service. Headers and bodies are not captured, so
+    the authorization code, the client secret and the query stay out of
+    spans. That is said outright here, because ``LOGFIRE_HTTPX_CAPTURE_ALL``
+    in the environment would otherwise switch body capture on.
     """
     if not _configured:
         return
 
     import logfire
 
-    logfire.instrument_httpx(capture_headers=False)
+    logfire.instrument_httpx(capture_all=False)
 
 
 @contextmanager

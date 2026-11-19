@@ -1,11 +1,15 @@
-"""Full-text search across the caller's pages and files, under RLS.
+"""Search across the caller's pages and files, under RLS.
 
-Postgres FTS, no embeddings yet: the spec's escalation path is
-index-plus-selective-read, and this is the selective part. The query runs
-in the same armed transaction as every other read, so the row-level
-policies scope it — a search can only ever rank content the caller could
-have read anyway, and a forgotten filter returns nothing rather than
-somebody else's memories.
+Two rankings, merged. Postgres full-text search finds pages and files by
+their words. Where the deployment has an embedding service, the stored
+vectors find pages by their meaning, and the two rankings are fused. See
+:func:`search_pages`. Without a service, or when it does not answer, search
+is keyword search and nothing else changes.
+
+Every query runs in the same armed transaction as every other read, so the
+row-level policies scope it — a search can only ever rank content the
+caller could have read anyway, and a forgotten filter returns nothing
+rather than somebody else's memories.
 
 The searchable text of a row is stored, not recomputed. Each table carries
 a generated ``search_vector`` column, declared by :func:`search_statements`.
@@ -28,9 +32,16 @@ the Dutch stemmer. A query is parsed under both configurations and the two
 are ORed, so either reading of a word can match.
 """
 
-from reef import searchlog
+import logging
+import re
+from uuid import UUID
+
+from reef import embedding, searchlog
 from reef.access import Principal, alias_map, resolve_cove
+from reef.db import DB
 from reef.models import AttachmentStatus, Page
+
+log = logging.getLogger(__name__)
 
 #: Text search configurations indexed for every row, in this order. Adding
 #: one changes the stored column's expression, which a migration has to do.
@@ -183,11 +194,18 @@ _HITS_SQL = f"""
     )
 """
 
-_RESULTS_SQL = f"""
+
+def _results_sql(order: str) -> str:
+    """Return the statement that turns chosen hits into result rows.
+
+    :param order: the ``ORDER BY`` expression, over the ``hits`` relation
+    :returns: the final ``SELECT`` of a search
+    """
+    return f"""
     SELECT
         hits.kind,
         hits.id,
-        hits.cove_id,
+        COALESCE(pages.cove_id, attachments.cove_id) AS cove_id,
         pages.path,
         pages.title,
         attachments.object_key AS key,
@@ -200,10 +218,94 @@ _RESULTS_SQL = f"""
     CROSS JOIN query
     LEFT JOIN pages ON hits.kind = 'page' AND pages.id = hits.id
     LEFT JOIN attachments ON hits.kind = 'file' AND attachments.id = hits.id
-    ORDER BY hits.every_word DESC, hits.rank DESC, hits.at DESC
+    WHERE pages.id IS NOT NULL OR attachments.id IS NOT NULL
+    ORDER BY {order}
 """
 
+
+_KEYWORD_ORDER = "hits.every_word DESC, hits.rank DESC, hits.at DESC"
+
+_RESULTS_SQL = _results_sql(_KEYWORD_ORDER)
+
+#: The keyword ranking alone, for the fusion: which rows, in which order,
+#: and whether a row is ``sure``. A row is sure when it has no vector to be
+#: judged by: a file, or a page that is not embedded yet. In a short query
+#: a page that holds every word is sure as well. See :func:`fuse` for what
+#: that is worth. The first parameter says whether the query is short.
+_RANKING_SQL = f"""
+    SELECT hits.kind, hits.id,
+        ({{}} AND hits.every_word) OR hits.kind = 'file' OR NOT EXISTS (
+            SELECT 1 FROM page_embeddings e
+            WHERE e.page_id = hits.id AND e.model_id = {{}} AND e.dims = {{}}
+        ) AS sure
+    FROM hits ORDER BY {_KEYWORD_ORDER}
+"""
+
+#: The longest query, in words, in which holding every word makes a page
+#: sure. Somebody who types an identifier or a name wants the page that
+#: has it. In a whole question, holding every word says little: measured on
+#: the benchmark on 19 November 2026, treating those pages as sure as well
+#: found the right page for 44.0% of questions, against 46.0% without.
+SURE_WORDS = 3
+
+#: The rows the fusion chose, in its order. They pass through the same
+#: joins as a keyword hit, so row security decides once more what is shown.
+_CHOSEN_SQL = """
+    hits AS (
+        SELECT chosen.kind, chosen.id, chosen.ord
+        FROM unnest({}::text[], {}::uuid[]) WITH ORDINALITY
+            AS chosen(kind, id, ord)
+    )
+"""
+
+_CHOSEN_RESULTS_SQL = _results_sql("hits.ord")
+
+#: Pages by meaning: each page counts for its closest piece. Only vectors of
+#: the model that embedded the question can be compared with it, and only
+#: ones of its length: ``<=>`` raises on two lengths. There is no vector
+#: index, see :func:`reef.rls.embedding_statements`, so this compares every
+#: vector the caller can see.
+_SEMANTIC_SQL = """
+    SELECT e.page_id AS id
+    FROM page_embeddings e
+    JOIN pages ON pages.id = e.page_id
+    WHERE e.model_id = {} AND e.dims = {}%s
+    GROUP BY e.page_id
+    ORDER BY min(e.embedding <=> {}::vector), e.page_id
+    LIMIT {}
+"""
+
+#: How many results of each ranking take part in the fusion.
+FUSION_DEPTH = 50
+
+#: The constant of reciprocal rank fusion. 60 is the value from the paper.
+RRF_K = 60
+
+#: How much a place in the meaning ranking counts, against 1 for a place in
+#: the keyword ranking. Measured through this code on 19 November 2026, on
+#: the benchmark in ``scripts/eval`` and on a private set of real pages.
+#: Share of questions with a right page in the first five results:
+#:
+#: ============  =========  =======
+#: weight        benchmark  private
+#: ============  =========  =======
+#: keywords      37.5%      80.0%
+#: 1             47.0%      92.5%
+#: 2             46.8%      100%
+#: 3             46.0%      100%
+#: ============  =========  =======
+SEMANTIC_WEIGHT = 2.0
+
+#: A quoted phrase or an excluded word. Such a query says exactly what a
+#: page must or must not hold, and a ranking by meaning would bring back
+#: the very pages it rules out. Any dash that does not follow a letter or
+#: digit counts, because Postgres reads ``a - b`` and ``a(-b)`` as
+#: exclusions too. That also catches ``a -> b`` and ``-5``, which only
+#: costs those queries the ranking by meaning. ``check-up`` is a word.
+_EXACT = re.compile(r'"|(?<!\w)-')
+
 _COVE_FILTER = " AND cove_id = {}"
+_PAGE_COVE_FILTER = " AND pages.cove_id = {}"
 
 _MAX_RESULTS = 50
 
@@ -225,6 +327,89 @@ def _row_payload(row: dict, aliases: dict) -> dict:
     return {**common, "path": row["path"], "title": row["title"]}
 
 
+def fuse(
+    lexical: list[tuple[str, UUID, bool]], semantic: list[UUID]
+) -> list[tuple[str, UUID]]:
+    """Merge the keyword ranking and the meaning ranking into one.
+
+    Reciprocal rank fusion: a row scores by its place in each ranking, not
+    by the rankings' own scores, which cannot be compared. A row in both
+    outranks a row at the same place in one.
+
+    A place in the meaning ranking counts :data:`SEMANTIC_WEIGHT` times a
+    place in the keyword ranking. Left at that, any page close in meaning
+    would outrank the best keyword hit that is not, and two kinds of row
+    would vanish from the first results: a file or a fresh page, which has
+    no vector to be close with, and the one page that holds the exact
+    identifier somebody typed, when the model does not place it among the
+    closest. Which hits are sure is decided by :data:`_RANKING_SQL`. So a keyword hit marked sure that is missing from the meaning
+    ranking is taken to stand as high there as it stands by words. Being
+    absent costs it nothing. A sure hit that is in the meaning ranking is
+    judged by its real place, like any other.
+
+    :param lexical: kind, id and sureness of the keyword hits, best first
+    :param semantic: ids of the pages closest in meaning, best first
+    :returns: kind and id of every row in either ranking, best first
+    """
+    place = {page_id: rank for rank, page_id in enumerate(semantic, 1)}
+    score: dict[tuple[str, UUID], float] = {}
+    for rank, (kind, row_id, sure) in enumerate(lexical, 1):
+        by_meaning = place.pop(row_id, None) if kind == "page" else None
+        if sure and by_meaning is None:
+            by_meaning = rank
+        score[(kind, row_id)] = 1.0 / (RRF_K + rank) + (
+            SEMANTIC_WEIGHT / (RRF_K + by_meaning) if by_meaning else 0.0
+        )
+    for page_id, rank in place.items():
+        score[("page", page_id)] = SEMANTIC_WEIGHT / (RRF_K + rank)
+    # sorted() is stable, so equal scores keep the keyword ranking's order.
+    return sorted(score, key=lambda key: score[key], reverse=True)
+
+
+async def _closest_pages(
+    query: str, cove_ids: list
+) -> tuple[list[UUID], str, int] | None:
+    """Rank the caller's pages by meaning, if that is possible right now.
+
+    The statement runs inside a savepoint. If it fails, for whatever
+    reason, the savepoint is rolled back and the search goes on with
+    keywords: a failed statement would otherwise abort the transaction and
+    the person would get an error instead of results.
+
+    :param query: the search text
+    :param cove_ids: the one cove to stay inside, or an empty list
+    :returns: page ids closest first, with the model and the vector length
+        they were ranked by. None when the query is exact, when there is no
+        embedding service, when it gave no answer, or when no visible page
+        has a vector of its model.
+    """
+    if _EXACT.search(query):
+        return None
+    embedded = await embedding.embed_question(query)
+    if embedded is None:
+        return None
+    model_id, vector = embedded
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Page.raw(
+            _SEMANTIC_SQL % (_PAGE_COVE_FILTER if cove_ids else ""),
+            model_id,
+            len(vector),
+            *cove_ids,
+            embedding.literal(vector),
+            FUSION_DEPTH,
+        )
+    # Broad on purpose: whatever went wrong, the search must still answer.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search answers by keywords alone (%s)", type(error).__name__)
+        return None
+    await savepoint.release()
+    if not rows:
+        return None
+    return [row["id"] for row in rows], model_id, len(vector)
+
+
 async def search_pages(
     principal: Principal,
     query: str,
@@ -232,17 +417,28 @@ async def search_pages(
     limit: int = 10,
     *,
     log: bool = False,
+    semantic: bool = True,
 ) -> list[dict]:
     """Search every page and described file the caller can see, best match first.
 
-    ``websearch_to_tsquery`` parses the query, so plain words, quoted
-    phrases, and ``-exclusions`` all work and malformed input cannot raise.
-    A page need not hold every word: pages that do come first, then pages
-    holding some of them. A query with an exclusion is the exception and
-    stays strict. See :data:`_QUERY_SQL`.
+    **By words.** ``websearch_to_tsquery`` parses the query, so plain
+    words, quoted phrases, and ``-exclusions`` all work and malformed input
+    cannot raise. A page need not hold every word: pages that do come
+    first, then pages holding some of them. A query with an exclusion is
+    the exception and stays strict. See :data:`_QUERY_SQL`.
     Files match on filename and description; only files whose bytes landed
     (status ``ready``) appear, because a hit the reader cannot open reads
     as reef losing their file.
+
+    **By meaning.** Where there is an embedding service, the query is
+    embedded and the pages closest to it are merged in, see :func:`fuse`.
+    A page can then be found that shares no word with the query, so a
+    search with vectors rarely comes back empty. A query with a quoted
+    phrase or an exclusion is not merged: it stays exact. Files have no
+    vectors and are found by words only.
+
+    Search never fails because of the embedding service. Without one, or
+    when it is slow or down, the answer is the keyword ranking.
 
     :param principal: the authenticated person
     :param query: words to search for
@@ -251,6 +447,8 @@ async def search_pages(
     :param log: record the search in the person's search log. Set by the
         tools a person's assistant calls, not by scripts. See
         :mod:`reef.searchlog`, which records nothing unless switched on.
+    :param semantic: merge in the ranking by meaning when there is one.
+        False measures keyword search alone.
     :returns: one dict per hit — pages carry path and title, files key and
         filename; both carry the cove alias, kind, and a snippet
     :raises AccessDenied: when ``cove`` names no cove of the caller's
@@ -269,12 +467,38 @@ async def search_pages(
         target = await resolve_cove(principal, cove)
         cove_filter = _COVE_FILTER
         cove_ids = [target.id]
-    sql = (
-        _QUERY_SQL
-        + _HITS_SQL.format(page_filter=cove_filter, file_filter=cove_filter)
-        + _RESULTS_SQL
+    hits_sql = _QUERY_SQL + _HITS_SQL.format(
+        page_filter=cove_filter, file_filter=cove_filter
     )
-    rows = await Page.raw(sql, query, query, *cove_ids, ready, *cove_ids, limit)
+    closest = await _closest_pages(query, cove_ids) if semantic else None
+    if closest:
+        page_ids, model_id, dims = closest
+        ranking = await Page.raw(
+            hits_sql + _RANKING_SQL,
+            query,
+            query,
+            *cove_ids,
+            ready,
+            *cove_ids,
+            max(limit, FUSION_DEPTH),
+            len(query.split()) <= SURE_WORDS,
+            model_id,
+            dims,
+        )
+        chosen = fuse(
+            [(row["kind"], row["id"], row["sure"]) for row in ranking], page_ids
+        )[:limit]
+        rows = await Page.raw(
+            _QUERY_SQL + _CHOSEN_SQL + _CHOSEN_RESULTS_SQL,
+            query,
+            query,
+            [kind for kind, _ in chosen],
+            [str(row_id) for _, row_id in chosen],
+        )
+    else:
+        rows = await Page.raw(
+            hits_sql + _RESULTS_SQL, query, query, *cove_ids, ready, *cove_ids, limit
+        )
     if log:
         await searchlog.record(
             principal, query, [row["id"] for row in rows if row["kind"] == "page"]

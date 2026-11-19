@@ -54,6 +54,20 @@ It does not ask a model to answer. It checks retrieval only.
 |---|---|
 | `lexical` | Search as it ships: the question as typed |
 | `lexical-any` | The same search, with the question rewritten so its words are alternatives |
+| `hybrid` | Words and meaning together, as search ships once a reef has an embedding service |
+
+`hybrid` needs a local embedding service and the eval person's vectors:
+
+```bash
+ollama pull embeddinggemma:300m
+export REEF_EMBEDDING_URL=http://127.0.0.1:11434
+just worker            # embeds the pages; lift REEF_EMBEDDING_DAILY_CAP for the benchmark
+just eval-private
+```
+
+Without them `hybrid` scores the same as `lexical`, because that is how
+search behaves without a service. The run stops if the address is not on
+this machine.
 
 New modes are added to `MODES` in `evalkit.py`.
 
@@ -83,6 +97,14 @@ By question type, `any@5`, for the current search:
 
 Preference questions share no words with the page that answers them. No
 keyword search finds them.
+
+All 470 questions, 18,239 pages, first five results, through the product
+code with EmbeddingGemma 300m on a local Ollama.
+
+| Date | Mode | any@5 | all@5 | MRR | Per search |
+|---|---|---|---|---|---|
+| 19 Nov 2026 | `lexical` | 37.5% | 18.7% | 0.262 | 0.25 s |
+| 19 Nov 2026 | `hybrid` | 46.8% | 25.1% | 0.333 | 0.60 s |
 
 Add a row to the table whenever a change to search moves the numbers.
 
@@ -115,6 +137,8 @@ Embeddings are EmbeddingGemma 300m. The reranker is
 | Hybrid, reranker reads 30 pages, 2 passages each | 55.5% | 34.0% | 0.420 | 3.6 |
 | Hybrid, reranker reads 50 pages, 2 passages each | 55.3% | 34.9% | 0.420 | 5.48 |
 
+- Search as built weighs embeddings 2, not 3, and cuts pages by heading.
+  Its own numbers are under Results above.
 - A second passage per page is worth about 4 points. More pages are not.
 - The small reranker `mmarco-mMiniLMv2-L12-H384-v1` scored 48.3% and is not
   worth having.

@@ -698,9 +698,22 @@ queued and the tables `page_embeddings` and `embedding_spend` are empty.
   five minutes. The worker logs the class of the error, never the text.
 - **Old pages** are embedded after an assistant of somebody who may write
   to their cove next loads the index.
+- **Search uses the vectors** as soon as the address is set on `reef-app`.
+  Each search sends its query to the service, waits at most two seconds,
+  and merges the pages closest in meaning with the pages found by words.
+  A query with a quoted phrase or a `-word` is not sent: it stays exact.
+- **When the service is slow or down**, search answers with keywords
+  alone. After three failures in a row it leaves the service alone for a
+  minute, then lets one search try again. `reef-app` logs
+  `search answers by keywords alone` with the class of the error, never
+  the query. Search itself never fails because of the service.
+- **Keyword hits keep their place.** A file, a page that is not embedded
+  yet, and a page that holds every word of the query are not pushed down
+  for being absent from the ranking by meaning.
 - **A vector is as private as its page.** Do not copy `page_embeddings`
   anywhere a page may not go: text can be recovered from vectors.
-- **Switching it off** stops new embedding. The vectors already stored
+- **Switching it off** stops new embedding, and search goes back to
+  keywords alone. The vectors already stored
   stay, also of text since edited out of a page. To remove them:
   `TRUNCATE page_embeddings;` as a superuser. Pages are embedded again as
   they are saved or backfilled once the address is set again.
