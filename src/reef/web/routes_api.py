@@ -607,6 +607,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
         title=title,
         tags=tags,
         expected_version=expected_version,
+        channel="person",
     )
     return await _engram_payload(space, engram)
 

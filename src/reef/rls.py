@@ -1699,6 +1699,90 @@ def search_log_statements() -> list[str]:
     ]
 
 
+CALL_LOG_DAYS = 90
+"""How many days a logged call is kept. A constant, not a setting: the privacy
+page promises it."""
+
+CALL_LOG_MAX_REASON = 200
+"""The longest reason stored. A longer one is cut by the application."""
+
+WRITER_KINDS = ("assistant", "person", "system")
+"""Who made a call or a change: an assistant over MCP, a person on the website,
+or the system. ``system`` is reserved and unused."""
+
+_PURGE_CALL_LOG = f"""
+DECLARE
+    removed integer;
+BEGIN
+    DELETE FROM call_log
+    WHERE called_at < LOCALTIMESTAMP - make_interval(days => {CALL_LOG_DAYS});
+    GET DIAGNOSTICS removed = ROW_COUNT;
+    RETURN removed;
+END
+"""
+
+
+def call_log_statements() -> list[str]:
+    """Return idempotent DDL arming RLS on the call log, and its purge.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives. Also adds the check on
+    ``revisions.channel``, the writer kind kept in engram history.
+
+    **The policies.** The table is private to one person. A person may add a
+    row for themselves and read their own rows. There is no ``UPDATE`` or
+    ``DELETE`` policy: a row is never rewritten and leaves only by the purge
+    or by the person's account being deleted. Nobody reads another person's
+    rows, operators included.
+
+    **The purge.** ``reef_purge_call_log`` is built like
+    ``reef_purge_search_log``: no argument, returns a count and never a row,
+    and deletes only rows that were due for deletion anyway.
+
+    :returns: SQL statements to execute in order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    writers = ", ".join(f"'{kind}'" for kind in WRITER_KINDS)
+    return [
+        "ALTER TABLE call_log DROP CONSTRAINT IF EXISTS call_log_reason_sane",
+        (
+            f"ALTER TABLE call_log ADD CONSTRAINT call_log_reason_sane "
+            f"CHECK (char_length(reason) <= {CALL_LOG_MAX_REASON})"
+        ),
+        "ALTER TABLE call_log DROP CONSTRAINT IF EXISTS call_log_writer_known",
+        (
+            f"ALTER TABLE call_log ADD CONSTRAINT call_log_writer_known "
+            f"CHECK (writer IN ({writers}))"
+        ),
+        "ALTER TABLE revisions DROP CONSTRAINT IF EXISTS revisions_channel_known",
+        (
+            f"ALTER TABLE revisions ADD CONSTRAINT revisions_channel_known "
+            f"CHECK (channel IS NULL OR channel IN ({writers}))"
+        ),
+        # What a person's own reading of their log uses.
+        (
+            "CREATE INDEX IF NOT EXISTS call_log_recent "
+            "ON call_log (person_id, called_at DESC)"
+        ),
+        # What the purge scans.
+        "CREATE INDEX IF NOT EXISTS call_log_age ON call_log (called_at)",
+        "ALTER TABLE call_log ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE call_log FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS call_log_select ON call_log",
+        "DROP POLICY IF EXISTS call_log_insert ON call_log",
+        f"CREATE POLICY call_log_select ON call_log FOR SELECT USING ({own})",
+        f"CREATE POLICY call_log_insert ON call_log FOR INSERT WITH CHECK ({own})",
+        *_function_ddl(
+            "reef_purge_call_log()",
+            _PURGE_CALL_LOG,
+            returns="integer",
+            writes=("call_log",),
+            volatility="VOLATILE",
+            language="plpgsql",
+        ),
+    ]
+
+
 _EMBEDDING_READ = "engram_id IN (SELECT id FROM engrams)"
 """The engram is readable. The subquery runs under ``engrams``' own policy."""
 

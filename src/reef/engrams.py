@@ -288,6 +288,7 @@ async def save_engram(
     allow_protected: bool = False,
     allow_private_copy: bool = False,
     via: AccessKind | None = AccessKind.WRITE,
+    channel: str = "assistant",
 ) -> Engram:
     """Create or overwrite an engram: snapshot a revision, bump engram and space versions.
 
@@ -306,6 +307,8 @@ async def save_engram(
     :param via: how to record this write in the principal's usage log, or
         None to record nothing -- for a write that is not the person using
         the engram
+    :param channel: who made the change, kept on the revision: ``assistant``
+        for a call over MCP, ``person`` for the website
     :raises PrivateContentLeak: for personal text written into a space
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new engram's path cannot be normalized
@@ -385,6 +388,7 @@ async def save_engram(
         body=body,
         message=message,
         author_id=principal.person_id,
+        channel=channel,
         created_at=engram.updated_at,
     ).save()
     await Space.update({Space.version: Space.version + 1}).where(Space.id == space.id)

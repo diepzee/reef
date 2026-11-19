@@ -26,6 +26,7 @@ from reef.engrams import list_engrams
 from reef.models import (
     Attachment,
     AttachmentStatus,
+    CallLog,
     Engram,
     EngramAccess,
     EngramHeat,
@@ -481,11 +482,28 @@ async def build_full_dump(
             .order_by(SearchLog.searched_at)
         ]
 
+        call_payload = [
+            {
+                "method": row["method"],
+                "reason": row["reason"],
+                "writer": row["writer"],
+                "outcome": row["outcome"],
+                "returned": row["returned"],
+                "duration_ms": row["duration_ms"],
+                "session": row["session_id"],
+                "at": row["called_at"],
+            }
+            for row in await CallLog.select()
+            .where(CallLog.person_id == principal.person_id)
+            .order_by(CallLog.called_at)
+        ]
+
         archive.writestr("index.json", _json_bytes(asdict(index)))
         archive.writestr("data/links.json", _json_bytes(link_payload))
         archive.writestr("data/usage.json", _json_bytes(usage_payload))
         archive.writestr("data/activation.json", _json_bytes(activation_payload))
         archive.writestr("data/searches.json", _json_bytes(search_payload))
+        archive.writestr("data/calls.json", _json_bytes(call_payload))
         archive.writestr("data/current.json", await build_json_export(principal))
         archive.writestr("data/revisions.json", _json_bytes(revision_payload))
         archive.writestr("data/files.json", _json_bytes(file_metadata))
@@ -513,6 +531,7 @@ async def build_full_dump(
                         "usage_log": len(usage_payload),
                         "activation": len(activation_payload),
                         "search_log": len(search_payload),
+                        "call_log": len(call_payload),
                     },
                 }
             ),

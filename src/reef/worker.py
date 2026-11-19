@@ -16,7 +16,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from reef import embedding, searchlog, telemetry
+from reef import calllog, embedding, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
@@ -215,24 +215,28 @@ PURGE_EVERY_SECONDS = 3600.0
 
 
 async def purge_search_log() -> int:
-    """Delete logged searches that are older than they may be kept.
+    """Delete logged searches and calls that are older than they may be kept.
 
     Not a job: a job is done for one person, and this is for everybody. It
-    reads no row and needs no principal. See :func:`reef.searchlog.purge`.
+    reads no row and needs no principal. See :func:`reef.searchlog.purge` and
+    :func:`reef.calllog.purge`.
 
-    :returns: how many rows were deleted
+    :returns: how many rows were deleted, both logs together
     """
     async with transaction_scope():
-        removed = await searchlog.purge()
-    if removed:
-        log.info("search log: %d old rows deleted", removed)
-    return removed
+        searches = await searchlog.purge()
+        calls = await calllog.purge()
+    if searches:
+        log.info("search log: %d old rows deleted", searches)
+    if calls:
+        log.info("call log: %d old rows deleted", calls)
+    return searches + calls
 
 
 async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
     """Drain the queue, wait, and repeat until asked to stop.
 
-    About once an hour it also deletes old search log rows. A count is
+    About once an hour it also deletes old search and call log rows. A count is
     logged, never a query.
 
     A stop request is honoured between jobs, never during one: the job in

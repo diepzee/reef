@@ -1399,6 +1399,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | usage | `REEF_USAGE_WINDOW` | `50` | How many of an engram's most recent uses count. |
 | usage | `REEF_USAGE_MIN_AGE_HOURS` | `0.01667` | The youngest a use is treated as, so none dominates. |
 | usage | `REEF_USAGE_REFRESH_DELAY_SECONDS` | `300` | How long after a use the refresh runs, once per busy session. |
+| calls | `REEF_CALL_LOG` | `0` | Log each call and the reason the assistant gave, for 90 days. Off unless switched on: the privacy page promises that people are told first. |
 <!-- settings:end -->
 
 **Escape hatches, in order of severity:**

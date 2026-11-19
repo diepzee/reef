@@ -202,6 +202,9 @@ class Revision(Table, tablename="revisions", db=DB):
     body = Varchar(length=None)
     message = Varchar()
     author_id = ForeignKey(Person, null=True, default=None, on_delete=OnDelete.set_null)
+    # Who made the change: assistant, person or system. Null on history that
+    # predates the column.
+    channel = Varchar(null=True, default=None)
     created_at = Timestamp(default=TimestampNow())
 
 
@@ -449,6 +452,32 @@ class SearchLog(Table, tablename="search_log", db=DB):
     searched_at = Timestamp(default=TimestampNow())
 
 
+class CallLog(Table, tablename="call_log", db=DB):
+    """One call to one method by one person's assistant, or by the person.
+
+    Kept so a person can see what was done in their name and why. Strictly
+    per person, like the search log: a person sees their own rows and nobody
+    else's, operators included. See :func:`reef.rls.call_log_statements`.
+
+    ``reason`` is the assistant's own words for why it called, cut to
+    :data:`reef.rls.CALL_LOG_MAX_REASON` characters. It never reaches Logfire
+    or the app logs. ``writer`` is ``assistant``, ``person`` or ``system``.
+    Rows older than :data:`reef.rls.CALL_LOG_DAYS` days are deleted.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    session_id = Varchar(null=True, default=None)
+    method = Varchar()
+    reason = Varchar(length=None, default="")
+    writer = Varchar()
+    duration_ms = Integer(default=0)
+    returned = Integer(default=0)
+    outcome = Varchar()
+    called_at = Timestamp(default=TimestampNow())
+
+
 class Vector(Column):
     """A pgvector ``vector`` column of any length.
 
@@ -541,6 +570,7 @@ TABLES = [
     EngramAccess,
     EngramHeat,
     SearchLog,
+    CallLog,
     EngramEmbedding,
     EmbeddingSpend,
 ]
