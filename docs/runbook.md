@@ -1342,6 +1342,16 @@ account deletes them.
 **How long.** 90 days. The worker purges older rows every hour, separately
 from the search log: one purge failing does not stop the other.
 
+**Totals, never rows.** `reef_call_log_totals(p_since)` is the only way to
+look across people. For each method and outcome since a moment it returns
+how many calls, how many came without a reason, and how many people made
+them. No person, reason, session or time. Print them with
+`just call-totals [days]` (30 by default). In production, run it inside
+`reef-app`, so it uses the app's own role:
+`railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/call_totals.py --days 30`.
+Do not read `call_log` itself as a superuser: the privacy page promises
+nobody reads another person's calls.
+
 **Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
 `reef-app`. **Before you set it**, update the privacy page and tell the
 people who use Reef. The privacy page promises that people hear about this

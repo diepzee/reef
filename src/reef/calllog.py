@@ -18,7 +18,12 @@ records it here too: the name called, the outcome ``retired_tool`` or
 :class:`reef.server._Gate`.
 
 **Whose it is.** One person's. Row security lets a person read their own
-rows and nobody else's, operators included. Nothing here reads across people.
+rows and nobody else's, operators included.
+
+**Totals across everybody.** :func:`totals` is the one look across people,
+and it sees only totals: per method and outcome, how many calls, how many had
+no reason and how many people made them. Never a person, a reason, a session
+or a time. It is how the log serves its purpose without anyone reading it.
 
 **How long.** :data:`RETENTION_DAYS` days. :func:`purge` deletes older rows
 for everybody, through a database function that takes no argument and
@@ -34,6 +39,8 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from uuid import uuid4
 
 from reef.access import Principal, arm
@@ -149,6 +156,47 @@ async def _insert(
         await savepoint.rollback_to()
         raise
     await savepoint.release()
+
+
+@dataclass(frozen=True)
+class Total:
+    """How the calls to one method that ended one way add up, across everybody."""
+
+    method: str
+    """The method, or the retired tool name, that was called."""
+
+    outcome: str
+    """How the calls ended: ``ok``, a refusal's code, or an error's class."""
+
+    calls: int
+    """How many calls."""
+
+    empty_reasons: int
+    """How many of them came without a reason."""
+
+    people: int
+    """How many people they were made for."""
+
+
+async def totals(since: datetime) -> list[Total]:
+    """Count the calls made since a moment, for everybody, without reading one.
+
+    Through a database function that returns only these totals, ordered by
+    method and outcome. Needs no principal.
+
+    :param since: count calls made at or after this moment; it must carry a
+        time zone
+    :returns: one total per method and outcome
+    :raises ValueError: when ``since`` has no time zone
+    """
+    if since.tzinfo is None:
+        raise ValueError("since needs a time zone")
+    rows = await CallLog.raw(
+        "SELECT method, outcome, calls, empty_reasons, people "
+        "FROM reef_call_log_totals({})",
+        since,
+    )
+    return [Total(**row) for row in rows]
 
 
 async def purge() -> int:

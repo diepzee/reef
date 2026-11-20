@@ -1721,9 +1721,22 @@ BEGIN
 END
 """
 
+#: The columns :func:`call_log_statements`' totals return, and nothing else.
+CALL_LOG_TOTALS_COLUMNS = ("method", "outcome", "calls", "empty_reasons", "people")
+
+_CALL_LOG_TOTALS = """
+    SELECT c.method::text, c.outcome::text, count(*),
+           count(*) FILTER (WHERE c.reason = ''),
+           count(DISTINCT c.person_id)
+    FROM call_log c
+    WHERE c.called_at >= p_since
+    GROUP BY c.method, c.outcome
+    ORDER BY c.method, c.outcome
+"""
+
 
 def call_log_statements() -> list[str]:
-    """Return idempotent DDL arming RLS on the call log, and its purge.
+    """Return idempotent DDL arming RLS on the call log, its purge and its totals.
 
     Not part of :func:`enable_statements`, for the reason
     :func:`appearance_statements` gives. Also adds the check on
@@ -1738,6 +1751,13 @@ def call_log_statements() -> list[str]:
     **The purge.** ``reef_purge_call_log`` is built like
     ``reef_purge_search_log``: no argument, returns a count and never a row,
     and deletes only rows that were due for deletion anyway.
+
+    **The totals.** ``reef_call_log_totals(p_since)`` is the one way to look
+    across people, and it returns only totals: for each method and outcome
+    since a moment, how many calls, how many had no reason, and how many
+    people made them. No person, reason, session or time leaves it. This is
+    what the call log is for: learning which tools assistants use and what
+    they ask for that no tool serves, without reading anybody's calls.
 
     :returns: SQL statements to execute in order
     """
@@ -1779,6 +1799,15 @@ def call_log_statements() -> list[str]:
             writes=("call_log",),
             volatility="VOLATILE",
             language="plpgsql",
+        ),
+        *_function_ddl(
+            "reef_call_log_totals(p_since timestamptz)",
+            _CALL_LOG_TOTALS,
+            returns=(
+                "TABLE(method text, outcome text, calls bigint, "
+                "empty_reasons bigint, people bigint)"
+            ),
+            reads=("call_log",),
         ),
     ]
 
