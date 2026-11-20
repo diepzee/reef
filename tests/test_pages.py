@@ -1,8 +1,12 @@
+from datetime import UTC, datetime
+
 import pytest
 
 from reef.access import Principal
 from reef.config import get_settings
-from reef.models import Cove, Revision
+from reef.context import backfill_index_fields
+from reef.links import backfill_links
+from reef.models import Cove, Page, Revision
 from reef.pages import (
     PageTooLarge,
     ProtectedPath,
@@ -117,3 +121,85 @@ async def test_a_body_at_the_ceiling_is_allowed(tx, household):
     ceiling = get_settings().pages.max_chars
     page = await save_page(me, "household", "big.md", "A" * ceiling, message="x")
     assert len(page.body) == ceiling
+
+
+# --- updated_at ----------------------------------------------------------------
+
+LONG_AGO = datetime(2020, 1, 1, 12, 0, 0, tzinfo=UTC).replace(tzinfo=None)
+
+
+async def _age(path: str) -> None:
+    """Make a page look as if it was written long ago.
+
+    :param path: the page to age
+    """
+    await Page.update({Page.created_at: LONG_AGO, Page.updated_at: LONG_AGO}).where(
+        Page.path == path
+    )
+
+
+async def _stamps(path: str) -> tuple[datetime, datetime]:
+    """Read a page's two timestamps, bypassing the code under test.
+
+    :param path: the page to read
+    :returns: its ``created_at`` and ``updated_at``
+    """
+    row = (
+        await Page.select(Page.created_at, Page.updated_at)
+        .where(Page.path == path)
+        .first()
+    )
+    return row["created_at"], row["updated_at"]
+
+
+async def test_a_new_page_is_updated_when_it_is_created(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "a.md", "one", message="x")
+    created, updated = await _stamps("a.md")
+    assert updated == created
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"body": "two"},
+        {"body": "one", "title": "Renamed"},
+        {"body": "one", "tags": ["new"]},
+    ],
+    ids=["body", "title", "tags"],
+)
+async def test_editing_a_page_moves_updated_at_and_leaves_created_at(
+    tx, household, change
+):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "a.md", "one", message="x", title="A", tags=[])
+    await _age("a.md")
+    await save_page(me, "personal", "a.md", message="edit", **change)
+    created, updated = await _stamps("a.md")
+    assert created == LONG_AGO
+    assert updated > LONG_AGO
+
+
+async def test_editing_a_section_moves_updated_at_and_leaves_created_at(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "a.md", "Boiler: old", message="x")
+    await _age("a.md")
+    await edit_section(me, "personal", "a.md", "old", "new", message="fix")
+    created, updated = await _stamps("a.md")
+    assert created == LONG_AGO
+    assert updated > LONG_AGO
+
+
+async def test_background_bookkeeping_does_not_move_updated_at(tx, household):
+    me = principal_for(household["wouter"])
+    await save_page(me, "personal", "a.md", "Boiler: [[b.md]]", message="x")
+    await _age("a.md")
+    await Page.raw(
+        "UPDATE pages SET indexed_version = NULL, linked_version = NULL, "
+        "reference_targets = NULL, description = NULL, size = NULL"
+    )
+    assert await backfill_index_fields(me) == 1
+    await Page.raw("UPDATE pages SET linked_version = NULL")
+    assert await backfill_links(me) == 1
+    created, updated = await _stamps("a.md")
+    assert (created, updated) == (LONG_AGO, LONG_AGO)

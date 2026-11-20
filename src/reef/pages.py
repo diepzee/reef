@@ -9,6 +9,8 @@ the ambient transaction, and an unarmed one returns nothing.
 import re
 from datetime import datetime
 
+from piccolo.columns.defaults.timestamp import TimestampNow
+
 from reef import audit, embedding, usage
 from reef.access import AccessDenied, Principal, resolve_cove, resolve_writable_cove
 from reef.config import get_settings
@@ -28,6 +30,17 @@ module imports this one, so the reverse would be a cycle.
 
 #: Characters a normalized page path may contain.
 _ALLOWED = re.compile(r"[a-z0-9\-/._]")
+
+
+def _now() -> datetime:
+    """Return the instant a write happened, as ``created_at`` records it.
+
+    Produced by the same default the timestamp columns use, so that
+    ``updated_at`` and ``created_at`` always compare on the same clock.
+
+    :returns: a naive ``datetime``
+    """
+    return TimestampNow().python()
 
 
 class SectionNotFound(Exception):
@@ -326,6 +339,7 @@ async def save_page(
     if page is None:
         if expected_version not in (None, 0):
             raise VersionConflict(f"{path!r} does not exist yet")
+        now = _now()
         page = Page(
             cove_id=cove.id,
             path=path,
@@ -335,6 +349,8 @@ async def save_page(
             version=1,
             indexed_version=1,
             linked_version=1,
+            created_at=now,
+            updated_at=now,
             **index_fields(body),
         )
         await page.save()
@@ -345,6 +361,7 @@ async def save_page(
                 f"{path!r} is at version {page.version}, expected {expected_version}"
             )
         page.body = body
+        page.updated_at = _now()
         page.version += 1
         page.indexed_version = page.version
         page.linked_version = page.version
@@ -364,6 +381,7 @@ async def save_page(
         body=body,
         message=message,
         author_id=principal.person_id,
+        created_at=page.updated_at,
     ).save()
     await Cove.update({Cove.version: Cove.version + 1}).where(Cove.id == cove.id)
     # After the page row is written: the links point at it, and retiring old
