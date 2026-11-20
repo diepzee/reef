@@ -1347,8 +1347,10 @@ look across people. For each method and outcome it returns how many calls
 and how many came without a reason. No person, reason, session or time, and
 not how many people: in a reef of three, that would point at one. It counts
 whole days in UTC, from the start of the day `p_days` days ago to the start
-of today, and refuses fewer than 7 days or more than 90. So no window can be
-aimed at one moment, and today's calls count from tomorrow. Print them with
+of today, and refuses fewer than 7 days or more than 90. The caller's
+`TimeZone` setting does not move these bounds: `called_at` holds UTC clock
+time and is compared as it is. So no window can be aimed at one moment, and
+today's calls count from tomorrow. Print them with
 `just call-totals [days]` (30 by default). In production, run it inside
 `reef-app`, so it uses the app's own role:
 `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/call_totals.py --days 30`.

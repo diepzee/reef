@@ -1729,8 +1729,10 @@ CALL_LOG_TOTALS_MIN_DAYS = 7
 """The fewest whole days the call log's totals cover. A shorter window could
 be aimed at one call."""
 
-#: The start of today on a UTC clock. Days are subtracted from this, before it
-#: becomes a moment, so a change to summer time cannot move a window's start.
+#: The start of today on a UTC clock, as a ``timestamp``. ``called_at`` holds
+#: UTC clock time too, so the window's bounds are compared with it as they
+#: are, with no time zone in between: a caller's ``TimeZone`` setting, which
+#: any session may set to an offset to the minute, cannot move them.
 _TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
 
 _CALL_LOG_TOTALS = f"""
@@ -1744,8 +1746,8 @@ BEGIN
     SELECT c.method::text, c.outcome::text, count(*),
            count(*) FILTER (WHERE c.reason = '')
     FROM call_log c
-    WHERE c.called_at >= ({_TODAY_UTC} - make_interval(days => p_days)) AT TIME ZONE 'UTC'
-      AND c.called_at < {_TODAY_UTC} AT TIME ZONE 'UTC'
+    WHERE c.called_at >= {_TODAY_UTC} - make_interval(days => p_days)
+      AND c.called_at < {_TODAY_UTC}
     GROUP BY c.method, c.outcome
     ORDER BY c.method, c.outcome;
 END

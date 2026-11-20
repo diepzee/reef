@@ -246,37 +246,35 @@ PRIVATE_REASON = "my divorce lawyer's number"
 PRIVATE_SESSION = "session-zebra-7731"
 
 
-def _midnight() -> datetime:
-    """Return the start of today, in UTC: where every window of totals ends.
-
-    :returns: an aware moment
-    """
-    return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+#: The start of today on a UTC clock, as the database sees it: where every
+#: window of totals ends. ``called_at`` holds UTC clock time, so calls are
+#: placed relative to this in SQL, with no time zone in between.
+TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
 
 
-async def _log_at(seed, person, method, reason, outcome, at: datetime) -> None:
-    """Log one call at a given moment, past row security.
+async def _log_at(connection, person, method, reason, outcome, before_today) -> None:
+    """Log one call a given time before the start of today, UTC clock.
 
-    The moment is passed with its time zone, and the column keeps it in the
-    database's own zone, as a call logged at that moment would be kept.
+    Placed by the database's clock, not Python's, so the two cannot disagree
+    about which day it is.
 
-    :param seed: the policy-free connection
+    :param connection: the policy-free connection, or one armed as ``person``
     :param person: whose call it is
     :param method: the method called
     :param reason: the reason given
     :param outcome: how the call ended
-    :param at: when, with a time zone
+    :param before_today: how long before the start of today, as a timedelta
     """
-    await seed.execute(
+    await connection.execute(
         "INSERT INTO call_log (id, person_id, session_id, method, reason, writer, "
         "outcome, called_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, "
-        "'assistant', $5, $6::timestamptz)",
+        f"'assistant', $5, {TODAY_UTC} - $6::interval)",
         person.id,
         PRIVATE_SESSION,
         method,
         reason,
         outcome,
-        at,
+        before_today,
     )
 
 
@@ -284,21 +282,19 @@ async def _seed_calls(seed, household) -> None:
     """Log calls for two people in the last week, and one older call.
 
     Wouter: two recalls (one without a reason) and a retired name. The
-    partner: one recall this week, and a write 30 days ago.
+    partner: one recall this week, and a write 30 days ago. None is near a
+    window's edge, so a run that crosses midnight counts them the same.
 
     :param seed: the policy-free connection
     :param household: the two people
     """
     wouter, partner = household["wouter"], household["partner"]
     day = timedelta(days=1)
-    midnight = _midnight()
-    await _log_at(seed, wouter, "recall", PRIVATE_REASON, "ok", midnight - 3 * day)
-    await _log_at(seed, wouter, "recall", "", "ok", midnight - 2 * day)
-    await _log_at(seed, wouter, "read_pages", "", "retired_tool", midnight - day)
-    await _log_at(seed, partner, "recall", "another reason", "ok", midnight - 2 * day)
-    await _log_at(
-        seed, partner, "write", "long ago", "version_conflict", midnight - 30 * day
-    )
+    await _log_at(seed, wouter, "recall", PRIVATE_REASON, "ok", 3 * day)
+    await _log_at(seed, wouter, "recall", "", "ok", 2 * day)
+    await _log_at(seed, wouter, "read_pages", "", "retired_tool", day)
+    await _log_at(seed, partner, "recall", "another reason", "ok", 2 * day)
+    await _log_at(seed, partner, "write", "long ago", "version_conflict", 30 * day)
 
 
 async def test_the_totals_count_each_method_and_outcome_across_people(household, seed):
@@ -331,7 +327,7 @@ async def test_the_totals_carry_no_person_reason_session_or_time(
         PRIVATE_REASON,
         "another reason",
         PRIVATE_SESSION,
-        str(_midnight().year),
+        str(datetime.now(UTC).year),
     ):
         assert private not in values
 
@@ -385,24 +381,61 @@ async def test_a_week_and_ninety_days_are_counted(household, seed, days):
     )
 
 
-async def test_the_window_is_whole_days_in_utc(household, seed):
+#: Calls at the edges of a week's window, by how long before the start of today.
+EDGES = {
+    "before": timedelta(days=7, seconds=1),
+    "first": timedelta(days=7),
+    "last": timedelta(seconds=1),
+    "today": timedelta(0),
+}
+
+
+async def _edge_totals(probe, person, zones: list[str]) -> dict[str, list[str]]:
+    """Log calls at the edges of a week, then read a week's totals in each zone.
+
+    All in one transaction, through the app's kind of role, armed as
+    ``person``: ``now()`` stands still within a transaction, so the window
+    cannot move between logging and counting, even across midnight.
+
+    :param probe: the non-owner connection
+    :param person: whose calls they are
+    :param zones: the ``TimeZone`` settings to count under, in turn
+    :returns: the methods counted, by zone
+    """
+    answers = {}
+    async with probe.transaction():
+        await probe.execute(
+            "SELECT set_config('app.person_id', $1, true)", str(person.id)
+        )
+        for method, before_today in EDGES.items():
+            await _log_at(probe, person, method, "", "ok", before_today)
+        for zone in zones:
+            await probe.execute("SELECT set_config('TimeZone', $1, true)", zone)
+            rows = await probe.fetch("SELECT method FROM reef_call_log_totals(7)")
+            answers[zone] = [row["method"] for row in rows]
+    return answers
+
+
+async def test_the_window_is_whole_days_in_utc(household, probe):
     """From the start of the day a week ago to the start of today, in UTC.
 
     A call at the first moment of the window counts, one a second earlier
     does not. Today does not count yet, so polling the totals during a day
     never shows when one call was made.
     """
-    me = household["wouter"]
-    midnight, second = _midnight(), timedelta(seconds=1)
-    start = midnight - timedelta(days=7)
-    for moment, method in (
-        (start - second, "before"),
-        (start, "first"),
-        (midnight - second, "last"),
-        (midnight, "today"),
-    ):
-        await _log_at(seed, me, method, "", "ok", moment)
-    assert [total.method for total in await calllog.totals(7)] == ["first", "last"]
+    assert await _edge_totals(probe, household["wouter"], ["UTC"]) == {
+        "UTC": ["first", "last"]
+    }
+
+
+async def test_the_callers_time_zone_cannot_move_the_window(household, probe):
+    """A session may set any zone, even one offset to the minute.
+
+    If the window followed it, a caller could aim the totals at any minute.
+    """
+    zones = ["UTC", "<-5754>+57:54", "Pacific/Chatham"]
+    answers = await _edge_totals(probe, household["wouter"], zones)
+    assert answers == {zone: ["first", "last"] for zone in zones}
 
 
 async def test_the_operators_script_prints_only_the_totals(household, seed):

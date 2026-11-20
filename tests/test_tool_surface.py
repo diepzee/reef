@@ -9,12 +9,14 @@ which is the part these tests are about.
 The client signs in as the development principal, as stdio does.
 """
 
+import asyncio
 import inspect
 import json
 import logging
 import os
 import subprocess
 import sys
+import time
 from collections.abc import AsyncIterator
 
 import pydantic_core
@@ -726,6 +728,32 @@ async def test_a_refusal_whose_caller_is_unknown_is_not_logged(
     assert await _all_calls(seed) == []
     assert "AccessDenied" in _logged(every_log)
     assert "secret@example.test" not in _logged(every_log)
+
+
+async def test_a_refusal_does_not_wait_on_a_database_that_hangs(
+    client, monkeypatch, seed, every_log
+):
+    """Logging may hold a refusal back only briefly; then it answers, unlogged.
+
+    Only the error's class is logged.
+    """
+    name, arguments = RETIRED_CALL
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    expected = _answer(await client.call_tool(name, arguments, raise_on_error=False))
+    await seed.execute("DELETE FROM call_log")
+
+    async def hangs():
+        """Wait as a connection to an unreachable database would."""
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(server, "current_principal", hangs)
+    monkeypatch.setattr(server, "REFUSAL_LOG_SECONDS", 0.1)
+    started = time.monotonic()
+    result = await client.call_tool(name, arguments, raise_on_error=False)
+    assert time.monotonic() - started < 5
+    assert _answer(result) == expected
+    assert await _all_calls(seed) == []
+    assert "TimeoutError" in _logged(every_log)
 
 
 async def test_an_unknown_tool_name_is_not_logged(client, monkeypatch, seed):

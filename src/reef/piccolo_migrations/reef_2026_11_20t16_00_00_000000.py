@@ -1,8 +1,10 @@
 """Count calls across people without reading them.
 
 Adds ``reef_call_log_totals(p_days)``: for each method and outcome, how many
-calls and how many had no reason, over whole days in UTC, from the start of
-the day ``p_days`` days ago to the start of today. It refuses fewer than 7
+calls and how many had no reason, over whole days on the UTC clock
+``called_at`` keeps, from the start of the day ``p_days`` days ago to the
+start of today, whatever time zone the caller's session is in. It refuses
+fewer than 7
 days or more than the 90 kept. No person, reason, session or time leaves it,
 and not how many people either. It is owned by the authz role, so it reads
 past row security, and only the app's roles may call it.
@@ -35,8 +37,8 @@ BEGIN
     SELECT c.method::text, c.outcome::text, count(*),
            count(*) FILTER (WHERE c.reason = '')
     FROM call_log c
-    WHERE c.called_at >= (date_trunc('day', now() AT TIME ZONE 'UTC') - make_interval(days => p_days)) AT TIME ZONE 'UTC'
-      AND c.called_at < date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+    WHERE c.called_at >= date_trunc('day', now() AT TIME ZONE 'UTC') - make_interval(days => p_days)
+      AND c.called_at < date_trunc('day', now() AT TIME ZONE 'UTC')
     GROUP BY c.method, c.outcome
     ORDER BY c.method, c.outcome;
 END

@@ -24,11 +24,9 @@ SECOND = "00000000-0000-0000-0000-0000000000a2"
 
 TOTALS = "SELECT * FROM reef_call_log_totals(7)"
 
-#: Two days before the start of today, in UTC: inside a week's totals.
-TWO_DAYS_AGO = (
-    "(date_trunc('day', now() AT TIME ZONE 'UTC') - interval '2 days') "
-    "AT TIME ZONE 'UTC'"
-)
+#: Two days before the start of today, on the UTC clock ``called_at`` keeps:
+#: inside a week's totals, even for a run that crosses midnight.
+TWO_DAYS_AGO = "date_trunc('day', now() AT TIME ZONE 'UTC') - interval '2 days'"
 
 
 @pytest_asyncio.fixture(scope="module")

@@ -30,6 +30,7 @@ call log itself: the name called and why it was refused, and nothing from the
 arguments.
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -841,6 +842,11 @@ def _misfit(name: str, arguments: dict) -> str | None:
     return None
 
 
+#: How long, in seconds, a refusal may wait to be logged before it answers
+#: anyway. Enough for two short transactions; not enough to keep a client
+#: waiting on a database that does not answer.
+REFUSAL_LOG_SECONDS = 2.0
+
 #: The outcome logged for a call to an old name: the code its answer ends with.
 RETIRED_TOOL = "retired_tool"
 
@@ -873,9 +879,11 @@ async def _log_refusal(name: str, outcome: str, duration_ms: int) -> None:
 
     The caller is found as :func:`_run` finds it, in a short transaction of
     its own, and the row is written outside it, as the method wrapper writes
-    its rows. If the caller cannot be found, nothing is recorded and only the
-    error's class is logged: its message can name an address. Nothing here
-    can fail the call; :func:`reef.calllog.record` catches its own errors.
+    its rows. If the caller cannot be found, or both steps together take
+    longer than :data:`REFUSAL_LOG_SECONDS`, nothing is recorded and only the
+    error's class is logged: a message can name an address. Nothing here can
+    fail the call or hold it back for long; :func:`reef.calllog.record`
+    catches its own errors.
 
     :param name: the tool's name, as the assistant called it
     :param outcome: :data:`RETIRED_TOOL` or :data:`INVALID`
@@ -884,25 +892,25 @@ async def _log_refusal(name: str, outcome: str, duration_ms: int) -> None:
     if not get_settings().calls.log:
         return
     try:
-        async with transaction_scope():
-            principal = await current_principal()
-        session_id = current_session_id()
-    # Broad on purpose: whatever went wrong, the refusal must still answer.
+        async with asyncio.timeout(REFUSAL_LOG_SECONDS):
+            async with transaction_scope():
+                principal = await current_principal()
+            await calllog.record(
+                principal,
+                session_id=current_session_id(),
+                writer="assistant",
+                method=name,
+                reason="",
+                duration_ms=duration_ms,
+                returned=0,
+                outcome=outcome,
+            )
+    # Broad on purpose: whatever went wrong, a timeout included, the refusal
+    # must still answer.
     except Exception as error:  # noqa: BLE001
         logger.warning(
             "call log: a refused call was not recorded (%s)", type(error).__name__
         )
-        return
-    await calllog.record(
-        principal,
-        session_id=session_id,
-        writer="assistant",
-        method=name,
-        reason="",
-        duration_ms=duration_ms,
-        returned=0,
-        outcome=outcome,
-    )
 
 
 class _Gate(Middleware):
