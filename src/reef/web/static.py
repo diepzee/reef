@@ -25,6 +25,7 @@ to those paths, so each page answers at exactly one address.
 
 import re
 from pathlib import Path
+from urllib.parse import quote
 
 from starlette.requests import Request
 from starlette.responses import (
@@ -136,6 +137,27 @@ def _door_rendered(index: Path) -> Response:
     return HTMLResponse(
         page.replace(_DOOR_SLOT, copy), headers={"cache-control": _HTML_CACHE}
     )
+
+
+#: App routes as they were before the cove-to-space, page-to-engram rename.
+#: People have them bookmarked, so they redirect rather than fall through to
+#: the SPA's not-found screen.
+_OLD_NEW_SPACE_PATH = "coves/new"
+_OLD_ENGRAM_PATH = re.compile(r"^s/(?P<space>[^/]+)/p/(?P<rest>.+)$")
+
+
+def _renamed_app_path(path: str) -> str | None:
+    """Map a pre-rename app route to its current route.
+
+    :param path: the request path under ``/app``
+    :returns: the current path under ``/app``, or ``None`` if ``path`` is not
+        an old route
+    """
+    if path == _OLD_NEW_SPACE_PATH:
+        return "spaces/new"
+    if match := _OLD_ENGRAM_PATH.match(path):
+        return f"s/{match['space']}/engram/{match['rest']}"
+    return None
 
 
 def _serve_or_fallback(path: str) -> Response:
@@ -423,13 +445,19 @@ def register_static_routes(mcp) -> None:
         return _serve_or_fallback("")
 
     async def app_path(request: Request) -> Response:
-        """Serve a static asset or fall back to the SPA shell.
+        """Redirect a pre-rename app route, else serve an asset or the SPA shell.
 
         :param request: the incoming request; ``path`` is the matched
             ``{path:path}`` route parameter
-        :returns: see :func:`_serve_or_fallback`
+        :returns: a permanent redirect for an old route, otherwise see
+            :func:`_serve_or_fallback`
         """
-        return _serve_or_fallback(request.path_params["path"])
+        path = request.path_params["path"]
+        renamed = _renamed_app_path(path)
+        if renamed is not None:
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(f"/app/{quote(renamed)}{query}", status_code=308)
+        return _serve_or_fallback(path)
 
     mcp.custom_route("/", methods=["GET"])(root)
     mcp.custom_route("/privacy", methods=["GET"])(privacy)

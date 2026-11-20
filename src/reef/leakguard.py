@@ -1,23 +1,23 @@
-"""Make the share ceremony the only route for personal content into a cove.
+"""Make the share ceremony the only route for personal content into a space.
 
-``prepare_to_share``/``confirm_share`` exists so that moving something out of
-the personal cove is a deliberate, disclosed act. Nothing enforced it. A
-plain ``write_page`` to a shared cove carrying a body just read out of
+The two calls of ``share`` exist so that moving something out of
+the personal space is a deliberate, disclosed act. Nothing enforced it. A
+plain ``write`` to a shared space carrying a body just read out of
 ``personal`` did the same thing in one call, with no nonce, no disclosure and
 no user confirmation — which made the ceremony a convention the assistant was
 asked to follow rather than a boundary the server held.
 
 That matters most when the assistant is not acting for its user. Every
-co-member of a cove controls text that lands verbatim in the victim's
-``load_index`` output — page titles, tags, and the first prose line, which
+co-member of a space controls text that lands verbatim in the victim's
+``load_index`` output — engram titles, tags, and the first prose line, which
 becomes the description — and that is the first thing an assistant reads in
 every conversation. An instruction planted there reaches a model that is
-holding both ``read_page(personal, …)`` and ``write_page(<cove>, …)`` at the
+holding both ``open(personal/…)`` and ``write(<space>, …)`` at the
 same time. The gap is not that the model can be persuaded; it is that being
 persuaded was sufficient.
 
-So this module removes the sufficiency. A write to a shared cove is checked
-against the caller's own personal pages, and a substantial verbatim run in
+So this module removes the sufficiency. A write to a shared space is checked
+against the caller's own personal engrams, and a substantial verbatim run in
 common is refused with a pointer to the ceremony.
 
 **What this is not.** It matches text, so it stops copying and does not stop
@@ -28,10 +28,10 @@ that names the sanctioned path rather than a silent leak. Treated as a proof
 it would be dangerous; treated as one layer it closes the easy route and
 leaves consent as the only wide one.
 
-The comparison is deliberately against **new** text only. Re-saving a page
+The comparison is deliberately against **new** text only. Re-saving an engram
 that already carries shared content must not start failing because the same
-words also exist somewhere in the personal cove, so the shingles already
-present in the stored page are subtracted before anything is judged. Only
+words also exist somewhere in the personal space, so the shingles already
+present in the stored engram are subtracted before anything is judged. Only
 text this write introduces can trip the guard.
 """
 
@@ -46,7 +46,7 @@ SHINGLE_WORDS = 12
 A floor, not a preference. Long enough that ordinary phrasing does not
 collide by chance -- twelve words identical across two documents is rarely a
 coincidence -- and short enough to catch a copied paragraph rather than only
-a copied page. Below roughly eight it starts refusing people quoting
+a copied engram. Below roughly eight it starts refusing people quoting
 themselves; far above it, the check only fires on wholesale duplication and
 misses the passage-sized leak that is the realistic one.
 
@@ -73,7 +73,7 @@ def shingles(text: str, *, size: int = SHINGLE_WORDS) -> set[bytes]:
     """Return hashed overlapping word runs of ``size`` words.
 
     Hashed rather than kept whole so that the set holds no readable content:
-    these are computed from personal pages and compared against a cove write,
+    these are computed from personal engrams and compared against a space write,
     and a bug that logged or returned one should not spill a private
     sentence. The digest is short because a collision here costs a false
     refusal, not a leak.
@@ -92,14 +92,14 @@ def shingles(text: str, *, size: int = SHINGLE_WORDS) -> set[bytes]:
 
 
 def overlaps(new_body: str, previous_body: str, private_bodies: list[str]) -> bool:
-    """Report whether this write introduces text copied from private pages.
+    """Report whether this write introduces text copied from private engrams.
 
-    :param new_body: the body about to be written to a shared cove
-    :param previous_body: what that page holds now; its runs are exempt, so
+    :param new_body: the body about to be written to a shared space
+    :param previous_body: what that engram holds now; its runs are exempt, so
         re-saving already-shared text never trips the guard
-    :param private_bodies: the caller's own personal page bodies
+    :param private_bodies: the caller's own personal engram bodies
     :returns: True if a run of :data:`SHINGLE_WORDS` words is both new here
-        and present in a personal page
+        and present in a personal engram
     """
     introduced = shingles(new_body) - shingles(previous_body)
     if not introduced:

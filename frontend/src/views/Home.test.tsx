@@ -1,7 +1,7 @@
 /**
- * The coves list, and the view choice that persists across visits.
+ * The spaces list, and the view choice that persists across visits.
  *
- * `covesView.test.ts` covers reading and writing the stored preference.
+ * `spacesView.test.ts` covers reading and writing the stored preference.
  * What only rendering shows is that the picker is a real tablist — the
  * selected tab has to report itself, or the choice is invisible to anyone
  * not looking at the highlight — and that choosing one records it.
@@ -24,7 +24,7 @@ mock.module("../useMembers", () => ({
   useMembers: () => ({ members: null, error: null }),
 }));
 // Both exports: AppShell imports the context to provide it, and a mock
-// missing it breaks that file at import time (see NewPage.test.tsx).
+// missing it breaks that file at import time (see NewEngram.test.tsx).
 mock.module("../useMembersSheet", () => ({
   MembersSheetContext: createContext<unknown>(null),
   useMembersSheet: () => ({ openMembers: () => {} }),
@@ -44,20 +44,20 @@ function renderHome() {
   );
 }
 
-/** One cove's index row. */
-function cove(alias: string) {
-  return { alias, version: 1, pages: [], attachments: [] };
+/** One space's index row. */
+function space(alias: string) {
+  return { alias, version: 1, engrams: [], attachments: [] };
 }
 
 beforeEach(() => {
   error = null;
   window.localStorage.clear();
-  index = { coves: [cove("trip"), cove("home")] };
+  index = { spaces: [space("trip"), space("home")] };
 });
 
 afterEach(cleanup);
 
-test("every cove is listed", () => {
+test("every space is listed", () => {
   renderHome();
   expect(screen.getByText("trip")).toBeDefined();
   expect(screen.getByText("home")).toBeDefined();
@@ -88,12 +88,12 @@ test("choosing a view records it for next time", () => {
   // Persisted, so the next visit opens the way this one was left. The
   // stored value is "grid" though the control reads "Tile view" -- the
   // label and the stored token are not the same vocabulary.
-  expect(window.localStorage.getItem("reef.covesView")).toBe("grid");
+  expect(window.localStorage.getItem("reef.spacesView")).toBe("grid");
 });
 
 test("an index that failed to load reports it", () => {
   index = null;
-  error = "could not load your coves";
+  error = "could not load your spaces";
   renderHome();
-  expect(screen.getByText("could not load your coves")).toBeDefined();
+  expect(screen.getByText("could not load your spaces")).toBeDefined();
 });

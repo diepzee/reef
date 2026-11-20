@@ -188,12 +188,12 @@ textarea {
 }
 
 /*
- * Home's cove cards. Tokenized to the seafoam palette (mockup has no
+ * Home's space cards. Tokenized to the seafoam palette (mockup has no
  * literal reference for this screen — it dissolves into the sidebar on
  * desktop — so this borrows --panel/--hairline/--ink from the shell
  * chrome those cards route into). The old `text-transform: capitalize`
  * is gone: the alias is spoken and stored lowercase (Sidebar and
- * CoveView already render it that way), so capitalizing it here was a
+ * SpaceView already render it that way), so capitalizing it here was a
  * cosmetic inconsistency, not a deliberate title-case choice.
  */
 .card {
@@ -209,18 +209,18 @@ textarea {
 }
 
 /*
- * Identity pass: each cove card carries its `coveColor(alias)` pair via
+ * Identity pass: each space card carries its `spaceColor(alias)` pair via
  * the `--hue-base`/`--hue-light` inline custom properties Home sets per
- * card (see Home.tsx's `CoveCard`) — every rule below just reads those,
- * so the CSS itself has no per-cove knowledge.
+ * card (see Home.tsx's `SpaceCard`) — every rule below just reads those,
+ * so the CSS itself has no per-space knowledge.
  */
-.cove-card {
+.space-card {
   position: relative;
   overflow: hidden;
   padding-top: calc(1rem + 4px);
 }
 
-.cove-card-stripe {
+.space-card-stripe {
   position: absolute;
   top: 0;
   left: 0;
@@ -229,13 +229,13 @@ textarea {
   background: linear-gradient(90deg, var(--hue-base), var(--hue-light));
 }
 
-.cove-card-row {
+.space-card-row {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.cove-card-chip {
+.space-card-chip {
   width: 52px;
   height: 52px;
   border-radius: var(--r-md);
@@ -246,7 +246,7 @@ textarea {
   background: color-mix(in srgb, var(--hue-base) 12%, white);
 }
 
-.cove-card-text {
+.space-card-text {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -254,25 +254,25 @@ textarea {
   flex: 1;
 }
 
-.cove-card-alias {
+.space-card-alias {
   font-weight: 600;
   font-size: var(--text-md);
   color: var(--ink);
 }
 
-.cove-card-sub {
+.space-card-sub {
   font-size: var(--text-sm);
 }
 
-/* Coves heading row: title left, view picker right (spec: "Main screen"). */
-.coves-head {
+/* Spaces heading row: title left, view picker right (spec: "Main screen"). */
+.spaces-head {
   display: flex;
   align-items: center;
   gap: 0.65rem;
   flex-wrap: wrap;
 }
 
-.coves-head h1 {
+.spaces-head h1 {
   margin-right: auto;
   font-size: var(--text-3xl);
   font-weight: 700;
@@ -332,7 +332,7 @@ textarea {
   gap: 0.75rem;
 }
 
-.cove-tile {
+.space-tile {
   align-items: flex-start;
   gap: 0.4rem;
   min-height: 7.5rem;
@@ -344,18 +344,18 @@ textarea {
     transform var(--t-base) var(--ease);
 }
 
-.cove-tile:hover {
+.space-tile:hover {
   box-shadow: var(--lift-hi);
   transform: translateY(-2px);
 }
 
 /*
- * The cove's organism, at a size that shows what it actually is. The pool
- * was a 44px disc holding a 24px glyph; every cove's individual arrived as
+ * The space's organism, at a size that shows what it actually is. The pool
+ * was a 44px disc holding a 24px glyph; every space's individual arrived as
  * an indistinct mark. The square crop follows the radius scale, and the
- * cove's own hue tints it, so colour still carries identity across the grid.
+ * space's own hue tints it, so colour still carries identity across the grid.
  */
-.cove-tile-pool {
+.space-tile-pool {
   width: 76px;
   height: 76px;
   border-radius: var(--r-md);
@@ -366,15 +366,15 @@ textarea {
   transition: background var(--t-base) var(--ease);
 }
 
-.cove-tile:hover .cove-tile-pool {
+.space-tile:hover .space-tile-pool {
   background: color-mix(in srgb, var(--hue-base) 20%, white);
 }
 
-.cove-tile-taxon {
+.space-tile-taxon {
   margin-top: 0.1rem;
 }
 
-.cove-tile-new {
+.space-tile-new {
   border-style: dashed;
   align-items: center;
   justify-content: center;
@@ -383,7 +383,7 @@ textarea {
   font-size: var(--text-base);
 }
 
-.cove-tile-plus {
+.space-tile-plus {
   font-size: 1.5rem;
   color: var(--accent);
   line-height: 1;
@@ -398,7 +398,7 @@ textarea {
   overflow-x: auto;
 }
 
-.cove-graph {
+.space-graph {
   display: block;
   width: 100%;
   min-width: 640px;
@@ -501,7 +501,7 @@ textarea {
   font-size: var(--text-sm);
 }
 
-.index-cove {
+.index-space {
   margin: 0 0 1rem;
   border: 1px solid var(--hairline);
   border-radius: var(--r-md);
@@ -510,7 +510,7 @@ textarea {
 }
 
 /* `center`, not `baseline`: the glyph has no text baseline to sit on. */
-.index-cove-head {
+.index-space-head {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -518,7 +518,7 @@ textarea {
   border-bottom: 1px solid var(--hairline);
 }
 
-.index-cove-glyph {
+.index-space-glyph {
   width: 18px;
   height: 18px;
   flex: none;
@@ -527,17 +527,17 @@ textarea {
   justify-content: center;
 }
 
-.index-cove-head h2 {
+.index-space-head h2 {
   margin: 0 auto 0 0;
   font-size: var(--text-lg);
 }
 
-.index-cove-head h2 a {
+.index-space-head h2 a {
   color: var(--ink);
   text-decoration: none;
 }
 
-.index-cove-head > span {
+.index-space-head > span {
   font-size: var(--text-xs);
 }
 
@@ -757,7 +757,7 @@ textarea {
 }
 
 /* A page's way out. Lighter than .delete-zone's red rule: losing one page
-   is a smaller act than losing a cove, and the control sits under every
+   is a smaller act than losing a space, and the control sits under every
    page rather than under a screen you went to deliberately. */
 .page-danger {
   margin: 2.5rem 0 1rem;
@@ -987,7 +987,7 @@ button.danger {
 }
 
 /*
- * The editor form (Editor/NewPage/NewCove): per the mockup's `.ed` block
+ * The editor form (Editor/NewPage/NewSpace): per the mockup's `.ed` block
  * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html) —
  * uppercase faint labels above bordered fields on a --field fill, a
  * monospace body, a quiet toggle chip, and an accent Save button with a
@@ -1266,7 +1266,7 @@ button.danger {
 }
 
 /*
- * A cove row is a twisty plus a link. The tint lives on the wrapper rather
+ * A space row is a twisty plus a link. The tint lives on the wrapper rather
  * than on the link, so the active row reads as one band across the whole pane
  * instead of stopping short of the fold control. `.side-item.active` above is
  * still the rule for the flat rows (Index, Export), which have no twisty.
@@ -1293,12 +1293,12 @@ button.danger {
 }
 
 /*
- * Sized to the same 8px grid the rows sit on, so a cove name starts at the
- * same x whether or not its cove has pages to fold.
+ * Sized to the same 8px grid the rows sit on, so a space name starts at the
+ * same x whether or not its space has pages to fold.
  *
  * `min-*: auto` the way `.seg` and `.ed-toggle` do: the global button rule
  * sets a 44px touch-target minimum, which here would not just oversize the
- * control but push the chevron coves' names 24px right of the ones with
+ * control but push the chevron spaces' names 24px right of the ones with
  * nothing to fold — the row would no longer line up with itself. The row is
  * 26px tall and the whole of it is clickable through the link, so the twisty
  * is a supplementary target rather than the only way in.
@@ -1353,9 +1353,9 @@ button.danger {
 }
 
 /*
- * Just a box to centre the organism in — `CoveGlyph` carries its own
+ * Just a box to centre the organism in — `SpaceGlyph` carries its own
  * colour, sized to sit inside the 26px row without changing its rhythm.
- * The mark keeps the cove's own hue even when the row is active; only the
+ * The mark keeps the space's own hue even when the row is active; only the
  * row's background goes accent-soft.
  */
 .side-glyph {
@@ -1400,11 +1400,11 @@ button.danger {
 }
 
 /*
- * Indented to the twisty's width so it hangs under the cove names as the last
- * thing in the list, the way "New page" hangs under a cove's pages. No dot:
- * the dot means "a cove exists here", and this is the thing that makes one.
+ * Indented to the twisty's width so it hangs under the space names as the last
+ * thing in the list, the way "New page" hangs under a space's pages. No dot:
+ * the dot means "a space exists here", and this is the thing that makes one.
  */
-.side-newcove {
+.side-newspace {
   display: block;
   margin-top: 2px;
   padding: 7px 8px 7px 20px;
@@ -1415,7 +1415,7 @@ button.danger {
 }
 
 /*
- * Product-level actions, ruled off from the coves above. `.side-me` carries
+ * Product-level actions, ruled off from the spaces above. `.side-me` carries
  * `margin-top: auto` and so is what pins this group to the bottom of the pane.
  */
 .side-foot {
@@ -1613,7 +1613,7 @@ button.danger {
 
 /* Inside the sheet these line up with every other section, which is inset
    from the sheet's edge rather than flush to it. Scoped, because the same
-   picker renders in CoveView's body for the personal cove, where the page
+   picker renders in SpaceView's body for the personal space, where the page
    already provides the margin. */
 .mbs-sheet .look-field {
   margin-inline: 20px;
@@ -1635,7 +1635,7 @@ button.danger {
 .look-row {
   display: grid;
   /* Capped rather than `1fr`: in the sheet the tiles shrink to fit, but in
-     CoveView's much wider body `1fr` grew them to about 70px each, which
+     SpaceView's much wider body `1fr` grew them to about 70px each, which
      turned a row of swatches into a row of tiles the size of buttons. */
   grid-template-columns: repeat(9, minmax(0, 40px));
   gap: 6px;
@@ -1800,8 +1800,8 @@ button.danger {
 }
 
 /*
- * CoveView's whobar: the avatar stack + audience sentence + (owner-only)
- * Manage link that sits under the cove title and opens the shared
+ * SpaceView's whobar: the avatar stack + audience sentence + (owner-only)
+ * Manage link that sits under the space title and opens the shared
  * MembersSheet. Mirrors the mockup's `.sp .whobar`
  * (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html).
  */
@@ -1832,7 +1832,7 @@ button.danger {
 }
 
 /*
- * CoveView's hero title, "PAGES" section label, and doc-icon page rows.
+ * SpaceView's hero title, "PAGES" section label, and doc-icon page rows.
  * Mirrors the mockup's `.sp .hero`, `.sp .sectionlbl`, `.sp .row`, `.sp
  * .fab` (docs/superpowers/specs/2026-08-08-web-frontend-v2-mockup.html):
  * hero color inherits --ink, sectionlbl faint #9aa8af -> --faint (same
@@ -1848,7 +1848,7 @@ button.danger {
 }
 
 /*
- * The same tinted well the Home card's chip uses, so a cove is recognizably
+ * The same tinted well the Home card's chip uses, so a space is recognizably
  * the same object on the screen you arrive from and the screen you land on.
  */
 .hero-chip {
@@ -1862,7 +1862,7 @@ button.danger {
   background: color-mix(in srgb, var(--hue-base) 12%, white);
 }
 
-/* A cove's own page titles itself the way the cove index does — same step
+/* A space's own page titles itself the way the space index does — same step
    of the scale, same weight — so arriving here is not a change of register. */
 .hero-title {
   font-size: var(--text-3xl);
@@ -1976,7 +1976,7 @@ button.danger {
 }
 
 /*
- * PageView's page bar: back-to-cove crumb, member avatar stack (opens
+ * PageView's page bar: back-to-space crumb, member avatar stack (opens
  * MembersSheet, same mechanism as the whobar above), and an Edit link —
  * hidden for meta/ pages, which show a `.disclosure` note instead. Mirrors
  * the mockup's `.content .pagebar` / `.p-top`.
@@ -1990,7 +1990,7 @@ button.danger {
   border-bottom: 1px solid var(--hairline-soft);
 }
 
-/* Identity pass: the cove's own organism before the crumb (see PageView). */
+/* Identity pass: the space's own organism before the crumb (see PageView). */
 .page-bar-glyph {
   width: 18px;
   height: 18px;
@@ -2265,7 +2265,7 @@ button.danger {
 }
 
 /* Both can land on one row — the owner looking at their own. The first
-   claims the free cove; the second must not claim it again. */
+   claims the free space; the second must not claim it again. */
 .mbs-you-tag + .mbs-owner-tag {
   margin-left: 8px;
 }
@@ -2345,7 +2345,7 @@ button.danger {
 }
 
 /*
- * The way out of a cove, at the foot of the sheet. Outlined rather than
+ * The way out of a space, at the foot of the sheet. Outlined rather than
  * filled: it is the only destructive control here, and a filled red button
  * would pull the eye straight past the roster it sits under.
  */
@@ -2549,7 +2549,7 @@ button.danger {
     scroll-behavior: auto !important;
   }
 
-  .cove-tile:hover {
+  .space-tile:hover {
     transform: none;
   }
 }
@@ -2597,7 +2597,7 @@ button.danger {
       box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
     }
 
-    /* A cove row's edge is drawn by its wrapper; the link inside would
+    /* A space row's edge is drawn by its wrapper; the link inside would
        otherwise draw a second one a pixel in from it. */
     .side-row .side-item {
       box-shadow: none;
@@ -2618,15 +2618,15 @@ button.danger {
       box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
     }
 
-    /* Home card chip + tile pool + CoveView hero chip: same --hue-base,
-       darker mix target (see Home.tsx, CoveView.tsx). */
-    .cove-card-chip,
-    .cove-tile-pool,
+    /* Home card chip + tile pool + SpaceView hero chip: same --hue-base,
+       darker mix target (see Home.tsx, SpaceView.tsx). */
+    .space-card-chip,
+    .space-tile-pool,
     .hero-chip {
       background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
     }
 
-    .cove-tile:hover .cove-tile-pool {
+    .space-tile:hover .space-tile-pool {
       background: color-mix(in srgb, var(--hue-base) 38%, #0d1a20);
     }
   }
@@ -2655,7 +2655,7 @@ button.danger {
     box-shadow: inset 0 1px 0 rgb(94 234 212 / 0.07);
   }
 
-  /* A cove row's edge is drawn by its wrapper; the link inside would
+  /* A space row's edge is drawn by its wrapper; the link inside would
      otherwise draw a second one a pixel in from it. */
   .side-row .side-item {
     box-shadow: none;
@@ -2676,13 +2676,13 @@ button.danger {
     box-shadow: 0 0 22px rgb(45 212 191 / 0.35);
   }
 
-  .cove-card-chip,
-  .cove-tile-pool,
+  .space-card-chip,
+  .space-tile-pool,
   .hero-chip {
     background: color-mix(in srgb, var(--hue-base) 25%, #0d1a20);
   }
 
-  .cove-tile:hover .cove-tile-pool {
+  .space-tile:hover .space-tile-pool {
     background: color-mix(in srgb, var(--hue-base) 38%, #0d1a20);
   }
 }
@@ -2741,11 +2741,11 @@ button.danger {
   transform: translateY(0.2em);
 }
 
-/* Renaming a cove is per person: the name lives on the reader's own
+/* Renaming a space is per person: the name lives on the reader's own
    membership, so this control sits with the roster rather than anywhere
-   that would imply it changes the cove for everybody. */
+   that would imply it changes the space for everybody. */
 /*
- * Reads as the field it stands in for — the cove's name as you call it —
+ * Reads as the field it stands in for — the space's name as you call it —
  * with the action as a quiet hint on the right, so the row shows the current
  * value rather than only offering to change it.
  */

@@ -3,15 +3,15 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from reef.access import Principal
+from reef.engrams import get_engram, save_engram
 from reef.export import (
     build_full_dump,
     build_json_export,
     build_markdown_archive,
-    export_cove,
-    render_page,
+    export_space,
+    render_engram,
 )
-from reef.models import Attachment, AttachmentStatus, Page
-from reef.pages import get_page, save_page
+from reef.models import Attachment, AttachmentStatus, Engram
 
 
 def principal_for(person) -> Principal:
@@ -26,51 +26,64 @@ async def test_render_round_trips_through_the_import_parser(tx, household):
     from import_mark import parse_markdown
 
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me, "household", "house.md", "boiler", message="x", title="House", tags=["home"]
     )
     meta, body = parse_markdown(
-        render_page(await get_page(me, "household", "house.md"))
+        render_engram(await get_engram(me, "household", "house.md"))
     )
     assert meta["title"] == "House" and meta["tags"] == ["home"]
     assert body.strip() == "boiler"
 
 
-async def test_export_writes_one_file_per_page(tx, household, tmp_path):
+async def test_export_writes_one_file_per_engram(tx, household, tmp_path):
     me = principal_for(household["wouter"])
-    await save_page(me, "household", "house.md", "boiler", message="x")
-    await save_page(me, "household", "money.md", "loan", message="x")
-    assert await export_cove(me, "household", tmp_path) == 2
+    await save_engram(me, "household", "house.md", "boiler", message="x")
+    await save_engram(me, "household", "money.md", "loan", message="x")
+    assert await export_space(me, "household", tmp_path) == 2
     assert "loan" in (tmp_path / "money.md").read_text()
 
 
-async def test_json_export_can_scope_one_cove(tx, household):
+async def test_json_export_can_scope_one_space(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "private.md", "mine", message="x")
-    await save_page(me, "household", "shared.md", "ours", message="x")
+    await save_engram(me, "personal", "private.md", "mine", message="x")
+    await save_engram(me, "household", "shared.md", "ours", message="x")
 
     payload = json.loads(await build_json_export(me, "personal"))
 
-    assert [cove["alias"] for cove in payload["coves"]] == ["personal"]
-    assert payload["coves"][0]["pages"][0]["body"] == "mine"
+    assert [space["alias"] for space in payload["spaces"]] == ["personal"]
+    assert payload["spaces"][0]["engrams"][0]["body"] == "mine"
 
 
-async def test_markdown_archive_neutralizes_page_path_traversal(tx, household):
+async def test_export_schema_2(tx, household):
+    me = principal_for(household["wouter"])
+    await save_engram(me, "household", "shared.md", "ours", message="x")
+
+    payload = json.loads(await build_json_export(me))
+
+    assert payload["schema_version"] == 2
+    assert "spaces" in payload and "engrams" in payload["spaces"][0]
+    assert "coves" not in payload and "pages" not in payload["spaces"][0]
+
+
+async def test_markdown_archive_neutralizes_engram_path_traversal(tx, household):
     """A traversal path already in the store must not escape the archive.
 
-    ``save_page`` refuses this path now, so the row is written directly --
+    ``save_engram`` refuses this path now, so the row is written directly --
     which is the case that matters. Paths were unconstrained before
     ``normalize_path`` existed, so a corpus imported back then can still hold
     one, and the export is the last thing standing between it and the
     reader's filesystem.
     """
     me = principal_for(household["wouter"])
-    saved = await save_page(me, "personal", "escape.md", "still contained", message="x")
-    await Page.update({Page.path: "../escape.md"}).where(Page.id == saved.id)
+    saved = await save_engram(
+        me, "personal", "escape.md", "still contained", message="x"
+    )
+    await Engram.update({Engram.path: "../escape.md"}).where(Engram.id == saved.id)
 
     with ZipFile(BytesIO(await build_markdown_archive(me, "personal"))) as archive:
         names = archive.namelist()
-        assert "coves/personal/pages/escape.md" in names
+        assert "spaces/personal/engrams/escape.md" in names
         assert all(
             not name.startswith("/") and ".." not in name.split("/") for name in names
         )
@@ -86,10 +99,10 @@ class DumpStore:
 
 async def test_full_dump_contains_history_files_and_access_context(tx, household):
     me = principal_for(household["wouter"])
-    page = await save_page(
+    engram = await save_engram(
         me, "household", "report.md", "first version", message="create"
     )
-    await save_page(
+    await save_engram(
         me,
         "household",
         "report.md",
@@ -98,8 +111,8 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
         expected_version=1,
     )
     await Attachment(
-        cove_id=household["shared"].id,
-        page_id=page.id,
+        space_id=household["shared"].id,
+        engram_id=engram.id,
         object_key="attachments/report-key",
         filename="quarterly report.pdf",
         mime="application/pdf",
@@ -113,7 +126,7 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
         revisions = json.loads(archive.read("data/revisions.json"))
         files = json.loads(archive.read("data/files.json"))
         assert manifest["contents"]["revisions"] == 2
-        assert next(c for c in manifest["coves"] if c["alias"] == "household")[
+        assert next(c for c in manifest["spaces"] if c["alias"] == "household")[
             "members"
         ] == ["Partner", "Wouter"]
         assert {revision["body"] for revision in revisions} == {
@@ -121,4 +134,4 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
             "second version",
         }
         assert archive.read(files[0]["archive_path"]) == b"quarterly report bytes"
-        assert "coves/household/pages/report.md" in archive.namelist()
+        assert "spaces/household/engrams/report.md" in archive.namelist()

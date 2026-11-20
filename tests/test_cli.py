@@ -53,7 +53,7 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
     monkeypatch.setenv("REEF_ACCESS_TOKEN", "secret-token")
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     FakeClient.calls = []
-    FakeClient.result = {"coves": []}
+    FakeClient.result = {"spaces": []}
     args = build_parser().parse_args(
         ["--url", "https://example.test/mcp", "load-index"]
     )
@@ -66,143 +66,254 @@ async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys)
         "https://example.test/mcp",
         "secret-token",
     )
-    assert FakeClient.calls[1] == ("load_index", {})
-    assert json.loads(capsys.readouterr().out) == {"coves": []}
+    assert FakeClient.calls[1] == ("load_index", {"reason": ""})
+    assert json.loads(capsys.readouterr().out) == {"spaces": []}
 
 
-async def test_search_pages_maps_query_and_options(monkeypatch, tmp_path, capsys):
+async def _call(monkeypatch, tmp_path, argv, result=None):
+    """Run one named command against the fake client.
+
+    :param monkeypatch: pytest's monkeypatch
+    :param tmp_path: a scratch directory for the CLI's config
+    :param argv: the command line after ``reef``
+    :param result: what the fake server answers
+    :returns: the exit status
+    """
     monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
     FakeClient.calls = []
-    FakeClient.result = []
-    args = build_parser().parse_args(
-        ["search-pages", "vaillant boiler", "--cove", "household", "--limit", "5"]
-    )
+    FakeClient.result = {"ok": True} if result is None else result
+    return await run(build_parser().parse_args(argv), client_class=FakeClient)
 
-    status = await run(args, client_class=FakeClient)
+
+async def test_recall_maps_question_and_options(monkeypatch, tmp_path, capsys):
+    """Recall sends the question, its options and the reason."""
+    status = await _call(
+        monkeypatch,
+        tmp_path,
+        ["recall", "vaillant boiler", "--space", "household", "--limit", "3"]
+        + ["--reason", "asked about the boiler"],
+        [],
+    )
 
     assert status == 0
     assert FakeClient.calls[-1] == (
-        "search_pages",
-        {"query": "vaillant boiler", "cove": "household", "limit": 5},
+        "recall",
+        {
+            "reason": "asked about the boiler",
+            "question": "vaillant boiler",
+            "space": "household",
+            "limit": 3,
+        },
     )
     assert json.loads(capsys.readouterr().out) == []
 
 
-async def test_read_page_maps_as_of(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
-    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
-    FakeClient.calls = []
-    FakeClient.result = {"body": "then"}
-    args = build_parser().parse_args(
-        ["read-page", "personal", "house.md", "--as-of", "2026-03-01T12:00:00"]
+async def test_reason_is_optional_and_empty_by_default(monkeypatch, tmp_path):
+    """Leaving out --reason sends an empty reason."""
+    await _call(monkeypatch, tmp_path, ["brief", "the move"])
+
+    assert FakeClient.calls[-1] == (
+        "brief",
+        {"reason": "", "topic": "the move", "entries": 10},
     )
 
-    status = await run(args, client_class=FakeClient)
+
+async def test_search_and_fetch_send_no_reason(monkeypatch, tmp_path):
+    """The connector tools take no reason, so none is sent."""
+    await _call(monkeypatch, tmp_path, ["search", "boiler"])
+    assert FakeClient.calls[-1] == ("search", {"query": "boiler"})
+    await _call(monkeypatch, tmp_path, ["fetch", "engram:1"])
+    assert FakeClient.calls[-1] == ("fetch", {"id": "engram:1"})
+
+
+async def test_open_maps_refs_and_as_of(monkeypatch, tmp_path, capsys):
+    """Open sends every ref and the moment."""
+    status = await _call(
+        monkeypatch,
+        tmp_path,
+        ["open", "personal/house.md", "personal/file/k", "--as-of", "2026-03-01"],
+        [{"body": "then"}],
+    )
 
     assert status == 0
     assert FakeClient.calls[-1] == (
-        "read_page",
-        {"cove": "personal", "path": "house.md", "as_of": "2026-03-01T12:00:00"},
-    )
-    assert json.loads(capsys.readouterr().out) == {"body": "then"}
-
-
-async def test_write_page_reads_body_file_and_maps_options(
-    monkeypatch, tmp_path, capsys
-):
-    monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
-    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
-    body = tmp_path / "page.md"
-    body.write_text("# Plans\n\nTake the train.\n", encoding="utf-8")
-    FakeClient.calls = []
-    FakeClient.result = {"cove": "personal", "path": "plans.md", "version": 4}
-    args = build_parser().parse_args(
-        [
-            "write-page",
-            "personal",
-            "plans.md",
-            "--body-file",
-            str(body),
-            "--message",
-            "update travel plan",
-            "--title",
-            "Plans",
-            "--tag",
-            "core",
-            "--expected-version",
-            "3",
-        ]
-    )
-
-    status = await run(args, client_class=FakeClient)
-
-    assert status == 0
-    assert FakeClient.calls[-1] == (
-        "write_page",
+        "open",
         {
-            "cove": "personal",
-            "path": "plans.md",
-            "body": "# Plans\n\nTake the train.\n",
-            "message": "update travel plan",
-            "title": "Plans",
-            "tags": ["core"],
+            "reason": "",
+            "refs": ["personal/house.md", "personal/file/k"],
+            "as_of": "2026-03-01",
+        },
+    )
+
+
+async def test_catch_up_and_remember_and_log(monkeypatch, tmp_path):
+    """Catch up, remember and log map their arguments."""
+    await _call(monkeypatch, tmp_path, ["catch-up", "--since", "2026-08-01"])
+    assert FakeClient.calls[-1] == (
+        "catch_up",
+        {"reason": "", "since": "2026-08-01"},
+    )
+    await _call(monkeypatch, tmp_path, ["remember", "The boiler is a Vaillant"])
+    assert FakeClient.calls[-1] == (
+        "remember",
+        {"reason": "", "fact": "The boiler is a Vaillant", "space": "personal"},
+    )
+    await _call(
+        monkeypatch,
+        tmp_path,
+        ["log", "personal", "climbing-log.md", "--heading", "2026-11-19"]
+        + ["--entry", "Sent the blue route."],
+    )
+    assert FakeClient.calls[-1] == (
+        "log",
+        {
+            "reason": "",
+            "space": "personal",
+            "engram": "climbing-log.md",
+            "heading": "2026-11-19",
+            "entry": "Sent the blue route.",
+        },
+    )
+
+
+async def test_write_reads_the_json_array(monkeypatch, tmp_path, capsys):
+    """Write reads the engrams from a JSON file."""
+    engrams = tmp_path / "engrams.json"
+    engrams.write_text('[{"path": "plans.md", "body": "# Plans"}]', encoding="utf-8")
+
+    status = await _call(
+        monkeypatch,
+        tmp_path,
+        ["write", "personal", f"@{engrams}", "--message", "add the plan"],
+        [{"path": "plans.md", "version": 1}],
+    )
+
+    assert status == 0
+    assert FakeClient.calls[-1] == (
+        "write",
+        {
+            "reason": "",
+            "space": "personal",
+            "engrams": [{"path": "plans.md", "body": "# Plans"}],
+            "message": "add the plan",
+        },
+    )
+
+
+async def test_correct_and_undo(monkeypatch, tmp_path):
+    """Correct and undo map their arguments."""
+    await _call(
+        monkeypatch,
+        tmp_path,
+        ["correct", "personal", "plans.md", "--old-text", "train"]
+        + ["--new-text", "bus", "--message", "fix", "--expected-version", "3"],
+    )
+    assert FakeClient.calls[-1] == (
+        "correct",
+        {
+            "reason": "",
+            "space": "personal",
+            "engram": "plans.md",
+            "old_text": "train",
+            "new_text": "bus",
+            "message": "fix",
             "expected_version": 3,
         },
     )
-    assert json.loads(capsys.readouterr().out)["version"] == 4
-
-
-async def test_add_file_encodes_bytes_and_infers_mime(monkeypatch, tmp_path, capsys):
-    monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
-    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
-    upload = tmp_path / "note.txt"
-    upload.write_bytes(b"hello reef")
-    FakeClient.calls = []
-    FakeClient.result = {"key": "attachments/abc"}
-    args = build_parser().parse_args(
-        [
-            "add-file",
-            "personal",
-            str(upload),
-            "--description",
-            "A greeting",
-            "--page-path",
-            "notes.md",
-        ]
+    await _call(monkeypatch, tmp_path, ["undo", "personal", "plans.md"])
+    assert FakeClient.calls[-1] == (
+        "undo",
+        {"reason": "", "space": "personal", "engram": "plans.md"},
     )
 
-    status = await run(args, client_class=FakeClient)
+
+async def test_store_file_encodes_bytes_and_infers_mime(monkeypatch, tmp_path, capsys):
+    """Store file encodes the bytes and guesses the content type."""
+    upload = tmp_path / "note.txt"
+    upload.write_bytes(b"hello reef")
+
+    status = await _call(
+        monkeypatch,
+        tmp_path,
+        ["store-file", "personal", str(upload), "--description", "A greeting"]
+        + ["--engram", "notes.md"],
+        {"key": "attachments/abc"},
+    )
 
     assert status == 0
     name, payload = FakeClient.calls[-1]
-    assert name == "add_file"
+    assert name == "store_file"
     assert payload == {
-        "cove": "personal",
+        "reason": "",
+        "space": "personal",
         "filename": "note.txt",
         "data_base64": base64.b64encode(b"hello reef").decode("ascii"),
         "mime": "text/plain",
         "description": "A greeting",
-        "page_path": "notes.md",
+        "engram": "notes.md",
     }
     assert json.loads(capsys.readouterr().out) == {"key": "attachments/abc"}
+
+
+async def test_staged_tools_take_a_confirm_token_for_the_second_call(
+    monkeypatch, tmp_path
+):
+    """Share, forget and instruct send the token only when given."""
+    await _call(monkeypatch, tmp_path, ["forget", "personal", "--engram", "a.md"])
+    assert FakeClient.calls[-1] == (
+        "forget",
+        {"reason": "", "space": "personal", "engram": "a.md"},
+    )
+    await _call(
+        monkeypatch,
+        tmp_path,
+        ["forget", "personal", "--file", "k", "--confirm", "tok"],
+    )
+    assert FakeClient.calls[-1] == (
+        "forget",
+        {"reason": "", "space": "personal", "file": "k", "confirm": "tok"},
+    )
+    await _call(
+        monkeypatch,
+        tmp_path,
+        ["share", "a.md", "family", "--section", "x", "--to-path", "b.md"]
+        + ["--confirm", "tok"],
+    )
+    assert FakeClient.calls[-1] == (
+        "share",
+        {
+            "reason": "",
+            "engram": "a.md",
+            "to_space": "family",
+            "section": "x",
+            "to_path": "b.md",
+            "confirm": "tok",
+        },
+    )
+    await _call(monkeypatch, tmp_path, ["instruct", "--body", "Be brief."])
+    assert FakeClient.calls[-1] == ("instruct", {"reason": "", "body": "Be brief."})
+    await _call(
+        monkeypatch, tmp_path, ["instruct", "--body", "Be brief.", "--confirm", "t"]
+    )
+    assert FakeClient.calls[-1][1]["confirm"] == "t"
 
 
 async def test_call_is_exact_json_passthrough(monkeypatch, tmp_path, capsys):
     monkeypatch.setenv("REEF_ACCESS_TOKEN", "token")
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     arguments = tmp_path / "args.json"
-    arguments.write_text('{"cove":"personal","paths":["a.md"]}')
+    arguments.write_text('{"refs":["personal/a.md"]}')
     FakeClient.calls = []
     FakeClient.result = [{"path": "a.md", "body": "alpha"}]
-    args = build_parser().parse_args(["call", "read_pages", f"@{arguments}"])
+    args = build_parser().parse_args(["call", "open", f"@{arguments}"])
 
     status = await run(args, client_class=FakeClient)
 
     assert status == 0
     assert FakeClient.calls[-1] == (
-        "read_pages",
-        {"cove": "personal", "paths": ["a.md"]},
+        "open",
+        {"refs": ["personal/a.md"]},
     )
     assert json.loads(capsys.readouterr().out)[0]["body"] == "alpha"
 
@@ -212,7 +323,7 @@ async def test_tool_error_payload_sets_failure_status(monkeypatch, tmp_path, cap
     monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
     FakeClient.calls = []
     FakeClient.result = {"error": "not_found", "path": "missing.md"}
-    args = build_parser().parse_args(["read-page", "personal", "missing.md"])
+    args = build_parser().parse_args(["open", "personal/missing.md"])
 
     status = await run(args, client_class=FakeClient)
 

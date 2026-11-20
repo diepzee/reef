@@ -14,7 +14,7 @@ lasts — and one your partner, your household, or your project can share.
 
 - **Ask once.** Tell your assistant the boiler is a Vaillant. Next month, in a
   different conversation, it still knows.
-- **Share on purpose.** Your private notes stay private. A shared cove holds
+- **Share on purpose.** Your private notes stay private. A shared space holds
   only what you deliberately put there.
 - **Bring your own assistant.** Claude, ChatGPT desktop, or Codex. reef is a
   remote [MCP](https://modelcontextprotocol.io) connector, not another chat app.
@@ -46,46 +46,46 @@ claude plugin install reef@haai
 other people's assistants have been writing.
 
 There is a browser app too, at [reefwith.me/app](https://reefwith.me/app). Use
-it to read and edit pages without an assistant.
+it to read and edit engrams without an assistant.
 
 ## How memory is organised
 
-Memory lives in **coves**. You get one private cove the first time you sign
+Memory lives in **spaces**, and a space holds **engrams**: Markdown notes. You get one private space the first time you sign
 in. You can create any number of shared ones — a household, a school circle, an
 accountant, a small project.
 
-| | Private cove | Shared cove |
+| | Private space | Shared space |
 |---|---|---|
 | Who can read it | Only you | Everyone invited |
 | Created | At first sign-in | By whoever needs it |
 | Named | Always `personal` | By you, for you |
 | People join | Never | By email invitation from the owner |
 
-**You name shared coves for yourself.** Your name for a cove is yours alone.
+**You name shared spaces for yourself.** Your name for a space is yours alone.
 Two households can each have a `family` without either knowing the other
 exists, and nobody can take a name from anybody else.
 
 **Sharing is deliberate and permanent.** Moving something out of your private
-cove takes two steps. First your assistant shows you the exact text and names
+space takes two steps. First your assistant shows you the exact text and names
 everyone who will be able to read it. Only then does it move.
 
-Writing private content into a shared cove any other way is refused — not
+Writing private content into a shared space any other way is refused — not
 discouraged, refused. And there is no un-sharing.
 
 ## How your assistant reads it
 
-reef loads an **index first, then pages** — the
+reef loads an **index first, then engrams** — the
 [LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f),
 adapted for shared, permissioned memory.
 
-1. The assistant calls `load_index` and gets a map of every page it may see:
-   path, title, tags, and a one-line description. No page bodies.
-2. It reads the map, decides what this conversation needs, and fetches only
-   that with `read_pages`.
-3. It fetches again as the topic moves. When the map alone cannot settle
-   what to read, `search_pages` matches words inside page bodies — and
-   because it runs under the same row-level security as every read, a
-   search can never surface a page its caller could not open.
+1. The assistant calls `load_index` and gets a map of every engram it may see:
+   path, title, tags, and a one-line description. No engram bodies.
+2. It reads the map, decides what this conversation needs, and asks
+   `recall`, which returns the passages that best answer the question.
+3. When passages are not enough it reads whole engrams with `open`. For
+   advice or preparation it uses `brief`, which gathers everything that
+   bears on a topic. Because every read runs under the same row-level
+   security, a search can never surface an engram its caller could not open.
 
 The index is rebuilt from the database on every call, so it cannot fall out of
 date.
@@ -93,13 +93,13 @@ date.
 ## How your assistant writes it
 
 Nothing is recorded silently. Mid-conversation, a fact worth keeping goes
-through `remember`, which stages it as a dated line in that cove's inbox —
+through `remember`, which stages it as a dated line in that space's inbox —
 and before the conversation ends, the assistant says what it is keeping so
 you can strike anything first.
 
 An inbox entry is not memory yet. A tidy-up — ask for one any time —
-compiles inboxes onto real pages, flags pages that have gone stale, and
-surfaces contradictions between your pages and shared ones instead of
+compiles inboxes onto real engrams, flags engrams that have gone stale, and
+surfaces contradictions between your engrams and shared ones instead of
 silently picking a winner. Deliberate capture, reviewed by you, is the
 design: reef will not transcribe your conversations behind your back.
 
@@ -107,7 +107,7 @@ design: reef will not transcribe your conversations behind your back.
 
 The database enforces it, not the application code.
 
-Every page, file, and membership is guarded by PostgreSQL
+Every engram, file, and membership is guarded by PostgreSQL
 [Row-Level Security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html).
 A query with a forgotten filter returns **nothing** rather than somebody else's
 data. Getting it wrong fails closed.
@@ -120,7 +120,7 @@ more privileged credential. See
 
 ## Your data stays yours
 
-Pages are Markdown from the moment you write them. The web app exports:
+Engrams are Markdown from the moment you write them. The web app exports:
 
 - **current content**, as a Markdown archive or JSON, and
 - **everything**, as one download with full revision history and your stored
@@ -142,11 +142,11 @@ Named commands use hyphens: `load_index` becomes `load-index`. Every result is
 JSON, and an error such as `not_found` also exits non-zero.
 
 ```bash
-reef read-pages personal profile.md preferences.md
-reef write-page personal plans.md --body-file ./plans.md \
-  --message "Add the summer plan" --title Plans
-reef add-file personal ./lease.pdf --description "Signed rental agreement"
-reef call read_pages '{"cove":"personal","paths":["plans.md"]}'
+reef recall "when is the boiler serviced?"
+reef open personal/profile.md personal/preferences.md
+reef log personal climbing-log.md --heading "2026-11-19" --entry "Sent the blue route."
+reef store-file personal ./lease.pdf --description "Signed rental agreement"
+reef call open '{"refs":["personal/plans.md"]}'
 ```
 
 `reef call` takes any MCP tool name and a JSON object, so it reaches everything
@@ -172,8 +172,8 @@ locking, and when it must ask you before acting.
 **Live since 6 August 2026** at [reefwith.me](https://reefwith.me), deployed on
 Railway behind WorkOS AuthKit, and in daily use.
 
-Complete and reviewed: the schema and access control, index and page reads,
-versioned writes, and section-level sharing. Also multi-user coves with
+Complete and reviewed: the schema and access control, index and engram reads,
+versioned writes, and section-level sharing. Also multi-user spaces with
 owner-managed invitations, file storage, the browser app, import, backup, and
 export.
 
@@ -222,9 +222,9 @@ Two things about the local database are deliberate, not accidental:
   comment in [`docker-compose.yml`](docker-compose.yml).
 - **It creates a separate non-owner role for tests.** A table's owner is not
   bound by column grants. Without that role, a test asserting "a member cannot
-  rename a cove" would pass for the wrong reason.
+  rename a space" would pass for the wrong reason.
 
-Migrations seed one person and their coves. Nobody else is seeded, on purpose.
+Migrations seed one person and their spaces. Nobody else is seeded, on purpose.
 An email address is the key a first sign-in binds against, and a migration does
 not re-run to correct a wrong guess. Everyone else arrives by invitation.
 

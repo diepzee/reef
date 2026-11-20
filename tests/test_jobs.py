@@ -21,14 +21,14 @@ from reef import worker as worker_module
 from reef.access import Principal, arm
 from reef.context import build_index
 from reef.db import DB, transaction_scope
+from reef.engrams import save_engram
 from reef.jobs import (
     BACKFILL_INDEX_FIELDS,
     claim,
     enqueue,
     retry_delay,
 )
-from reef.models import Job, Page
-from reef.pages import save_page
+from reef.models import Engram, Job
 from reef.rls import AUTHZ_ROLE, FORMER_AUTHZ_ROLE, JOB_LEASE_SECONDS, JOB_MAX_ATTEMPTS
 from reef.worker import drain, run_job, serve
 
@@ -50,8 +50,8 @@ async def _queue(person, kind=BACKFILL_INDEX_FIELDS, subject_ids=(), **kwargs) -
 async def _jobs_seen_by(person, kind: str | None = None) -> list[dict]:
     """Return the job rows ``person`` can read, oldest first.
 
-    Saving a page queues an activation refresh as a side effect, so a test
-    that saves pages and cares about one kind of job names it.
+    Saving an engram queues an activation refresh as a side effect, so a test
+    that saves engrams and cares about one kind of job names it.
     """
     async with transaction_scope():
         await arm(principal_for(person))
@@ -153,7 +153,7 @@ async def test_an_unknown_status_is_refused(household):
 async def test_deleting_a_person_takes_their_jobs_along(household, graph, seed):
     await _queue(household["partner"])
     await seed.execute(
-        "DELETE FROM coves WHERE owner_person_id = $1", household["partner"].id
+        "DELETE FROM spaces WHERE owner_person_id = $1", household["partner"].id
     )
     await graph.erase_person(household["partner"])
     assert await seed.fetchval("SELECT count(*) FROM jobs") == 0
@@ -288,15 +288,17 @@ async def test_the_worker_runs_a_job_as_its_person(household, handlers):
     """What the handler can see is what the person can see, and no more."""
     wouter, partner = household["wouter"], household["partner"]
     async with transaction_scope():
-        await save_page(principal_for(wouter), "personal", "mine.md", "x", message="x")
-        await save_page(
+        await save_engram(
+            principal_for(wouter), "personal", "mine.md", "x", message="x"
+        )
+        await save_engram(
             principal_for(partner), "personal", "theirs.md", "x", message="x"
         )
     seen: list = []
 
     async def look(principal, job):
         seen.append(principal)
-        seen.append(sorted(row["path"] for row in await Page.select(Page.path)))
+        seen.append(sorted(row["path"] for row in await Engram.select(Engram.path)))
 
     handlers["look"] = look
     await _queue(wouter, kind="look")
@@ -313,7 +315,7 @@ async def test_a_failed_job_is_retried_later_and_its_work_rolled_back(
     wouter = household["wouter"]
 
     async def write_then_fail(principal, job):
-        await save_page(principal, "personal", "half.md", "x", message="x")
+        await save_engram(principal, "personal", "half.md", "x", message="x")
         raise RuntimeError(_SECRET)
 
     handlers["flaky"] = write_then_fail
@@ -326,7 +328,7 @@ async def test_a_failed_job_is_retried_later_and_its_work_rolled_back(
     assert row["run_after"] > row["created_at"] + timedelta(seconds=20)
     async with transaction_scope():
         await arm(principal_for(wouter))
-        assert await Page.count() == 0
+        assert await Engram.count() == 0
     # Not ready yet, so the queue is empty for now.
     assert await claim(WORKER) is None
 
@@ -479,9 +481,9 @@ async def test_serve_stops_when_asked_and_survives_a_broken_claim(
 
 
 async def _forget_index_fields(seed) -> None:
-    """Make every page look as it did before the index fields existed."""
+    """Make every engram look as it did before the index fields existed."""
     await seed.execute(
-        "UPDATE pages SET description = NULL, size = NULL, "
+        "UPDATE engrams SET description = NULL, size = NULL, "
         "reference_targets = NULL, indexed_version = NULL"
     )
 
@@ -491,7 +493,7 @@ async def test_loading_the_index_queues_a_backfill_which_the_worker_carries_out(
 ):
     me = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(me, "personal", "house.md", _SECRET, message="x")
+        await save_engram(me, "personal", "house.md", _SECRET, message="x")
         before = await build_index(me)
     assert await _jobs_seen_by(household["wouter"], BACKFILL_INDEX_FIELDS) == []
 
@@ -508,7 +510,7 @@ async def test_loading_the_index_queues_a_backfill_which_the_worker_carries_out(
     assert await drain(WORKER) == 1
     assert (
         await seed.fetchval(
-            "SELECT description FROM pages WHERE indexed_version = version"
+            "SELECT description FROM engrams WHERE indexed_version = version"
         )
         == _SECRET
     )
@@ -527,10 +529,10 @@ async def test_a_viewer_does_not_queue_a_backfill_they_could_not_carry_out(
     """Otherwise every index load would queue a job that changes nothing."""
     owner = principal_for(household["wouter"])
     async with transaction_scope():
-        await save_page(owner, "household", "house.md", _SECRET, message="x")
+        await save_engram(owner, "household", "house.md", _SECRET, message="x")
     await _forget_index_fields(seed)
     person = await graph.person("viewer@example.test", "Viewer")
-    await graph.personal_cove(person, slug="viewer")
+    await graph.personal_space(person, slug="viewer")
     await graph.add_membership(person, household["shared"], "viewer", alias="household")
     async with transaction_scope():
         await build_index(principal_for(person))

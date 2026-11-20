@@ -164,9 +164,29 @@ async def test_asset_served(static_client):
 
 async def test_spa_fallback(static_client):
     """A client-side route with no matching file falls back to index.html."""
-    response = await static_client.get("/app/coves/team/pages/notes.md")
+    response = await static_client.get("/app/nowhere/team/notes.md")
     assert response.status_code == 200
     assert "<title>reef</title>" in response.text
+
+
+async def test_old_app_paths_redirect(static_client):
+    """Bookmarks to the pre-rename app routes land on their new homes.
+
+    The viewer moved from ``/s/{cove}/p/{path}`` to
+    ``/s/{space}/engram/{path}`` and the new-space form from
+    ``/coves/new`` to ``/spaces/new``. The editor route is unchanged.
+    """
+    engram = await static_client.get("/app/s/team/p/notes/plan.md?x=1")
+    assert engram.status_code == 308
+    assert engram.headers["location"] == "/app/s/team/engram/notes/plan.md?x=1"
+
+    new_space = await static_client.get("/app/coves/new")
+    assert new_space.status_code == 308
+    assert new_space.headers["location"] == "/app/spaces/new"
+
+    editor = await static_client.get("/app/s/team/e/notes/plan.md")
+    assert editor.status_code == 200
+    assert "<title>reef</title>" in editor.text
 
 
 async def test_traversal_blocked(static_client):

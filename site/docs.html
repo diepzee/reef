@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>reef documentation — shared memory for you and your assistants</title>
-<meta name="description" content="How reef works: coves and pages, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
+<meta name="description" content="How reef works: spaces and engrams, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="icon" type="image/png" sizes="180x180" href="/favicon.ico">
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
@@ -13,7 +13,7 @@
 <meta property="og:site_name" content="reef">
 <meta property="og:url" content="https://reefwith.me/docs">
 <meta property="og:title" content="reef documentation">
-<meta property="og:description" content="How reef works: coves and pages, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
+<meta property="og:description" content="How reef works: spaces and engrams, how an assistant reads and writes memory, connecting Claude, ChatGPT, Codex or the CLI, and the full tool reference.">
 <meta property="og:image" content="https://reefwith.me/site/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -238,7 +238,7 @@ footer a { color: var(--muted); }
     <nav class="outline" aria-label="Documentation outline">
       <ol>
         <li><a href="#what-reef-is">What reef is</a></li>
-        <li><a href="#coves-and-pages">Coves and pages</a></li>
+        <li><a href="#spaces-and-engrams">Spaces and engrams</a></li>
         <li><a href="#reading">How your assistant reads</a></li>
         <li><a href="#writing">How your assistant writes</a></li>
         <li><a href="#connect">Connect an assistant</a>
@@ -274,17 +274,17 @@ footer a { color: var(--muted); }
 <h2 id="what-reef-is">What <span class="reef-name">reef</span> is</h2>
 <p>
   <span class="reef-name">reef</span> is a shared, living memory for a group of people
-  and the AI assistants they talk to. You keep pages; your assistant reads them
+  and the AI assistants they talk to. You keep engrams; your assistant reads them
   before it answers, and writes back to them as things change.
 </p>
 <p>Three things separate it from the memory built into an assistant:</p>
 <ul>
-  <li><b>Shared, not personal.</b> A cove belongs to a household, a project or a
+  <li><b>Shared, not personal.</b> A space belongs to a household, a project or a
     team, so everyone's assistant starts from the same picture.</li>
-  <li><b>A wiki, not a blob.</b> Memory is pages you can read, correct and
+  <li><b>A wiki, not a blob.</b> Memory is engrams you can read, correct and
     reorganise — not an opaque store you have to trust.</li>
   <li><b>Map before memory.</b> An assistant loads an index of what exists, then
-    fetches only the pages the conversation actually needs.</li>
+    fetches only the engrams the conversation actually needs.</li>
 </ul>
 <p>There are three ways in, all reaching the same memory:</p>
 <table>
@@ -296,33 +296,33 @@ footer a { color: var(--muted); }
 <div class="aside">
   <p>
     <span class="reef-name">reef</span> is invitation-only. There is no public
-    sign-up: you get in because someone already inside adds you to a cove.
+    sign-up: you get in because someone already inside adds you to a space.
   </p>
 </div>
 
-<h2 id="coves-and-pages">Coves and pages</h2>
+<h2 id="spaces-and-engrams">Spaces and engrams</h2>
 <p>
-  A <b>cove</b> is a small group and the memory it shares. You get one private
-  cove, called <code>personal</code>, the first time you sign in. You can create
+  A <b>space</b> is a small group and the memory it shares. You get one private
+  space, called <code>personal</code>, the first time you sign in. You can create
   any number of shared ones — a household, a school circle, an accountant, a
   small project.
 </p>
 <table>
-  <tr><th></th><th>Private cove</th><th>Shared cove</th></tr>
+  <tr><th></th><th>Private space</th><th>Shared space</th></tr>
   <tr><td>Who can read it</td><td>Only you</td><td>Everyone invited</td></tr>
   <tr><td>Created</td><td>At first sign-in</td><td>By whoever needs it</td></tr>
   <tr><td>Named</td><td>Always <code>personal</code></td><td>By you, for you</td></tr>
   <tr><td>People join</td><td>Never</td><td>By email invitation from the owner</td></tr>
 </table>
 <p>
-  <b>You name a shared cove for yourself.</b> Your name for a cove is yours
+  <b>You name a shared space for yourself.</b> Your name for a space is yours
   alone. Two households can each have a <code>family</code> without either
   knowing the other exists, and nobody can take a name from anybody else. The
-  consequence worth remembering: when someone tells you a page is "in the
-  family cove", they mean <em>their</em> name for it, which need not be yours.
+  consequence worth remembering: when someone tells you an engram is "in the
+  family space", they mean <em>their</em> name for it, which need not be yours.
 </p>
 <p>
-  A <b>page</b> is Markdown, from the moment you write it. Each one carries a
+  An <b>engram</b> is Markdown, from the moment you write it. Each one carries a
   path such as <code>plans.md</code>, a title, tags, and a one-line description.
   The description is what an assistant sees in the index, so it is worth
   writing as a real summary rather than a label.
@@ -330,35 +330,37 @@ footer a { color: var(--muted); }
 
 <h2 id="reading">How your assistant reads</h2>
 <p>
-  <span class="reef-name">reef</span> loads an <b>index first, then pages</b>. This
+  <span class="reef-name">reef</span> loads an <b>index first, then engrams</b>. This
   is the LLM Wiki pattern, adapted for shared, permissioned memory, and it is
   why a large memory stays cheap to consult.
 </p>
 <ol>
-  <li>The assistant calls <code>load_index</code> and gets a map of every page it
-    may see: path, title, tags, and the one-line description. No page bodies.</li>
-  <li>It reads the map, decides what this conversation needs, and fetches only
-    that with <code>read_pages</code>.</li>
-  <li>It fetches again as the topic moves. When the map alone cannot settle what
-    to read, <code>search_pages</code> matches words inside page bodies.</li>
+  <li>The assistant calls <code>load_index</code> and gets a map of every engram it
+    may see: path, title, tags, and the one-line description. No engram bodies.</li>
+  <li>It reads the map, decides what this conversation needs, and asks
+    <code>recall</code>, which returns the passages that best answer the
+    question.</li>
+  <li>When passages are not enough, it reads whole engrams with
+    <code>open</code>. For advice or preparation, <code>brief</code> gathers
+    everything that bears on a topic.</li>
 </ol>
 <p>
   The index is rebuilt from the database on every call, so it cannot fall out of
   date. Search runs under the same row-level security as every other read, so it
-  can never surface a page its caller could not open.
+  can never surface an engram its caller could not open.
 </p>
 
 <h2 id="writing">How your assistant writes</h2>
 <p>
   Nothing is recorded silently. Mid-conversation, a fact worth keeping goes
-  through <code>remember</code>, which stages it as a dated line in that cove's
+  through <code>remember</code>, which stages it as a dated line in that space's
   inbox. Before the conversation ends, the assistant says what it is keeping, so
   you can strike anything first.
 </p>
 <p>
   An inbox entry is not memory yet. A <b>tidy-up</b> — ask for one any time —
-  compiles inboxes onto real pages, flags pages that have gone stale, and
-  surfaces contradictions between your pages and shared ones instead of quietly
+  compiles inboxes onto real engrams, flags engrams that have gone stale, and
+  surfaces contradictions between your engrams and shared ones instead of quietly
   picking a winner.
 </p>
 <p>
@@ -366,19 +368,19 @@ footer a { color: var(--muted); }
   <span class="reef-name">reef</span> will not transcribe your conversations behind
   your back.
 </p>
-<p>For edits to real pages rather than the inbox, an assistant uses:</p>
+<p>For edits to real engrams rather than the inbox, an assistant uses:</p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>write_page</code></td><td>Creates or replaces one page.</td></tr>
-  <tr><td><code>write_pages</code></td><td>Writes several pages as one change.</td></tr>
-  <tr><td><code>edit_page_section</code></td><td>Replaces one section, leaving the rest of the page untouched.</td></tr>
-  <tr><td><code>update_meta_page</code></td><td>Updates a cove's own index page.</td></tr>
+  <tr><td><code>log</code></td><td>Adds one entry to the end of a journal, training log or meeting notes. Nothing else changes.</td></tr>
+  <tr><td><code>write</code></td><td>Creates or replaces whole engrams, up to 20 at once, all or nothing.</td></tr>
+  <tr><td><code>correct</code></td><td>Replaces one exact passage, leaving the rest of the engram untouched.</td></tr>
+  <tr><td><code>undo</code></td><td>Restores an earlier version of an engram.</td></tr>
 </table>
 
 <h2 id="connect">Connect an assistant</h2>
 <p>
   Every route below signs in through the same browser flow. Use the email
-  address you were invited on — that is how invitations to a cove reach you, and
+  address you were invited on — that is how invitations to a space reach you, and
   signing in with a different one gets you a different, empty account.
 </p>
 
@@ -436,10 +438,10 @@ claude plugin install reef@haai</code></pre>
 </p>
 <pre><code>reef login
 reef load-index
-reef read-pages personal profile.md preferences.md
-reef write-page personal plans.md --body-file ./plans.md \
-  --message "Add the summer plan" --title Plans
-reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
+reef recall "when is the boiler serviced?"
+reef open personal/profile.md personal/preferences.md
+reef log personal climbing-log.md --heading "2026-11-19" --entry "Sent the blue route."
+reef call open '{"refs":["personal/plans.md"]}'</code></pre>
 <p>
   <code>reef call</code> takes any tool name and a JSON object, so it reaches
   everything the named commands do. Run <code>reef tools</code> for the live
@@ -466,7 +468,7 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
 </p>
 <p>
   Your assistant is told to treat <span class="reef-name">reef</span> as the
-  record. When what it remembers on its own contradicts a page, it should tell
+  record. When what it remembers on its own contradicts an engram, it should tell
   you both versions rather than quietly choosing, and write down whichever one
   you confirm.
 </p>
@@ -475,71 +477,70 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   off. In ChatGPT that is <b>Settings → Personalization → Memory</b>, where you
   switch off both <b>Reference saved memories</b> and <b>Reference chat
   history</b>. In Claude it is <b>Settings → Memory</b>. Nothing in
-  <span class="reef-name">reef</span> changes: your pages stay where they are,
+  <span class="reef-name">reef</span> changes: your engrams stay where they are,
   and every assistant you connect reads the same ones.
 </p>
 
 <h2 id="tools">Tool reference</h2>
 <p>
-  These are the tools an assistant sees over MCP, and the commands the CLI
-  mirrors. Every one that touches a cove takes a <code>cove</code> argument.
+  These are the sixteen tools an assistant sees over MCP, and the commands the
+  CLI mirrors. Every tool but <code>search</code> and <code>fetch</code> takes a
+  <code>reason</code>: a few words from your request, which
+  <span class="reef-name">reef</span> logs privately for you, to improve
+  <span class="reef-name">reef</span>.
 </p>
 <p><b>Reading</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>load_index</code></td><td>The map of every page you may see — no bodies.</td></tr>
-  <tr><td><code>read_pages</code></td><td>Fetches several pages from one cove.</td></tr>
-  <tr><td><code>read_page</code></td><td>Fetches one page, optionally as it stood at a past date.</td></tr>
-  <tr><td><code>search_pages</code></td><td>Matches words inside page bodies.</td></tr>
-  <tr><td><code>load_all_context</code></td><td>Everything at once — for small coves, or a fresh start.</td></tr>
-  <tr><td><code>whats_new</code></td><td>What has changed since you last looked.</td></tr>
-  <tr><td><code>get_operating_protocol</code></td><td>The rules an assistant should follow here.</td></tr>
+  <tr><td><code>load_index</code></td><td>Where a conversation starts: the rules an assistant follows, your persona, and the map of every engram and file you may see. No bodies.</td></tr>
+  <tr><td><code>recall</code></td><td>Answers a question with the passages that fit best, and where each comes from.</td></tr>
+  <tr><td><code>brief</code></td><td>Gathers what bears on a topic, to advise or prepare you.</td></tr>
+  <tr><td><code>open</code></td><td>Reads whole engrams and stored files, optionally as they stood at a past date.</td></tr>
+  <tr><td><code>catch_up</code></td><td>What has changed in your spaces, and who changed it.</td></tr>
 </table>
 <p><b>Writing</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>remember</code></td><td>Stages a fact as a dated line in the cove's inbox.</td></tr>
-  <tr><td><code>write_page</code></td><td>Creates or replaces one page.</td></tr>
-  <tr><td><code>write_pages</code></td><td>Writes several pages as one change.</td></tr>
-  <tr><td><code>edit_page_section</code></td><td>Replaces one section of a page.</td></tr>
-  <tr><td><code>update_meta_page</code></td><td>Updates a cove's own index page.</td></tr>
-  <tr><td><code>delete_page</code></td><td>Removes a page.</td></tr>
+  <tr><td><code>remember</code></td><td>Stages a fact as a dated line in the space's inbox.</td></tr>
+  <tr><td><code>log</code></td><td>Adds one entry to the end of a log.</td></tr>
+  <tr><td><code>write</code></td><td>Creates or replaces whole engrams.</td></tr>
+  <tr><td><code>correct</code></td><td>Replaces one exact passage of an engram.</td></tr>
+  <tr><td><code>undo</code></td><td>Restores an earlier version of an engram.</td></tr>
+  <tr><td><code>store_file</code></td><td>Keeps a document or an image, with a description to find it by.</td></tr>
 </table>
-<p><b>Coves</b></p>
+<p><b>Changes that need your yes</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>list_coves</code></td><td>The coves you are in.</td></tr>
-  <tr><td><code>create_cove</code></td><td>Makes a new shared cove.</td></tr>
-  <tr><td><code>rename_cove</code></td><td>Changes your own name for a cove.</td></tr>
-  <tr><td><code>leave_cove</code></td><td>Removes you from a cove.</td></tr>
-  <tr><td><code>delete_cove</code></td><td>Deletes a cove and its pages.</td></tr>
+  <tr><td><code>share</code></td><td>Moves a personal engram, or one section of it, into a shared space.</td></tr>
+  <tr><td><code>forget</code></td><td>Deletes an engram and its history, or a stored file, for good.</td></tr>
+  <tr><td><code>instruct</code></td><td>Replaces your persona, which every assistant of yours follows.</td></tr>
 </table>
-<p><b>People and sharing</b></p>
+<p>
+  Each of these takes two calls. The first changes nothing and shows the effect.
+  The second happens only after you say yes.
+</p>
+<p><b>For connectors</b></p>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>invite</code></td><td>Adds someone to one of your coves.</td></tr>
-  <tr><td><code>invite_to_reef</code></td><td>Brings someone new onto <span class="reef-name">reef</span>.</td></tr>
-  <tr><td><code>remove_member</code></td><td>Takes someone out of a cove.</td></tr>
-  <tr><td><code>prepare_to_share</code></td><td>Shows the exact text, and who would read it.</td></tr>
-  <tr><td><code>confirm_share</code></td><td>Moves it, once you have seen it.</td></tr>
+  <tr><td><code>search</code></td><td>Finds engrams and files by words, for connectors that can call only two tools.</td></tr>
+  <tr><td><code>fetch</code></td><td>Retrieves one result of <code>search</code>.</td></tr>
 </table>
-<p><b>Files and images</b></p>
-<table>
-  <tr><th>Tool</th><th>What it does</th></tr>
-  <tr><td><code>add_file</code> · <code>read_file</code> · <code>delete_file</code></td><td>Documents attached to a cove.</td></tr>
-  <tr><td><code>add_image</code> · <code>read_image</code> · <code>delete_image</code></td><td>Images attached to a cove.</td></tr>
-</table>
+<p>
+  Creating, renaming and deleting spaces, and inviting and removing members,
+  are done on the <span class="reef-name">reef</span> website, by you. An
+  assistant cannot do them.
+</p>
 
 <h2 id="sharing">Sharing and invitations</h2>
 <p>
   <b>Sharing is deliberate and permanent.</b> Moving something out of your
-  private cove takes two steps. First your assistant calls
-  <code>prepare_to_share</code>, which shows you the exact text and names
-  everyone who will be able to read it. Only then, with
-  <code>confirm_share</code>, does it move.
+  private space takes two steps. First your assistant calls
+  <code>share</code>, which shows you the exact text and names everyone who
+  will be able to read it. Only after your yes does it call <code>share</code>
+  again, and the text moves.
 </p>
 <p>
-  Writing private content into a shared cove any other way is refused — not
+  Writing private content into a shared space any other way is refused — not
   discouraged, refused. And there is no un-sharing: once other people can read
   something, treat it as read.
 </p>
@@ -551,15 +552,14 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   </p>
 </div>
 <p>
-  Invite someone already on <span class="reef-name">reef</span> into a cove with
-  <code>invite</code>. For someone new, <code>invite_to_reef</code> brings them
-  on. Both are addressed to an email, and that address is the one they must sign
-  in with.
+  You invite people on the <span class="reef-name">reef</span> website, to a
+  space or to <span class="reef-name">reef</span> itself. An invitation is
+  addressed to an email, and that address is the one they must sign in with.
 </p>
 
 <h2 id="your-data">Your data</h2>
 <p>
-  Pages are Markdown from the moment you write them. The browser app exports
+  Engrams are Markdown from the moment you write them. The browser app exports
   two ways:
 </p>
 <ul>
@@ -573,7 +573,7 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   means deleted.
 </p>
 <p>
-  Privacy is enforced by the database, not by application code. Every page,
+  Privacy is enforced by the database, not by application code. Every engram,
   file and membership is guarded by PostgreSQL row-level security, so a query
   with a forgotten filter returns <b>nothing</b> rather than somebody else's
   data. Getting it wrong fails closed.
@@ -600,7 +600,7 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   invitation reaches nobody until you pass it on yourself.
 </p>
 
-<h3 id="trouble-wrong-email">I signed in and my coves are gone</h3>
+<h3 id="trouble-wrong-email">I signed in and my spaces are gone</h3>
 <p>
   You are probably in a second account. Invitations are addressed to an email
   address, so signing in with a different one gives you a new, empty
@@ -614,11 +614,11 @@ reef call read_pages '{"cove":"personal","paths":["plans.md"]}'</code></pre>
   Signing in to one does not sign in the others — do each once.
 </p>
 
-<h3 id="trouble-cove-name">Someone mentioned a cove I cannot find</h3>
+<h3 id="trouble-space-name">Someone mentioned a space I cannot find</h3>
 <p>
-  Cove names are per person. Their name for a cove is not necessarily yours, so
-  ask what is on the pages rather than what the cove is called — or check
-  <code>list_coves</code> for what you actually have. If it is nowhere, you
+  Space names are per person. Their name for a space is not necessarily yours, so
+  ask what is on the engrams rather than what the space is called — or check
+  <code>load_index</code> for what you actually have. If it is nowhere, you
   have not been invited to it yet.
 </p>
 

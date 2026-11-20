@@ -3,8 +3,8 @@
 Three schema facts Piccolo cannot express in a table definition, and which
 ``reef.rls.constraint_statements`` therefore emits as raw DDL: the composite
 key on ``memberships`` (Piccolo gives every table one surrogate primary key),
-the ``(cove_id, path)`` uniqueness of a page, and the one-personal-cove-per
--person invariant (a *partial* unique index on ``coves.owner_person_id``,
+the ``(space_id, path)`` uniqueness of an engram, and the one-personal-space-per
+-person invariant (a *partial* unique index on ``spaces.owner_person_id``,
 which Piccolo has no syntax for). All three are constraints the database must
 hold whatever the ORM believes, so they live next to the RLS policy DDL
 rather than being dropped.
@@ -51,8 +51,8 @@ def utc_now() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
-class CoveKind(StrEnum):
-    """The two kinds of cove: one private per person, any number shared."""
+class SpaceKind(StrEnum):
+    """The two kinds of space: one private per person, any number shared."""
 
     PERSONAL = "personal"
     SHARED = "shared"
@@ -80,7 +80,7 @@ class Person(Table, tablename="persons", db=DB):
     a size where that is cheap (see ``reef.web.routes_api.AVATAR_MAX_BYTES``),
     it is read on nearly every screen so a signed-URL round trip per face
     would be the dominant cost, and keeping it here means it travels with
-    ``pg_dump`` — the same "leave with everything" property the pages have.
+    ``pg_dump`` — the same "leave with everything" property the engrams have.
     Attachments, which are unbounded and rarely read, stay in S3.
     """
 
@@ -114,20 +114,20 @@ class Person(Table, tablename="persons", db=DB):
     last_seen_release = Varchar(null=True, default=None)
 
 
-class Cove(Table, tablename="coves", db=DB):
-    """A group of people. Every cove has one accountable owner.
+class Space(Table, tablename="spaces", db=DB):
+    """A group of people. Every space has one accountable owner.
 
     ``slug`` is the name its creator chose, kept for provenance and as the
     alias offered to each new member. It is deliberately **not** unique: a
-    globally unique cove name is a cross-tenant namespace, which let anyone
+    globally unique space name is a cross-tenant namespace, which let anyone
     squat ``family`` or ``home`` for everybody and turned a collision into an
-    existence oracle. What a person actually addresses a cove by lives on
+    existence oracle. What a person actually addresses a space by lives on
     their own membership row, unique per person -- see :class:`Membership`.
     """
 
     id = UUID(primary_key=True, default=uuid4)
     slug = Varchar()
-    kind = Varchar(choices=CoveKind)
+    kind = Varchar(choices=SpaceKind)
     # null=False because the migrations made this column NOT NULL and
     # Piccolo's ForeignKey defaults to nullable. Unstated, the schema the
     # tests build is *laxer* than the one production runs, and this repo has
@@ -139,32 +139,32 @@ class Cove(Table, tablename="coves", db=DB):
 
 
 class Membership(Table, tablename="memberships", db=DB):
-    """Who may see which cove, what it grants, and what they call it.
+    """Who may see which space, what it grants, and what they call it.
 
-    The real key is ``(person_id, cove_id)``; Piccolo's surrogate ``id`` is
+    The real key is ``(person_id, space_id)``; Piccolo's surrogate ``id`` is
     an artefact, and the composite uniqueness is enforced by a raw
     constraint rather than by this definition.
 
-    ``alias`` is the name this person addresses this cove by, and it is the
+    ``alias`` is the name this person addresses this space by, and it is the
     only name the tool surface accepts. It lives here rather than on
-    ``coves`` because the constraint that actually has to hold is "the
+    ``spaces`` because the constraint that actually has to hold is "the
     aliases *one person* can reach are unique" -- which is
     ``UNIQUE (person_id, alias)``, an ordinary index, and is not expressible
-    as a property of the cove. Two people may each have a cove called
+    as a property of the space. Two people may each have a space called
     ``family`` without either knowing the other exists.
     """
 
     person_id = ForeignKey(Person)
-    cove_id = ForeignKey(Cove)
+    space_id = ForeignKey(Space)
     role = Varchar(choices=MemberRole, default=MemberRole.MEMBER.value)
     alias = Varchar()
 
 
-class Page(Table, tablename="pages", db=DB):
-    """A markdown page within a cove, optimistically versioned."""
+class Engram(Table, tablename="engrams", db=DB):
+    """A markdown engram within a space, optimistically versioned."""
 
     id = UUID(primary_key=True, default=uuid4)
-    cove_id = ForeignKey(Cove, index=True)
+    space_id = ForeignKey(Space, index=True)
     path = Varchar()
     title = Varchar()
     tags = Array(base_column=Varchar(), default=list)
@@ -172,7 +172,7 @@ class Page(Table, tablename="pages", db=DB):
     version = Integer(default=0)
     created_at = Timestamp(default=TimestampNow())
     updated_at = Timestamp(default=TimestampNow())
-    # What the index shows for this page, derived from ``body`` when the page
+    # What the index shows for this engram, derived from ``body`` when the engram
     # is saved -- see ``reef.context.index_fields``. They exist so that
     # building the index does not have to read every body.
     #
@@ -186,22 +186,25 @@ class Page(Table, tablename="pages", db=DB):
     size = Integer(null=True, default=None)
     reference_targets = Array(base_column=Varchar(length=None), null=True, default=None)
     indexed_version = Integer(null=True, default=None)
-    # The version whose wiki links are in ``links``. Null on a page saved
+    # The version whose wiki links are in ``links``. Null on an engram saved
     # before links were stored; see reef.links.
     linked_version = Integer(null=True, default=None)
 
 
 class Revision(Table, tablename="revisions", db=DB):
-    """Append-only history: full page state per write, not just the body."""
+    """Append-only history: full engram state per write, not just the body."""
 
     id = UUID(primary_key=True, default=uuid4)
-    page_id = ForeignKey(Page, index=True)
+    engram_id = ForeignKey(Engram, index=True)
     path = Varchar()
     title = Varchar()
     tags = Array(base_column=Varchar(), default=list)
     body = Varchar(length=None)
     message = Varchar()
     author_id = ForeignKey(Person, null=True, default=None, on_delete=OnDelete.set_null)
+    # Who made the change: assistant, person or system. Null on history that
+    # predates the column.
+    channel = Varchar(null=True, default=None)
     created_at = Timestamp(default=TimestampNow())
 
 
@@ -209,8 +212,8 @@ class Attachment(Table, tablename="attachments", db=DB):
     """A file in object storage, described in text for context loading."""
 
     id = UUID(primary_key=True, default=uuid4)
-    cove_id = ForeignKey(Cove, index=True)
-    page_id = ForeignKey(Page, null=True, default=None, on_delete=OnDelete.set_null)
+    space_id = ForeignKey(Space, index=True)
+    engram_id = ForeignKey(Engram, null=True, default=None, on_delete=OnDelete.set_null)
     object_key = Varchar(unique=True)
     filename = Varchar(length=512, default="")
     mime = Varchar()
@@ -223,33 +226,33 @@ class Attachment(Table, tablename="attachments", db=DB):
 class Promotion(Table, tablename="promotions", db=DB):
     """A prepared or completed share. The row is nonce and audit trail.
 
-    ``section_text`` is None for a whole-page share; for a section share it
+    ``section_text`` is None for a whole-engram share; for a section share it
     holds the exact extracted span, so confirm can verify the disclosure the
     user approved is the text that actually moves.
     """
 
     id = UUID(primary_key=True, default=uuid4)
     person_id = ForeignKey(Person)
-    source_page_id = ForeignKey(Page)
+    source_engram_id = ForeignKey(Engram)
     source_version = Integer()
-    # NOT NULL in the migrated schema; see Cove.owner_person_id.
-    dest_cove_id = ForeignKey(Cove, null=False)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    dest_space_id = ForeignKey(Space, null=False)
     dest_path = Varchar()
     section_text = Varchar(length=None, null=True, default=None)
     created_at = Timestamp(default=utc_now)
     consumed_at = Timestamp(null=True, default=None)
 
 
-class CoveAppearance(Table, tablename="cove_appearances", db=DB):
-    """How one person has chosen to see one cove.
+class SpaceAppearance(Table, tablename="space_appearances", db=DB):
+    """How one person has chosen to see one space.
 
-    A cove's colour and creature are derived from its alias, and this
+    A space's colour and creature are derived from its alias, and this
     overrides that derivation *for one viewer only* -- two members of the
-    same cove can see it differently, and neither can restyle it for the
+    same space can see it differently, and neither can restyle it for the
     other. That is why this is its own table rather than columns on
-    ``coves`` or ``memberships``.
+    ``spaces`` or ``memberships``.
 
-    On ``coves`` it would be shared, so changing it would be an act of
+    On ``spaces`` it would be shared, so changing it would be an act of
     administration and would mean widening the deliberately narrow
     column grant that today lets a member update nothing but ``version``.
     On ``memberships`` it would need a self-update policy on a table that
@@ -259,14 +262,14 @@ class CoveAppearance(Table, tablename="cove_appearances", db=DB):
     "your own rows" policy is safe.
 
     Null means "not chosen": the alias-derived value stands. The composite
-    uniqueness of ``(person_id, cove_id)`` is a raw constraint, as on
+    uniqueness of ``(person_id, space_id)`` is a raw constraint, as on
     ``memberships``.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
-    cove_id = ForeignKey(Cove, null=False)
+    space_id = ForeignKey(Space, null=False)
     color = Varchar(null=True, default=None)
     glyph = Varchar(null=True, default=None)
 
@@ -300,7 +303,7 @@ class Job(Table, tablename="jobs", db=DB):
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
     kind = Varchar()
     subject_ids = Array(base_column=UUID(), default=list)
@@ -344,16 +347,16 @@ class LinkStatus(StrEnum):
 
 
 class Link(Table, tablename="links", db=DB):
-    """A connection somebody wrote from one page to another.
+    """A connection somebody wrote from one engram to another.
 
-    Every ``[[wiki link]]`` in a page body becomes one row when the page is
+    Every ``[[wiki link]]`` in an engram body becomes one row when the engram is
     saved. A link that leaves the body is marked ``superseded`` and kept, so
     the table also says what used to be connected and until when.
 
     A link is visible only to a reader who can read **both** ends. To anyone
     else it does not exist: not as a link, not as a backlink, not in a
     count. Row security enforces that, and it also refuses a link from a
-    shared cove into a personal one. See :func:`reef.rls.link_statements`.
+    shared space into a personal one. See :func:`reef.rls.link_statements`.
 
     ``target_text`` is the target exactly as written, for a wiki link. It is
     what decides when the link is retired: by whether those words are still
@@ -361,18 +364,18 @@ class Link(Table, tablename="links", db=DB):
 
     ``author_id`` is the person whose save made the link exist. That is
     usually whoever wrote the words. It is the creator of the *target*
-    instead when the words were written first and the page they name came
+    instead when the words were written first and the engram they name came
     later. Treat it as "who caused this row", not "who wrote this link",
     before showing it to anyone.
 
     ``from_anchor`` and ``to_anchor`` are unused today. They leave room for
-    a link that points at a section rather than a whole page.
+    a link that points at a section rather than a whole engram.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
-    from_page_id = ForeignKey(Page, null=False)
-    to_page_id = ForeignKey(Page, null=False)
+    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
+    from_engram_id = ForeignKey(Engram, null=False)
+    to_engram_id = ForeignKey(Engram, null=False)
     from_anchor = Varchar(null=True, default=None)
     to_anchor = Varchar(null=True, default=None)
     kind = Varchar(choices=LinkKind, default=LinkKind.REFERENCES)
@@ -388,7 +391,7 @@ class Link(Table, tablename="links", db=DB):
 
 
 class AccessKind(StrEnum):
-    """How a person used a page. Only real use is recorded."""
+    """How a person used an engram. Only real use is recorded."""
 
     READ = "read"
     WRITE = "write"
@@ -396,14 +399,14 @@ class AccessKind(StrEnum):
     WEB = "web"
 
 
-class PageAccess(Table, tablename="page_access", db=DB):
-    """One use of one page by one person: the usage log.
+class EngramAccess(Table, tablename="engram_access", db=DB):
+    """One use of one engram by one person: the usage log.
 
     Recorded when a person, or an assistant acting for them, opens or
-    writes a page. Appearing in a search result or in the index is not use
+    writes an engram. Appearing in a search result or in the index is not use
     and is not recorded.
 
-    Strictly per person. One member's reading habits in a shared cove are
+    Strictly per person. One member's reading habits in a shared space are
     not another member's business, so a person sees their own rows and
     nobody else's. See :func:`reef.rls.usage_statements`.
 
@@ -414,9 +417,9 @@ class PageAccess(Table, tablename="page_access", db=DB):
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
-    page_id = ForeignKey(Page, null=False)
+    engram_id = ForeignKey(Engram, null=False)
     via = Varchar(choices=AccessKind, default=AccessKind.READ)
     weight = Real(default=1.0)
     session_id = Varchar(null=True, default=None)
@@ -424,29 +427,55 @@ class PageAccess(Table, tablename="page_access", db=DB):
 
 
 class SearchLog(Table, tablename="search_log", db=DB):
-    """One search by one person: what they asked and which pages came back.
+    """One search by one person: what they asked and which engrams came back.
 
     Kept to measure search on real questions. Together with the usage log
-    it shows a miss: a page the person opened in the same session that the
+    it shows a miss: an engram the person opened in the same session that the
     search before it did not return.
 
     Strictly per person, like the usage log. The query text is what a person
     asked their own memory, so a person sees their own rows and nobody
     else's. See :func:`reef.rls.search_log_statements`.
 
-    ``page_ids`` holds the pages returned, best first. It is a plain array,
-    not a set of foreign keys: a deleted page leaves its id behind, which
+    ``engram_ids`` holds the engrams returned, best first. It is a plain array,
+    not a set of foreign keys: a deleted engram leaves its id behind, which
     names nothing. Rows older than :data:`reef.searchlog.RETENTION_DAYS`
     days are deleted.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
     query = Varchar(length=None)
-    page_ids = Array(base_column=UUID())
+    engram_ids = Array(base_column=UUID())
     session_id = Varchar(null=True, default=None)
     searched_at = Timestamp(default=TimestampNow())
+
+
+class CallLog(Table, tablename="call_log", db=DB):
+    """One call to one method by one person's assistant, or by the person.
+
+    Kept so a person can see what was done in their name and why. Strictly
+    per person, like the search log: a person sees their own rows and nobody
+    else's, operators included. See :func:`reef.rls.call_log_statements`.
+
+    ``reason`` is the assistant's own words for why it called, cut to
+    :data:`reef.rls.CALL_LOG_MAX_REASON` characters. It never reaches Logfire
+    or the app logs. ``writer`` is ``assistant``, ``person`` or ``system``.
+    Rows older than :data:`reef.rls.CALL_LOG_DAYS` days are deleted.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    session_id = Varchar(null=True, default=None)
+    method = Varchar()
+    reason = Varchar(length=None, default="")
+    writer = Varchar()
+    duration_ms = Integer(default=0)
+    returned = Integer(default=0)
+    outcome = Varchar()
+    called_at = Timestamp(default=TimestampNow())
 
 
 class Vector(Column):
@@ -460,27 +489,27 @@ class Vector(Column):
     value_type = str
 
 
-class PageEmbedding(Table, tablename="page_embeddings", db=DB):
-    """The vector of one piece of one page, from one model.
+class EngramEmbedding(Table, tablename="engram_embeddings", db=DB):
+    """The vector of one piece of one engram, from one model.
 
-    A page is cut into pieces by :func:`reef.sections.split`. Each piece is
+    An engram is cut into pieces by :func:`reef.sections.split`. Each piece is
     embedded, and the vector is stored here. Sections have no rows of their
     own: this is the only place they exist.
 
-    ``section_anchor`` names the piece within the page, and is null for the
-    page as a whole. ``content_hash`` is the digest of exactly the text that
+    ``section_anchor`` names the piece within the engram, and is null for the
+    engram as a whole. ``content_hash`` is the digest of exactly the text that
     was embedded, so an unchanged piece is never embedded again. ``model_id``
     and ``dims`` say which model made the vector: vectors of two models
     cannot be compared, and a query only ever reads its own model's rows.
 
-    Derived data. It is rebuilt from the pages and never restored. A piece
-    is visible exactly when its page is: see
+    Derived data. It is rebuilt from the engrams and never restored. A piece
+    is visible exactly when its engram is: see
     :func:`reef.rls.embedding_statements`.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # NOT NULL in the migrated schema; see Cove.owner_person_id.
-    page_id = ForeignKey(Page, null=False)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    engram_id = ForeignKey(Engram, null=False)
     section_anchor = Varchar(length=None, null=True, default=None)
     model_id = Varchar()
     dims = Integer()
@@ -493,7 +522,7 @@ class EmbeddingSpend(Table, tablename="embedding_spend", db=DB):
     """How many pieces were embedded for one person on one day.
 
     What the daily cap counts. It cannot be counted from
-    ``page_embeddings``: a page rewritten a thousand times leaves a handful
+    ``engram_embeddings``: an engram rewritten a thousand times leaves a handful
     of rows there, and that rewriting is exactly what the cap is for.
 
     ``(person_id, day)`` is unique, by a raw constraint. Private to the
@@ -501,26 +530,26 @@ class EmbeddingSpend(Table, tablename="embedding_spend", db=DB):
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
     day = Date()
     pieces = Integer(default=0)
 
 
-class PageHeat(Table, tablename="page_heat", db=DB):
-    """How readily one page comes to mind for one person: its activation.
+class EngramHeat(Table, tablename="engram_heat", db=DB):
+    """How readily one engram comes to mind for one person: its activation.
 
     Derived from the usage log and rebuilt from it, so nothing here is a
     source of truth. Per person, like the log it is computed from: the same
-    page has a different activation for each member of a shared cove.
+    engram has a different activation for each member of a shared space.
 
-    ``(person_id, page_id)`` is unique, by a raw constraint.
+    ``(person_id, engram_id)`` is unique, by a raw constraint.
     """
 
     id = UUID(primary_key=True, default=uuid4)
-    # Both NOT NULL in the migrated schema; see Cove.owner_person_id.
+    # Both NOT NULL in the migrated schema; see Space.owner_person_id.
     person_id = ForeignKey(Person, null=False)
-    page_id = ForeignKey(Page, null=False)
+    engram_id = ForeignKey(Engram, null=False)
     activation = Real()
     accesses = Integer()
     last_access = Timestamp()
@@ -529,18 +558,19 @@ class PageHeat(Table, tablename="page_heat", db=DB):
 
 TABLES = [
     Person,
-    Cove,
+    Space,
     Membership,
-    Page,
+    Engram,
     Revision,
     Attachment,
     Promotion,
-    CoveAppearance,
+    SpaceAppearance,
     Job,
     Link,
-    PageAccess,
-    PageHeat,
+    EngramAccess,
+    EngramHeat,
     SearchLog,
-    PageEmbedding,
+    CallLog,
+    EngramEmbedding,
     EmbeddingSpend,
 ]

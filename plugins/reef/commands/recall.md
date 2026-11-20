@@ -1,17 +1,16 @@
 ---
 name: recall
-description: Answer from reef memory, reading the pages before answering
+description: Answer from Reef memory, using the passages that fit the question
 argument-hint: <topic or question>
 ---
 
-Answer this from reef: $ARGUMENTS
+Answer this from Reef: $ARGUMENTS
 
-1. Call `load_index` if you have not already this conversation. The index is a
-   map, not evidence — never answer from its one-line descriptions alone.
-2. Call `search_pages` when the index does not settle which pages matter. It
-   matches words inside bodies, titles, and stored files that the index omits.
-3. Call `read_pages` for everything that looks relevant, in one call.
-4. Answer from what you read, naming the cove and path behind each claim.
+1. Call `load_index` if you have not already in this conversation.
+2. Call `recall` with the question in the person's words. Give it a short
+   reason taken from their request.
+3. Call `open` on a ref only if its passage is not enough.
+4. Answer from what you read, and name the space and engram behind each claim.
 
-If reef holds nothing on this, say so plainly rather than filling the gap
-from your own guesses. An invented memory is worse than an absent one.
+If Reef holds nothing on this, say so plainly. Do not fill the gap with your
+own guesses. An invented memory is worse than an absent one.

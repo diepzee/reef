@@ -1,14 +1,14 @@
 """The usage log, and the activation computed from it.
 
-**What is recorded.** Real use only: a page was opened, or written. A page
+**What is recorded.** Real use only: an engram was opened, or written. An engram
 that merely appeared in a search result or in the index was not used, and
 recording it would teach the system that whatever it shows is what matters.
 
 **Whose it is.** One person's. The log and the activation are private to
-the person they describe, also for pages in a shared cove. Row security
+the person they describe, also for engrams in a shared space. Row security
 enforces that, and nothing here looks across people.
 
-**Activation.** How readily a page comes to mind for one person, from how
+**Activation.** How readily an engram comes to mind for one person, from how
 often and how recently they used it. It is the base-level term of ACT-R,
 a model of human memory::
 
@@ -16,11 +16,11 @@ a model of human memory::
 
 Each use adds to it, and each contribution fades with the square root of
 its age, so ten uses last month count for about as much as two today. Only
-the most recent ``REEF_USAGE_WINDOW`` uses of a page are counted.
+the most recent ``REEF_USAGE_WINDOW`` uses of an engram are counted.
 
 Activation changes as time passes, without any new use. The stored value
 is therefore a snapshot, refreshed by a job a little after each use. It is
-good for ordering one person's pages against each other, which is what it
+good for ordering one person's engrams against each other, which is what it
 is for. It is not comparable between people.
 
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
@@ -33,7 +33,7 @@ from uuid import UUID, uuid4
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.jobs import REFRESH_ACTIVATION, enqueue
-from reef.models import AccessKind, PageAccess
+from reef.models import AccessKind, EngramAccess
 
 #: How much each kind of use counts. Something a person explicitly asked to
 #: have remembered counts three times a routine read or write.
@@ -67,32 +67,32 @@ def current_session_id() -> str | None:
     return hashlib.sha256(raw.encode()).hexdigest()[:32]
 
 
-async def record(principal: Principal, page_id: UUID, via: AccessKind) -> None:
-    """Record that the principal used a page, and ask for a refresh.
+async def record(principal: Principal, engram_id: UUID, via: AccessKind) -> None:
+    """Record that the principal used an engram, and ask for a refresh.
 
-    :param principal: the person who used the page
-    :param page_id: the page
+    :param principal: the person who used the engram
+    :param engram_id: the engram
     :param via: how it was used
     """
     await arm(principal)
     # Recording must never be what makes a read or a write fail. The insert
-    # policy refuses a row about a page the person cannot read, and a
+    # policy refuses a row about an engram the person cannot read, and a
     # refusal would abort the caller's whole transaction -- which can happen
     # to a legitimate caller whose membership is removed between their read
-    # and this line. So the statement checks for itself and, when the page
-    # is not readable, inserts nothing. It answers the same way for a page
+    # and this line. So the statement checks for itself and, when the engram
+    # is not readable, inserts nothing. It answers the same way for an engram
     # that does not exist, so it tells the caller nothing either.
-    recorded = await PageAccess.raw(
-        "INSERT INTO page_access (id, person_id, page_id, via, weight, session_id) "
+    recorded = await EngramAccess.raw(
+        "INSERT INTO engram_access (id, person_id, engram_id, via, weight, session_id) "
         "SELECT {}, {}, {}, {}, {}, {} "
-        "WHERE EXISTS (SELECT 1 FROM pages WHERE id = {}) RETURNING id",
+        "WHERE EXISTS (SELECT 1 FROM engrams WHERE id = {}) RETURNING id",
         uuid4(),
         principal.person_id,
-        page_id,
+        engram_id,
         via.value,
         WEIGHTS[via],
         current_session_id(),
-        page_id,
+        engram_id,
     )
     if recorded:
         await enqueue(
@@ -103,32 +103,32 @@ async def record(principal: Principal, page_id: UUID, via: AccessKind) -> None:
 
 
 async def refresh_activation(principal: Principal) -> int:
-    """Recompute the principal's activation for every page they have used.
+    """Recompute the principal's activation for every engram they have used.
 
-    Replaces what was stored. A page the person can no longer read drops
+    Replaces what was stored. An engram the person can no longer read drops
     out: row security hides its log rows, so nothing is computed for it.
     Its old value stays where it is, hidden from them by the same rule,
-    until the page or the person is deleted.
+    until the engram or the person is deleted.
 
     :param principal: the person to recompute for
-    :returns: how many pages now carry an activation
+    :returns: how many engrams now carry an activation
     """
     await arm(principal)
-    await PageAccess.raw(
-        "DELETE FROM page_heat WHERE person_id = {}", principal.person_id
+    await EngramAccess.raw(
+        "DELETE FROM engram_heat WHERE person_id = {}", principal.person_id
     )
-    stored = await PageAccess.raw(
-        "INSERT INTO page_heat "
-        "(id, person_id, page_id, activation, accesses, last_access) "
-        "SELECT gen_random_uuid(), {}, page_id, "
+    stored = await EngramAccess.raw(
+        "INSERT INTO engram_heat "
+        "(id, person_id, engram_id, activation, accesses, last_access) "
+        "SELECT gen_random_uuid(), {}, engram_id, "
         "ln(sum(weight * power(greatest("
         "extract(epoch FROM (LOCALTIMESTAMP - accessed_at)) / 3600.0, {}), {})) "
         "FILTER (WHERE recency <= {})), "
         "count(*), max(accessed_at) "
-        "FROM (SELECT page_id, weight, accessed_at, row_number() OVER "
-        "(PARTITION BY page_id ORDER BY accessed_at DESC) AS recency "
-        "FROM page_access WHERE person_id = {}) AS uses "
-        "GROUP BY page_id RETURNING page_id",
+        "FROM (SELECT engram_id, weight, accessed_at, row_number() OVER "
+        "(PARTITION BY engram_id ORDER BY accessed_at DESC) AS recency "
+        "FROM engram_access WHERE person_id = {}) AS uses "
+        "GROUP BY engram_id RETURNING engram_id",
         principal.person_id,
         get_settings().usage.min_age_hours,
         -get_settings().usage.decay,
@@ -139,14 +139,14 @@ async def refresh_activation(principal: Principal) -> int:
 
 
 async def activations(principal: Principal) -> dict[UUID, float]:
-    """Return the principal's stored activation per page.
+    """Return the principal's stored activation per engram.
 
     :param principal: the person whose activation to read
-    :returns: page id to activation; pages never used are absent
+    :returns: engram id to activation; engrams never used are absent
     """
     await arm(principal)
-    rows = await PageAccess.raw(
-        "SELECT page_id, activation FROM page_heat WHERE person_id = {}",
+    rows = await EngramAccess.raw(
+        "SELECT engram_id, activation FROM engram_heat WHERE person_id = {}",
         principal.person_id,
     )
-    return {row["page_id"]: row["activation"] for row in rows}
+    return {row["engram_id"]: row["activation"] for row in rows}

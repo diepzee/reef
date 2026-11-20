@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: What settings are spelled with now.
@@ -78,8 +78,8 @@ class DatabaseSettings(BaseSettings):
     )
 
 
-class PageSettings(BaseSettings):
-    """How big pages and what an assistant loads may be."""
+class EngramSettings(BaseSettings):
+    """How big engrams and what an assistant loads may be."""
 
     model_config = _group(PREFIX)
 
@@ -89,9 +89,13 @@ class PageSettings(BaseSettings):
     max_chars: int = Field(
         200_000,
         ge=1_000,
-        validation_alias=f"{PREFIX}PAGE_MAX_CHARS",
+        # The first choice is the name; the second is what it was called
+        # before engrams, still set on deployments. The first wins.
+        validation_alias=AliasChoices(
+            f"{PREFIX}ENGRAM_MAX_CHARS", f"{PREFIX}PAGE_MAX_CHARS"
+        ),
         description=(
-            "The longest page. Above the context budget on purpose: a page "
+            "The longest engram. Above the context budget on purpose: an engram "
             "bigger than the whole budget cannot be loaded in one piece "
             "anyway, so this refuses only what was never usable memory."
         ),
@@ -286,8 +290,8 @@ class SearchSettings(BaseSettings):
         60, ge=1, description="The constant of reciprocal rank fusion, from the paper."
     )
     # Measured through the product code on 19 November 2026, on the benchmark
-    # in scripts/eval and on a private set of real pages. Share of questions
-    # with a right page in the first five results:
+    # in scripts/eval and on a private set of real engrams. Share of questions
+    # with a right engram in the first five results:
     #
     #   weight     benchmark  private
     #   keywords   37.5%      80.0%
@@ -302,22 +306,22 @@ class SearchSettings(BaseSettings):
             "1 for a place in the keyword ranking."
         ),
     )
-    # Somebody who types an identifier or a name wants the page that has
+    # Somebody who types an identifier or a name wants the engram that has
     # it. In a whole question, holding every word says little: treating
-    # those pages as sure as well found 44.0% of benchmark questions, against
+    # those engrams as sure as well found 44.0% of benchmark questions, against
     # 46.0% without (19 November 2026).
     sure_words: int = Field(
         3,
         ge=0,
         description=(
-            "Measured. The longest query in which a page holding every word "
+            "Measured. The longest query in which an engram holding every word "
             "keeps its keyword place in the fusion."
         ),
     )
 
 
 class EmbeddingSettings(BaseSettings):
-    """Vectors of page pieces, for search by meaning. See :mod:`reef.embedding`."""
+    """Vectors of engram pieces, for search by meaning. See :mod:`reef.embedding`."""
 
     model_config = _group(f"{PREFIX}EMBEDDING_")
 
@@ -325,7 +329,7 @@ class EmbeddingSettings(BaseSettings):
         "",
         description=(
             "Where the embedding service is. Empty: none, nothing is embedded "
-            "or queued. Page text goes there, so it must be a service this "
+            "or queued. Engram text goes there, so it must be a service this "
             "deployment runs itself, on a private network."
         ),
     )
@@ -342,7 +346,7 @@ class EmbeddingSettings(BaseSettings):
     delay_seconds: float = Field(
         120.0,
         ge=0,
-        description="How long after a save a page is embedded, so five edits embed once.",
+        description="How long after a save an engram is embedded, so five edits embed once.",
     )
     seconds: float = Field(
         2.0,
@@ -352,16 +356,21 @@ class EmbeddingSettings(BaseSettings):
     batch: int = Field(
         16, ge=1, le=256, description="How many pieces go in one request."
     )
-    page_seconds: float = Field(
+    engram_seconds: float = Field(
         300.0,
         gt=0,
-        description="The longest one page's embedding may take. The job holds a connection.",
+        validation_alias=AliasChoices(
+            f"{PREFIX}EMBEDDING_ENGRAM_SECONDS", f"{PREFIX}EMBEDDING_PAGE_SECONDS"
+        ),
+        description="The longest one engram's embedding may take. The job holds a connection.",
     )
     cap_retry_seconds: float = Field(
-        6 * 3600.0, gt=0, description="How long a page waits when the cap is reached."
+        6 * 3600.0,
+        gt=0,
+        description="How long an engram waits when the cap is reached.",
     )
     failure_retry_seconds: float = Field(
-        30 * 60.0, gt=0, description="How long a page waits after a failure."
+        30 * 60.0, gt=0, description="How long an engram waits after a failure."
     )
     question_chars: int = Field(
         500, ge=1, description="How much of a query is embedded, in characters."
@@ -376,19 +385,22 @@ class EmbeddingSettings(BaseSettings):
         200,
         ge=0,
         description="Measured. A section shorter than this joins the one before it. "
-        "A change reaches a page when it is next saved. Same value on app and worker.",
+        "A change reaches an engram when it is next saved. Same value on app and worker.",
     )
     piece_max_chars: int = Field(
         2000,
         ge=100,
         description="Measured. A section longer than this is cut. "
-        "A change reaches a page when it is next saved. Same value on app and worker.",
+        "A change reaches an engram when it is next saved. Same value on app and worker.",
     )
-    page_chars: int = Field(
+    engram_chars: int = Field(
         8000,
         ge=100,
-        description="How much of a long page the whole-page piece holds. "
-        "A change reaches a page when it is next saved. Same value on app and worker.",
+        validation_alias=AliasChoices(
+            f"{PREFIX}EMBEDDING_ENGRAM_CHARS", f"{PREFIX}EMBEDDING_PAGE_CHARS"
+        ),
+        description="How much of a long engram the whole-engram piece holds. "
+        "A change reaches an engram when it is next saved. Same value on app and worker.",
     )
 
 
@@ -401,7 +413,7 @@ class RerankSettings(BaseSettings):
         "",
         description=(
             "Where the reranker is. Empty: none. The query and passages of "
-            "pages the person can read go there, so it must be a service "
+            "engrams the person can read go there, so it must be a service "
             "this deployment runs itself."
         ),
     )
@@ -416,7 +428,7 @@ class RerankSettings(BaseSettings):
         description="Measured. How many of the first results are read again.",
     )
     passages: int = Field(
-        2, ge=1, le=10, description="Measured. How many pieces of each page are read."
+        2, ge=1, le=10, description="Measured. How many pieces of each engram are read."
     )
     seconds: float = Field(
         3.0, gt=0, description="How long a search waits for it, then keeps its order."
@@ -432,21 +444,24 @@ class RerankSettings(BaseSettings):
     )
     rest_seconds: float = Field(60.0, ge=0, description="How long they leave it alone.")
     # A judgement, not a measurement (19 November 2026): hybrid search found
-    # a right page in the first five for 95% of real questions over 37
-    # pages, and for 47% of benchmark questions over 18,000. Nothing was
+    # a right engram in the first five for 95% of real questions over 37
+    # engrams, and for 47% of benchmark questions over 18,000. Nothing was
     # measured in between. Adjust it when the search log shows misses rising.
-    min_pages: int = Field(
+    min_engrams: int = Field(
         1000,
         ge=0,
+        validation_alias=AliasChoices(
+            f"{PREFIX}RERANK_MIN_ENGRAMS", f"{PREFIX}RERANK_MIN_PAGES"
+        ),
         description=(
-            "Rerank only a search over at least this many pages. A small memory "
+            "Rerank only a search over at least this many engrams. A small memory "
             "is found well without it and skips its wait. 0 reranks every search."
         ),
     )
 
 
 class UsageSettings(BaseSettings):
-    """How use makes a page stand out. See :mod:`reef.usage`."""
+    """How use makes an engram stand out. See :mod:`reef.usage`."""
 
     model_config = _group(f"{PREFIX}USAGE_")
 
@@ -454,7 +469,7 @@ class UsageSettings(BaseSettings):
         0.5, gt=0, description="How fast a use fades. 0.5 is the value ACT-R has used."
     )
     window: int = Field(
-        50, ge=1, description="How many of a page's most recent uses count."
+        50, ge=1, description="How many of an engram's most recent uses count."
     )
     min_age_hours: float = Field(
         1 / 60, gt=0, description="The youngest a use is treated as, so none dominates."
@@ -463,6 +478,21 @@ class UsageSettings(BaseSettings):
         5 * 60.0,
         ge=0,
         description="How long after a use the refresh runs, once per busy session.",
+    )
+
+
+class CallSettings(BaseSettings):
+    """The call log. See :mod:`reef.calllog`."""
+
+    model_config = _group(f"{PREFIX}CALL_")
+
+    log: bool = Field(
+        False,
+        description=(
+            "Log each call and the reason the assistant gave, for 90 days. "
+            "Off unless switched on: the privacy page promises that people "
+            "are told first."
+        ),
     )
 
 
@@ -481,7 +511,7 @@ class Settings(BaseModel):
     """
 
     database: DatabaseSettings = Field(default_factory=DatabaseSettings)
-    pages: PageSettings = Field(default_factory=PageSettings)
+    engrams: EngramSettings = Field(default_factory=EngramSettings)
     files: FileSettings = Field(default_factory=FileSettings)
     web: WebSettings = Field(default_factory=WebSettings)
     door: DoorSettings = Field(default_factory=DoorSettings)
@@ -492,6 +522,7 @@ class Settings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     rerank: RerankSettings = Field(default_factory=RerankSettings)
     usage: UsageSettings = Field(default_factory=UsageSettings)
+    calls: CallSettings = Field(default_factory=CallSettings)
 
     @property
     def dsn(self) -> str:
@@ -533,6 +564,9 @@ def variables() -> list[tuple[str, str, object, str]]:
         prefix = model.model_config["env_prefix"]
         for name, info in model.model_fields.items():
             alias = info.validation_alias
+            if isinstance(alias, AliasChoices):
+                # The first choice is the name; the rest are older spellings.
+                alias = alias.choices[0]
             variable = alias if isinstance(alias, str) else f"{prefix}{name}".upper()
             found.append((group, variable, info.default, info.description or ""))
     return found

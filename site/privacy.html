@@ -109,30 +109,31 @@ footer a { color: var(--muted); }
     This page says plainly what it stores, where that lives, who can read it,
     and how to get it back or delete it.
   </p>
-  <p class="updated">Last updated 19 November 2026.</p>
+  <p class="updated">Last updated 20 November 2026.</p>
 
   <h2>What <span class="reef-name">reef</span> stores</h2>
   <table>
     <tr><th>What</th><th>Why</th></tr>
-    <tr><td>The pages you write — text, titles, tags</td><td>This is the product. It is the memory itself.</td></tr>
-    <tr><td>Images you add</td><td>Attached to pages you or your cove members write.</td></tr>
-    <tr><td>Your email address and display name</td><td>To let you in, and to show members who else is in a cove.</td></tr>
+    <tr><td>The engrams you write — text, titles, tags</td><td>This is the product. It is the memory itself.</td></tr>
+    <tr><td>Images you add</td><td>Attached to engrams you or your space members write.</td></tr>
+    <tr><td>Your email address and display name</td><td>To let you in, and to show members who else is in a space.</td></tr>
     <tr><td>An identifier from your sign-in provider</td><td>The durable way to recognise you. Emails change; this does not.</td></tr>
-    <tr><td>Page history — who changed what, and when</td><td>So a shared memory can be traced and corrected.</td></tr>
-    <tr><td>Which pages you open or write, and when</td><td>So your assistant can bring up the pages you use most. Only you can see this, also in a shared cove.</td></tr>
-    <tr><td>Search vectors of your pages — lists of numbers made from each page's text</td><td>So search can find a page by what it means, not only by its words. A vector is as private as its page: only people who can read the page can find it this way.</td></tr>
-    <tr><td>What you search for, and which pages came back</td><td>To measure how well search works and to improve it. Only you can see this. Deleted after 90 days. See below.</td></tr>
+    <tr><td>Engram history — who changed what, when, and whether you or your assistant made the change</td><td>So a shared memory can be traced and corrected.</td></tr>
+    <tr><td>Which engrams you open or write, and when</td><td>So your assistant can bring up the engrams you use most. Only you can see this, also in a shared space.</td></tr>
+    <tr><td>Search vectors of your engrams — lists of numbers made from each engram's text</td><td>So search can find an engram by what it means, not only by its words. A vector is as private as its engram: only people who can read the engram can find it this way.</td></tr>
+    <tr><td>What you search for, and which engrams came back</td><td>To measure how well search works and to improve it. Only you can see this. Deleted after 90 days. See below.</td></tr>
+    <tr><td>Which action your assistant took, the reason it gave, and when</td><td>So you can see what was done in your name and why. Only you can see this. Deleted after 90 days. This is not switched on yet. <span class="reef-name">reef</span> will tell you before it is.</td></tr>
   </table>
   <p>
     <strong>About the search log.</strong> It has been on since
     18 November 2026. <span class="reef-name">reef</span> counts across everyone how often a
-    search missed a page that was opened right after it. Nobody reads another
+    search missed an engram that was opened right after it. Nobody reads another
     person's searches, and that includes us.
   </p>
   <p>
-    <span class="reef-name">reef</span> has no advertising and no trackers. It reads what your pages say
+    <span class="reef-name">reef</span> has no advertising and no trackers. It reads what your engrams say
     for one purpose: to search them for you. Two models that <span class="reef-name">reef</span> runs
-    itself do this. One turns each page into search vectors. The other reads
+    itself do this. One turns each engram into search vectors. The other reads
     your question next to the best matches and puts them in order. Neither
     sends your text to another company, and neither learns from it.
     The only email you can receive is a sign-in code, sent by WorkOS at the
@@ -143,36 +144,36 @@ footer a { color: var(--muted); }
 
   <h2>Who can see it</h2>
   <p>
-    Your personal cove is yours alone. A cove is visible to every member of
-    that cove, in full, including everything written before they joined. <span class="reef-name">reef</span>
+    Your personal space is yours alone. A space is visible to every member of
+    that space, in full, including everything written before they joined. <span class="reef-name">reef</span>
     tells you this before you invite anyone, because it cannot be undone:
     removing someone stops future access, but it cannot unsee what they read.
   </p>
   <p>
-    Separation between coves is enforced by the database itself, not only by
-    application code, so a bug in the app cannot quietly leak one cove into
+    Separation between spaces is enforced by the database itself, not only by
+    application code, so a bug in the app cannot quietly leak one space into
     another.
   </p>
   <p>
     Haai BV, which operates <span class="reef-name">reef</span>, has the technical ability to reach the
-    database — as the operator of any hosted service does. Your pages are not
+    database — as the operator of any hosted service does. Your engrams are not
     read, and neither are your searches.
   </p>
 
   <h2>Your AI assistant</h2>
   <p>
     <span class="reef-name">reef</span> is built to be read and written by an AI assistant you connect to it,
-    such as Claude. When you do that, the pages your assistant reads are sent
+    such as Claude. When you do that, the engrams your assistant reads are sent
     to whoever runs it, and their privacy terms apply to that exchange — not
-    <span class="reef-name">reef</span>'s. <span class="reef-name">reef</span> does not choose your assistant and does not send your pages
+    <span class="reef-name">reef</span>'s. <span class="reef-name">reef</span> does not choose your assistant and does not send your engrams
     anywhere on its own.
   </p>
   <p><span class="reef-name">reef</span> does not train any model on your content.</p>
 
   <h2>Where it lives</h2>
   <ul>
-    <li><strong>Pages, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
-    <li><strong>Search vectors</strong> — in the same database as your pages. The two models that read your pages for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network.</li>
+    <li><strong>Engrams, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
+    <li><strong>Search vectors</strong> — in the same database as your engrams. The two models that read your engrams for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network.</li>
     <li><strong>Images and backups</strong> — Cloudflare R2, in the European Union.</li>
     <li><strong>Sign-in</strong> — handled by WorkOS, either with a Google account or with a six-digit code sent to your address. <span class="reef-name">reef</span> never sees a password; it only learns your verified email address.</li>
     <li><strong>Traffic</strong> — served through Cloudflare.</li>
@@ -185,15 +186,15 @@ footer a { color: var(--muted); }
 
   <h2>How long it is kept</h2>
   <p>
-    Your pages stay until you or a cove owner delete them. If you want your
-    account and everything in your personal cove removed, ask and it will be
-    done. Content you contributed to a shared cove may remain visible to that
-    cove, because it forms part of a shared record other people rely on — tell
+    Your engrams stay until you or a space owner delete them. If you want your
+    account and everything in your personal space removed, ask and it will be
+    done. Content you contributed to a shared space may remain visible to that
+    space, because it forms part of a shared record other people rely on — tell
     us if that is a problem for you and we will work it out.
   </p>
   <p>
-    The search vectors of a page are deleted with the page, and made again
-    when it changes. A logged search is deleted after 90 days. The record of which pages you
+    The search vectors of an engram are deleted with the engram, and made again
+    when it changes. A logged search is deleted after 90 days. The record of which engrams you
     opened stays until you delete your account or ask us to remove it. Both
     are in the copy of your data you can download, and both go when your
     account goes.

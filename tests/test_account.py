@@ -1,18 +1,18 @@
-"""Permanent account deletion and its shared-cove preservation rules."""
+"""Permanent account deletion and its shared-space preservation rules."""
 
 from conftest import _login
 
 from reef.access import Principal, arm
 from reef.account import delete_account_rows
 from reef.db import transaction_scope
+from reef.engrams import save_engram
 from reef.models import (
     Attachment,
     AttachmentStatus,
+    Engram,
     MemberRole,
-    Page,
     Revision,
 )
-from reef.pages import save_page
 
 
 def principal_for(person) -> Principal:
@@ -32,36 +32,36 @@ async def _gone(seed, table: str, row_id) -> bool:
     )
 
 
-async def test_delete_account_erases_private_data_and_preserves_shared_coves(
+async def test_delete_account_erases_private_data_and_preserves_shared_spaces(
     graph, seed
 ):
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
     invitee = await graph.person("invited@x.com", "Invited", invited_by=alice)
-    personal = await graph.personal_cove(alice)
-    await graph.personal_cove(bob)
-    team = await graph.shared_cove("team", alice, bob)
-    solo = await graph.shared_cove("solo", alice)
+    personal = await graph.personal_space(alice)
+    await graph.personal_space(bob)
+    team = await graph.shared_space("team", alice, bob)
+    solo = await graph.shared_space("solo", alice)
     principal = principal_for(alice)
 
     async with transaction_scope():
-        private_page = await save_page(
+        private_engram = await save_engram(
             principal, "personal", "private.md", "private", message="private"
         )
-        team_page = await save_page(
+        team_engram = await save_engram(
             principal, "team", "shared.md", "shared", message="shared"
         )
-        solo_page = await save_page(
+        solo_engram = await save_engram(
             principal, "solo", "solo.md", "solo", message="solo"
         )
-        for cove, page, key in (
-            (personal, private_page, "attachments/private"),
-            (solo, solo_page, "attachments/solo"),
-            (team, team_page, "attachments/shared"),
+        for space, engram, key in (
+            (personal, private_engram, "attachments/private"),
+            (solo, solo_engram, "attachments/solo"),
+            (team, team_engram, "attachments/shared"),
         ):
             await Attachment(
-                cove_id=cove.id,
-                page_id=page.id,
+                space_id=space.id,
+                engram_id=engram.id,
                 object_key=key,
                 filename=f"{key.rsplit('/', 1)[-1]}.txt",
                 mime="text/plain",
@@ -75,12 +75,12 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(
     # Asserted after the transaction commits: the seed connection cannot see
     # uncommitted work, and the principal is erased by now so nothing is
     # armed that could see these rows through the policies either.
-    assert set(result.deleted_coves) == {"personal", "solo"}
-    assert result.transferred_coves == ["team"]
+    assert set(result.deleted_spaces) == {"personal", "solo"}
+    assert result.transferred_spaces == ["team"]
     assert set(result.file_keys) == {"attachments/private", "attachments/solo"}
     assert await _gone(seed, "persons", alice.id)
-    assert await _gone(seed, "coves", personal.id)
-    assert await _gone(seed, "coves", solo.id)
+    assert await _gone(seed, "spaces", personal.id)
+    assert await _gone(seed, "spaces", solo.id)
 
     surviving = await seed.fetchrow(
         "SELECT invited_by_person_id FROM persons WHERE id = $1", invitee.id
@@ -89,11 +89,11 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(
     assert surviving["invited_by_person_id"] is None
 
     owner_id = await seed.fetchval(
-        "SELECT owner_person_id FROM coves WHERE id = $1", team.id
+        "SELECT owner_person_id FROM spaces WHERE id = $1", team.id
     )
     assert owner_id == bob.id
     assert not await seed.fetchval(
-        "SELECT count(*) FROM memberships WHERE cove_id = $1 AND person_id = $2",
+        "SELECT count(*) FROM memberships WHERE space_id = $1 AND person_id = $2",
         team.id,
         alice.id,
     )
@@ -102,9 +102,12 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(
     # identity is removed from its retained revision history.
     async with transaction_scope():
         await arm(principal_for(bob))
-        assert await Page.objects().where(Page.id == team_page.id).first() is not None
+        assert (
+            await Engram.objects().where(Engram.id == team_engram.id).first()
+            is not None
+        )
         revision = (
-            await Revision.objects().where(Revision.page_id == team_page.id).first()
+            await Revision.objects().where(Revision.engram_id == team_engram.id).first()
         )
         assert revision is not None and revision.author_id is None
         assert (
@@ -118,8 +121,8 @@ async def test_delete_account_erases_private_data_and_preserves_shared_coves(
 async def test_delete_account_promotes_a_viewer_who_inherits_ownership(graph, seed):
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
-    await graph.personal_cove(alice)
-    team = await graph.shared_cove("team", alice, bob)
+    await graph.personal_space(alice)
+    team = await graph.shared_space("team", alice, bob)
     # Seeded: memberships has no UPDATE policy, because role changes belong
     # to the ownership-transfer function rather than to any caller.
     await graph.set_role(bob, team, MemberRole.VIEWER.value)
@@ -128,10 +131,10 @@ async def test_delete_account_promotes_a_viewer_who_inherits_ownership(graph, se
         await delete_account_rows(principal_for(alice))
 
     owner_id = await seed.fetchval(
-        "SELECT owner_person_id FROM coves WHERE id = $1", team.id
+        "SELECT owner_person_id FROM spaces WHERE id = $1", team.id
     )
     role = await seed.fetchval(
-        "SELECT role FROM memberships WHERE cove_id = $1 AND person_id = $2",
+        "SELECT role FROM memberships WHERE space_id = $1 AND person_id = $2",
         team.id,
         bob.id,
     )
@@ -165,12 +168,12 @@ async def test_delete_api_requires_both_guards_and_clears_session(api, world, se
     )
     assert deleted.status_code == 200
     assert deleted.json()["deleted"] is True
-    assert "team" in deleted.json()["transferred_coves"]
+    assert "team" in deleted.json()["transferred_spaces"]
     assert "Max-Age=0" in deleted.headers["set-cookie"]
     assert not await seed.fetchval(
         "SELECT count(*) FROM persons WHERE id = $1", alice.id
     )
     assert (
-        await seed.fetchval("SELECT owner_person_id FROM coves WHERE id = $1", team.id)
+        await seed.fetchval("SELECT owner_person_id FROM spaces WHERE id = $1", team.id)
         == bob.id
     )

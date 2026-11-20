@@ -319,8 +319,9 @@
       descriptions. No page bodies. The description comes from the page's own
       opening summary, so the map is curated, not clipped at random.</li>
     <li><strong>Fetch what matters.</strong> The assistant reads the map,
-      picks the entries this conversation needs, and fetches them with
-      <code>read_pages</code>. When a new topic comes up, it fetches again.
+      asks <code>recall</code> for the passages that answer the question, and
+      opens whole entries with <code>open</code> only when they are not enough.
+      For advice it uses <code>brief</code>. When a new topic comes up, it asks again.
       The rule in the protocol: never answer from the index's descriptions
       alone.</li>
     <li><strong>Remember.</strong> New facts go through
@@ -329,15 +330,14 @@
       clearly shared facts (joint things, joint decisions, shared duties) go
       to a shared cove. Anything unclear stays private.</li>
     <li><strong>Compile.</strong> Lasting edits go through
-      <code>edit_page_section</code>: small, precise changes with a version
-      check. Every write records who wrote it, why, and the full page state.
+      <code>correct</code>: small, precise changes with a version
+      check. Entries added to a journal or log go through <code>log</code>. Every write records who wrote it, why, and the full page state.
       That record is permanent.</li>
   </ol>
   <p class="mut">This is the original wiki discipline — read the index, open
-  only what you need — run by the service instead of by convention. A bulk
-  tool (<code>load_all_context</code>) still exists for maintenance jobs that
-  genuinely need every page at once; when its result is cut short, it says so
-  rather than looking complete.</p>
+  only what you need — run by the service instead of by convention. Maintenance
+  jobs that need every page read the index and then call <code>open</code> on
+  the refs they need.</p>
 </section>
 
 <section id="boundary">
@@ -414,7 +414,7 @@
   confirm <em>who</em> will see it, not only where it goes.</p>
 
   <figure>
-    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: prepare returns the exact text and a one-time code. After the human agrees, confirm copies the content to the destination cove, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: the first share call returns the exact text and a one-time code. After the human agrees, the second call copies the content to the destination cove, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
       <defs>
         <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -422,13 +422,13 @@
       </defs>
       <text class="sm" x="184" y="22" text-anchor="middle">one-time code, 10 min</text>
       <rect class="box" x="16" y="30" width="140" height="52" rx="3"/>
-      <text class="lbl" x="86" y="51" text-anchor="middle">prepare_to_share</text>
+      <text class="lbl" x="86" y="51" text-anchor="middle">share (first call)</text>
       <text class="sm" x="86" y="67" text-anchor="middle">returns the exact text</text>
       <rect class="warn box" x="216" y="30" width="140" height="52" rx="3"/>
       <text class="lbl" x="286" y="51" text-anchor="middle">the human says yes</text>
       <text class="sm" x="286" y="67" text-anchor="middle">in this conversation</text>
       <rect class="box" x="416" y="30" width="140" height="52" rx="3"/>
-      <text class="lbl" x="486" y="51" text-anchor="middle">confirm_share</text>
+      <text class="lbl" x="486" y="51" text-anchor="middle">share (with token)</text>
       <text class="sm" x="486" y="67" text-anchor="middle">copy · stub · use up code</text>
       <line x1="156" y1="56" x2="212" y2="56" marker-end="url(#arr4)"/>
       <line x1="356" y1="56" x2="412" y2="56" marker-end="url(#arr4)"/>
@@ -511,19 +511,17 @@
   <div class="tablewrap">
   <table>
     <tr><th>Tool</th><th>What it does</th></tr>
-    <tr><td><code>load_index</code></td><td>The map: every page's title, tags, and one-line description. The first call of every conversation.</td></tr>
-    <tr><td><code>read_pages</code> / <code>read_page</code></td><td>Fetch the entries the conversation needs, chosen from the index.</td></tr>
-    <tr><td><code>load_all_context</code></td><td>Every page body at once. Maintenance only.</td></tr>
+    <tr><td><code>load_index</code></td><td>The map: every entry's title, tags, and one-line description, plus the protocol and persona. The first call of every conversation.</td></tr>
+    <tr><td><code>recall</code></td><td>Answers a question with the passages that fit best.</td></tr>
+    <tr><td><code>brief</code></td><td>Gathers what bears on a topic, to advise or prepare.</td></tr>
+    <tr><td><code>open</code></td><td>Reads whole entries and stored files, optionally as they stood at a past date.</td></tr>
+    <tr><td><code>catch_up</code></td><td>What changed in your spaces, and who changed it.</td></tr>
     <tr><td><code>remember</code></td><td>Adds a fact to the inbox. Private by default. Safe to retry.</td></tr>
-    <tr><td><code>write_page</code> / <code>edit_page_section</code></td><td>Full or precise edits, with a version check against lost updates.</td></tr>
-    <tr><td><code>prepare_to_share</code> → <code>confirm_share</code></td><td>Two-step sharing — a whole page, or one extracted section (<code>section</code> + <code>dest_path</code>).</td></tr>
-    <tr><td><code>update_meta_page</code></td><td>The only way to change the protocol and persona pages — the pages that steer the assistant.</td></tr>
-    <tr><td><code>add_image</code> / <code>read_image</code></td><td>Store an image with a required description. Fetch it through a short-lived link.</td></tr>
-    <tr><td><code>delete_image</code></td><td>The one thing here that really deletes: an image and its description, for a bad upload or a photo added to the wrong cove. Confirm with the person first — the bytes do not come back.</td></tr>
-    <tr><td><code>get_operating_protocol</code></td><td>Loads the protocol and persona. They are pages, versioned like all pages.</td></tr>
-    <tr><td><code>list_coves</code></td><td>What you can see: your personal cove and every shared cove you belong to — with each cove's member list, because knowing who is in the room is what informed sharing means.</td></tr>
-    <tr><td><code>create_cove</code></td><td>Start a new shared cove with a slug. You become its owner.</td></tr>
-    <tr><td><code>invite</code> / <code>remove_member</code></td><td>Owner-only. Add or remove a member by email. Removing stops future access; it cannot unshare what was already read.</td></tr>
+    <tr><td><code>log</code></td><td>Adds one entry to the end of a log and changes nothing else.</td></tr>
+    <tr><td><code>write</code> / <code>correct</code> / <code>undo</code></td><td>Whole or precise edits, with a version check against lost updates, and a way back.</td></tr>
+    <tr><td><code>store_file</code></td><td>Keeps a document or an image with a required description. Read it back with <code>open</code>, through a short-lived link.</td></tr>
+    <tr><td><code>share</code>, <code>forget</code>, <code>instruct</code></td><td>Two calls each: the first shows the effect, the second runs after the person says yes. Sharing moves a whole entry or one extracted section; forgetting really deletes; instructing replaces the persona.</td></tr>
+    <tr><td><code>search</code> / <code>fetch</code></td><td>The two-tool shape some connectors are limited to.</td></tr>
   </table>
   </div>
 </section>

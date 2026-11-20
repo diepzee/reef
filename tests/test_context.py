@@ -1,45 +1,45 @@
 from reef.access import Principal, arm
 from reef.context import backfill_index_fields, build_index, load_context
 from reef.db import transaction_scope
-from reef.models import Page, Revision
-from reef.pages import get_page, save_page
+from reef.engrams import get_engram, save_engram
+from reef.models import Engram, Revision
 
 
 def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def test_context_contains_both_coves_with_full_bodies(tx, household):
+async def test_context_contains_both_spaces_with_full_bodies(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "health.md", "sleeps badly", message="x")
-    await save_page(me, "household", "house.md", "boiler", message="x")
+    await save_engram(me, "personal", "health.md", "sleeps badly", message="x")
+    await save_engram(me, "household", "house.md", "boiler", message="x")
     payload = await load_context(me, char_budget=100_000)
-    assert {s.alias for s in payload.coves} == {"personal", "household"}
-    bodies = [p["body"] for s in payload.coves for p in s.pages]
+    assert {s.alias for s in payload.spaces} == {"personal", "household"}
+    bodies = [p["body"] for s in payload.spaces for p in s.engrams]
     assert "sleeps badly" in bodies and "boiler" in bodies
     assert payload.truncated is False
-    assert payload.page_count == payload.included_count == 2
+    assert payload.engram_count == payload.included_count == 2
 
 
-async def test_context_never_includes_the_other_persons_cove(tx, household):
+async def test_context_never_includes_the_other_persons_space(tx, household):
     mine = principal_for(household["wouter"])
     theirs = principal_for(household["partner"])
-    await save_page(theirs, "personal", "hers.md", "her secret", message="x")
-    await save_page(mine, "personal", "mine.md", "my secret", message="x")
+    await save_engram(theirs, "personal", "hers.md", "her secret", message="x")
+    await save_engram(mine, "personal", "mine.md", "my secret", message="x")
     bodies = [
         p["body"]
-        for s in (await load_context(mine, char_budget=100_000)).coves
-        for p in s.pages
+        for s in (await load_context(mine, char_budget=100_000)).spaces
+        for p in s.engrams
     ]
     assert "my secret" in bodies and "her secret" not in bodies
 
 
-async def test_truncation_prefers_meta_core_and_small_pages(tx, household):
+async def test_truncation_prefers_meta_core_and_small_engrams(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me, "personal", "meta/persona.md", "persona", message="x", allow_protected=True
     )
-    await save_page(
+    await save_engram(
         me,
         "personal",
         "allergy.md",
@@ -47,31 +47,33 @@ async def test_truncation_prefers_meta_core_and_small_pages(tx, household):
         message="x",
         tags=["core"],
     )
-    await save_page(me, "personal", "diary.md", "x" * 5_000, message="x")
+    await save_engram(me, "personal", "diary.md", "x" * 5_000, message="x")
     payload = await load_context(me, char_budget=100)
     included = {
-        p["path"] for s in payload.coves for p in s.pages if p["body"] is not None
+        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is not None
     }
-    omitted = {p["path"] for s in payload.coves for p in s.pages if p["body"] is None}
+    omitted = {
+        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is None
+    }
     assert "meta/persona.md" in included and "allergy.md" in included
     assert "diary.md" in omitted
     assert payload.truncated is True and payload.note is not None
-    assert payload.included_count < payload.page_count
+    assert payload.included_count < payload.engram_count
 
 
-async def test_version_reflects_every_cove_write(tx, household):
+async def test_version_reflects_every_space_write(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "a.md", "one", message="x")
+    await save_engram(me, "personal", "a.md", "one", message="x")
     first = (await load_context(me, char_budget=100_000)).version
-    await save_page(me, "household", "h.md", "two", message="x")
+    await save_engram(me, "household", "h.md", "two", message="x")
     assert (await load_context(me, char_budget=100_000)).version != first
 
 
-async def test_index_lists_pages_without_bodies(tx, household):
+async def test_index_lists_engrams_without_bodies(tx, household):
     from reef.context import build_index as load_index
 
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me,
         "personal",
         "health.md",
@@ -79,12 +81,12 @@ async def test_index_lists_pages_without_bodies(tx, household):
         message="x",
         tags=["person"],
     )
-    await save_page(me, "household", "house.md", "The family home.", message="x")
+    await save_engram(me, "household", "house.md", "The family home.", message="x")
 
     idx = await load_index(me)
 
-    assert {s.alias for s in idx.coves} == {"personal", "household"}
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "health.md")
+    assert {s.alias for s in idx.spaces} == {"personal", "household"}
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "health.md")
     assert entry["title"] == "health"
     assert entry["tags"] == ["person"]
     assert entry["description"] == "Sleep profile and open questions."
@@ -96,7 +98,7 @@ async def test_index_description_skips_headings(tx, household):
     from reef.context import build_index as load_index
 
     me = principal_for(household["wouter"])
-    await save_page(
+    await save_engram(
         me,
         "personal",
         "a.md",
@@ -104,16 +106,16 @@ async def test_index_description_skips_headings(tx, household):
         message="x",
     )
     idx = await load_index(me)
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "a.md")
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "a.md")
     assert entry["description"] == "The real summary line."
 
 
 async def test_index_resolves_visible_wiki_references(tx, household):
     """Index references are resolved, distinct, and never code examples."""
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "notes.md", "Personal notes.", message="x")
-    await save_page(me, "household", "house.md", "The family home.", message="x")
-    await save_page(
+    await save_engram(me, "personal", "notes.md", "Personal notes.", message="x")
+    await save_engram(me, "household", "house.md", "The family home.", message="x")
+    await save_engram(
         me,
         "personal",
         "map.md",
@@ -131,32 +133,32 @@ An inline example: `[[household:house.md]]`.
     )
 
     idx = await build_index(me)
-    entry = next(p for s in idx.coves for p in s.pages if p["path"] == "map.md")
+    entry = next(p for s in idx.spaces for p in s.engrams if p["path"] == "map.md")
     assert entry["references"] == [
-        {"cove": "personal", "path": "notes.md"},
-        {"cove": "household", "path": "house.md"},
+        {"space": "personal", "path": "notes.md"},
+        {"space": "household", "path": "house.md"},
     ]
 
 
-async def test_index_excludes_the_other_persons_cove(tx, household):
+async def test_index_excludes_the_other_persons_space(tx, household):
     from reef.context import build_index as load_index
 
     mine = principal_for(household["wouter"])
     theirs = principal_for(household["partner"])
-    await save_page(theirs, "personal", "hers.md", "her secret", message="x")
+    await save_engram(theirs, "personal", "hers.md", "her secret", message="x")
     idx = await load_index(mine)
-    assert all(p["path"] != "hers.md" for s in idx.coves for p in s.pages)
+    assert all(p["path"] != "hers.md" for s in idx.spaces for p in s.engrams)
 
 
 async def test_index_carries_attachment_descriptions(tx, household):
-    from reef.access import resolve_cove
+    from reef.access import resolve_space
     from reef.context import build_index as load_index
     from reef.models import Attachment, AttachmentStatus
 
     me = principal_for(household["wouter"])
-    shared = await resolve_cove(me, "household")
+    shared = await resolve_space(me, "household")
     await Attachment(
-        cove_id=shared.id,
+        space_id=shared.id,
         object_key="k1",
         filename="boiler.png",
         mime="image/png",
@@ -166,7 +168,7 @@ async def test_index_carries_attachment_descriptions(tx, household):
     ).save()
 
     idx = await load_index(me)
-    house = next(s for s in idx.coves if s.alias == "household")
+    house = next(s for s in idx.spaces if s.alias == "household")
     assert house.attachments == [
         {
             "key": "k1",
@@ -174,30 +176,30 @@ async def test_index_carries_attachment_descriptions(tx, household):
             "mime": "image/png",
             "size": 9,
             "description": "the boiler's model plate",
-            "page_path": None,
+            "engram_path": None,
         }
     ]
 
 
 async def test_index_rows_carry_last_editor(graph):
-    """Each index page row names the newest revision's author."""
+    """Each index engram row names the newest revision's author."""
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
-    await graph.personal_cove(alice)
-    await graph.shared_cove("team", alice, bob)
+    await graph.personal_space(alice)
+    await graph.shared_space("team", alice, bob)
     a = Principal(person_id=alice.id, email=alice.email)
     b = Principal(person_id=bob.id, email=bob.email)
     async with transaction_scope():
-        await save_page(a, "team", "n.md", "First line.\n", message="one")
+        await save_engram(a, "team", "n.md", "First line.\n", message="one")
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             b, "team", "n.md", "Second line.\n", message="two", expected_version=1
         )
     async with transaction_scope():
         payload = await build_index(a)
-    team = next(s for s in payload.coves if s.alias == "team")
-    page = next(p for p in team.pages if p["path"] == "n.md")
-    assert page["last_editor"] == "Bob"
+    team = next(s for s in payload.spaces if s.alias == "team")
+    engram = next(p for p in team.engrams if p["path"] == "n.md")
+    assert engram["last_editor"] == "Bob"
 
 
 async def test_last_editor_none_when_author_erased(graph):
@@ -205,23 +207,23 @@ async def test_last_editor_none_when_author_erased(graph):
 
     The update runs inside its own transaction and must ``arm`` RLS itself:
     ``set_config``'s binding is transaction-local (see ``reef.db``), so the
-    prior ``save_page`` transaction's arming does not carry over here -- an
+    prior ``save_engram`` transaction's arming does not carry over here -- an
     unarmed ``Revision.update`` would silently touch zero rows and leave the
     author un-erased, masking the very case this test exists to cover.
     """
     alice = await graph.person("alice@x.com", "Alice")
-    await graph.personal_cove(alice)
+    await graph.personal_space(alice)
     a = Principal(person_id=alice.id, email=alice.email)
     async with transaction_scope():
-        await save_page(a, "personal", "n.md", "Line.\n", message="one")
+        await save_engram(a, "personal", "n.md", "Line.\n", message="one")
     async with transaction_scope():
         await arm(a)
         await Revision.update({Revision.author_id: None}).where(
             Revision.author_id == alice.id
         )
         payload = await build_index(a)
-    personal = next(s for s in payload.coves if s.alias == "personal")
-    row = next(p for p in personal.pages if p["path"] == "n.md")
+    personal = next(s for s in payload.spaces if s.alias == "personal")
+    row = next(p for p in personal.engrams if p["path"] == "n.md")
     assert row["last_editor"] is None
 
 
@@ -234,46 +236,46 @@ _BODY = (
 
 
 def _entry(index, alias: str, path: str) -> dict:
-    """Return one page's index entry.
+    """Return one engram's index entry.
 
     :param index: an index payload
-    :param alias: the cove's alias for the reader
-    :param path: the page path
+    :param alias: the space's alias for the reader
+    :param path: the engram path
     :returns: the entry's fields
     """
-    cove = next(cove for cove in index.coves if cove.alias == alias)
-    return next(page for page in cove.pages if page["path"] == path)
+    space = next(space for space in index.spaces if space.alias == alias)
+    return next(engram for engram in space.engrams if engram["path"] == path)
 
 
 async def _forget_index_fields(path: str) -> None:
-    """Make a page look as it did before the index fields existed.
+    """Make an engram look as it did before the index fields existed.
 
-    :param path: the page to strip
+    :param path: the engram to strip
     """
-    await Page.raw(
-        "UPDATE pages SET description = NULL, size = NULL, "
+    await Engram.raw(
+        "UPDATE engrams SET description = NULL, size = NULL, "
         "reference_targets = NULL, indexed_version = NULL WHERE path = {}",
         path,
     )
 
 
-async def test_saving_a_page_stores_its_index_fields(tx, household):
+async def test_saving_an_engram_stores_its_index_fields(tx, household):
     me = principal_for(household["wouter"])
-    page = await save_page(me, "personal", "house.md", _BODY, message="x")
-    assert page.description == "The boiler is a Vaillant."
-    assert page.size == len(_BODY)
-    assert page.reference_targets == ["garden.md", "household:roof.md"]
-    assert page.indexed_version == page.version == 1
+    engram = await save_engram(me, "personal", "house.md", _BODY, message="x")
+    assert engram.description == "The boiler is a Vaillant."
+    assert engram.size == len(_BODY)
+    assert engram.reference_targets == ["garden.md", "household:roof.md"]
+    assert engram.indexed_version == engram.version == 1
 
 
 async def test_saving_again_refreshes_the_index_fields(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "house.md", _BODY, message="x")
-    page = await save_page(me, "personal", "house.md", "Sold.", message="x")
-    assert page.description == "Sold."
-    assert page.size == 5
-    assert page.reference_targets == []
-    assert page.indexed_version == page.version == 2
+    await save_engram(me, "personal", "house.md", _BODY, message="x")
+    engram = await save_engram(me, "personal", "house.md", "Sold.", message="x")
+    assert engram.description == "Sold."
+    assert engram.size == 5
+    assert engram.reference_targets == []
+    assert engram.indexed_version == engram.version == 2
 
 
 async def test_the_index_reads_stored_fields_rather_than_the_body(tx, household):
@@ -283,34 +285,34 @@ async def test_the_index_reads_stored_fields_rather_than_the_body(tx, household)
     ``indexed_version`` still equals ``version``.
     """
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "house.md", _BODY, message="x")
-    await Page.raw("UPDATE pages SET body = 'Rewritten.' WHERE path = 'house.md'")
+    await save_engram(me, "personal", "house.md", _BODY, message="x")
+    await Engram.raw("UPDATE engrams SET body = 'Rewritten.' WHERE path = 'house.md'")
     entry = _entry(await build_index(me), "personal", "house.md")
     assert entry["description"] == "The boiler is a Vaillant."
     assert entry["size"] == len(_BODY)
 
 
-async def test_a_page_from_before_the_fields_existed_indexes_the_same(tx, household):
+async def test_an_engram_from_before_the_fields_existed_indexes_the_same(tx, household):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "garden.md", "Roses.", message="x")
-    await save_page(me, "household", "roof.md", "Slate.", message="x")
-    await save_page(me, "personal", "house.md", _BODY, message="x")
+    await save_engram(me, "personal", "garden.md", "Roses.", message="x")
+    await save_engram(me, "household", "roof.md", "Slate.", message="x")
+    await save_engram(me, "personal", "house.md", _BODY, message="x")
     stored = _entry(await build_index(me), "personal", "house.md")
     await _forget_index_fields("house.md")
     derived = _entry(await build_index(me), "personal", "house.md")
     assert derived == stored
     assert derived["references"] == [
-        {"cove": "personal", "path": "garden.md"},
-        {"cove": "household", "path": "roof.md"},
+        {"space": "personal", "path": "garden.md"},
+        {"space": "household", "path": "roof.md"},
     ]
 
 
 async def test_a_writer_that_forgets_the_fields_cannot_leave_them_stale(tx, household):
     """The version check is the guard: fields for an older version are unused."""
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "house.md", _BODY, message="x")
-    await Page.raw(
-        "UPDATE pages SET body = 'Rewritten.', version = version + 1 "
+    await save_engram(me, "personal", "house.md", _BODY, message="x")
+    await Engram.raw(
+        "UPDATE engrams SET body = 'Rewritten.', version = version + 1 "
         "WHERE path = 'house.md'"
     )
     entry = _entry(await build_index(me), "personal", "house.md")
@@ -318,34 +320,34 @@ async def test_a_writer_that_forgets_the_fields_cannot_leave_them_stale(tx, hous
     assert entry["size"] == len("Rewritten.")
 
 
-async def test_backfill_stores_fields_on_older_pages_and_changes_nothing_else(
+async def test_backfill_stores_fields_on_older_engrams_and_changes_nothing_else(
     tx, household
 ):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "house.md", _BODY, message="x")
-    await save_page(me, "personal", "garden.md", "Roses.", message="x")
+    await save_engram(me, "personal", "house.md", _BODY, message="x")
+    await save_engram(me, "personal", "garden.md", "Roses.", message="x")
     before = await build_index(me)
     await _forget_index_fields("house.md")
 
     assert await backfill_index_fields(me) == 1
     assert await backfill_index_fields(me) == 0
 
-    page = await get_page(me, "personal", "house.md")
-    assert page.description == "The boiler is a Vaillant."
-    assert page.indexed_version == page.version == 1
+    engram = await get_engram(me, "personal", "house.md")
+    assert engram.description == "The boiler is a Vaillant."
+    assert engram.indexed_version == engram.version == 1
     assert await build_index(me) == before
-    assert await Revision.count().where(Revision.page_id == page.id) == 1
+    assert await Revision.count().where(Revision.engram_id == engram.id) == 1
 
 
 async def test_backfill_by_a_viewer_updates_nothing_and_does_not_fail(
     tx, household, graph
 ):
-    """Row security decides: an update to a read-only page matches no row."""
+    """Row security decides: an update to a read-only engram matches no row."""
     owner = principal_for(household["wouter"])
-    await save_page(owner, "household", "house.md", _BODY, message="x")
+    await save_engram(owner, "household", "house.md", _BODY, message="x")
     await _forget_index_fields("house.md")
     person = await graph.person("viewer@example.test", "Viewer")
-    await graph.personal_cove(person, slug="viewer")
+    await graph.personal_space(person, slug="viewer")
     await graph.add_membership(person, household["shared"], "viewer", alias="household")
     viewer = principal_for(person)
 

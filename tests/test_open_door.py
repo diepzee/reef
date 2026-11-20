@@ -312,7 +312,7 @@ async def test_an_open_door_offers_the_button_instead_of_the_wall(monkeypatch, d
 
 
 async def test_the_button_admits_and_opens_a_session(monkeypatch, door, seed):
-    """Pressing it produces an account, a personal cove, and a session."""
+    """Pressing it produces an account, a personal space, and a session."""
     client, _ = door
     _open(monkeypatch)
     await _walk_to_the_wall(client)
@@ -324,11 +324,11 @@ async def test_the_button_admits_and_opens_a_session(monkeypatch, door, seed):
 
     row = await _row(seed, "stranger@example.test")
     assert row["joined_open_door"] is True
-    coves = await seed.fetchval(
-        "SELECT count(*) FROM coves WHERE owner_person_id = $1 AND kind = 'personal'",
+    spaces = await seed.fetchval(
+        "SELECT count(*) FROM spaces WHERE owner_person_id = $1 AND kind = 'personal'",
         row["id"],
     )
-    assert coves == 1
+    assert spaces == 1
 
 
 async def test_the_button_needs_the_csrf_header(monkeypatch, door, seed):
@@ -364,7 +364,7 @@ async def test_tampered_claims_are_refused(monkeypatch, door, seed):
 
 
 async def test_a_door_that_shuts_between_page_and_click_refuses(monkeypatch, door):
-    """The seats can run out while somebody is reading the page.
+    """The seats can run out while somebody is reading the engram.
 
     The button is not authority to enter -- the ceiling is checked again when
     it is pressed, because that is the moment a seat is actually spent.

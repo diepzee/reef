@@ -1,12 +1,12 @@
-"""Cut a page into the pieces that get embedded.
+"""Cut an engram into the pieces that get embedded.
 
-A page is searched by meaning through its sections, not as one block: a
-question is usually answered by one passage, and one vector for a long page
+An engram is searched by meaning through its sections, not as one block: a
+question is usually answered by one passage, and one vector for a long engram
 blurs every passage in it together.
 
-**What the pieces are.** A page that fits in one piece is one piece. A
-longer page gets one piece for the page as a whole, cut at
-``REEF_EMBEDDING_PAGE_CHARS``, and one for each section under a level 2 or level 3
+**What the pieces are.** An engram that fits in one piece is one piece. A
+longer engram gets one piece for the engram as a whole, cut at
+``REEF_EMBEDDING_ENGRAM_CHARS``, and one for each section under a level 2 or level 3
 heading. Deeper headings stay inside their parent. Text before the first
 such heading is a section of its own.
 
@@ -14,16 +14,16 @@ such heading is a section of its own.
 little to embed on its own, so it joins the section before it. A section
 longer than ``REEF_EMBEDDING_PIECE_MAX_CHARS`` is cut between paragraphs into parts.
 
-**What is embedded.** Not the bare text. Each piece starts with the page's
+**What is embedded.** Not the bare text. Each piece starts with the engram's
 title, its one-line description and the headings above it. A passage like
 "Renewed in March, costs 45 a month" means little alone and a lot under
 "Insurance > Car". This is contextual retrieval without a model call: the
-context is already on the page.
+context is already on the engram.
 
 **When to embed again.** Each piece carries a digest of exactly the text
 that is embedded. Unchanged text has an unchanged digest, so an edit to one
-section costs two embeddings, that section and the whole-page piece, not
-one per section. An edit beyond ``REEF_EMBEDDING_PAGE_CHARS`` costs one.
+section costs two embeddings, that section and the whole-engram piece, not
+one per section. An edit beyond ``REEF_EMBEDDING_ENGRAM_CHARS`` costs one.
 
 Sections are not stored as rows of their own. They exist only as the
 embedding rows made from them: see the memory engine design, "The unit is
@@ -38,7 +38,7 @@ from dataclasses import dataclass
 
 from reef.config import get_settings
 
-#: The anchor of the text before a page's first section heading. A heading
+#: The anchor of the text before an engram's first section heading. A heading
 #: cannot produce it: a slug holds no tilde.
 INTRO = "~intro"
 
@@ -56,10 +56,10 @@ _NOT_SLUG = re.compile(r"[^\w]+", re.UNICODE)
 
 @dataclass(frozen=True)
 class Section:
-    """One piece of a page, as it is embedded.
+    """One piece of an engram, as it is embedded.
 
-    ``anchor`` names the piece within its page and is stable while its
-    headings are: None for the page as a whole, :data:`INTRO` for the text
+    ``anchor`` names the piece within its engram and is stable while its
+    headings are: None for the engram as a whole, :data:`INTRO` for the text
     before the first heading, otherwise the heading path as a slug. A later
     part of a long section ends in ``~2``, ``~3`` and so on.
     """
@@ -83,7 +83,7 @@ def _slug(heading: str) -> str:
 def _heading(line: str) -> tuple[int, str] | None:
     """Read a line as a heading, if it is one.
 
-    :param line: one line of the page
+    :param line: one line of the engram
     :returns: the level and the heading text, or None
     """
     if len(line) > _HEADING_CHARS:
@@ -95,34 +95,52 @@ def _heading(line: str) -> tuple[int, str] | None:
     return (len(match.group(1)), text) if text else None
 
 
-def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
-    """Split a body at its level 1 to 3 headings.
+def headings(body: str) -> list[tuple[int, int, str]]:
+    """Find the headings of a body, skipping fenced code.
 
-    A ``#`` inside a fenced code block is code, not a heading.
+    A ``#`` inside a fenced code block is code, not a heading. A fence opens
+    on a line starting with three backticks or three tildes, and closes only
+    on a line starting with the same three, so a ``~~~`` line inside a
+    backtick fence is code too.
 
-    :param body: the page's markdown
-    :returns: the heading path and the text of each block, in page order.
-        The text does not repeat the heading. A level 1 heading starts a
-        new path but is not a section of its own.
+    :param body: the engram's markdown
+    :returns: the line number, counted from 0 as in ``body.splitlines()``,
+        the level and the text of each heading, in order
     """
-    blocks: list[tuple[tuple[str, ...], list[str]]] = [((), [])]
-    path: dict[int, str] = {}
+    found = []
     fence: str | None = None
-    for line in body.splitlines():
+    for number, line in enumerate(body.splitlines()):
         mark = _FENCE.match(line)
         if mark:
             if fence is None:
                 fence = mark.group(1)
             elif mark.group(1) == fence:
                 fence = None
-        heading = _heading(line) if fence is None else None
+        elif fence is None and (heading := _heading(line)) is not None:
+            found.append((number, *heading))
+    return found
+
+
+def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
+    """Split a body at its level 1 to 3 headings.
+
+    :param body: the engram's markdown
+    :returns: the heading path and the text of each block, in engram order.
+        The text does not repeat the heading. A level 1 heading starts a
+        new path but is not a section of its own.
+    """
+    blocks: list[tuple[tuple[str, ...], list[str]]] = [((), [])]
+    path: dict[int, str] = {}
+    found = {number: (level, text) for number, level, text in headings(body)}
+    for number, line in enumerate(body.splitlines()):
+        heading = found.get(number)
         if heading is None or heading[0] > 3:
             blocks[-1][1].append(line)
             continue
         level, text = heading
         path = {k: v for k, v in path.items() if k < level}
         path[level] = text
-        # Level 1 is the page's own title: it scopes nothing below it.
+        # Level 1 is the engram's own title: it scopes nothing below it.
         blocks.append((tuple(path[k] for k in sorted(path) if k > 1), []))
     return [(where, "\n".join(lines).strip()) for where, lines in blocks]
 
@@ -165,8 +183,8 @@ def _piece(
     :param anchor: the piece's anchor
     :param heading_path: the headings above it
     :param body: its own text
-    :param title: the page's title
-    :param description: the page's one-line description
+    :param title: the engram's title
+    :param description: the engram's one-line description
     :returns: the piece
     """
     context = [title]
@@ -186,20 +204,20 @@ def _piece(
 
 
 def split(title: str, description: str, body: str) -> list[Section]:
-    """Cut a page into the pieces that get embedded.
+    """Cut an engram into the pieces that get embedded.
 
-    :param title: the page's title
-    :param description: the page's one-line description, as the index shows it
-    :param body: the page's markdown
-    :returns: the whole-page piece first, then the sections in page order.
-        A page that fits in one piece gives one piece. An empty page gives
+    :param title: the engram's title
+    :param description: the engram's one-line description, as the index shows it
+    :param body: the engram's markdown
+    :returns: the whole-engram piece first, then the sections in engram order.
+        An engram that fits in one piece gives one piece. An empty engram gives
         none.
     """
     body = body.strip()
     if not body:
         return []
     sizes = get_settings().embedding
-    whole = _piece(None, (), body[: sizes.page_chars], title, description)
+    whole = _piece(None, (), body[: sizes.engram_chars], title, description)
     if len(body) <= sizes.piece_max_chars:
         return [whole]
 

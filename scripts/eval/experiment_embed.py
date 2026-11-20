@@ -5,7 +5,7 @@ Run as::
     uv run --with numpy python scripts/eval/experiment_embed.py \
         --set benchmark|private --model qwen|gemma [--prefix] [--questions N]
 
-Nothing here is part of the product. It embeds the pages of a test set with
+Nothing here is part of the product. It embeds the engrams of a test set with
 a local model served by Ollama, scores keyword search, embeddings alone and
 the two fused, and prints one table. Vectors are cached under
 ``scripts/eval/data/out/`` (ignored by git), so a second run is quick.
@@ -33,7 +33,7 @@ from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.identity import person_by_email
 from reef.indexfields import summary
-from reef.search import search_pages
+from reef.search import search_engrams
 
 OLLAMA = "http://127.0.0.1:11434/api/embed"
 OUT = evalkit.DATA_DIR / "out"
@@ -68,11 +68,11 @@ MODELS = {
 
 
 def chunks(body: str) -> list[str]:
-    """Cut a page into pieces of at most :data:`CHUNK` characters.
+    """Cut an engram into pieces of at most :data:`CHUNK` characters.
 
     Paragraphs are kept whole where they fit. One that is too long is cut.
 
-    :param body: the page text
+    :param body: the engram text
     :returns: the pieces, in order
     """
     pieces: list[str] = []
@@ -152,53 +152,55 @@ def embed(
 
 
 def pieces(
-    pages: list[evalkit.EvalPage], prefix: bool | str
+    engrams: list[evalkit.EvalEngram], prefix: bool | str
 ) -> tuple[list[str], list[int]]:
-    """Cut every page into the texts that are embedded.
+    """Cut every engram into the texts that are embedded.
 
-    :param pages: the pages
-    :param prefix: put the page title in front of each chunk, or
+    :param engrams: the engrams
+    :param prefix: put the engram title in front of each chunk, or
         ``"sections"`` to cut by heading with :mod:`reef.sections`
-    :returns: the texts, and for each text the index of its page
+    :returns: the texts, and for each text the index of its engram
     """
     texts: list[str] = []
     owner: list[int] = []
-    for index, page in enumerate(pages):
+    for index, engram in enumerate(engrams):
         if prefix == "sections":
             # The product's own cutting: by heading, with context in front.
             cut = [
                 section.text
-                for section in sections.split(page.title, summary(page.body), page.body)
+                for section in sections.split(
+                    engram.title, summary(engram.body), engram.body
+                )
             ]
         else:
             cut = [
-                f"{page.title}\n\n{piece}" if prefix and page.title else piece
-                for piece in chunks(page.body)
+                f"{engram.title}\n\n{piece}" if prefix and engram.title else piece
+                for piece in chunks(engram.body)
             ]
         texts.extend(cut)
         owner.extend([index] * len(cut))
     return texts, owner
 
 
-def page_vectors(
-    pages: list[evalkit.EvalPage], model: dict, prefix: bool | str, tag: str
+def engram_vectors(
+    engrams: list[evalkit.EvalEngram], model: dict, prefix: bool | str, tag: str
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Embed every chunk of every page, or read the cached result.
+    """Embed every chunk of every engram, or read the cached result.
 
-    :param pages: the pages
+    :param engrams: the engrams
     :param model: an entry of :data:`MODELS`
     :param prefix: as for :func:`pieces`
     :param tag: names the cache file
-    :returns: the chunk vectors, and for each chunk the index of its page
+    :returns: the chunk vectors, and for each chunk the index of its engram
     """
-    raw, owner = pieces(pages, prefix)
+    raw, owner = pieces(engrams, prefix)
     texts = [model["passage"].format(text=text) for text in raw]
     digest = hashlib.sha256("\x1f".join(texts).encode()).hexdigest()[:12]
     cache = OUT / f"emb-{tag}-{digest}.npy"
     OUT.mkdir(parents=True, exist_ok=True)
     if cache.exists():
         return np.load(cache), np.asarray(owner)
-    print(f"embedding {len(texts)} chunks of {len(pages)} pages", flush=True)
+    print(f"embedding {len(texts)} chunks of {len(engrams)} engrams", flush=True)
     vectors = embed(model["name"], texts, checkpoint=OUT / f"emb-{tag}-{digest}")
     np.save(cache, vectors)
     return vectors, np.asarray(owner)
@@ -207,13 +209,13 @@ def page_vectors(
 def semantic_ranking(
     query: np.ndarray, vectors: np.ndarray, owner: np.ndarray, paths: list[str]
 ) -> list[str]:
-    """Rank pages by their best chunk.
+    """Rank engrams by their best chunk.
 
     :param query: the question's vector
     :param vectors: the chunk vectors
-    :param owner: for each chunk the index of its page
-    :param paths: the page paths, by index
-    :returns: the :data:`DEPTH` best page paths, best first
+    :param owner: for each chunk the index of its engram
+    :param paths: the engram paths, by index
+    :returns: the :data:`DEPTH` best engram paths, best first
     """
     scores = vectors @ query
     best = np.full(len(paths), -1.0, dtype=np.float32)
@@ -224,8 +226,8 @@ def semantic_ranking(
 def fuse(lexical: list[str], semantic: list[str], weight: float = 1.0) -> list[str]:
     """Merge two rankings by reciprocal rank fusion.
 
-    :param lexical: keyword search's page paths, best first
-    :param semantic: the embeddings' page paths, best first
+    :param lexical: keyword search's engram paths, best first
+    :param semantic: the embeddings' engram paths, best first
     :param weight: how much the embeddings count, against 1 for keyword
     :returns: the merged ranking
     """
@@ -241,9 +243,9 @@ async def lexical_rankings(
 ) -> dict[str, list[str]]:
     """Ask keyword search every question, :data:`DEPTH` results deep.
 
-    :param email: the eval person who owns the pages
+    :param email: the eval person who owns the engrams
     :param questions: the questions
-    :returns: page paths per question id, best first
+    :returns: engram paths per question id, best first
     """
     await DB.start_connection_pool()
     try:
@@ -255,10 +257,10 @@ async def lexical_rankings(
         for question in questions:
             async with transaction_scope():
                 # Keyword search alone: the experiment builds the rest itself.
-                hits = await search_pages(
+                hits = await search_engrams(
                     principal,
                     question.text,
-                    cove="personal",
+                    space="personal",
                     limit=DEPTH,
                     semantic=False,
                     rerank=False,
@@ -295,7 +297,7 @@ def main() -> None:
     parser.add_argument(
         "--sections",
         action="store_true",
-        help="cut pages as the product does: by heading, with context in front",
+        help="cut engrams as the product does: by heading, with context in front",
     )
     parser.add_argument("--questions", type=int, default=100)
     parser.add_argument("--json", type=Path)
@@ -303,25 +305,27 @@ def main() -> None:
     evalkit.refuse_unless_local(get_settings().dsn)
 
     if args.set == "private":
-        pages = evalkit.private_pages(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
+        engrams = evalkit.private_engrams(
+            json.loads(evalkit.PRIVATE_EXPORT.read_text())
+        )
         questions = evalkit.private_questions(
-            json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in pages)
+            json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in engrams)
         )
         email, strip = evalkit.PRIVATE_EMAIL, ""
     else:
         eval_set = evalkit.convert(
             evalkit.choose(evalkit.load_benchmark(), args.questions)
         )
-        pages, questions = list(eval_set.pages), list(eval_set.questions)
+        engrams, questions = list(eval_set.pages), list(eval_set.questions)
         email, strip = evalkit.EVAL_EMAIL, ""
 
     model = MODELS[args.model]
     how = "sections" if args.sections else "prefix" if args.prefix else "plain"
     tag = f"{args.set}-{args.model}-{how}"
-    vectors, owner = page_vectors(
-        pages, model, "sections" if args.sections else args.prefix, tag
+    vectors, owner = engram_vectors(
+        engrams, model, "sections" if args.sections else args.prefix, tag
     )
-    paths = [page.path.removeprefix(strip) for page in pages]
+    paths = [engram.path.removeprefix(strip) for engram in engrams]
     queries = embed(model["name"], [model["query"].format(q=q.text) for q in questions])
 
     lexical = asyncio.run(lexical_rankings(email, questions))

@@ -15,16 +15,26 @@ import asyncpg
 import httpx
 import pytest
 import pytest_asyncio
+from opentelemetry.sdk.trace.export import (
+    SimpleSpanProcessor,
+    SpanExporter,
+    SpanExportResult,
+)
 from piccolo.table import create_db_tables, drop_db_tables
 
+from reef.access import Principal
+from reef.attachments import add_attachment
 from reef.db import DB, transaction_scope
-from reef.models import TABLES, Cove, CoveKind, Person
+from reef.engrams import save_engram
+from reef.methods import Caller
+from reef.models import TABLES, Engram, Person, Space, SpaceKind
 from reef.rls import (
     AUTHZ_ROLE,
     FORMER_AUTHZ_ROLE,
     alias_statements,
     appearance_statements,
     avatar_statements,
+    call_log_statements,
     constraint_statements,
     drop_avatar_statements,
     drop_disclosure_statements,
@@ -41,7 +51,17 @@ from reef.rls import (
 )
 from reef.search import search_statements
 
-CONTENT_TABLES = ("revisions", "attachments", "promotions", "pages")
+CONTENT_TABLES = ("revisions", "attachments", "promotions", "engrams")
+
+_FORMER_TABLES = (
+    "cove_appearances",
+    "page_access",
+    "page_heat",
+    "page_embeddings",
+    "pages",
+    "coves",
+)
+"""Tables renamed by the ``2026-11-20T10:00:00`` migration, by their old names."""
 
 PROBE_ROLE = "reef_probe"
 """A non-owner login role standing in for production's ``reef_app``.
@@ -49,7 +69,7 @@ PROBE_ROLE = "reef_probe"
 The suite's own connection is ``reef``, which *owns* the tables. An owner's
 privileges are implicit, so column-level grants -- ``REVOKE UPDATE`` then
 ``GRANT UPDATE (version)`` -- do not constrain it the way they constrain
-``reef_app``. Any test asserting "a member cannot rewrite a cove's slug" would
+``reef_app``. Any test asserting "a member cannot rewrite a space's slug" would
 pass against the owner for the wrong reason. Tests that assert a *privilege*
 rather than a *policy* must therefore run through :func:`probe`.
 """
@@ -105,7 +125,7 @@ def seed_dsn() -> str:
     """Return a DSN able to insert fixture rows past the identity policies.
 
     Fixture data stands for rows that already exist -- people who were
-    invited long ago, coves already created. Under the identity policies
+    invited long ago, spaces already created. Under the identity policies
     those rows cannot be *created* by an unarmed connection, and rightly so:
     ``persons_invite_insert`` demands an inviter, so a person with no inviter
     can only be seeded out of band. That is exactly how reef's own first
@@ -187,6 +207,13 @@ async def schema():
         "SELECT 1 FROM pg_extension WHERE extname = 'vector'"
     ):
         raise RuntimeError(_MISSING_VECTOR_EXTENSION)
+    # The tables as they were named before cove became space and page became
+    # engram. Every checkout shares reef_test, so one that last ran older code
+    # leaves them behind, and test_migration_chain would read them as the
+    # migrated schema diverging from this one.
+    await DB._run_in_new_connection(
+        f"DROP TABLE IF EXISTS {', '.join(_FORMER_TABLES)} CASCADE"
+    )
     await drop_db_tables(*reversed(TABLES))
     await create_db_tables(*TABLES)
     # Granted here rather than in docker/initdb because the tables do not
@@ -195,21 +222,22 @@ async def schema():
     # not have either.
     #
     # Before enable_statements, not after: the policy DDL revokes table-wide
-    # UPDATE on coves and grants back only the version column, and a blanket
+    # UPDATE on spaces and grants back only the version column, and a blanket
     # grant afterwards would silently undo it -- leaving a member able to
-    # rewrite a cove's slug while the suite reported success.
+    # rewrite a space's slug while the suite reported success.
     for table in (
         *CONTENT_TABLES,
         "memberships",
-        "coves",
+        "spaces",
         "persons",
-        "cove_appearances",
+        "space_appearances",
         "jobs",
         "links",
-        "page_access",
-        "page_heat",
+        "engram_access",
+        "engram_heat",
         "search_log",
-        "page_embeddings",
+        "call_log",
+        "engram_embeddings",
         "embedding_spend",
     ):
         await DB._run_in_new_connection(
@@ -238,6 +266,9 @@ async def schema():
         drop_disclosure_statements()
         + drop_mutation_statements()
         + drop_avatar_statements()
+        # Its parameter was p_page before page became engram, and CREATE OR
+        # REPLACE cannot rename a parameter. The groups above cover the rest.
+        + ["DROP FUNCTION IF EXISTS reef_retire_links(uuid)"]
     ):
         await DB._run_in_new_connection(statement)
     # appearance_statements, job_statements, link_statements, avatar_statements and
@@ -253,6 +284,7 @@ async def schema():
         + link_statements()
         + usage_statements()
         + search_log_statements()
+        + call_log_statements()
         + embedding_statements()
         + session_epoch_statements()
         + alias_statements()
@@ -294,7 +326,7 @@ async def clean():
     is itself filtered and would silently remove nothing.
     """
     await DB._run_in_new_connection(
-        f"TRUNCATE {', '.join(CONTENT_TABLES)}, memberships, coves, persons "
+        f"TRUNCATE {', '.join(CONTENT_TABLES)}, memberships, spaces, persons "
         f"RESTART IDENTITY CASCADE"
     )
 
@@ -313,7 +345,7 @@ async def tx():
 
 
 class Graph:
-    """Builders for arbitrary person/cove/membership topologies.
+    """Builders for arbitrary person/space/membership topologies.
 
     These seed *pre-existing* state, so they write through a connection that
     is not subject to the identity policies -- see :func:`seed_dsn` for why
@@ -366,37 +398,37 @@ class Graph:
         row._exists_in_db = True
         return row
 
-    async def personal_cove(self, owner: Person, slug: str | None = None) -> Cove:
-        """Create a personal cove plus its single membership.
+    async def personal_space(self, owner: Person, slug: str | None = None) -> Space:
+        """Create a personal space plus its single membership.
 
-        :param owner: the person the cove belongs to
+        :param owner: the person the space belongs to
         :param slug: explicit slug; defaults to the onboarding form
-        :returns: the saved cove
+        :returns: the saved space
         """
-        cove = Cove(
+        space = Space(
             slug=slug or f"personal-{owner.id.hex}",
-            kind=CoveKind.PERSONAL.value,
+            kind=SpaceKind.PERSONAL.value,
             owner_person_id=owner.id,
         )
-        await self._insert_cove(cove, owner, alias="personal")
-        return cove
+        await self._insert_space(space, owner, alias="personal")
+        return space
 
-    async def shared_cove(self, slug: str, owner: Person, *members: Person) -> Cove:
-        """Create a shared cove owned by ``owner``, with memberships.
+    async def shared_space(self, slug: str, owner: Person, *members: Person) -> Space:
+        """Create a shared space owned by ``owner``, with memberships.
 
-        :param slug: the cove's slug
+        :param slug: the space's slug
         :param owner: the accountable owner, who is also a member
         :param members: further people to admit
-        :returns: the saved cove
+        :returns: the saved space
         """
-        cove = Cove(slug=slug, kind=CoveKind.SHARED.value, owner_person_id=owner.id)
-        await self._insert_cove(cove, owner, *members, alias=slug)
-        return cove
+        space = Space(slug=slug, kind=SpaceKind.SHARED.value, owner_person_id=owner.id)
+        await self._insert_space(space, owner, *members, alias=slug)
+        return space
 
     async def add_membership(
-        self, person: Person, cove: Cove, role: str, alias: str | None = None
+        self, person: Person, space: Space, role: str, alias: str | None = None
     ) -> None:
-        """Admit ``person`` to ``cove`` with an explicit role.
+        """Admit ``person`` to ``space`` with an explicit role.
 
         Seeded rather than inserted through the application: admitting
         somebody is an owner-only act under ``memberships_insert``, and a
@@ -404,16 +436,16 @@ class Graph:
         impersonate the owner to get it.
 
         :param person: who to admit
-        :param cove: which cove
+        :param space: which space
         :param role: the role to store
         """
         await self._connection.execute(
-            "INSERT INTO memberships (person_id, cove_id, role, alias) "
+            "INSERT INTO memberships (person_id, space_id, role, alias) "
             "VALUES ($1, $2, $3, $4)",
             person.id,
-            cove.id,
+            space.id,
             role,
-            alias or cove.slug,
+            alias or space.slug,
         )
 
     async def bind_subject(self, person: Person, subject: str) -> None:
@@ -438,7 +470,7 @@ class Graph:
         """
         await self._connection.execute("DELETE FROM persons WHERE id = $1", person.id)
 
-    async def set_role(self, person: Person, cove: Cove, role: str) -> None:
+    async def set_role(self, person: Person, space: Space, role: str) -> None:
         """Set a membership's role directly.
 
         ``memberships`` has no ``UPDATE`` policy at all -- role changes belong
@@ -446,26 +478,26 @@ class Graph:
         has to seed one.
 
         :param person: whose membership
-        :param cove: which cove
+        :param space: which space
         :param role: the role to store
         """
         await self._connection.execute(
-            "UPDATE memberships SET role = $1 WHERE person_id = $2 AND cove_id = $3",
+            "UPDATE memberships SET role = $1 WHERE person_id = $2 AND space_id = $3",
             role,
             person.id,
-            cove.id,
+            space.id,
         )
 
-    async def drop_membership(self, person: Person, cove: Cove) -> None:
+    async def drop_membership(self, person: Person, space: Space) -> None:
         """Remove a membership directly.
 
         :param person: whose membership
-        :param cove: which cove
+        :param space: which space
         """
         await self._connection.execute(
-            "DELETE FROM memberships WHERE person_id = $1 AND cove_id = $2",
+            "DELETE FROM memberships WHERE person_id = $1 AND space_id = $2",
             person.id,
-            cove.id,
+            space.id,
         )
 
     async def backdate_person(self, person: Person, created_at) -> None:
@@ -478,30 +510,30 @@ class Graph:
             "UPDATE persons SET created_at = $1 WHERE id = $2", created_at, person.id
         )
 
-    async def _insert_cove(
-        self, cove: Cove, *members: Person, alias: str | None = None
+    async def _insert_space(
+        self, space: Space, *members: Person, alias: str | None = None
     ) -> None:
-        """Insert a cove row and one membership per member.
+        """Insert a space row and one membership per member.
 
-        :param cove: the cove to write
+        :param space: the space to write
         :param members: everyone who belongs to it
         """
         await self._connection.execute(
-            "INSERT INTO coves (id, slug, kind, owner_person_id, version) "
+            "INSERT INTO spaces (id, slug, kind, owner_person_id, version) "
             "VALUES ($1, $2, $3, $4, 0)",
-            cove.id,
-            cove.slug,
-            cove.kind,
-            cove.owner_person_id,
+            space.id,
+            space.slug,
+            space.kind,
+            space.owner_person_id,
         )
-        cove._exists_in_db = True
+        space._exists_in_db = True
         for person in members:
             await self._connection.execute(
-                "INSERT INTO memberships (person_id, cove_id, role, alias) "
+                "INSERT INTO memberships (person_id, space_id, role, alias) "
                 "VALUES ($1, $2, 'member', $3)",
                 person.id,
-                cove.id,
-                alias or cove.slug,
+                space.id,
+                alias or space.slug,
             )
 
 
@@ -539,16 +571,16 @@ async def graph(seed):
 
 @pytest_asyncio.fixture
 async def household(graph: Graph) -> dict:
-    """Two people, two personal coves, one shared cove they both belong to.
+    """Two people, two personal spaces, one shared space they both belong to.
 
     :returns: mapping with keys ``wouter``, ``partner``, ``w_personal``,
         ``p_personal``, ``shared``
     """
     wouter = await graph.person("wouter@example.test", "Wouter")
     partner = await graph.person("partner@example.test", "Partner")
-    w_personal = await graph.personal_cove(wouter, slug="wouter")
-    p_personal = await graph.personal_cove(partner, slug="partner")
-    shared = await graph.shared_cove("household", wouter, partner)
+    w_personal = await graph.personal_space(wouter, slug="wouter")
+    p_personal = await graph.personal_space(partner, slug="partner")
+    shared = await graph.shared_space("household", wouter, partner)
     return {
         "wouter": wouter,
         "partner": partner,
@@ -621,7 +653,110 @@ async def world(graph: Graph):
     """
     alice = await graph.person("alice@x.com", "Alice")
     bob = await graph.person("bob@x.com", "Bob")
-    await graph.personal_cove(alice)
-    await graph.personal_cove(bob)
-    team = await graph.shared_cove("team", alice, bob)
+    await graph.personal_space(alice)
+    await graph.personal_space(bob)
+    team = await graph.shared_space("team", alice, bob)
     return alice, bob, team
+
+
+class SpanCapture(SpanExporter):
+    """Collects spans in memory instead of shipping them anywhere."""
+
+    def __init__(self) -> None:
+        """Start with no spans."""
+        self.spans: list = []
+
+    def export(self, spans) -> SpanExportResult:
+        """Record the batch.
+
+        :param spans: spans being exported
+        :returns: always success
+        """
+        self.spans.extend(spans)
+        return SpanExportResult.SUCCESS
+
+    def shutdown(self) -> None:
+        """Nothing to release."""
+
+
+@pytest.fixture
+def captured() -> SpanCapture:
+    """Configure Logfire with scrubbing and an in-memory exporter.
+
+    The same configuration production uses, minus the export: Logfire
+    becomes the tracer provider, so FastMCP's spans arrive here too.
+    ``send_to_logfire=False`` keeps this offline: no credentials, no network,
+    nothing that could make the suite depend on a third party being up.
+
+    :returns: the exporter holding whatever was exported
+    """
+    import logfire
+
+    from reef import telemetry
+
+    sink = SpanCapture()
+    logfire.configure(
+        service_name="reef-test",
+        send_to_logfire=False,
+        console=False,
+        scrubbing=logfire.ScrubbingOptions(extra_patterns=telemetry.SCRUB_PATTERNS),
+        additional_span_processors=[SimpleSpanProcessor(sink)],
+    )
+    return sink
+
+
+def caller_for(person) -> Caller:
+    """Build the caller the MCP transport would build for this person.
+
+    :param person: a seeded person
+    :returns: the caller
+    """
+    principal = Principal(person_id=person.id, email=person.email)
+    return Caller(principal=principal, writer="assistant", session_id=None)
+
+
+async def save_as(caller: Caller, space: str, path: str, body: str, **kw) -> Engram:
+    """Save an engram in a transaction of its own, as a tool call would.
+
+    :param caller: who saves it
+    :param space: the caller's name for the space
+    :param path: the engram's path
+    :param body: its text
+    :param kw: further arguments to :func:`reef.engrams.save_engram`
+    :returns: the saved engram
+    """
+    async with transaction_scope():
+        return await save_engram(caller.principal, space, path, body, message="x", **kw)
+
+
+class Store:
+    """An object store that keeps nothing and signs fake URLs."""
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Discard the bytes."""
+
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
+        """Return a stand-in URL."""
+        return f"https://files.example/{key}?ttl={expires_in}"
+
+
+async def attach_file(caller: Caller, space: str, description: str) -> str:
+    """Store a described PDF and return its key.
+
+    :param caller: who stores it
+    :param space: the caller's name for the space
+    :param description: what the file is
+    :returns: the file's key
+    """
+    attachment = await add_attachment(
+        caller.principal,
+        space,
+        b"%PDF",
+        "application/pdf",
+        filename="policy.pdf",
+        description=description,
+        store=Store(),
+    )
+    return attachment.object_key

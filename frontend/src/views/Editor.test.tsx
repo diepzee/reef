@@ -1,5 +1,5 @@
 /**
- * Saving a page, and what happens when someone else saved it first.
+ * Saving an engram, and what happens when someone else saved it first.
  *
  * The conflict path is the one worth pinning: a 409 must never cost the
  * author their typing. The contract is that the draft is left exactly as
@@ -68,13 +68,13 @@ mock.module("react-router-dom", () => ({
   useNavigate: () => (to: string) => navigated.push(to),
 }));
 
-const { PageEditor } = await import("./Editor");
+const { EngramEditor } = await import("./Editor");
 
 function renderEditor(version: number | null = 3) {
   render(
     <MemoryRouter>
-      <PageEditor
-        cove="trip"
+      <EngramEditor
+        space="trip"
         path="packing.md"
         mode="edit"
         initialTitle="Packing"
@@ -114,7 +114,7 @@ test("saving sends the draft with the version it started from", async () => {
   renderEditor(3);
   fireEvent.change(bodyBox(), { target: { value: "my edit" } });
   fireEvent.click(screen.getByText("Save"));
-  await waitFor(() => expect(navigated).toEqual(["/s/trip/p/packing.md"]));
+  await waitFor(() => expect(navigated).toEqual(["/s/trip/engram/packing.md"]));
   expect(lastSave()!.body).toMatchObject({
     body: "my edit",
     title: "Packing",
@@ -141,7 +141,7 @@ test("a conflict keeps the author's text and shows theirs beside it", async () =
   fireEvent.change(bodyBox(), { target: { value: "my unsaved paragraph" } });
   fireEvent.click(screen.getByText("Save"));
 
-  await waitFor(() => expect(screen.getByText(/Someone saved this page/)).toBeDefined());
+  await waitFor(() => expect(screen.getByText(/Someone saved this engram/)).toBeDefined());
   expect(bodyBox().value).toBe("my unsaved paragraph");
   expect(screen.getByText(/now v7/)).toBeDefined();
   // Their version is shown for comparison, not merged in.
@@ -159,10 +159,10 @@ test("after a conflict the next save carries the new version", async () => {
   };
   renderEditor(3);
   fireEvent.click(screen.getByText("Save"));
-  await waitFor(() => expect(screen.getByText(/Someone saved this page/)).toBeDefined());
+  await waitFor(() => expect(screen.getByText(/Someone saved this engram/)).toBeDefined());
 
   fireEvent.click(screen.getByText("Save"));
-  await waitFor(() => expect(navigated).toEqual(["/s/trip/p/packing.md"]));
+  await waitFor(() => expect(navigated).toEqual(["/s/trip/engram/packing.md"]));
   expect(lastSave()!.body).toMatchObject({ expected_version: 7 });
 });
 
@@ -184,13 +184,13 @@ test("a conflict whose latest version cannot be fetched says so", async () => {
 
 test("a refusal that is not a conflict is shown with its reason", async () => {
   saveResponse = () => {
-    throw new FakeApiError(400, "page_too_large", "a page may be at most 200000 characters");
+    throw new FakeApiError(400, "engram_too_large", "an engram may be at most 200000 characters");
   };
   renderEditor();
   fireEvent.click(screen.getByText("Save"));
   await waitFor(() =>
     expect(
-      screen.getByText("a page may be at most 200000 characters"),
+      screen.getByText("an engram may be at most 200000 characters"),
     ).toBeDefined(),
   );
 });

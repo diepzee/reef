@@ -1,4 +1,4 @@
-"""Read API: membership slicing, page fetch, 401s."""
+"""Read API: membership slicing, engram fetch, 401s."""
 
 import json
 import uuid
@@ -9,7 +9,7 @@ from conftest import _login
 
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.pages import save_page
+from reef.engrams import save_engram
 from reef.web.session import seal
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
@@ -52,13 +52,85 @@ async def test_orphaned_session_is_401(api):
 
 
 async def test_index_is_sliced_per_person(api, world):
-    """The index only lists coves the logged-in person is a member of."""
+    """The index only lists spaces the logged-in person is a member of."""
     _alice, bob, _ = world
     _login(api, bob)
     response = await api.get("/api/index")
     assert response.status_code == 200
-    aliases = {cove["alias"] for cove in response.json()["coves"]}
+    aliases = {space["alias"] for space in response.json()["spaces"]}
     assert aliases == {"personal", "team"}
+
+
+class _NullStore:
+    """An object store that accepts every upload, for attachment rows."""
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Discard the bytes.
+
+        :param key: object key
+        :param data: raw bytes
+        :param mime: content type
+        """
+
+
+async def test_index_uses_the_web_vocabulary_throughout(api, world):
+    """The index speaks ``spaces`` / ``engrams`` / ``engram_path`` only.
+
+    ``build_index`` emits these keys itself and the web edge passes them on.
+    This pins every one, so a typo there cannot slip past hand-written
+    frontend fixtures.
+    """
+    from reef.access import Principal
+    from reef.attachments import add_attachment
+
+    alice, _bob, _ = world
+    me = Principal(person_id=alice.id, email=alice.email)
+    async with transaction_scope():
+        await save_engram(me, "team", "a.md", "# A\n\nSee [[b.md]].\n", message="s")
+        await save_engram(me, "team", "b.md", "# B\n\nTarget.\n", message="s")
+    await add_attachment(
+        me,
+        "team",
+        b"bytes",
+        "image/png",
+        filename="plate.png",
+        description="a plate",
+        store=_NullStore(),
+        engram_path="a.md",
+    )
+    _login(api, alice)
+
+    body = (await api.get("/api/index")).json()
+
+    assert set(body) == {"version", "spaces"}
+    team = next(space for space in body["spaces"] if space["alias"] == "team")
+    assert set(team) == {"alias", "version", "engrams", "attachments"}
+    by_path = {engram["path"]: engram for engram in team["engrams"]}
+    assert set(by_path) == {"a.md", "b.md"}
+    assert by_path["a.md"]["references"] == [{"space": "team", "path": "b.md"}]
+    assert by_path["b.md"]["references"] == []
+    [attachment] = team["attachments"]
+    assert attachment["engram_path"] == "a.md"
+    assert attachment["filename"] == "plate.png"
+    assert attachment["description"] == "a plate"
+
+    leaked = {"coves", "pages", "cove", "page_path"}
+    assert not leaked & set(_all_keys(body))
+
+
+def _all_keys(value):
+    """Yield every dict key anywhere inside a JSON value.
+
+    :param value: a decoded JSON value
+    :returns: the keys, depth first
+    """
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            yield key
+            yield from _all_keys(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from _all_keys(inner)
 
 
 async def test_me(api, world):
@@ -84,13 +156,13 @@ async def test_sliding_renewal_preserves_sid(api, world):
     assert renewed.sid == "ses_abc"
 
 
-async def test_get_page_and_404(api, world):
-    """A page fetch returns the body; missing paths and foreign coves 404."""
+async def test_get_engram_and_404(api, world):
+    """An engram fetch returns the body; missing paths and foreign spaces 404."""
     from reef.access import Principal
 
     alice, bob, _ = world
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             Principal(person_id=alice.id, email=alice.email),
             "team",
             "notes/plan.md",
@@ -98,13 +170,13 @@ async def test_get_page_and_404(api, world):
             message="seed",
         )
     _login(api, bob)
-    page = (await api.get("/api/pages/team/notes/plan.md")).json()
-    assert page["body"].startswith("# Plan")
-    assert page["version"] == 1
-    assert page["last_editor"] == "Alice"
-    missing = await api.get("/api/pages/team/notes/absent.md")
+    engram = (await api.get("/api/engrams/team/notes/plan.md")).json()
+    assert engram["body"].startswith("# Plan")
+    assert engram["version"] == 1
+    assert engram["last_editor"] == "Alice"
+    missing = await api.get("/api/engrams/team/notes/absent.md")
     assert missing.status_code == 404
-    foreign = await api.get("/api/pages/other-cove/notes/plan.md")
+    foreign = await api.get("/api/engrams/other-space/notes/plan.md")
     assert foreign.status_code == 404
 
 
@@ -177,7 +249,7 @@ async def test_scoped_exports_and_full_dump_download(api, world):
 
     alice, _bob, _team = world
     async with transaction_scope():
-        await save_page(
+        await save_engram(
             Principal(person_id=alice.id, email=alice.email),
             "team",
             "notes.md",
@@ -191,11 +263,11 @@ async def test_scoped_exports_and_full_dump_download(api, world):
     assert markdown.headers["content-type"] == "application/zip"
     assert "reef-team-markdown.zip" in markdown.headers["content-disposition"]
     with ZipFile(BytesIO(markdown.content)) as archive:
-        assert "coves/team/pages/notes.md" in archive.namelist()
+        assert "spaces/team/engrams/notes.md" in archive.namelist()
 
     current_json = await _post(api, "/api/export", {"scope": "team", "format": "json"})
     assert current_json.status_code == 200
-    assert current_json.json()["coves"][0]["pages"][0]["body"] == "Export me."
+    assert current_json.json()["spaces"][0]["engrams"][0]["body"] == "Export me."
 
     dump = await _post(api, "/api/export/dump", {})
     assert dump.status_code == 200

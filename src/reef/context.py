@@ -1,35 +1,38 @@
 """Index-first retrieval, plus the whole-corpus bulk path.
 
 Both entry points assume they run inside :func:`reef.db.transaction_scope`;
-:func:`reef.access.accessible_coves` arms RLS before either reads anything.
+:func:`reef.access.accessible_spaces` arms RLS before either reads anything.
 """
 
 from dataclasses import dataclass
 from uuid import UUID
 
 from reef import embedding
-from reef.access import Principal, accessible_coves, alias_map
-from reef.coves import display_names
+from reef.access import Principal, accessible_spaces, alias_map
 from reef.indexfields import index_fields, resolve_references
 from reef.jobs import BACKFILL_INDEX_FIELDS, BACKFILL_LINKS, enqueue
 from reef.links import inbound_counts
 from reef.models import (
     Attachment,
     AttachmentStatus,
+    Engram,
     MemberRole,
     Membership,
-    Page,
     Revision,
 )
+from reef.spaces import display_names
+
+# The field names below are the wire format: these payloads reach the
+# methods, the MCP tools and the web API as they are, through ``asdict``.
 
 
 @dataclass
-class CoveContext:
-    """Everything the principal may see in one cove."""
+class SpaceContext:
+    """Everything the principal may see in one space."""
 
     alias: str
     version: int
-    pages: list[dict]
+    engrams: list[dict]
     attachments: list[dict]
 
 
@@ -37,26 +40,26 @@ class CoveContext:
 class ContextPayload:
     """The whole corpus a principal may see, plus loading metadata.
 
-    ``page_count`` and ``included_count`` let a client detect host-side
-    truncation of the serialized result: if the pages it can see do not add up,
+    ``engram_count`` and ``included_count`` let a client detect host-side
+    truncation of the serialized result: if the engrams it can see do not add up,
     the payload was cut in transit.
     """
 
     version: str
     truncated: bool
     note: str | None
-    page_count: int
+    engram_count: int
     included_count: int
-    coves: list[CoveContext]
+    spaces: list[SpaceContext]
 
 
 @dataclass
-class CoveIndex:
-    """The map of one cove: page metadata and described files, no bodies."""
+class SpaceIndex:
+    """The map of one space: engram metadata and described files, no bodies."""
 
     alias: str
     version: int
-    pages: list[dict]
+    engrams: list[dict]
     attachments: list[dict]
 
 
@@ -70,48 +73,50 @@ class IndexPayload:
     """
 
     version: str
-    coves: list[CoveIndex]
+    spaces: list[SpaceIndex]
 
 
-#: Everything the index needs from a page. ``body`` is absent on purpose:
+#: Everything the index needs from an engram. ``body`` is absent on purpose:
 #: it is by far the largest column and the index shows none of it.
 _INDEX_COLUMNS = (
-    Page.id,
-    Page.cove_id,
-    Page.path,
-    Page.title,
-    Page.tags,
-    Page.updated_at,
-    Page.version,
-    Page.description,
-    Page.size,
-    Page.reference_targets,
-    Page.indexed_version,
-    Page.linked_version,
+    Engram.id,
+    Engram.space_id,
+    Engram.path,
+    Engram.title,
+    Engram.tags,
+    Engram.updated_at,
+    Engram.version,
+    Engram.description,
+    Engram.size,
+    Engram.reference_targets,
+    Engram.indexed_version,
+    Engram.linked_version,
 )
 
 
-async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
-    """Return index rows for the pages in ``cove_ids``, without their bodies.
+async def _indexed_engrams(space_ids: list[UUID]) -> list[dict]:
+    """Return index rows for the engrams in ``space_ids``, without their bodies.
 
-    A page whose stored fields are current costs nothing beyond its row. Any
-    other page -- written before the fields existed, or by a writer that did
+    An engram whose stored fields are current costs nothing beyond its row. Any
+    other engram -- written before the fields existed, or by a writer that did
     not set them -- has its body fetched and the fields derived here, so the
     result is the same either way.
 
     ``indexed_version`` is left as it was read, so a caller can still tell
     which rows had to be derived.
 
-    :param cove_ids: the coves to read
-    :returns: one dict per page, with current ``description``, ``size`` and
+    :param space_ids: the spaces to read
+    :returns: one dict per engram, with current ``description``, ``size`` and
         ``reference_targets``
     """
-    rows = await Page.select(*_INDEX_COLUMNS).where(Page.cove_id.is_in(cove_ids))
+    rows = await Engram.select(*_INDEX_COLUMNS).where(Engram.space_id.is_in(space_ids))
     stale = [row["id"] for row in rows if row["indexed_version"] != row["version"]]
     if stale:
         bodies = {
             row["id"]: row["body"]
-            for row in await Page.select(Page.id, Page.body).where(Page.id.is_in(stale))
+            for row in await Engram.select(Engram.id, Engram.body).where(
+                Engram.id.is_in(stale)
+            )
         }
         for row in rows:
             if row["id"] in bodies:
@@ -119,120 +124,120 @@ async def _indexed_pages(cove_ids: list[UUID]) -> list[dict]:
     return rows
 
 
-async def _queue_backfills(principal: Principal, pages: list[dict]) -> None:
-    """Queue the work that would bring the principal's old pages up to date.
+async def _queue_backfills(principal: Principal, engrams: list[dict]) -> None:
+    """Queue the work that would bring the principal's old engrams up to date.
 
-    This is how old pages get their stored fields and links without
+    This is how old engrams get their stored fields and links without
     anything looking across people: the person whose index just had to make
     do without them asks for them to be stored. Asking again while a job
     waits adds nothing.
 
-    A viewer cannot write to a cove, so a backfill run as them would change
+    A viewer cannot write to a space, so a backfill run as them would change
     nothing there -- and the index would ask again on every load. Only
-    pages in a cove the principal may write to count.
+    engrams in a space the principal may write to count.
 
     :param principal: the person whose index was just built
-    :param pages: the index rows, as read: ``indexed_version`` and
+    :param engrams: the index rows, as read: ``indexed_version`` and
         ``linked_version`` still say what was stored
     """
     await embedding.request_backfill(principal)
     stale = {
         BACKFILL_INDEX_FIELDS: {
-            page["cove_id"]
-            for page in pages
-            if page["indexed_version"] != page["version"]
+            engram["space_id"]
+            for engram in engrams
+            if engram["indexed_version"] != engram["version"]
         },
         BACKFILL_LINKS: {
-            page["cove_id"]
-            for page in pages
-            if page["linked_version"] != page["version"]
+            engram["space_id"]
+            for engram in engrams
+            if engram["linked_version"] != engram["version"]
         },
     }
-    coves = set().union(*stale.values())
-    if not coves:
+    spaces = set().union(*stale.values())
+    if not spaces:
         return
     writable = {
-        row["cove_id"]
-        for row in await Membership.select(Membership.cove_id).where(
+        row["space_id"]
+        for row in await Membership.select(Membership.space_id).where(
             Membership.person_id == principal.person_id,
             Membership.role == MemberRole.MEMBER.value,
-            Membership.cove_id.is_in(list(coves)),
+            Membership.space_id.is_in(list(spaces)),
         )
     }
-    for kind, stale_coves in stale.items():
-        if stale_coves & writable:
+    for kind, stale_spaces in stale.items():
+        if stale_spaces & writable:
             await enqueue(principal, kind)
 
 
 async def backfill_index_fields(principal: Principal) -> int:
-    """Store current index fields on every page the principal may write.
+    """Store current index fields on every engram the principal may write.
 
-    Pages saved since the fields were introduced already carry them. This is
+    Engrams saved since the fields were introduced already carry them. This is
     for the ones saved before, which the index otherwise derives from their
     bodies on every call. It changes nothing a reader can observe: no
     version moves, no revision is written.
 
-    Row security decides what "may write" means. An update to a page the
+    Row security decides what "may write" means. An update to an engram the
     principal can only read matches no row, so a viewer backfills nothing
     and gets no error.
 
     :param principal: the person to act as
-    :returns: how many pages were updated
+    :returns: how many engrams were updated
     """
-    coves = await accessible_coves(principal)
-    rows = await Page.select(Page.id, Page.body, Page.version).where(
-        Page.cove_id.is_in([cove.id for cove in coves]),
-        Page.indexed_version.is_null() | (Page.indexed_version != Page.version),
+    spaces = await accessible_spaces(principal)
+    rows = await Engram.select(Engram.id, Engram.body, Engram.version).where(
+        Engram.space_id.is_in([space.id for space in spaces]),
+        Engram.indexed_version.is_null() | (Engram.indexed_version != Engram.version),
     )
     updated = 0
     for row in rows:
         fields = index_fields(row["body"])
         changed = (
-            await Page.update(
+            await Engram.update(
                 {
-                    Page.description: fields["description"],
-                    Page.size: fields["size"],
-                    Page.reference_targets: fields["reference_targets"],
-                    Page.indexed_version: row["version"],
+                    Engram.description: fields["description"],
+                    Engram.size: fields["size"],
+                    Engram.reference_targets: fields["reference_targets"],
+                    Engram.indexed_version: row["version"],
                 }
             )
             # The version guard makes this safe beside a concurrent save:
-            # if the page moved on, that save stored fresher fields itself.
-            .where(Page.id == row["id"], Page.version == row["version"])
-            .returning(Page.id)
+            # if the engram moved on, that save stored fresher fields itself.
+            .where(Engram.id == row["id"], Engram.version == row["version"])
+            .returning(Engram.id)
         )
         updated += len(changed)
     return updated
 
 
-async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
-    """Return each page's newest revision author, as a display name.
+async def latest_editors(engram_ids: list[UUID]) -> dict[UUID, str | None]:
+    """Return each engram's newest revision author, as a display name.
 
     One query for the whole batch: newest-first revisions joined to
-    persons, first row per page wins. Pages without revisions, or whose
+    persons, first row per engram wins. Engrams without revisions, or whose
     author row was erased, map to None.
 
-    :param page_ids: the pages to resolve
-    :returns: page id to display name, None where unresolvable
+    :param engram_ids: the engrams to resolve
+    :returns: engram id to display name, None where unresolvable
     """
-    if not page_ids:
+    if not engram_ids:
         return {}
     # Two queries rather than one join through ``author_id.display_name``.
     # That join reads ``persons`` directly, and a co-member's row is not
-    # readable once that table carries a policy -- every page last touched by
+    # readable once that table carries a policy -- every engram last touched by
     # somebody else would silently render as "no author". Names come from
     # ``display_names`` instead, which is allowed to answer for people the
     # reader cannot otherwise see.
     rows = (
-        await Revision.select(Revision.page_id, Revision.author_id)
-        .where(Revision.page_id.is_in(page_ids))
+        await Revision.select(Revision.engram_id, Revision.author_id)
+        .where(Revision.engram_id.is_in(engram_ids))
         .order_by(Revision.created_at, ascending=False)
     )
-    editors: dict[UUID, str | None] = {pid: None for pid in page_ids}
+    editors: dict[UUID, str | None] = {pid: None for pid in engram_ids}
     latest_author: dict[UUID, UUID] = {}
     seen: set[UUID] = set()
     for row in rows:
-        pid = row["page_id"]
+        pid = row["engram_id"]
         if pid in seen or pid not in editors:
             continue
         seen.add(pid)
@@ -245,62 +250,64 @@ async def latest_editors(page_ids: list[UUID]) -> dict[UUID, str | None]:
 
 
 async def build_index(principal: Principal) -> IndexPayload:
-    """Return the index of every cove the principal can see — no bodies.
+    """Return the index of every space the principal can see — no bodies.
 
     :param principal: the authenticated person
     :returns: the index payload
     """
-    coves = await accessible_coves(principal)
+    spaces = await accessible_spaces(principal)
     aliases = await alias_map(principal)
-    cove_ids = [cove.id for cove in coves]
-    pages = await _indexed_pages(cove_ids)
-    await _queue_backfills(principal, pages)
-    inbound = await inbound_counts([page["id"] for page in pages])
+    space_ids = [space.id for space in spaces]
+    engrams = await _indexed_engrams(space_ids)
+    await _queue_backfills(principal, engrams)
+    inbound = await inbound_counts([engram["id"] for engram in engrams])
     attachments = await Attachment.objects().where(
-        Attachment.cove_id.is_in(cove_ids),
+        Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
-    editors = await latest_editors([page["id"] for page in pages])
+    editors = await latest_editors([engram["id"] for engram in engrams])
 
-    # Keyed by cove id: Piccolo Table instances are unhashable, so the row
+    # Keyed by space id: Piccolo Table instances are unhashable, so the row
     # object itself cannot be a dict key the way the SQLAlchemy version did it.
-    by_cove = {
-        cove.id: CoveIndex(
-            alias=aliases[cove.id],
-            version=cove.version,
-            pages=[],
+    by_space = {
+        space.id: SpaceIndex(
+            alias=aliases[space.id],
+            version=space.version,
+            engrams=[],
             attachments=[],
         )
-        for cove in coves
+        for space in spaces
     }
-    alias_by_cove_id = aliases
-    visible_pages = {
-        (alias_by_cove_id[page["cove_id"]], page["path"]) for page in pages
+    alias_by_space_id = aliases
+    visible_engrams = {
+        (alias_by_space_id[engram["space_id"]], engram["path"]) for engram in engrams
     }
-    page_path_by_id = {page["id"]: page["path"] for page in pages}
-    for page in sorted(pages, key=lambda p: p["path"]):
-        source_alias = alias_by_cove_id[page["cove_id"]]
+    engram_path_by_id = {engram["id"]: engram["path"] for engram in engrams}
+    for engram in sorted(engrams, key=lambda p: p["path"]):
+        source_alias = alias_by_space_id[engram["space_id"]]
         references = [
             reference
-            for reference in resolve_references(page["reference_targets"], source_alias)
-            if (reference["cove"], reference["path"]) in visible_pages
+            for reference in resolve_references(
+                engram["reference_targets"], source_alias
+            )
+            if (reference["space"], reference["path"]) in visible_engrams
         ]
-        by_cove[page["cove_id"]].pages.append(
+        by_space[engram["space_id"]].engrams.append(
             {
-                "path": page["path"],
-                "title": page["title"],
-                "tags": list(page["tags"]),
-                "description": page["description"],
-                "updated": page["updated_at"].isoformat(),
-                "size": page["size"],
-                "version": page["version"],
-                "last_editor": editors.get(page["id"]),
+                "path": engram["path"],
+                "title": engram["title"],
+                "tags": list(engram["tags"]),
+                "description": engram["description"],
+                "updated": engram["updated_at"].isoformat(),
+                "size": engram["size"],
+                "version": engram["version"],
+                "last_editor": editors.get(engram["id"]),
                 "references": references,
-                "inbound": inbound.get(page["id"], 0),
+                "inbound": inbound.get(engram["id"], 0),
             }
         )
     for attachment in attachments:
-        by_cove[attachment.cove_id].attachments.append(
+        by_space[attachment.space_id].attachments.append(
             {
                 "key": attachment.object_key,
                 "filename": attachment.filename
@@ -308,33 +315,33 @@ async def build_index(principal: Principal) -> IndexPayload:
                 "mime": attachment.mime,
                 "size": attachment.byte_size,
                 "description": attachment.description,
-                "page_path": page_path_by_id.get(attachment.page_id),
+                "engram_path": engram_path_by_id.get(attachment.engram_id),
             }
         )
 
     version = (
-        ";".join(f"{aliases[cove.id]}={cove.version}" for cove in coves) or "empty"
+        ";".join(f"{aliases[space.id]}={space.version}" for space in spaces) or "empty"
     )
     return IndexPayload(
-        version=f"{principal.person_id}:{version}", coves=list(by_cove.values())
+        version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
     )
 
 
-def _priority(page: Page) -> tuple:
+def _priority(engram: Engram) -> tuple:
     """Return the inclusion sort key: meta first, core-tagged second, small third.
 
-    :param page: the page to rank
+    :param engram: the engram to rank
     :returns: sort key, ascending
     """
     return (
-        0 if page.path.startswith("meta/") else 1,
-        0 if "core" in page.tags else 1,
-        len(page.body),
+        0 if engram.path.startswith("meta/") else 1,
+        0 if "core" in engram.tags else 1,
+        len(engram.body),
     )
 
 
 async def load_context(principal: Principal, *, char_budget: int) -> ContextPayload:
-    """Return every page in every cove the principal can see.
+    """Return every engram in every space the principal can see.
 
     Bodies are included by priority until the character budget is spent;
     everything else still appears with ``body=None`` so omission is visible,
@@ -344,57 +351,57 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
     :param char_budget: approximate ceiling on total body characters
     :returns: the assembled context payload
     """
-    coves = await accessible_coves(principal)
+    spaces = await accessible_spaces(principal)
     aliases = await alias_map(principal)
-    cove_ids = [cove.id for cove in coves]
-    pages = await Page.objects().where(Page.cove_id.is_in(cove_ids))
+    space_ids = [space.id for space in spaces]
+    engrams = await Engram.objects().where(Engram.space_id.is_in(space_ids))
     attachments = await Attachment.objects().where(
-        Attachment.cove_id.is_in(cove_ids),
+        Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
     )
 
     spent = 0
-    body_by_page: dict[object, str | None] = {}
-    page_path_by_id = {page.id: page.path for page in pages}
-    for page in sorted(pages, key=_priority):
-        if spent + len(page.body) <= char_budget:
-            body_by_page[page.id] = page.body
-            spent += len(page.body)
+    body_by_engram: dict[object, str | None] = {}
+    engram_path_by_id = {engram.id: engram.path for engram in engrams}
+    for engram in sorted(engrams, key=_priority):
+        if spent + len(engram.body) <= char_budget:
+            body_by_engram[engram.id] = engram.body
+            spent += len(engram.body)
         else:
-            body_by_page[page.id] = None
+            body_by_engram[engram.id] = None
 
-    included = sum(1 for body in body_by_page.values() if body is not None)
-    truncated = included < len(pages)
+    included = sum(1 for body in body_by_engram.values() if body is not None)
+    truncated = included < len(engrams)
     note = (
-        f"{len(pages) - included} page(s) exceeded the context budget and are "
-        "listed with body=null. Fetch them with read_page when relevant."
+        f"{len(engrams) - included} engram(s) exceeded the context budget and are "
+        "listed with body=null. Open them with open when relevant."
         if truncated
         else None
     )
 
-    by_cove = {
-        cove.id: CoveContext(
-            alias=aliases[cove.id],
-            version=cove.version,
-            pages=[],
+    by_space = {
+        space.id: SpaceContext(
+            alias=aliases[space.id],
+            version=space.version,
+            engrams=[],
             attachments=[],
         )
-        for cove in coves
+        for space in spaces
     }
-    for page in sorted(pages, key=lambda p: p.path):
-        by_cove[page.cove_id].pages.append(
+    for engram in sorted(engrams, key=lambda p: p.path):
+        by_space[engram.space_id].engrams.append(
             {
-                "path": page.path,
-                "title": page.title,
-                "tags": list(page.tags),
-                "updated": page.updated_at.isoformat(),
-                "size": len(page.body),
-                "version": page.version,
-                "body": body_by_page[page.id],
+                "path": engram.path,
+                "title": engram.title,
+                "tags": list(engram.tags),
+                "updated": engram.updated_at.isoformat(),
+                "size": len(engram.body),
+                "version": engram.version,
+                "body": body_by_engram[engram.id],
             }
         )
     for attachment in attachments:
-        by_cove[attachment.cove_id].attachments.append(
+        by_space[attachment.space_id].attachments.append(
             {
                 "key": attachment.object_key,
                 "filename": attachment.filename
@@ -402,18 +409,18 @@ async def load_context(principal: Principal, *, char_budget: int) -> ContextPayl
                 "mime": attachment.mime,
                 "size": attachment.byte_size,
                 "description": attachment.description,
-                "page_path": page_path_by_id.get(attachment.page_id),
+                "engram_path": engram_path_by_id.get(attachment.engram_id),
             }
         )
 
     version = (
-        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_cove.values()) or "empty"
+        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
     )
     return ContextPayload(
         version=version,
         truncated=truncated,
         note=note,
-        page_count=len(pages),
+        engram_count=len(engrams),
         included_count=included,
-        coves=list(by_cove.values()),
+        spaces=list(by_space.values()),
     )

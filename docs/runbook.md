@@ -13,7 +13,7 @@ to stand the service up again.
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
 | 4 — Storage and safety nets | **Partly verified** — daily R2 dumps observed through 10 Sep; the separate 7 Aug restore drill passed; managed backups and R2 policies remain unverified |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
-| 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/reef/protocol.md`), no longer a page; `meta/persona.md` is still the smoke-test placeholder |
+| 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/reef/protocol.md`), no longer an engram; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
 
 ## Open items
@@ -52,7 +52,7 @@ assumed: it has no command for cron schedules or start commands)
       membership and first-sign-in subject binding; Phase 2 describes both
       states without recording the email.
 - [ ] **`meta/persona.md`.** Still the 157-byte placeholder from the first
-      smoke test, while every other page got real content. `mark.md` already
+      smoke test, while every other engram got real content. `mark.md` already
       holds much of what belongs in it. Phase 6, step 2.
 
 **Waiting on a phone**
@@ -258,35 +258,33 @@ fallback is a web app for her, not a redesign.
 ## Phase 2 — Who is allowed in
 
 **Why this matters:** WorkOS authenticates anyone who signs up. Something else
-has to turn "authenticated" into "allowed", and that something is now the
-`invite` tool, not a hand-edited migration. Inviting an email address creates
+has to turn "authenticated" into "allowed", and that something is now an
+invitation made on the Reef website, not a hand-edited migration. Inviting an email address creates
 the person's row (if new) and their membership row *before* they have ever
 signed in; an authenticated stranger nobody invited is denied by
 `principal_from_claims`, and RLS denies them rows even if that check were
 bypassed.
 
 **Already done.** The seed migrations create one person — Wouter — his personal
-cove, and the `household` shared cove he owns (slug `school` until the 9 Aug 2026 cleanup renamed it). You can deploy and use the system
+space, and the `household` shared space he owns (slug `school` until the 9 Aug 2026 cleanup renamed it). You can deploy and use the system
 solo today.
 
 ### Bringing anyone else in
 
-As the cove's owner, from any connected assistant:
-
-```
-invite(cove="household", email="<their-email>", display_name="<their-name>")
-```
+As the space's owner, on the Reef website: open the space, choose to invite
+someone, and enter their email and name. (Assistants cannot invite: the
+sixteen tools have no administration.)
 
 Then the person signs in to AuthKit with that exact address. On that first
-sign-in `rif` binds their provider subject, creates their own personal cove,
+sign-in `rif` binds their provider subject, creates their own personal space,
 and seeds `meta/persona.md` there for them. Nothing else is needed — no
 migration, no restart. (The operating protocol is not seeded: since 9 Aug
 2026 it ships with the product in `src/reef/protocol.md`, versioned with the
-code so improvements reach every member on deploy. `update_meta_page`
-accepts only `meta/persona.md`; the web UI hides `meta/*` from listings.
+code so improvements reach every member on deploy. `instruct`
+takes no space and replaces only `meta/persona.md` in the personal space; the web UI hides `meta/*` from listings.
 One-time cleanup after that deploy: the now-dead `meta/protocol.md` rows in
-Wouter's personal cove and the shared cove were deleted, and the shared
-cove's stale `school` slug was renamed to `household` — backup first, via
+Wouter's personal space and the shared space were deleted, and the shared
+space's stale `school` slug was renamed to `household` — backup first, via
 `REEF_MIGRATION_DATABASE_URL`.)
 
 Two things to get right:
@@ -295,13 +293,14 @@ Two things to get right:
   than one, and the provider must report it verified. `rif` binds to the
   provider's subject on first login, so changing their account afterwards means
   clearing their `subject` column by hand.
-- **Say out loud what an invite grants** before you call it. The invitee will
-  permanently see everything in that cove, past and future; the tool returns a
-  disclosure line with today's page count for exactly this reason. Removal
-  (`remove_member`) stops future access — it cannot unshare what was read.
+- **Say out loud what an invite grants** before you send it. Inviting happens
+  on the website, not through an assistant tool. The invitee will permanently
+  see everything in that space, past and future. Removal (also on the website)
+  stops future access — it cannot unshare what was read.
 
-If you typo an address, `remove_member` on the invite you never got to use also
-erases the orphaned person row, so the mistake leaves nothing behind.
+If you typo an address, remove that member on the website. Removing someone
+who never signed in also erases the orphaned person row, so the mistake leaves
+nothing behind.
 
 ---
 
@@ -309,9 +308,9 @@ erases the orphaned person row, so the mistake leaves nothing behind.
 
 > **Done, 6 Aug 2026.** The real service runs at
 > `rif-app-production.up.railway.app` — since 11 Aug 2026 also, and by
-> preference, at `reefwith.me` — and step 3's check passes: `list_coves`
-> returned exactly `personal` and the shared cove (then aliased `household`,
-> briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal cove identifiers
+> preference, at `reefwith.me` — and step 3's check passes: `load_index`
+> returned exactly `personal` and the shared space (then aliased `household`,
+> briefly the slug `school`, renamed back to `household` on 9 Aug 2026), with no internal space identifiers
 > and nothing belonging to anyone else.
 
 **Why it's safe now:** the server *refuses to boot* HTTP without auth
@@ -343,30 +342,30 @@ spike service and for recovering when a bad commit is already on `main`.
    ```
    The Dockerfile runs `scripts/migrate.py` on boot (advisory-locked), which
    applies the schema, RLS policies, and your Phase 2 seed.
-2. **Verify the shared-cove owner the multi-user-coves migration backfilled**
-   (`rif_2026_08_08t10_00_00_000000`). For a cove that predates ownership it
+2. **Verify the shared-space owner the multi-user-coves migration backfilled**
+   (`rif_2026_08_08t10_00_00_000000`). For a space that predates ownership it
    assigns `owner_person_id` to the member with the lowest person id — an
    arbitrary pick, not necessarily the right one. Check it:
 
    ```sql
    SELECT s.slug, p.email
-   FROM coves s JOIN persons p ON p.id = s.owner_person_id
+   FROM spaces s JOIN persons p ON p.id = s.owner_person_id
    WHERE s.kind = 'shared';
    ```
 
    If the wrong person came out owner, reassign before anyone relies on
-   owner-only tools (`invite`, `remove_member`):
+   owner-only actions (inviting and removing members):
 
    ```sql
-   UPDATE coves SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
-   WHERE slug = '<the-cove>';
+   UPDATE spaces SET owner_person_id = (SELECT id FROM persons WHERE email = '<the-owner>')
+   WHERE slug = '<the-space>';
    ```
 3. **Swap the connector** on both accounts from the spike URL to the real
    `/mcp` URL (same domain if you reused the service — then nothing to swap).
-4. **Verify, on each phone:** `list_coves` returns that person's `personal`
-   cove plus every shared cove they belong to, with each cove's member list
-   — never a cove they were never invited to, never anyone else's `personal`
-   cove (addressing is `personal` or a slug, and membership decides the rest;
+4. **Verify, on each phone:** `load_index` lists that person's `personal`
+   space plus every shared space they belong to, with each space's member list
+   — never a space they were never invited to, never anyone else's `personal`
+   space (addressing is `personal` or a slug, and membership decides the rest;
    that's a tested invariant, but see it once with your own eyes).
 5. **Verify the lock:** `curl -i https://<domain>/mcp` from anywhere →
    rejected, not a tool listing.
@@ -441,18 +440,18 @@ fire — and neither could RLS.
 
 Four operations reach past the row policies, inside `SECURITY DEFINER`
 functions owned by `rif_authz`: minting an invitation, admitting a member,
-removing one, transferring a cove, and erasing an account. No row policy can
+removing one, transferring a space, and erasing an account. No row policy can
 express those without permitting a great deal more, so what they carry is
 **accountability, not prevention** — and `src/reef/audit.py` is the
 accountability half.
 
-Each one emits a Logfire record naming the actor, the cove, and the effect.
-**Identifiers only** — no address, no display name, no page path, no body. A
+Each one emits a Logfire record naming the actor, the space, and the effect.
+**Identifiers only** — no address, no display name, no engram path, no body. A
 trail carrying those would be a second copy of the corpus in a third party's
 database, which is the exposure the row-level-security work exists to shrink.
 
 To read it, filter `service_name = rif` and `action` starting `invite.` or
-`cove.` or `account.`. To answer "what happened to my invitation", the actor
+`space.` or `account.`. To answer "what happened to my invitation", the actor
 and invitee ids are there; the address is deliberately not, and has to come
 from the database.
 
@@ -471,7 +470,7 @@ cannot rewrite — so erasing them takes a second and different kind of access.
 
 There is now a **third** role, and it is not a credential — nothing can log in
 as it. `rif_authz` owns the `SECURITY DEFINER` helper functions that every RLS
-policy calls (`rif_cove_ids()`, `rif_member_cove_ids()`), and it holds
+policy calls (`reef_space_ids()`, `reef_member_space_ids()`), and it holds
 `BYPASSRLS` because nothing else can.
 
 The reason is worth keeping, because it is not obvious and it killed two
@@ -589,7 +588,7 @@ of which alone meant no backup:**
 
 ### pgvector (17 Nov 2026)
 
-reef stores embeddings in the same Postgres as the pages they describe, so
+reef stores embeddings in the same Postgres as the engrams they describe, so
 they sit inside the same row security boundary. That needs the `vector`
 extension.
 
@@ -631,7 +630,7 @@ Railway's network.
 
 reef does background work in a second process, the worker. It takes jobs
 from the `jobs` table and does them one at a time. Today the only job
-brings the stored index fields of older pages up to date.
+brings the stored index fields of older engrams up to date.
 
 **What it may do.** The worker connects with the same app-role credential
 as the server and holds no other. It cannot read anything on its own. For
@@ -670,16 +669,16 @@ any error. The worker's own log lines arrive there too, each with the file
 and line in reef's code that wrote it. No person, no error message and no
 traceback is sent.
 
-**Embeddings (18 Nov 2026).** The worker embeds each page's pieces for
+**Embeddings (18 Nov 2026).** The worker embeds each engram's pieces for
 search by meaning. **On in production since 19 November 2026:**
 `REEF_EMBEDDING_URL=http://reef-embed.railway.internal:11434` on both
 `reef-app` and `reef-worker`. The service is described under "Model
 services" below. Where the address is not set, nothing is queued and the
-tables `page_embeddings` and `embedding_spend` stay empty.
+tables `engram_embeddings` and `embedding_spend` stay empty.
 
-- **The address must be ours.** Page text is sent there. Point it only at
+- **The address must be ours.** Engram text is sent there. Point it only at
   a service this deployment runs itself, on Railway's private network.
-  Never at a hosted embedding API: the privacy page says reef sends pages
+  Never at a hosted embedding API: the privacy page says reef sends engrams
   nowhere on its own.
 - **The protocol** is `POST /v1/embeddings`, as Ollama,
   text-embeddings-inference, llama.cpp and vLLM answer it.
@@ -687,38 +686,38 @@ tables `page_embeddings` and `embedding_spend` stay empty.
   `embeddinggemma:300m`. Set the same value on `reef-app` and
   `reef-worker`: if they differ, the app keeps asking for a backfill that
   the worker considers done. Every vector stores its model. Change the
-  model and each page is embedded again by the next backfill; a page's old
+  model and each engram is embedded again by the next backfill; an engram's old
   vectors are deleted when its new ones are stored.
 - **What limits the cost.** Unchanged text is never sent again. One job
-  waits per page and person. A save is embedded after
+  waits per engram and person. A save is embedded after
   `REEF_EMBEDDING_DELAY_SECONDS` (120). At most `REEF_EMBEDDING_DAILY_CAP`
   (2000) pieces are sent per person per day, and pieces the service failed
-  on count too. In a shared cove each member has their own cap, so a cove's
+  on count too. In a shared space each member has their own cap, so a space's
   ceiling is the cap times its writing members.
-- **When the service fails** on a page, that page is tried again after 30
-  minutes, and each try counts against the cap. One page may take at most
+- **When the service fails** on an engram, that engram is tried again after 30
+  minutes, and each try counts against the cap. One engram may take at most
   five minutes. The worker logs the class of the error, never the text.
-- **Old pages** are embedded after an assistant of somebody who may write
-  to their cove next loads the index.
+- **Old engrams** are embedded after an assistant of somebody who may write
+  to their space next loads the index.
 - **Search uses the vectors** as soon as the address is set on `reef-app`.
   Each search sends its query to the service, waits at most
   `REEF_EMBEDDING_SECONDS` (2),
-  and merges the pages closest in meaning with the pages found by words.
+  and merges the engrams closest in meaning with the engrams found by words.
   A query with a quoted phrase or a `-word` is not sent: it stays exact.
 - **When the service is slow or down**, search answers with keywords
   alone. After three failures in a row it leaves the service alone for a
   minute, then lets one search try again. `reef-app` logs
   `search answers by keywords alone` with the class of the error, never
   the query. Search itself never fails because of the service.
-- **Keyword hits keep their place.** A file, a page that is not embedded
-  yet, and a page that holds every word of the query are not pushed down
+- **Keyword hits keep their place.** A file, an engram that is not embedded
+  yet, and an engram that holds every word of the query are not pushed down
   for being absent from the ranking by meaning.
-- **A vector is as private as its page.** Do not copy `page_embeddings`
-  anywhere a page may not go: text can be recovered from vectors.
+- **A vector is as private as its engram.** Do not copy `engram_embeddings`
+  anywhere an engram may not go: text can be recovered from vectors.
 - **Switching it off** stops new embedding, and search goes back to
   keywords alone. The vectors already stored
-  stay, also of text since edited out of a page. To remove them:
-  `TRUNCATE page_embeddings;` as a superuser. Pages are embedded again as
+  stay, also of text since edited out of an engram. To remove them:
+  `TRUNCATE engram_embeddings;` as a superuser. Engrams are embedded again as
   they are saved or backfilled once the address is set again.
 
 **Model services (19 Nov 2026).** The models run as their own Railway
@@ -745,10 +744,10 @@ railway up deploy/rerank --path-as-root --service reef-rerank --environment prod
   for `reef-embed`. Searches meanwhile answer by keywords.
 - **Measured from `reef-app`:** a query vector takes 23 ms.
 - **`reef-rerank` sleeps** until a search needs it: sleeping is on, and
-  only memories of at least `REEF_RERANK_MIN_PAGES` pages are reranked.
+  only memories of at least `REEF_RERANK_MIN_ENGRAMS` engrams are reranked.
   See "Reranking".
 - **Checking one by hand** from inside `reef-app`, with a made-up sentence,
-  never with page text:
+  never with engram text:
   `railway ssh -s reef-app -- python3 -c "..."` posting to
   `http://reef-embed.railway.internal:11434/v1/embeddings`.
 
@@ -758,7 +757,7 @@ default** and runs as soon as `REEF_RERANK_URL` is set on `reef-app`. The
 worker does not use it.
 
 - **The address must be ours**, as for embeddings. Each search sends the
-  query, passages of pages the person can already read, and the names and
+  query, passages of engrams the person can already read, and the names and
   descriptions of their stored files.
 - **The protocol** is `POST /v1/rerank` with a model, a query and a list
   of documents, as llama.cpp (`--reranking`), vLLM and Infinity answer it.
@@ -767,8 +766,8 @@ worker does not use it.
   `BAAI/bge-reranker-v2-m3`. It is sent with each request; most servers
   serve one model and ignore it.
 - **How much it reads:** the first `REEF_RERANK_CANDIDATES` (15) results,
-  and of each page its `REEF_RERANK_PASSAGES` (2) pieces closest to the
-  query. Without vectors it reads the start of each page.
+  and of each engram its `REEF_RERANK_PASSAGES` (2) pieces closest to the
+  query. Without vectors it reads the start of each engram.
 - **The time limit** is `REEF_RERANK_SECONDS` (3). Past it, the search
   keeps the order it had. After three failures in a row searches leave
   the service alone for a minute, then one search tries again. A query
@@ -786,10 +785,10 @@ worker does not use it.
   characters takes 2 to 3 seconds on Railway with 16 threads and found
   51.5% of benchmark questions, against 46.8% for hybrid alone.
 - **Only large memories are reranked.** A search is reranked only when
-  the memory searched holds at least `REEF_RERANK_MIN_PAGES` (1,000)
-  pages: in the one cove searched, or in all the caller can see. A small
+  the memory searched holds at least `REEF_RERANK_MIN_ENGRAMS` (1,000)
+  engrams: in the one space searched, or in all the caller can see. A small
   memory is found well without it and skips its wait. The value is a
-  judgement: hybrid found 95% of real questions over 37 pages and 47% of
+  judgement: hybrid found 95% of real questions over 37 engrams and 47% of
   benchmark questions over 18,000, with nothing measured in between.
 - **`reef-rerank` sleeps while nobody needs it.** With sleeping on, Railway
   stops it after about ten minutes without traffic, and a request over the
@@ -813,7 +812,7 @@ worker does not use it.
   results in a second short transaction.
 
 **The search log (18 Nov 2026).** reef can log each search: the query
-text, the pages returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
+text, the engrams returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
 is set on `reef-app`. Do not set it before people have been told: the
 privacy page promises that.
 
@@ -863,15 +862,15 @@ WHERE status = 'failed' AND kind = 'backfill_index_fields';
 
 ## Phase 5 — Content: the import
 
-> **Done, 6 Aug 2026.** The store holds 16 personal pages and 5 in the shared
-> cove (now slugged `household`; called `school` at the time).
+> **Done, 6 Aug 2026.** The store holds 16 personal engrams and 5 in the shared
+> space (now slugged `household`; called `school` at the time).
  The final disposition differs from the sketch in step 2 below: the
 > shared layer came out as `house.md`, `future-home.md` and `travel.md`
 > rather than the `money.md` / `family-film.md` split proposed here, and
 > `health.md` and `finances.md` both stayed personal.
 >
 > **Step 4's cross-check has not happened** — verifying from her phone that
-> the shared cove's pages are visible and personal ones are not needs an
+> the shared space's engrams are visible and personal ones are not needs an
 > invited second person first.
 > That check is the moment the privacy design faces reality, and it is still
 > outstanding.
@@ -883,11 +882,11 @@ nothing moves by inference.
 
 1. **Finalize the disposition** in `mark/meta/architecture.md` (branch
    `forest-leech`). Two calls are still open, flagged since the first draft:
-   - `health.md` — private by default, but this is the page where the default
+   - `health.md` — private by default, but this is the engram where the default
      deserves an actual decision (a shared summary is possible without moving
      the investigation notes).
    - `finances.md` — the proposed split sends joint account/2034 plan/family
-     loan to the shared cove and keeps pension+insurance private (it
+     loan to the shared space and keeps pension+insurance private (it
      references the
      cardiac story).
 2. **Prepare the split files** by hand in a scratch directory: `money.md`,
@@ -901,8 +900,8 @@ nothing moves by inference.
    railway run uv run python scripts/import_mark.py <scratch-dir> wouter@rugvin.be
    ```
 
-4. **Verify from both sides:** your phone — `load_all_context` shows
-   everything; her phone — the shared cove's pages visible, none of yours.
+4. **Verify from both sides:** your phone — `load_index` and `open` show
+   everything; her phone — the shared space's engrams visible, none of yours.
    This is the
    moment the privacy design faces reality; look at it directly.
 
@@ -910,44 +909,35 @@ nothing moves by inference.
 
 ## Phase 6 — Protocol and personas
 
-> **Step 1 done, 6 Aug 2026** — but written in the shared cove, which no
-> longer works: `update_meta_page` now refuses any cove but `personal`, and
-> `get_operating_protocol` never read the shared copy in the first place.
-> **Rewrite it in your personal cove.** **Step 2 is not done either:**
+> **Step 1 is obsolete.** It wrote the operating protocol as an engram. The
+> protocol now ships with the product (`src/reef/protocol.md`) and cannot be
+> edited as content. **Step 2 is not done:**
 > `meta/persona.md` is still the 157-byte placeholder from the first end-to-end
-> test, while every other page got real content. It is the page that steers the
-> assistant's voice, and `mark.md` in the personal cove already holds much of
+> test, while every other engram got real content. It is the engram that steers the
+> assistant's voice, and `mark.md` in the personal space already holds much of
 > what belongs in it. Step 3 waits on Phase 2.
 
-The code ships a built-in fallback protocol, but the real thing is content:
+The protocol ships with the product. Only the persona is content:
 
-1. **The protocol lives in each person's own personal cove, not a shared one.**
-   `get_operating_protocol` reads `meta/protocol.md` only from the personal
-   cove it is called for, never from `household` or any other shared cove — the
-   protocol and the persona are per-person. Anyone invited after go-live gets
-   both pages created for them at first sign-in, seeded from the built-in
-   template. You were seeded by migration rather than by invite, so write your
-   own: `update_meta_page` in your **personal** cove (or ask any connected
-   assistant) with the operating rules — load context first, compile don't
-   dump, private-by-default routing, promote-only-with-consent — plus the
-   **onboarding behavior**: an assistant meeting an empty personal cove
-   introduces itself, asks what to call itself, and interviews gently to seed
-   the persona.
-2. Write your own `meta/persona.md`, also in your **personal** cove (Mark's
+1. **The operating protocol is not content.** `load_index` returns the copy in
+   `src/reef/protocol.md` to every person. Change it by changing the code.
+   `instruct` cannot write it: `instruct` replaces only the persona.
+2. Write your own `meta/persona.md` in your **personal** space (Mark's
    tone lives in `mark/wiki/mark.md` today — port it).
 3. **Hers is not yours to write.** Her first conversation, via the onboarding
-   behavior, fills in the `meta/persona.md` waiting in her own personal cove.
+   behavior, fills in the `meta/persona.md` waiting in her own personal space.
    She names her own assistant.
 
 ---
 
 ## Phase 7 — Measure the context ceiling
 
-> **Open.** Less urgent than it looks: `load_index` is the primary retrieval
-> path and carries no bodies, so ordinary use no longer pushes against the
-> ceiling. It is `load_all_context` — the maintenance path — that needs a
-> measured budget. Note that step 1 pads the *real* corpus, so run it after
-> Phase 4's backup is proven, not before.
+> **Open, and it needs a new measurement.** The steps below measure
+> `load_all_context`, a bulk-read tool that no longer exists (RUG-40 retired
+> it). They have not been redone for the workflow tools: decide first which
+> call carries the most text now (`brief` or `open`), then measure that one.
+> Do not rely on the numbers below. Note that step 1 pads the *real* corpus,
+> so run it after Phase 4's backup is proven, not before.
 
 **Why:** the server counts body characters; the client cares about serialized
 tokens, and the mobile host may truncate big tool results on its own. The
@@ -956,8 +946,8 @@ budget must come from measurement on the real device, not arithmetic.
 1. `railway run uv run python scripts/measure_context.py wouter@rugvin.be <size>`
    to pad the corpus to ~60KB, then ~200KB, then ~500KB.
 2. After each: from the Claude mobile app, ask the assistant to
-   `load_all_context` and report `page_count`, `included_count`, and whether
-   every non-null body arrived intact (the payload is built so a host-side cut
+   `open` every ref `load_index` lists and report how many engrams it received
+   and whether every body arrived intact (the payload is built so a host-side cut
    is detectable — a mismatch means truncation in transit).
 3. Record results in `docs/superpowers/plans/context-limits.md`; set
    `REEF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
@@ -969,8 +959,8 @@ budget must come from measurement on the real device, not arithmetic.
 ## Web frontend
 
 A browser UI ships in the same Docker image, served at `/app` by the same
-service. Members can browse and edit pages; owners can create and manage
-coves. Built with React and Bun, compiled to `frontend/dist` during the
+service. Members can browse and edit engrams; owners can create and manage
+spaces. Built with React and Bun, compiled to `frontend/dist` during the
 image build. The frontend redirects unauthenticated requests to
 `/api/auth/login`, which requires two environment variables and a redirect
 URI configuration.
@@ -1143,7 +1133,7 @@ So do not "fix" this by opening `initialize`/`tools/list` to anonymous callers.
 That means sniffing JSON-RPC method names ahead of FastMCP's auth middleware —
 a hand-rolled bypass of the one boundary that matters, traded for a badge on a
 third-party site. Handing Glama live test credentials is likewise a token into
-production memory: a token is per person and reaches every cove that person is
+production memory: a token is per person and reaches every space that person is
 in, so it could only ever be a throwaway account holding nothing.
 
 What is safe is claiming the listing, which is what
@@ -1231,8 +1221,8 @@ to re-register.
    actually happen").
 5. Verify: the metadata endpoint names reef, not the AuthKit domain (see
    the commands below); add a real Claude connector end-to-end and
-   confirm the stock consent page appears; confirm the cove landed in on
-   sign-in is the **existing** personal cove, not a new one; `reef login`
+   confirm the stock consent page appears; confirm the space landed in on
+   sign-in is the **existing** personal space, not a new one; `reef login`
    still works; push a trivial change and confirm the connector
    **survives the redeploy** — the whole point of step 2.
 6. **Rollback:** unset both `WORKOS_MCP_CLIENT_ID` and
@@ -1290,6 +1280,107 @@ there is no sign-up. Sign-in itself is unchanged either way — the AuthKit
 screen still carries its own "Sign up" link, which lands on the same door
 and is bound by the same ceiling.
 
+## The tool set (RUG-40)
+
+Assistants see sixteen tools, built around what people ask for. Spaces and
+members are managed on the website, not through a tool.
+
+| Tool | What it is for |
+|---|---|
+| `load_index` | Start of every conversation: the operating protocol, the persona and the index of every engram. |
+| `recall` | Answer a question from the passages of memory that fit it best. |
+| `brief` | Prepare for a session or a decision: the engrams that bear on a topic. |
+| `open` | Read one engram, file or image in full. |
+| `catch_up` | Show what changed since the person was last here, including other members' changes. |
+| `remember` | Keep a short fact in the space's inbox for later filing. |
+| `log` | Add one entry to a journal, training log or meeting notes. |
+| `write` | Create an engram or rewrite one completely. |
+| `store_file` | Keep a document or an image. |
+| `correct` | Replace one exact passage of an engram. |
+| `undo` | Revert a change. |
+| `forget` | Delete an engram or a file for good. Staged. |
+| `share` | Move a personal engram, or one section of it, into a shared space. Staged. |
+| `instruct` | Replace the persona (`meta/persona.md`). It takes no space. Staged. |
+| `search` | Search for connectors that expect this fixed pair (ChatGPT style). |
+| `fetch` | Fetch a result of `search` by its id. |
+
+**Staged actions.** `share`, `forget` and `instruct` take two calls. The first
+changes nothing: it returns the effect in plain words and a token. `share`
+also returns `text`: the exact words that would be shared. The assistant
+shows the person the effect, waits for a yes, then calls again with
+the token as `confirm`. A token works for ten minutes, for one person and one
+action.
+
+**The reason.** Every tool except `search` and `fetch` takes a `reason`: the
+assistant's own account, in a few words, of why it made the call. The call log
+(below) is the only place it is kept.
+
+**Retired names.** The earlier tool names still answer. A call to one of them
+returns a message that names its replacement (for example `read_page` points
+to `open`, `create_cove` points to the website) and does nothing else. The
+list is `RETIRED` in `src/reef/server.py`. Assistants must reload their tool
+list to see the new names.
+
+## The call log (RUG-40)
+
+**What it stores.** One row per call: the method, the reason cut to 200
+characters, who called (`assistant`, `person` or `system`), how long the call
+took, how many items it returned, and the outcome. It stores no arguments, no
+engram text and no results.
+
+**Who sees it.** Only the person it belongs to. Row-level security stops
+every other reader, operators included. The reason never reaches Logfire or
+the app logs. The person's export includes their rows, and deleting the
+account deletes them.
+
+**How long.** 90 days. The worker purges older rows every hour.
+
+**Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
+`reef-app`. **Before you set it**, update the privacy page and tell the
+people who use Reef. The privacy page promises that people hear about this
+first. Setting the variable is a separate decision from the RUG-40 deploy.
+
+## Deploying the rename (RUG-40)
+
+RUG-40 is one breaking release. It renames cove to space and page to engram
+everywhere, including the database.
+
+**What the migration does.** `reef_2026_11_20t10_00_00_000000` renames the
+tables, columns, indexes, constraints and helper functions in one
+transaction. Two later migrations add the call log
+(`reef_2026_11_20t12_00_00_000000`) and tag existing `*-log.md` engrams with
+`log` (`reef_2026_11_20t14_00_00_000000`). Rehearse all three before the
+deploy: `uv run python scripts/rehearse_rename.py` builds throwaway
+databases, runs the chain and checks row counts, schema, row security and the
+app's own code. It never touches the development or production database.
+
+**Expect a short outage.** The app is unavailable while the rename runs,
+because it holds locks on every renamed table. Deploy when nobody is likely
+to be mid-conversation.
+
+**`reef-worker` switches over too.** It redeploys from the same merge. A job
+that fails during the window is tried again on its own: after 30 seconds,
+then 2, 8 and 32 minutes, five attempts in all. While the worker cannot read
+the queue, it logs the error class and tries again; queued jobs wait.
+
+**Update saved Logfire queries.** Audit events are now named `space.*`, not
+`cove.*`: for example `space.member_removed`, and `space.engram_deleted` for
+the old `cove.page_deleted`. A saved query or alert that filters `action` on
+the old names finds nothing after the deploy.
+
+**After the deploy, tell people to reload.** Assistants keep the old tool
+list until they reload it. Until then they call retired names and get the
+replacement in the answer.
+
+**Check afterwards:**
+
+1. `load_index` works from a connected assistant and lists spaces and engrams.
+2. `recall` finds an engram you know exists.
+3. The web app loads and shows the same spaces as before.
+4. A retired name (for example `list_coves`) answers with its replacement.
+
+---
+
 ## Reference
 
 **Env vars (Railway):**
@@ -1325,14 +1416,21 @@ when the table is out of date. A setting may change behaviour or cost.
 What would weaken a guarantee, or needs a migration to change, stays a
 constant in its module.
 
+Four settings were renamed with the engram rename (20 November 2026):
+`REEF_ENGRAM_MAX_CHARS`, `REEF_RERANK_MIN_ENGRAMS`,
+`REEF_EMBEDDING_ENGRAM_SECONDS` and `REEF_EMBEDDING_ENGRAM_CHARS`. The old names
+`REEF_PAGE_MAX_CHARS`, `REEF_RERANK_MIN_PAGES`, `REEF_EMBEDDING_PAGE_SECONDS`
+and `REEF_EMBEDDING_PAGE_CHARS` are still read; when both
+are set, the new one wins. Rename them in the deployment when convenient.
+
 <!-- settings:start -->
 | Group | Variable | Default | What it does |
 |---|---|---|---|
 | database | `REEF_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef` | The database, when Railway's DATABASE_URL is not set. |
 | database | `REEF_TEST_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef_test` | The database the test suite empties and fills. |
 | database | `REEF_MIGRATION_DATABASE_URL` | (none) | A role that may change the schema. Empty: the app's own role. See Settings.migration_dsn. |
-| pages | `REEF_CONTEXT_CHAR_BUDGET` | `150000` | The most text one context load returns. |
-| pages | `REEF_PAGE_MAX_CHARS` | `200000` | The longest page. Above the context budget on purpose: a page bigger than the whole budget cannot be loaded in one piece anyway, so this refuses only what was never usable memory. |
+| engrams | `REEF_CONTEXT_CHAR_BUDGET` | `150000` | The most text one context load returns. |
+| engrams | `REEF_ENGRAM_MAX_CHARS` | `200000` | The longest engram. Above the context budget on purpose: an engram bigger than the whole budget cannot be loaded in one piece anyway, so this refuses only what was never usable memory. |
 | files | `REEF_S3_ENDPOINT` | (none) | The S3-compatible bucket's address. |
 | files | `REEF_S3_BUCKET` | (none) | The bucket's name. |
 | files | `REEF_S3_ACCESS_KEY` | (none) | The bucket's access key. Secret. |
@@ -1361,37 +1459,38 @@ constant in its module.
 | search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |
 | search | `REEF_SEARCH_RRF_K` | `60` | The constant of reciprocal rank fusion, from the paper. |
 | search | `REEF_SEARCH_SEMANTIC_WEIGHT` | `2` | Measured. How much a place in the meaning ranking counts, against 1 for a place in the keyword ranking. |
-| search | `REEF_SEARCH_SURE_WORDS` | `3` | Measured. The longest query in which a page holding every word keeps its keyword place in the fusion. |
-| embedding | `REEF_EMBEDDING_URL` | (none) | Where the embedding service is. Empty: none, nothing is embedded or queued. Page text goes there, so it must be a service this deployment runs itself, on a private network. |
+| search | `REEF_SEARCH_SURE_WORDS` | `3` | Measured. The longest query in which an engram holding every word keeps its keyword place in the fusion. |
+| embedding | `REEF_EMBEDDING_URL` | (none) | Where the embedding service is. Empty: none, nothing is embedded or queued. Engram text goes there, so it must be a service this deployment runs itself, on a private network. |
 | embedding | `REEF_EMBEDDING_MODEL` | `embeddinggemma:300m` | Which model it serves. Stored with every vector: a change of model re-embeds everything. Must match on app and worker. |
 | embedding | `REEF_EMBEDDING_DAILY_CAP` | `2000` | The most pieces embedded for one person in one day. |
-| embedding | `REEF_EMBEDDING_DELAY_SECONDS` | `120` | How long after a save a page is embedded, so five edits embed once. |
+| embedding | `REEF_EMBEDDING_DELAY_SECONDS` | `120` | How long after a save an engram is embedded, so five edits embed once. |
 | embedding | `REEF_EMBEDDING_SECONDS` | `2` | How long a search waits for its query's vector, then uses keywords. |
 | embedding | `REEF_EMBEDDING_BATCH` | `16` | How many pieces go in one request. |
-| embedding | `REEF_EMBEDDING_PAGE_SECONDS` | `300` | The longest one page's embedding may take. The job holds a connection. |
-| embedding | `REEF_EMBEDDING_CAP_RETRY_SECONDS` | `21600` | How long a page waits when the cap is reached. |
-| embedding | `REEF_EMBEDDING_FAILURE_RETRY_SECONDS` | `1800` | How long a page waits after a failure. |
+| embedding | `REEF_EMBEDDING_ENGRAM_SECONDS` | `300` | The longest one engram's embedding may take. The job holds a connection. |
+| embedding | `REEF_EMBEDDING_CAP_RETRY_SECONDS` | `21600` | How long an engram waits when the cap is reached. |
+| embedding | `REEF_EMBEDDING_FAILURE_RETRY_SECONDS` | `1800` | How long an engram waits after a failure. |
 | embedding | `REEF_EMBEDDING_QUESTION_CHARS` | `500` | How much of a query is embedded, in characters. |
 | embedding | `REEF_EMBEDDING_REST_AFTER_FAILURES` | `3` | Failures in a row before searches leave the service alone. |
 | embedding | `REEF_EMBEDDING_REST_SECONDS` | `60` | How long they leave it alone. |
-| embedding | `REEF_EMBEDDING_PIECE_MIN_CHARS` | `200` | Measured. A section shorter than this joins the one before it. A change reaches a page when it is next saved. Same value on app and worker. |
-| embedding | `REEF_EMBEDDING_PIECE_MAX_CHARS` | `2000` | Measured. A section longer than this is cut. A change reaches a page when it is next saved. Same value on app and worker. |
-| embedding | `REEF_EMBEDDING_PAGE_CHARS` | `8000` | How much of a long page the whole-page piece holds. A change reaches a page when it is next saved. Same value on app and worker. |
-| rerank | `REEF_RERANK_URL` | (none) | Where the reranker is. Empty: none. The query and passages of pages the person can read go there, so it must be a service this deployment runs itself. |
+| embedding | `REEF_EMBEDDING_PIECE_MIN_CHARS` | `200` | Measured. A section shorter than this joins the one before it. A change reaches an engram when it is next saved. Same value on app and worker. |
+| embedding | `REEF_EMBEDDING_PIECE_MAX_CHARS` | `2000` | Measured. A section longer than this is cut. A change reaches an engram when it is next saved. Same value on app and worker. |
+| embedding | `REEF_EMBEDDING_ENGRAM_CHARS` | `8000` | How much of a long engram the whole-engram piece holds. A change reaches an engram when it is next saved. Same value on app and worker. |
+| rerank | `REEF_RERANK_URL` | (none) | Where the reranker is. Empty: none. The query and passages of engrams the person can read go there, so it must be a service this deployment runs itself. |
 | rerank | `REEF_RERANK_MODEL` | `BAAI/bge-reranker-v2-m3` | Which model it serves. |
 | rerank | `REEF_RERANK_ENABLED` | `1` | The off switch. On: the reranker runs when there is one. |
 | rerank | `REEF_RERANK_CANDIDATES` | `15` | Measured. How many of the first results are read again. |
-| rerank | `REEF_RERANK_PASSAGES` | `2` | Measured. How many pieces of each page are read. |
+| rerank | `REEF_RERANK_PASSAGES` | `2` | Measured. How many pieces of each engram are read. |
 | rerank | `REEF_RERANK_SECONDS` | `3` | How long a search waits for it, then keeps its order. |
 | rerank | `REEF_RERANK_QUERY_CHARS` | `500` | How much of the query is sent. |
 | rerank | `REEF_RERANK_PASSAGE_CHARS` | `2000` | How much of one passage is sent, in characters. |
 | rerank | `REEF_RERANK_REST_AFTER_FAILURES` | `3` | Failures in a row before searches leave the service alone. |
 | rerank | `REEF_RERANK_REST_SECONDS` | `60` | How long they leave it alone. |
-| rerank | `REEF_RERANK_MIN_PAGES` | `1000` | Rerank only a search over at least this many pages. A small memory is found well without it and skips its wait. 0 reranks every search. |
+| rerank | `REEF_RERANK_MIN_ENGRAMS` | `1000` | Rerank only a search over at least this many engrams. A small memory is found well without it and skips its wait. 0 reranks every search. |
 | usage | `REEF_USAGE_DECAY` | `0.5` | How fast a use fades. 0.5 is the value ACT-R has used. |
-| usage | `REEF_USAGE_WINDOW` | `50` | How many of a page's most recent uses count. |
+| usage | `REEF_USAGE_WINDOW` | `50` | How many of an engram's most recent uses count. |
 | usage | `REEF_USAGE_MIN_AGE_HOURS` | `0.01667` | The youngest a use is treated as, so none dominates. |
 | usage | `REEF_USAGE_REFRESH_DELAY_SECONDS` | `300` | How long after a use the refresh runs, once per busy session. |
+| calls | `REEF_CALL_LOG` | `0` | Log each call and the reason the assistant gave, for 90 days. Off unless switched on: the privacy page promises that people are told first. |
 <!-- settings:end -->
 
 **Escape hatches, in order of severity:**
@@ -1400,7 +1499,7 @@ constant in its module.
   in `spike/NOTES.md` (needs a Google Cloud OAuth app).
 - Connectors unusable on her tier/mobile → surface decision reopens (PWA);
   store and tools unaffected.
-- rif dies someday → `python -m rif.export` renders every cove back to
+- rif dies someday → `python -m rif.export` renders every space back to
   portable markdown; plus the R2 dumps; plus Railway managed backups.
 
 **Where things live:** code+plan on `diepzee/reef`, `main` (the `build-v1` and

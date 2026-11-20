@@ -42,21 +42,21 @@ AUTHZ_ROLE = "reef_authz"
 # so a future table is a deliberate decision, not an automatic grant.
 TABLES = (
     "persons",
-    "coves",
+    "spaces",
     "memberships",
-    "pages",
+    "engrams",
     "revisions",
     "attachments",
     "promotions",
-    "cove_appearances",
+    "space_appearances",
     "jobs",
     "links",
-    "page_access",
-    "page_heat",
+    "engram_access",
+    "engram_heat",
 )
 
 # Tables carrying RLS policies (see reef.rls). Used only to verify enforcement.
-PROTECTED = ("pages", "revisions", "attachments")
+PROTECTED = ("engrams", "revisions", "attachments")
 
 
 def _quote_literal(value: str) -> str:
@@ -201,7 +201,7 @@ async def verify(admin_dsn: str, password: str) -> bool:
             )
 
         try:
-            await conn.execute("ALTER TABLE pages DISABLE ROW LEVEL SECURITY")
+            await conn.execute("ALTER TABLE engrams DISABLE ROW LEVEL SECURITY")
             print("  FAIL: the app role was able to disable RLS")
             ok = False
         except asyncpg.InsufficientPrivilegeError:

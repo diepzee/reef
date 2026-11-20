@@ -81,38 +81,35 @@ async def _can_create_databases() -> bool:
         await connection.close()
 
 
-@pytest_asyncio.fixture(scope="module")
-async def drilled() -> str:
-    """Build a database from nothing by running the real migration chain.
+async def build_by_migrating(database: str, upto: str = "all") -> str:
+    """Create ``database`` empty and run the real migration chain on it.
 
-    :returns: the DSN of the migrated database
+    Skips the calling test where the seeding credential cannot create
+    databases.
+
+    :param database: the name to create; an existing one is dropped first
+    :param upto: the last migration to run, by ID; every one by default
+    :returns: the DSN of the migrated database, as the owning role
     :raises AssertionError: if the chain does not complete
     """
     if not await _can_create_databases():
         pytest.skip("the seeding credential cannot create databases")
 
+    await drop_database(database)
     admin = await asyncpg.connect(_admin_dsn("postgres"))
     try:
-        # Terminate first: a previous run killed mid-drill leaves a
-        # connection holding the database, and DROP would fail on it.
-        await admin.execute(
-            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-            "WHERE datname = $1 AND pid <> pg_backend_pid()",
-            DRILL_DATABASE,
-        )
-        await admin.execute(f'DROP DATABASE IF EXISTS "{DRILL_DATABASE}"')
-        await admin.execute(f'CREATE DATABASE "{DRILL_DATABASE}" OWNER reef')
+        await admin.execute(f'CREATE DATABASE "{database}" OWNER reef')
     finally:
         await admin.close()
 
-    provisioner = await asyncpg.connect(_admin_dsn(DRILL_DATABASE))
+    provisioner = await asyncpg.connect(_admin_dsn(database))
     try:
         for statement in _PROVISION:
             await provisioner.execute(statement)
     finally:
         await provisioner.close()
 
-    app = _swap_to_app_role(_admin_dsn(DRILL_DATABASE))
+    app = _swap_to_app_role(_admin_dsn(database))
     process = await asyncio.create_subprocess_exec(
         sys.executable,
         "-m",
@@ -120,6 +117,7 @@ async def drilled() -> str:
         "migrations",
         "forwards",
         "reef",
+        upto,
         env={**os.environ, "DATABASE_URL": app},
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
@@ -133,19 +131,38 @@ async def drilled() -> str:
     assert process.returncode == 0 and "The command failed" not in output, (
         f"the migration chain does not run against an empty database:\n{output}"
     )
+    return app
 
-    yield app
 
+async def drop_database(database: str) -> None:
+    """Drop ``database`` if it exists, ending whatever still holds it.
+
+    Terminate first: a previous run killed mid-drill leaves a connection
+    holding the database, and ``DROP`` would fail on it.
+
+    :param database: the name to drop
+    """
     admin = await asyncpg.connect(_admin_dsn("postgres"))
     try:
         await admin.execute(
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
             "WHERE datname = $1 AND pid <> pg_backend_pid()",
-            DRILL_DATABASE,
+            database,
         )
-        await admin.execute(f'DROP DATABASE IF EXISTS "{DRILL_DATABASE}"')
+        await admin.execute(f'DROP DATABASE IF EXISTS "{database}"')
     finally:
         await admin.close()
+
+
+@pytest_asyncio.fixture(scope="module")
+async def drilled() -> str:
+    """Build a database from nothing by running the real migration chain.
+
+    :returns: the DSN of the migrated database
+    :raises AssertionError: if the chain does not complete
+    """
+    yield await build_by_migrating(DRILL_DATABASE)
+    await drop_database(DRILL_DATABASE)
 
 
 def _repo_root() -> str:
@@ -180,7 +197,7 @@ async def _shape(dsn: str) -> dict[str, set]:
     """Return the parts of a schema two builds of it must agree on.
 
     Grants are included, not just structure: the column-level narrowing on
-    ``persons`` and ``coves`` is a security boundary, and a build that
+    ``persons`` and ``spaces`` is a security boundary, and a build that
     reproduced every table and forgot every ``REVOKE`` would look identical
     without it.
 
@@ -204,10 +221,11 @@ async def _shape(dsn: str) -> dict[str, set]:
         )
         # qual and with_check, not just the name. A predicate rewritten under
         # an unchanged policy name is the failure a name comparison cannot
-        # see, and it is the one that matters -- the content policies are now
-        # created only by a frozen snapshot, so an edit to _table_policies
-        # that nothing re-applies would leave production enforcing the old
-        # rule while every test enforced the new one.
+        # see, and it is the one that matters -- every policy is now created
+        # only by a frozen snapshot, the newest being the fixed text in
+        # 2026-11-20T10:00:00, so an edit to reef.rls that no new migration
+        # re-applies would leave production enforcing the old rule while
+        # every test enforced the new one.
         policies = await connection.fetch(
             "SELECT tablename, policyname, cmd, qual, with_check FROM pg_policies "
             "WHERE schemaname = 'public'"

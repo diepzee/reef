@@ -6,10 +6,10 @@
  */
 
 import { FAMILIES, generateFamily, type OrganismPath } from "../components/organisms";
-import { coveColor } from "../components/coveColor";
+import { spaceColor } from "../components/spaceColor";
 
 const SEEDS = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89];
-const HUES = ["h1", "h2", "h3", "h4", "h5", "h6", "h7"].map((a) => coveColor(a).base);
+const HUES = ["h1", "h2", "h3", "h4", "h5", "h6", "h7"].map((a) => spaceColor(a).base);
 
 function Paths({ paths }: { paths: readonly OrganismPath[] }) {
   return (

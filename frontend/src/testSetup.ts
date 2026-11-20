@@ -51,7 +51,7 @@ for (const key of Object.getOwnPropertyNames(dom.window)) {
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 // jsdom implements no SVG layout at all, so `getBBox` is simply absent —
-// and the cove glyphs measure themselves with it to sit on a common
+// and the space glyphs measure themselves with it to sit on a common
 // baseline. Without this, rendering any view that draws one throws rather
 // than failing an assertion, which reads as a broken test rather than a
 // missing browser API. Zeroes are honest here: there is no layout to report.

@@ -3,7 +3,7 @@
 The slice is two dozen LongMemEval questions with their evidence and a few
 other sessions, kept in the repository (MIT licence, see the file's
 ``source``). It is small and easy on purpose. It does not measure quality;
-it fails the build when a change to search makes it find fewer of the pages
+it fails the build when a change to search makes it find fewer of the engrams
 it used to find.
 
 These tests manage their own transactions rather than requesting ``tx``:
@@ -18,7 +18,7 @@ import pytest
 
 from reef.access import Principal
 from reef.db import transaction_scope
-from reef.pages import list_pages
+from reef.engrams import list_engrams
 
 SLICE = Path(__file__).parent / "fixtures" / "longmemeval_slice.json"
 
@@ -28,6 +28,8 @@ SLICE = Path(__file__).parent / "fixtures" / "longmemeval_slice.json"
 FLOORS = {
     "lexical": {"recall_any": 0.75, "mrr": 0.60},
     "lexical-any": {"recall_any": 0.75, "mrr": 0.60},
+    # Without an embedding service, recall ranks by words: the lexical floor.
+    "recall": {"recall_any": 0.75, "mrr": 0.60},
 }
 
 
@@ -56,16 +58,31 @@ def _record(question_id: str, evidence: list[str], kind: str = "multi-session") 
 
 
 def _export() -> dict:
-    """Build a JSON export with two coves that share a page path.
+    """Build a JSON export with two spaces that share an engram path.
 
     :returns: an export shaped like the site's
     """
-    page = {"path": "notes/boiler.md", "title": "Boiler", "body": "A Vaillant."}
+    engram = {"path": "notes/boiler.md", "title": "Boiler", "body": "A Vaillant."}
+    return {
+        "schema_version": 2,
+        "spaces": [
+            {"alias": "personal", "engrams": [engram]},
+            {
+                "alias": "home",
+                "engrams": [{**engram, "title": None, "body": "Ketel."}],
+            },
+        ],
+    }
+
+
+def _export_schema_1() -> dict:
+    """The same export as the version the private file on disk still is."""
+    current = _export()
     return {
         "schema_version": 1,
         "coves": [
-            {"alias": "personal", "pages": [page]},
-            {"alias": "home", "pages": [{**page, "title": None, "body": "Ketel."}]},
+            {"alias": space["alias"], "pages": space["engrams"]}
+            for space in current["spaces"]
         ],
     }
 
@@ -115,7 +132,7 @@ async def test_a_database_somebody_signed_in_to_is_refused(graph):
         await evalkit.ensure_eval_person(seed_dsn())
 
 
-async def test_the_eval_person_is_created_once_with_a_personal_cove(graph):
+async def test_the_eval_person_is_created_once_with_a_personal_space(graph):
     from conftest import seed_dsn
 
     await graph.person("dev@example.test", "Dev")
@@ -123,16 +140,16 @@ async def test_the_eval_person_is_created_once_with_a_personal_cove(graph):
     second = await evalkit.ensure_eval_person(seed_dsn())
     assert first.person_id == second.person_id
     async with transaction_scope():
-        assert await list_pages(first, "personal") is not None
+        assert await list_engrams(first, "personal") is not None
 
 
-# --- the benchmark, as pages ---------------------------------------------------
+# --- the benchmark, as engrams ---------------------------------------------------
 
 
-def test_a_session_becomes_a_page_reef_accepts():
-    from reef.pages import normalize_path
+def test_a_session_becomes_an_engram_reef_accepts():
+    from reef.engrams import normalize_path
 
-    page = evalkit.session_page(
+    engram = evalkit.session_engram(
         "sharegpt_yywfIrx_0",
         "2023/05/20 (Sat) 02:21",
         [
@@ -140,21 +157,25 @@ def test_a_session_becomes_a_page_reef_accepts():
             {"role": "assistant", "content": "A Vaillant."},
         ],
     )
-    assert page.path == normalize_path(page.path)
-    assert page.path.startswith("sessions/sharegpt-yywfirx-0-")
-    assert page.title == "Conversation on 2023/05/20"
-    assert page.body == "**User:** Which boiler?\n\n**Assistant:** A Vaillant."
+    assert engram.path == normalize_path(engram.path)
+    assert engram.path.startswith("sessions/sharegpt-yywfirx-0-")
+    assert engram.title == "Conversation on 2023/05/20"
+    assert engram.body == "**User:** Which boiler?\n\n**Assistant:** A Vaillant."
 
 
-def test_one_session_id_with_two_texts_becomes_two_pages():
-    one = evalkit.session_page("s1", "2023/05/20", [{"role": "user", "content": "a"}])
-    same = evalkit.session_page("s1", "2023/06/01", [{"role": "user", "content": "a"}])
-    other = evalkit.session_page("s1", "2023/05/20", [{"role": "user", "content": "b"}])
+def test_one_session_id_with_two_texts_becomes_two_engrams():
+    one = evalkit.session_engram("s1", "2023/05/20", [{"role": "user", "content": "a"}])
+    same = evalkit.session_engram(
+        "s1", "2023/06/01", [{"role": "user", "content": "a"}]
+    )
+    other = evalkit.session_engram(
+        "s1", "2023/05/20", [{"role": "user", "content": "b"}]
+    )
     assert one.path == same.path
     assert one.path != other.path
 
 
-def test_a_question_expects_the_pages_of_its_evidence_sessions():
+def test_a_question_expects_the_engrams_of_its_evidence_sessions():
     eval_set = evalkit.convert([_record("q1", ["s2"]), _record("q2", ["s1", "s3"])])
     assert len(eval_set.pages) == 3
     by_id = {q.id: q for q in eval_set.questions}
@@ -240,41 +261,41 @@ def test_a_report_counts_by_type_and_lists_what_was_missed():
 def slice_set() -> evalkit.EvalSet:
     """Read the committed slice.
 
-    :returns: its questions and pages
+    :returns: its questions and engrams
     """
     return evalkit.EvalSet.from_json(SLICE.read_text())
 
 
 @pytest.fixture
 async def eval_principal(graph) -> Principal:
-    """Create a person with a personal cove to hold the slice.
+    """Create a person with a personal space to hold the slice.
 
     :param graph: the topology builders
     :returns: the person, as a principal
     """
     person = await graph.person(evalkit.EVAL_EMAIL, "Eval")
-    await graph.personal_cove(person, slug="eval")
+    await graph.personal_space(person, slug="eval")
     return Principal(person_id=person.id, email=person.email)
 
 
 def test_the_slice_is_whole(slice_set):
-    paths = {page.path for page in slice_set.pages}
+    paths = {engram.path for engram in slice_set.pages}
     assert len(slice_set.questions) == 24
     assert all(q.expected and set(q.expected) <= paths for q in slice_set.questions)
     assert "MIT" in slice_set.source
 
 
-async def test_seeding_twice_writes_each_page_once(eval_principal, slice_set):
-    pages = slice_set.pages[:5]
-    assert await evalkit.seed_pages(eval_principal, pages) == 5
-    assert await evalkit.seed_pages(eval_principal, pages) == 0
+async def test_seeding_twice_writes_each_engram_once(eval_principal, slice_set):
+    engrams = slice_set.pages[:5]
+    assert await evalkit.seed_engrams(eval_principal, engrams) == 5
+    assert await evalkit.seed_engrams(eval_principal, engrams) == 0
     async with transaction_scope():
-        stored = await list_pages(eval_principal, "personal")
-    assert {page.path for page in stored} == {page.path for page in pages}
+        stored = await list_engrams(eval_principal, "personal")
+    assert {engram.path for engram in stored} == {engram.path for engram in engrams}
 
 
 async def test_search_still_finds_what_it_found(eval_principal, slice_set):
-    await evalkit.seed_pages(eval_principal, slice_set.pages)
+    await evalkit.seed_engrams(eval_principal, slice_set.pages)
     for mode, floors in FLOORS.items():
         report = await evalkit.run(eval_principal, slice_set.questions, mode)
         scores = report.overall.summary()
@@ -287,23 +308,29 @@ async def test_search_still_finds_what_it_found(eval_principal, slice_set):
 # --- the private set -------------------------------------------------------------
 
 
-def test_an_export_becomes_pages_with_the_cove_in_the_path():
-    pages = evalkit.private_pages(_export())
-    assert [page.path for page in pages] == [
+def test_an_export_becomes_engrams_with_the_space_in_the_path():
+    engrams = evalkit.private_engrams(_export())
+    assert [engram.path for engram in engrams] == [
         "home/notes/boiler.md",
         "personal/notes/boiler.md",
     ]
-    assert pages[0].title == ""
-    assert pages[1].body == "A Vaillant."
+    assert engrams[0].title == ""
+    assert engrams[1].body == "A Vaillant."
+
+
+def test_a_version_1_export_still_reads():
+    assert evalkit.private_engrams(_export_schema_1()) == evalkit.private_engrams(
+        _export()
+    )
 
 
 def test_a_file_that_is_not_an_export_is_refused():
-    with pytest.raises(ValueError, match="version 1"):
-        evalkit.private_pages({"coves": []})
+    with pytest.raises(ValueError, match="version 1 or 2"):
+        evalkit.private_engrams({"spaces": []})
 
 
-def test_a_private_question_must_expect_a_page_in_the_set():
-    known = [page.path for page in evalkit.private_pages(_export())]
+def test_a_private_question_must_expect_an_engram_in_the_set():
+    known = [engram.path for engram in evalkit.private_engrams(_export())]
     entry = {"id": 1, "kind": "dutch", "text": "Welke ketel?", "expected": [known[0]]}
     [question] = evalkit.private_questions([entry], known)
     assert question.id == "1"
@@ -323,14 +350,14 @@ async def test_the_private_person_is_apart_from_the_benchmark_person(graph):
     )
     assert private.person_id != benchmark.person_id
     assert (
-        await evalkit.seed_pages(
-            private, evalkit.private_pages(_export()), tag="private"
+        await evalkit.seed_engrams(
+            private, evalkit.private_engrams(_export()), tag="private"
         )
         == 2
     )
     async with transaction_scope():
-        theirs = {page.path for page in await list_pages(benchmark, "personal")}
-        mine = {page.path for page in await list_pages(private, "personal")}
+        theirs = {engram.path for engram in await list_engrams(benchmark, "personal")}
+        mine = {engram.path for engram in await list_engrams(private, "personal")}
     wanted = {"home/notes/boiler.md", "personal/notes/boiler.md"}
     assert wanted <= mine
     assert not wanted & theirs
@@ -342,12 +369,12 @@ async def test_the_test_account_holds_the_slice_and_nothing_else_does(graph, sli
     benchmark = await evalkit.ensure_eval_person(seed_dsn())
     tester = await evalkit.ensure_eval_person(seed_dsn(), evalkit.TEST_EMAIL, "Test")
     assert evalkit.SLICE_FILE.exists()
-    assert await evalkit.seed_pages(tester, slice_set.pages, tag="test") == len(
+    assert await evalkit.seed_engrams(tester, slice_set.pages, tag="test") == len(
         slice_set.pages
     )
     async with transaction_scope():
-        mine = {page.path for page in await list_pages(tester, "personal")}
-        theirs = {page.path for page in await list_pages(benchmark, "personal")}
-    wanted = {page.path for page in slice_set.pages}
+        mine = {engram.path for engram in await list_engrams(tester, "personal")}
+        theirs = {engram.path for engram in await list_engrams(benchmark, "personal")}
+    wanted = {engram.path for engram in slice_set.pages}
     assert wanted <= mine
     assert not wanted & theirs

@@ -11,9 +11,9 @@ from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import RerankSettings, get_settings
 from reef.db import DB, transaction_scope
+from reef.engrams import save_engram
 from reef.models import Attachment, AttachmentStatus
-from reef.pages import save_page
-from reef.search import reorder, search_pages
+from reef.search import reorder, search_engrams
 
 #: The fake reranker likes passages holding this word, and nothing else.
 ANSWER = "zebra"
@@ -81,7 +81,7 @@ def reranker(monkeypatch):
     monkeypatch.setattr(settings.rerank, "candidates", 15)
     monkeypatch.setattr(settings.rerank, "passages", 2)
     monkeypatch.setattr(settings.rerank, "seconds", 3.0)
-    monkeypatch.setattr(settings.rerank, "min_pages", 0)
+    monkeypatch.setattr(settings.rerank, "min_engrams", 0)
     monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
     monkeypatch.setattr(
         rerank,
@@ -114,16 +114,16 @@ def embedder(monkeypatch):
 
 
 async def _boilers(me) -> None:
-    """Pages that all match "boiler"; the one with the answer matches worst."""
+    """Engrams that all match "boiler"; the one with the answer matches worst."""
     for n in range(4):
-        await save_page(
+        await save_engram(
             me, "personal", f"boiler-{n}.md", "boiler " * 5 + f"note {n}", message="x"
         )
-    await save_page(
+    await save_engram(
         me,
         "personal",
         "answer.md",
-        f"A long page. {FILLER} The boiler was serviced by the {ANSWER} company.",
+        f"A long engram. {FILLER} The boiler was serviced by the {ANSWER} company.",
         message="x",
     )
 
@@ -138,8 +138,8 @@ def _paths(results: list[dict]) -> list[str]:
 async def test_the_reranker_puts_the_answer_first(tx, household, reranker):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    assert _paths(await search_pages(me, "boiler", rerank=False))[0] != "answer.md"
-    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    assert _paths(await search_engrams(me, "boiler", rerank=False))[0] != "answer.md"
+    assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
     query, documents = reranker.calls[-1]
     assert query == "boiler"
     assert len(documents) == 5
@@ -153,7 +153,7 @@ async def test_the_switch_turns_it_off(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
     monkeypatch.setattr(get_settings().rerank, "enabled", False)
-    assert _paths(await search_pages(me, "boiler"))[0] != "answer.md"
+    assert _paths(await search_engrams(me, "boiler"))[0] != "answer.md"
     assert reranker.calls == []
 
 
@@ -161,7 +161,7 @@ async def test_without_an_address_nothing_is_sent(tx, household, reranker, monke
     me = principal_for(household["wouter"])
     await _boilers(me)
     monkeypatch.setattr(get_settings().rerank, "url", "")
-    await search_pages(me, "boiler")
+    await search_engrams(me, "boiler")
     assert reranker.calls == []
 
 
@@ -169,14 +169,14 @@ async def test_without_an_address_nothing_is_sent(tx, household, reranker, monke
 async def test_an_exact_query_is_not_read_again(tx, household, reranker, query):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    await search_pages(me, query)
+    await search_engrams(me, query)
     assert reranker.calls == []
 
 
 async def test_one_result_is_not_worth_a_request(tx, household, reranker):
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "only.md", "The only boiler.", message="x")
-    assert _paths(await search_pages(me, "boiler")) == ["only.md"]
+    await save_engram(me, "personal", "only.md", "The only boiler.", message="x")
+    assert _paths(await search_engrams(me, "boiler")) == ["only.md"]
     assert reranker.calls == []
 
 
@@ -186,7 +186,7 @@ async def test_only_the_candidates_are_read_and_the_limit_holds(
     me = principal_for(household["wouter"])
     await _boilers(me)
     monkeypatch.setattr(get_settings().rerank, "candidates", 2)
-    results = await search_pages(me, "boiler", limit=3)
+    results = await search_engrams(me, "boiler", limit=3)
     assert len(results) == 3
     assert len(reranker.calls[-1][1]) == 2
 
@@ -196,7 +196,7 @@ async def test_a_file_is_read_by_its_name_and_description(tx, household, reranke
     await _boilers(me)
     await arm(me)
     await Attachment(
-        cove_id=household["w_personal"].id,
+        space_id=household["w_personal"].id,
         object_key="files/manual",
         filename="manual.pdf",
         mime="application/pdf",
@@ -204,7 +204,7 @@ async def test_a_file_is_read_by_its_name_and_description(tx, household, reranke
         description=f"The boiler manual, from {ANSWER}.",
         status=AttachmentStatus.READY.value,
     ).save()
-    results = await search_pages(me, "boiler")
+    results = await search_engrams(me, "boiler")
     assert {results[0]["kind"], results[1]["kind"]} == {"file", "page"}
     assert "manual.pdf\n\nThe boiler manual" in reranker.sent
 
@@ -212,22 +212,22 @@ async def test_a_file_is_read_by_its_name_and_description(tx, household, reranke
 # --- what it reads -------------------------------------------------------------
 
 
-async def test_a_page_is_read_by_its_pieces_closest_to_the_query(
+async def test_an_engram_is_read_by_its_pieces_closest_to_the_query(
     tx, household, reranker, embedder, monkeypatch
 ):
     me = principal_for(household["wouter"])
     monkeypatch.setattr(get_settings().rerank, "passages", 1)
-    # Long enough to be cut into sections: a short page is one piece.
+    # Long enough to be cut into sections: a short engram is one piece.
     body = (
         "Plans for the year.\n\n"
         f"## Garage\n\ngarage {FILLER * 3} MARKERG\n\n"
         f"## Holiday\n\nholiday {FILLER * 3} MARKERH"
     )
-    page = await save_page(me, "personal", "plans.md", body, message="x")
-    other = await save_page(me, "personal", "other.md", "holiday notes", message="x")
-    for page_id in (page.id, other.id):
-        await embedding.embed_page(me, page_id, embedder)
-    await search_pages(me, "holiday")
+    engram = await save_engram(me, "personal", "plans.md", body, message="x")
+    other = await save_engram(me, "personal", "other.md", "holiday notes", message="x")
+    for engram_id in (engram.id, other.id):
+        await embedding.embed_engram(me, engram_id, embedder)
+    await search_engrams(me, "holiday")
     documents = reranker.calls[-1][1]
     mine = [text for text in documents if "MARKER" in text]
     assert len(mine) == 1
@@ -237,13 +237,13 @@ async def test_a_page_is_read_by_its_pieces_closest_to_the_query(
 async def test_the_reranker_is_never_sent_another_persons_text(tx, household, reranker):
     """Passages are read under row security, like every other read."""
     partner = principal_for(household["partner"])
-    await save_page(
+    await save_engram(
         partner, "personal", "diary.md", f"boiler secret {ANSWER}", message="x"
     )
-    await save_page(partner, "household", "shared.md", "boiler shared", message="x")
+    await save_engram(partner, "household", "shared.md", "boiler shared", message="x")
     me = principal_for(household["wouter"])
     await _boilers(me)
-    results = await search_pages(me, "boiler")
+    results = await search_engrams(me, "boiler")
     assert "diary.md" not in _paths(results)
     assert "secret" not in reranker.sent
     assert "boiler shared" in reranker.sent
@@ -264,9 +264,9 @@ async def test_the_reranker_is_never_sent_another_persons_text(tx, household, re
 async def test_a_failing_reranker_keeps_the_order(tx, household, reranker, failure):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    before = _paths(await search_pages(me, "boiler", rerank=False))
+    before = _paths(await search_engrams(me, "boiler", rerank=False))
     reranker.fail = failure
-    assert _paths(await search_pages(me, "boiler")) == before
+    assert _paths(await search_engrams(me, "boiler")) == before
 
 
 async def test_a_slow_reranker_is_not_waited_for(tx, household, reranker, monkeypatch):
@@ -279,19 +279,19 @@ async def test_a_slow_reranker_is_not_waited_for(tx, household, reranker, monkey
         return [9.0] * len(documents)
 
     monkeypatch.setattr(reranker, "score", slow)
-    assert _paths(await search_pages(me, "boiler"))[0] != "answer.md"
+    assert _paths(await search_engrams(me, "boiler"))[0] != "answer.md"
 
 
 async def test_wrong_scores_keep_the_order(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    before = _paths(await search_pages(me, "boiler", rerank=False))
+    before = _paths(await search_engrams(me, "boiler", rerank=False))
 
     async def short(query: str, documents: list[str]) -> list[float]:
         return [1.0]
 
     monkeypatch.setattr(reranker, "score", short)
-    assert _paths(await search_pages(me, "boiler")) == before
+    assert _paths(await search_engrams(me, "boiler")) == before
 
 
 async def test_a_reranker_that_keeps_failing_is_left_alone(tx, household, reranker):
@@ -299,10 +299,10 @@ async def test_a_reranker_that_keeps_failing_is_left_alone(tx, household, rerank
     await _boilers(me)
     reranker.fail = httpx.ConnectError("down")
     for _ in range(get_settings().rerank.rest_after_failures):
-        await search_pages(me, "boiler")
+        await search_engrams(me, "boiler")
     asked = len(reranker.calls)
     reranker.fail = None
-    await search_pages(me, "boiler")
+    await search_engrams(me, "boiler")
     assert len(reranker.calls) == asked
 
 
@@ -314,9 +314,9 @@ async def test_a_refused_query_never_rests_the_reranker(tx, household, reranker)
         "refused", request=request, response=httpx.Response(413, request=request)
     )
     for _ in range(get_settings().rerank.rest_after_failures + 2):
-        await search_pages(me, "boiler")
+        await search_engrams(me, "boiler")
     reranker.fail = None
-    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
 
 
 async def test_a_failure_logs_no_text(tx, household, reranker, caplog):
@@ -324,7 +324,7 @@ async def test_a_failure_logs_no_text(tx, household, reranker, caplog):
     await _boilers(me)
     reranker.fail = httpx.ConnectError("boiler")
     with caplog.at_level("WARNING"):
-        await search_pages(me, "boiler")
+        await search_engrams(me, "boiler")
     assert "ConnectError" in caplog.text
     assert "boiler" not in caplog.text
 
@@ -336,12 +336,12 @@ async def test_no_model_is_asked_inside_a_transaction(household, reranker, embed
     me = principal_for(household["wouter"])
     async with transaction_scope():
         await _boilers(me)
-        page = await save_page(
+        engram = await save_engram(
             me, "personal", "garage.md", "boiler in the garage", message="x"
         )
-        await embedding.embed_page(me, page.id, embedder)
+        await embedding.embed_engram(me, engram.id, embedder)
     embedder.in_transaction.clear()
-    results = await search_pages(me, "boiler garage", log=True)
+    results = await search_engrams(me, "boiler garage", log=True)
     assert results
     assert reranker.in_transaction == [False]
     assert embedder.in_transaction == [False]
@@ -350,7 +350,7 @@ async def test_no_model_is_asked_inside_a_transaction(household, reranker, embed
 async def test_inside_a_transaction_it_still_works(tx, household, reranker):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
 
 
 # --- the parts -----------------------------------------------------------------
@@ -460,7 +460,7 @@ async def test_the_http_client_speaks_the_rerank_protocol(monkeypatch):
     assert await reranker.score("q", ["d"]) == [0.5]
     assert seen["url"] == "http://reranker.internal/v1/rerank"
     assert b'"documents":["d"]' in seen["body"].replace(b" ", b"")
-    # A proxy from the environment would carry page text elsewhere.
+    # A proxy from the environment would carry engram text elsewhere.
     assert seen["trust_env"] is False
 
 
@@ -489,7 +489,7 @@ async def test_only_a_refused_query_is_not_a_failure(
     reranker.fail = httpx.HTTPStatusError(
         "x", request=request, response=httpx.Response(status, request=request)
     )
-    await search_pages(me, "boiler")
+    await search_engrams(me, "boiler")
     assert rerank.breaker.failures == (1 if counts else 0)
 
 
@@ -501,7 +501,7 @@ async def test_a_failure_logs_its_status(tx, household, reranker, caplog):
         "x", request=request, response=httpx.Response(404, request=request)
     )
     with caplog.at_level("WARNING"):
-        await search_pages(me, "boiler")
+        await search_engrams(me, "boiler")
     assert "HTTPStatusError 404" in caplog.text
 
 
@@ -513,8 +513,8 @@ async def test_a_search_without_a_request_does_not_use_up_the_trial(
     await _boilers(me)
     rerank.breaker.failures = rerank.breaker.threshold
     rerank.breaker.resting_until = 0.0  # the rest is over
-    assert await search_pages(me, "nothing-matches-this") == []
-    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    assert await search_engrams(me, "nothing-matches-this") == []
+    assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
     assert rerank.breaker.failures == 0
 
 
@@ -523,13 +523,13 @@ async def test_non_numbers_from_a_reranker_keep_the_order(
 ):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    before = _paths(await search_pages(me, "boiler", rerank=False))
+    before = _paths(await search_engrams(me, "boiler", rerank=False))
 
     async def odd(query: str, documents: list[str]) -> list:
         return [float("nan")] * len(documents)
 
     monkeypatch.setattr(reranker, "score", odd)
-    assert _paths(await search_pages(me, "boiler")) == before
+    assert _paths(await search_engrams(me, "boiler")) == before
 
 
 async def test_a_failed_read_of_passages_keeps_the_order(
@@ -539,70 +539,72 @@ async def test_a_failed_read_of_passages_keeps_the_order(
 
     me = principal_for(household["wouter"])
     await _boilers(me)
-    before = _paths(await search_pages(me, "boiler", rerank=False))
-    monkeypatch.setattr(search, "_PAGE_TEXT_SQL", "SELECT no_such_column {} {} {}")
-    assert _paths(await search_pages(me, "boiler")) == before
+    before = _paths(await search_engrams(me, "boiler", rerank=False))
+    monkeypatch.setattr(search, "_ENGRAM_TEXT_SQL", "SELECT no_such_column {} {} {}")
+    assert _paths(await search_engrams(me, "boiler")) == before
     assert reranker.calls == []
 
 
-async def test_a_page_with_no_text_is_read_by_its_title(tx, household, reranker):
+async def test_an_engram_with_no_text_is_read_by_its_title(tx, household, reranker):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    await save_page(
+    await save_engram(
         me, "personal", "empty.md", "   ", message="x", title=f"Boiler {ANSWER}"
     )
-    results = _paths(await search_pages(me, "boiler"))
+    results = _paths(await search_engrams(me, "boiler"))
     assert f"Boiler {ANSWER}" in reranker.sent
     assert results[0] in {"empty.md", "answer.md"}
 
 
-async def test_scoping_to_one_cove_holds_for_the_reranker(tx, household, reranker):
+async def test_scoping_to_one_space_holds_for_the_reranker(tx, household, reranker):
     partner = principal_for(household["partner"])
-    await save_page(partner, "household", "ours.md", "boiler in the hall", message="x")
-    await save_page(
+    await save_engram(
+        partner, "household", "ours.md", "boiler in the hall", message="x"
+    )
+    await save_engram(
         partner, "household", "ours2.md", "boiler in the attic", message="x"
     )
     me = principal_for(household["wouter"])
     await _boilers(me)
-    results = await search_pages(me, "boiler", cove="household")
+    results = await search_engrams(me, "boiler", space="household")
     assert {r["cove"] for r in results} == {"household"}
     assert "note 0" not in reranker.sent
 
 
-async def test_a_page_deleted_while_the_reranker_reads_is_not_shown(
+async def test_an_engram_deleted_while_the_reranker_reads_is_not_shown(
     tx, household, reranker, monkeypatch
 ):
-    from reef.pages import delete_page
+    from reef.engrams import delete_engram
 
     me = principal_for(household["wouter"])
     await _boilers(me)
     original = reranker.score
 
     async def meanwhile(query: str, documents: list[str]) -> list[float]:
-        await delete_page(me, "personal", "answer.md")
+        await delete_engram(me, "personal", "answer.md")
         return await original(query, documents)
 
     monkeypatch.setattr(reranker, "score", meanwhile)
-    assert "answer.md" not in _paths(await search_pages(me, "boiler"))
+    assert "answer.md" not in _paths(await search_engrams(me, "boiler"))
 
 
-async def test_a_cove_left_while_the_reranker_reads_is_not_shown(
+async def test_a_space_left_while_the_reranker_reads_is_not_shown(
     tx, household, reranker, monkeypatch
 ):
-    from reef.coves import leave_cove
+    from reef.spaces import leave_space
 
     partner = principal_for(household["partner"])
-    await save_page(partner, "household", "shared.md", "boiler zebra", message="x")
+    await save_engram(partner, "household", "shared.md", "boiler zebra", message="x")
     me = principal_for(household["wouter"])
     await _boilers(me)
     original = reranker.score
 
     async def meanwhile(query: str, documents: list[str]) -> list[float]:
-        await leave_cove(me, "household")
+        await leave_space(me, "household")
         return await original(query, documents)
 
     monkeypatch.setattr(reranker, "score", meanwhile)
-    assert "shared.md" not in _paths(await search_pages(me, "boiler"))
+    assert "shared.md" not in _paths(await search_engrams(me, "boiler"))
 
 
 async def test_the_search_log_works_outside_a_transaction(
@@ -614,18 +616,17 @@ async def test_the_search_log_works_outside_a_transaction(
     me = principal_for(household["wouter"])
     async with transaction_scope():
         await _boilers(me)
-    await search_pages(me, "boiler", log=True)
+    await search_engrams(me, "boiler", log=True)
     async with transaction_scope():
         await arm(me)
-        rows = await SearchLog.raw("SELECT page_ids FROM search_log")
-    assert len(rows) == 1 and rows[0]["page_ids"]
+        rows = await SearchLog.raw("SELECT engram_ids FROM search_log")
+    assert len(rows) == 1 and rows[0]["engram_ids"]
 
 
 async def test_the_search_tools_ask_no_model_inside_a_transaction(
     household, reranker, embedder, monkeypatch
 ):
-    from reef.server import search
-    from reef.server import search_pages as search_tool
+    from reef.server import recall, search
 
     me = principal_for(household["wouter"])
     monkeypatch.setattr(
@@ -633,8 +634,8 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
     )
     async with transaction_scope():
         await _boilers(me)
-    results = await search_tool("boiler")
-    assert results and results[0]["path"] == "answer.md"
+    results = await recall("", question="boiler")
+    assert results and results[0]["engram"] == "answer.md"
     connector = await search("boiler")
     assert len(connector["results"]) > 1
     assert reranker.in_transaction == [False, False]
@@ -647,8 +648,8 @@ async def test_the_search_tools_ask_no_model_inside_a_transaction(
 async def test_a_small_memory_is_not_reread(tx, household, reranker, monkeypatch):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 1000)
-    assert _paths(await search_pages(me, "boiler"))[0] != "answer.md"
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 1000)
+    assert _paths(await search_engrams(me, "boiler"))[0] != "answer.md"
     assert reranker.calls == []
 
 
@@ -657,31 +658,31 @@ async def test_a_memory_at_the_threshold_is_reread(
 ):
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
-    assert _paths(await search_pages(me, "boiler"))[0] == "answer.md"
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
+    assert _paths(await search_engrams(me, "boiler"))[0] == "answer.md"
 
 
-async def test_only_the_pages_of_the_cove_searched_count(
+async def test_only_the_engrams_of_the_space_searched_count(
     tx, household, reranker, monkeypatch
 ):
     partner = principal_for(household["partner"])
     for n in range(2):
-        await save_page(partner, "household", f"h{n}.md", f"boiler {n}", message="x")
+        await save_engram(partner, "household", f"h{n}.md", f"boiler {n}", message="x")
     me = principal_for(household["wouter"])
     await _boilers(me)
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
-    await search_pages(me, "boiler", cove="household")
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
+    await search_engrams(me, "boiler", space="household")
     assert reranker.calls == []
 
 
-async def test_nobody_elses_pages_count(tx, household, reranker, monkeypatch):
+async def test_nobody_elses_engrams_count(tx, household, reranker, monkeypatch):
     """Row security does the counting."""
     partner = principal_for(household["partner"])
     for n in range(10):
-        await save_page(partner, "personal", f"p{n}.md", f"boiler {n}", message="x")
+        await save_engram(partner, "personal", f"p{n}.md", f"boiler {n}", message="x")
     me = principal_for(household["wouter"])
-    await save_page(me, "personal", "a.md", "boiler one", message="x")
-    await save_page(me, "personal", "b.md", "boiler two", message="x")
-    monkeypatch.setattr(get_settings().rerank, "min_pages", 5)
-    await search_pages(me, "boiler")
+    await save_engram(me, "personal", "a.md", "boiler one", message="x")
+    await save_engram(me, "personal", "b.md", "boiler two", message="x")
+    monkeypatch.setattr(get_settings().rerank, "min_engrams", 5)
+    await search_engrams(me, "boiler")
     assert reranker.calls == []

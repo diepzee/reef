@@ -5,7 +5,7 @@ Run as: ``python scripts/eval/run.py [--questions N] [--mode M ...] [--json PATH
 Seed first with ``scripts/eval/seed.py``, using the same ``--questions``.
 
 With ``--private`` it asks the questions in ``scripts/eval/private/`` of your
-own pages instead.
+own engrams instead.
 """
 
 import argparse
@@ -53,9 +53,9 @@ def _private_questions() -> list[evalkit.EvalQuestion]:
     for path in (evalkit.PRIVATE_EXPORT, evalkit.PRIVATE_QUESTIONS):
         if not path.exists():
             raise FileNotFoundError(f"{path} is missing. See scripts/eval/README.md")
-    pages = evalkit.private_pages(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
+    engrams = evalkit.private_engrams(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
     return evalkit.private_questions(
-        json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in pages)
+        json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in engrams)
     )
 
 
@@ -67,14 +67,14 @@ async def measure(
     :param count: how many questions, or None for all
     :param modes: the modes to run
     :param k: how many leading results count for recall
-    :param private: ask the private set of your own pages, not the benchmark
+    :param private: ask the private set of your own engrams, not the benchmark
     :returns: one report per mode
     """
     settings = get_settings()
     evalkit.refuse_unless_local(settings.dsn)
     for address in (settings.embedding.url, settings.rerank.url):
         if address:
-            # The hybrid and rerank modes send questions and pages here.
+            # The hybrid and rerank modes send questions and engrams here.
             evalkit.refuse_unless_local(address)
     if private:
         questions = _private_questions()

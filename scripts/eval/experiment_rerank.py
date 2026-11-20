@@ -10,14 +10,14 @@ Run as::
 Run ``experiment_embed.py`` for the same set first: this reads its cached
 vectors. Nothing here is part of the product.
 
-For each question it takes the first :data:`CANDIDATES` pages of hybrid
-search, lets a cross-encoder read the question next to each page's best
-passages, and orders the pages by that score. A cross-encoder reads both
+For each question it takes the first :data:`CANDIDATES` engrams of hybrid
+search, lets a cross-encoder read the question next to each engram's best
+passages, and orders the engrams by that score. A cross-encoder reads both
 texts together, so it is more exact than comparing two vectors, and far too
-slow to run over every page. Hence: retrieve widely, then rerank a few.
+slow to run over every engram. Hence: retrieve widely, then rerank a few.
 
 The reranker runs on this machine. Its weights are downloaded once from
-Hugging Face. No page text leaves the machine.
+Hugging Face. No engram text leaves the machine.
 """
 
 import argparse
@@ -32,10 +32,10 @@ import numpy as np
 
 from reef.config import get_settings
 
-#: How many pages of hybrid search the reranker gets to reorder.
+#: How many engrams of hybrid search the reranker gets to reorder.
 CANDIDATES = 30
 
-#: How many of a page's best passages the reranker reads.
+#: How many of an engram's best passages the reranker reads.
 PASSAGES = 2
 
 #: The weight of the embeddings in the fusion that picks the candidates.
@@ -51,18 +51,18 @@ RERANKERS = {
 
 
 def best_passages(
-    query: np.ndarray, vectors: np.ndarray, owner: np.ndarray, page: int, count: int
+    query: np.ndarray, vectors: np.ndarray, owner: np.ndarray, engram: int, count: int
 ) -> list[int]:
-    """Pick the passages of one page that are closest to the question.
+    """Pick the passages of one engram that are closest to the question.
 
     :param query: the question's vector
     :param vectors: every chunk vector
-    :param owner: for each chunk the index of its page
-    :param page: the page's index
+    :param owner: for each chunk the index of its engram
+    :param engram: the engram's index
     :param count: how many passages to pick
     :returns: the indexes of its best chunks
     """
-    mine = np.flatnonzero(owner == page)
+    mine = np.flatnonzero(owner == engram)
     scores = vectors[mine] @ query
     return [int(i) for i in mine[np.argsort(-scores)[:count]]]
 
@@ -84,25 +84,27 @@ def main() -> None:
     evalkit.refuse_unless_local(get_settings().dsn)
 
     if args.set == "private":
-        pages = evalkit.private_pages(json.loads(evalkit.PRIVATE_EXPORT.read_text()))
+        engrams = evalkit.private_engrams(
+            json.loads(evalkit.PRIVATE_EXPORT.read_text())
+        )
         questions = evalkit.private_questions(
-            json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in pages)
+            json.loads(evalkit.PRIVATE_QUESTIONS.read_text()), (p.path for p in engrams)
         )
         email = evalkit.PRIVATE_EMAIL
     else:
         eval_set = evalkit.convert(
             evalkit.choose(evalkit.load_benchmark(), args.questions)
         )
-        pages, questions = list(eval_set.pages), list(eval_set.questions)
+        engrams, questions = list(eval_set.pages), list(eval_set.questions)
         email = evalkit.EVAL_EMAIL
 
     model = base.MODELS[args.model]
     how = "sections" if args.sections else "plain"
     tag = f"{args.set}-{args.model}-{how}"
     prefix = "sections" if args.sections else False
-    texts, _ = base.pieces(pages, prefix)
-    vectors, owner = base.page_vectors(pages, model, prefix, tag)
-    paths = [page.path for page in pages]
+    texts, _ = base.pieces(engrams, prefix)
+    vectors, owner = base.engram_vectors(engrams, model, prefix, tag)
+    paths = [engram.path for engram in engrams]
     index = {path: i for i, path in enumerate(paths)}
     queries = base.embed(
         model["name"], [model["query"].format(q=q.text) for q in questions]
@@ -123,7 +125,7 @@ def main() -> None:
         questions
     )
     print(
-        f"a right page is among the {args.candidates} candidates for {reach:.1%}; "
+        f"a right engram is among the {args.candidates} candidates for {reach:.1%}; "
         f"{args.passages} passages each"
     )
 
@@ -135,9 +137,9 @@ def main() -> None:
         reranked: dict[str, list[str]] = {}
         for i, question in enumerate(questions):
             pairs: list[tuple[str, str]] = []
-            pair_page: list[str] = []
+            pair_engram: list[str] = []
             for path in candidates[question.id]:
-                # A page keyword search found may be missing from the
+                # An engram keyword search found may be missing from the
                 # embedded set only if the two sets differ. Skip it then.
                 if path not in index:
                     continue
@@ -145,10 +147,10 @@ def main() -> None:
                     queries[i], vectors, owner, index[path], args.passages
                 ):
                     pairs.append((question.text, texts[chunk]))
-                    pair_page.append(path)
+                    pair_engram.append(path)
             scores = encoder.predict(pairs, batch_size=16, show_progress_bar=False)
             best: dict[str, float] = {}
-            for path, score in zip(pair_page, scores, strict=True):
+            for path, score in zip(pair_engram, scores, strict=True):
                 best[path] = max(best.get(path, -1e9), float(score))
             reranked[question.id] = sorted(best, key=best.get, reverse=True)
             if i and i % 50 == 0:

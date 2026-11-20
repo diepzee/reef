@@ -1,9 +1,9 @@
 """Telemetry must describe traffic without carrying its content.
 
 reef's corpus is private memory. A telemetry backend that mirrored it would
-recreate the exposure the RLS work exists to shrink -- the same pages, held
+recreate the exposure the RLS work exists to shrink -- the same engrams, held
 by a third party, outside every policy Postgres enforces. So these assert the
-negative: that page bodies, titles, addresses and paths do not reach an
+negative: that engram bodies, titles, addresses and paths do not reach an
 exporter even when a careless caller passes them to a span.
 
 They also pin the property everything else depends on -- that with no token
@@ -14,58 +14,12 @@ import os
 from uuid import UUID
 
 import pytest
-from opentelemetry.sdk.trace.export import (
-    SimpleSpanProcessor,
-    SpanExporter,
-    SpanExportResult,
-)
+from conftest import SpanCapture
 
 from reef import telemetry
 
 
-class _Capture(SpanExporter):
-    """Collects spans in memory instead of shipping them anywhere."""
-
-    def __init__(self) -> None:
-        self.spans: list = []
-
-    def export(self, spans) -> SpanExportResult:
-        """Record the batch.
-
-        :param spans: spans being exported
-        :returns: always success
-        """
-        self.spans.extend(spans)
-        return SpanExportResult.SUCCESS
-
-    def shutdown(self) -> None:
-        """Nothing to release."""
-
-
-@pytest.fixture
-def captured(monkeypatch):
-    """Configure Logfire with scrubbing and an in-memory exporter.
-
-    ``send_to_logfire=False`` keeps this offline: no credentials, no network,
-    nothing that could make the suite depend on a third party being up.
-
-    :param monkeypatch: pytest's monkeypatch fixture
-    :returns: the exporter holding whatever was exported
-    """
-    import logfire
-
-    sink = _Capture()
-    logfire.configure(
-        service_name="reef-test",
-        send_to_logfire=False,
-        console=False,
-        scrubbing=logfire.ScrubbingOptions(extra_patterns=telemetry.SCRUB_PATTERNS),
-        additional_span_processors=[SimpleSpanProcessor(sink)],
-    )
-    return sink
-
-
-def _attribute_blob(sink: _Capture) -> str:
+def _attribute_blob(sink: SpanCapture) -> str:
     """Flatten every exported attribute into one searchable string.
 
     Checking the serialized form rather than named keys is deliberate: it
@@ -78,7 +32,7 @@ def _attribute_blob(sink: _Capture) -> str:
     return "".join(str(dict(span.attributes or {})) for span in sink.spans)
 
 
-def test_page_content_never_reaches_the_exporter(captured):
+def test_engram_content_never_reaches_the_exporter(captured):
     """The point of the whole file: bodies, titles, addresses, paths."""
     import logfire
 
@@ -88,9 +42,12 @@ def test_page_content_never_reaches_the_exporter(captured):
         title="SECRET-TITLE",
         email="person@example.test",
         display_name="Somebody",
-        page_path="meta/persona.md",
+        engram_path="meta/persona.md",
         section_text="SECRET-SECTION",
         subject="auth0|SECRET",
+        # Plain values: a value that says "secret" is scrubbed for that alone.
+        question="when was the boiler serviced",
+        passage="The boiler was serviced in May",
     ):
         pass
 
@@ -103,6 +60,8 @@ def test_page_content_never_reaches_the_exporter(captured):
         "meta/persona.md",
         "SECRET-SECTION",
         "auth0|SECRET",
+        "when was the boiler serviced",
+        "The boiler was serviced in May",
     ):
         assert secret not in blob, f"{secret!r} reached the exporter"
 
@@ -111,12 +70,12 @@ def test_shape_still_survives_scrubbing(captured):
     """Redaction has to leave enough behind to answer an operational question."""
     import logfire
 
-    with logfire.span("probe", cove_alias="household", page_count=3, status=200):
+    with logfire.span("probe", space_alias="household", engram_count=3, status=200):
         pass
 
     blob = _attribute_blob(captured)
     assert "household" in blob
-    assert "page_count" in blob
+    assert "engram_count" in blob
     assert "status" in blob
 
 
@@ -141,16 +100,22 @@ def test_the_eu_instance_is_the_default(monkeypatch):
 
 def test_scrub_patterns_cover_every_content_field():
     """A new content column must be added here too; this is the reminder."""
-    assert {"body", "title", "email", "display_name", "page_path"} <= set(
-        telemetry.SCRUB_PATTERNS
-    )
+    assert {
+        "body",
+        "title",
+        "email",
+        "display_name",
+        "page_path",
+        "question",
+        "passage",
+    } <= set(telemetry.SCRUB_PATTERNS)
     assert os.environ.get("LOGFIRE_TOKEN") is None or True
 
 
 # --- the worker's job span ------------------------------------------------------
 
 _JOB_ID = UUID("6f1c2a52-0d0e-4a55-9a51-3a2f2f0d9b11")
-_QUOTED = "the body of a private page"
+_QUOTED = "the body of a private engram"
 
 
 @pytest.fixture
@@ -165,7 +130,7 @@ def live(captured, monkeypatch):
     return captured
 
 
-def _everything(sink: _Capture) -> str:
+def _everything(sink: SpanCapture) -> str:
     """Flatten names, attributes and events of every span into one string.
 
     :param sink: the capturing exporter

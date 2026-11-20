@@ -2,14 +2,14 @@
 
 import { Link } from "react-router-dom";
 
-import { CoveGlyph } from "../components/coveGlyph";
+import { SpaceGlyph } from "../components/spaceGlyph";
 import { useIndex } from "../IndexProvider";
-import { useCoveLook } from "../useAppearance";
+import { useSpaceLook } from "../useAppearance";
 
 export default function IndexView() {
   const { rawIndex: index, error } = useIndex();
-  const look = useCoveLook();
-  const pageCount = index?.coves.reduce((total, cove) => total + cove.pages.length, 0) ?? 0;
+  const look = useSpaceLook();
+  const engramCount = index?.spaces.reduce((total, space) => total + space.engrams.length, 0) ?? 0;
 
   return (
     <div>
@@ -18,71 +18,71 @@ export default function IndexView() {
           <h1>Index</h1>
           {index && (
             <p className="muted">
-              {index.coves.length} {index.coves.length === 1 ? "cove" : "coves"} ·{" "}
-              {pageCount} {pageCount === 1 ? "page" : "pages"} · page bodies omitted
+              {index.spaces.length} {index.spaces.length === 1 ? "space" : "spaces"} ·{" "}
+              {engramCount} {engramCount === 1 ? "engram" : "engrams"} · engram bodies omitted
             </p>
           )}
         </div>
         <Link to="/" className="index-back">
-          View coves
+          View spaces
         </Link>
       </div>
 
       {error && <div className="notice">{error}</div>}
       {!error && index === null && <p className="muted">Loading…</p>}
 
-      {index?.coves.map((cove) => (
-        <section key={cove.alias} className="index-cove">
-          <div className="index-cove-head">
-            <span className="index-cove-glyph" aria-hidden="true">
-              <CoveGlyph
-                alias={cove.alias}
-                color={look(cove.alias).hue.base}
+      {index?.spaces.map((space) => (
+        <section key={space.alias} className="index-space">
+          <div className="index-space-head">
+            <span className="index-space-glyph" aria-hidden="true">
+              <SpaceGlyph
+                alias={space.alias}
+                color={look(space.alias).hue.base}
                 size={18}
-                family={look(cove.alias).family}
+                family={look(space.alias).family}
               />
             </span>
             <h2>
-              <Link to={`/s/${cove.alias}`}>{cove.alias}</Link>
+              <Link to={`/s/${space.alias}`}>{space.alias}</Link>
             </h2>
             <span className="muted">
-              v{cove.version} · {cove.pages.length} {cove.pages.length === 1 ? "page" : "pages"}
+              v{space.version} · {space.engrams.length} {space.engrams.length === 1 ? "engram" : "engrams"}
             </span>
           </div>
 
-          {cove.pages.length === 0 ? (
-            <p className="muted index-empty">No pages.</p>
+          {space.engrams.length === 0 ? (
+            <p className="muted index-empty">No engrams.</p>
           ) : (
             <ul className="index-pages">
-              {cove.pages.map((page) => (
-                <li key={page.path} className="index-page">
+              {space.engrams.map((engram) => (
+                <li key={engram.path} className="index-page">
                   <div className="index-page-titleline">
-                    <Link to={`/s/${cove.alias}/p/${page.path}`} className="index-page-title">
-                      {page.title || page.path}
+                    <Link to={`/s/${space.alias}/engram/${engram.path}`} className="index-page-title">
+                      {engram.title || engram.path}
                     </Link>
-                    <code>{page.path}</code>
+                    <code>{engram.path}</code>
                   </div>
-                  {page.description && <p>{page.description}</p>}
+                  {engram.description && <p>{engram.description}</p>}
                   <div className="index-page-meta muted">
-                    <span>v{page.version}</span>
-                    <span>{page.size.toLocaleString()} characters</span>
-                    {page.tags.map((tag) => (
+                    <span>v{engram.version}</span>
+                    <span>{engram.size.toLocaleString()} characters</span>
+                    {engram.tags.map((tag) => (
                       <span key={tag} className="index-tag">
                         {tag}
                       </span>
                     ))}
                   </div>
-                  {page.references.length > 0 && (
+                  {engram.references.length > 0 && (
                     <div className="index-references">
                       <span className="muted">References</span>
-                      {page.references.map((reference) => (
+                      {engram.references.map((reference) => (
                         <Link
-                          key={`${reference.cove}:${reference.path}`}
-                          to={`/s/${reference.cove}/p/${reference.path}`}
+                          key={`${reference.space}:${reference.path}`}
+                          to={`/s/${reference.space}/engram/${reference.path}`}
                         >
-                          {reference.cove === cove.alias
+                          {reference.space === space.alias
                             ? reference.path
-                            : `${reference.cove}:${reference.path}`}
+                            : `${reference.space}:${reference.path}`}
                         </Link>
                       ))}
                     </div>
@@ -92,17 +92,17 @@ export default function IndexView() {
             </ul>
           )}
 
-          {cove.attachments.length > 0 && (
+          {space.attachments.length > 0 && (
             <details className="index-attachments">
               <summary>
-                {cove.attachments.length}{" "}
-                {cove.attachments.length === 1 ? "file" : "files"}
+                {space.attachments.length}{" "}
+                {space.attachments.length === 1 ? "file" : "files"}
               </summary>
               <ul>
-                {cove.attachments.map((attachment) => (
+                {space.attachments.map((attachment) => (
                   <li key={attachment.key}>
                     <a
-                      href={`/api/files/${encodeURIComponent(cove.alias)}/${attachment.key
+                      href={`/api/files/${encodeURIComponent(space.alias)}/${attachment.key
                         .split("/")
                         .map(encodeURIComponent)
                         .join("/")}`}

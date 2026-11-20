@@ -71,7 +71,7 @@ def test_page_tells_the_truth():
     assert "has not verified" in html  # self-asserted name
     assert "Read everything you can see" in html
     assert "Write and delete" in html
-    assert "Manage coves and membership" in html
+    assert "Manage spaces and membership" in html
     assert "Export everything" in html
 
 

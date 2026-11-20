@@ -16,7 +16,7 @@ import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from reef import embedding, searchlog, telemetry
+from reef import calllog, embedding, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
@@ -25,7 +25,7 @@ from reef.jobs import (
     BACKFILL_EMBEDDINGS,
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
-    EMBED_PAGE,
+    EMBED_ENGRAM,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -50,7 +50,7 @@ class UnknownJobKind(Exception):
 
 
 async def _backfill_index_fields(principal: Principal, job: ClaimedJob) -> None:
-    """Store current index fields on the person's pages.
+    """Store current index fields on the person's engrams.
 
     :param principal: the person the job runs as
     :param job: the claimed job
@@ -59,7 +59,7 @@ async def _backfill_index_fields(principal: Principal, job: ClaimedJob) -> None:
 
 
 async def _backfill_links(principal: Principal, job: ClaimedJob) -> None:
-    """Store the wiki links of the person's pages.
+    """Store the wiki links of the person's engrams.
 
     :param principal: the person the job runs as
     :param job: the claimed job
@@ -76,13 +76,13 @@ async def _refresh_activation(principal: Principal, job: ClaimedJob) -> None:
     await refresh_activation(principal)
 
 
-async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
-    """Embed the changed pieces of the job's pages.
+async def _embed_engram(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the changed pieces of the job's engrams.
 
     With no embedding service the job is done and nothing happened: the
     service was switched off after the job was queued.
 
-    A page that does not fit in today's cap, or that the service failed
+    An engram that does not fit in today's cap, or that the service failed
     on, is queued again for later and the job ends normally. It must: the
     pieces sent are charged in this transaction, and a job that raises is
     rolled back. Only the class of a failure is logged.
@@ -94,24 +94,24 @@ async def _embed_page(principal: Principal, job: ClaimedJob) -> None:
     if embedder is None:
         return
     retry = get_settings().embedding
-    for page_id in job.subject_ids:
+    for engram_id in job.subject_ids:
         try:
-            await embedding.embed_page(principal, page_id, embedder)
+            await embedding.embed_engram(principal, engram_id, embedder)
         except embedding.CapReached:
             await embedding.request(
-                principal, page_id, delay=timedelta(seconds=retry.cap_retry_seconds)
+                principal, engram_id, delay=timedelta(seconds=retry.cap_retry_seconds)
             )
         except embedding.ServiceFailed as failure:
-            log.warning("embedding: the service failed on a page (%s)", failure)
+            log.warning("embedding: the service failed on an engram (%s)", failure)
             await embedding.request(
                 principal,
-                page_id,
+                engram_id,
                 delay=timedelta(seconds=retry.failure_retry_seconds),
             )
 
 
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
-    """Queue a job for each of the person's pages that has no vectors.
+    """Queue a job for each of the person's engrams that has no vectors.
 
     :param principal: the person the job runs as
     :param job: the claimed job
@@ -129,7 +129,7 @@ HANDLERS: dict[str, Handler] = {
     BACKFILL_INDEX_FIELDS: _backfill_index_fields,
     BACKFILL_LINKS: _backfill_links,
     REFRESH_ACTIVATION: _refresh_activation,
-    EMBED_PAGE: _embed_page,
+    EMBED_ENGRAM: _embed_engram,
     BACKFILL_EMBEDDINGS: _backfill_embeddings,
 }
 
@@ -215,24 +215,28 @@ PURGE_EVERY_SECONDS = 3600.0
 
 
 async def purge_search_log() -> int:
-    """Delete logged searches that are older than they may be kept.
+    """Delete logged searches and calls that are older than they may be kept.
 
     Not a job: a job is done for one person, and this is for everybody. It
-    reads no row and needs no principal. See :func:`reef.searchlog.purge`.
+    reads no row and needs no principal. See :func:`reef.searchlog.purge` and
+    :func:`reef.calllog.purge`.
 
-    :returns: how many rows were deleted
+    :returns: how many rows were deleted, both logs together
     """
     async with transaction_scope():
-        removed = await searchlog.purge()
-    if removed:
-        log.info("search log: %d old rows deleted", removed)
-    return removed
+        searches = await searchlog.purge()
+        calls = await calllog.purge()
+    if searches:
+        log.info("search log: %d old rows deleted", searches)
+    if calls:
+        log.info("call log: %d old rows deleted", calls)
+    return searches + calls
 
 
 async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
     """Drain the queue, wait, and repeat until asked to stop.
 
-    About once an hour it also deletes old search log rows. A count is
+    About once an hour it also deletes old search and call log rows. A count is
     logged, never a query.
 
     A stop request is honoured between jobs, never during one: the job in
