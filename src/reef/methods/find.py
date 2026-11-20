@@ -25,6 +25,7 @@ Each method opens the short transactions it needs, armed for the caller.
 embedding service or the reranker.
 """
 
+import os
 from dataclasses import asdict
 from datetime import datetime
 
@@ -67,7 +68,7 @@ NOT_FOUND = "not_found"
 
 
 @method("load_index")
-async def load_index(caller: Caller, reason: str) -> dict:
+async def load_index(caller: Caller, reason: str, expand: str | None = None) -> dict:
     """Return the operating protocol, the persona and the index, per space.
 
     The index lists every engram the caller can see, without its body, and
@@ -82,6 +83,9 @@ async def load_index(caller: Caller, reason: str) -> dict:
         protocol and the persona. Each space has ``alias``, ``version``,
         ``engrams``, ``attachments``, ``members``; ``role``, the caller's
         own (see :func:`_role`); and ``owner``, the owner's display name
+
+    **Spike only** (``spike/fast_index``): with ``REEF_SPIKE_INDEX`` set, or
+    with ``expand``, the fast index of :mod:`spike.fast_index.hook` instead.
     """
     principal = caller.principal
     async with transaction_scope():
@@ -102,7 +106,27 @@ async def load_index(caller: Caller, reason: str) -> dict:
             space["role"] = _role(principal, spaces[space_id], roles.get(space_id))
             space["owner"] = owner["display_name"] if owner else None
         index["operating_protocol"] = await build_instructions(principal)
+    if expand is not None or os.environ.get("REEF_SPIKE_INDEX"):
+        return await _spike_index(principal, index, expand)
     return index
+
+
+async def _spike_index(principal: Principal, index: dict, expand: str | None) -> dict:
+    """Spike only: serve the fast index of ``spike/fast_index/hook.py``.
+
+    :param principal: the caller
+    :param index: today's payload
+    :param expand: what to list, or None for the index
+    :returns: the fast index, or one expansion
+    """
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parents[3] / "spike" / "fast_index"))
+    import hook
+
+    async with transaction_scope():
+        return await hook.fast_index(principal, index, expand)
 
 
 def _role(principal: Principal, space: Space, membership: str | None) -> str:

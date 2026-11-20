@@ -1,0 +1,161 @@
+{
+ "dataset": "private",
+ "engrams": 32,
+ "files": 445,
+ "spaces": 1,
+ "questions": 40,
+ "expected_refs": 50,
+ "with_vector": 32,
+ "with_inbound": 26,
+ "with_activation": 0,
+ "protocol_chars": 12495,
+ "today_latency": {
+  "median_ms": 12.1,
+  "p95_ms": 12.7
+ },
+ "vectors_latency": {
+  "median_ms": 5.1,
+  "p95_ms": 5.3
+ },
+ "today_breakdown": {
+  "file: description": 93524,
+  "file: filename": 31254,
+  "file: key": 31150,
+  "operating_protocol": 12797,
+  "file: mime": 12552,
+  "file: engram_path": 11797,
+  "file: size": 6056,
+  "engram: references": 5813,
+  "engram: description": 3397,
+  "engram: updated": 1248,
+  "engram: title": 1034,
+  "engram: last_editor": 928,
+  "file: {}": 890,
+  "engram: path": 864,
+  "engram: tags": 855,
+  "engram: size": 398,
+  "engram: inbound": 387,
+  "engram: version": 384,
+  "engram: {}": 64,
+  "version": 61,
+  "space: members": 27,
+  "space: owner": 23,
+  "space: alias": 19,
+  "space: role": 15,
+  "space: version": 13
+ },
+ "variants": {
+  "today": {
+   "index_chars": 202795,
+   "index_tokens_est": 50698,
+   "total_chars": 215592,
+   "total_tokens_est": 53898,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.0
+   },
+   "lines": 32,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "slim": {
+   "index_chars": 4899,
+   "index_tokens_est": 1224,
+   "total_chars": 17696,
+   "total_tokens_est": 4424,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.0
+   },
+   "lines": 32,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "v1": {
+   "index_chars": 3974,
+   "index_tokens_est": 993,
+   "total_chars": 16771,
+   "total_tokens_est": 4192,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.0
+   },
+   "lines": 27,
+   "visible_engrams": 0.86,
+   "visible_questions": 0.9,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 1062,
+   "expansion_chars_max": 1062
+  },
+  "v2": {
+   "index_chars": 5208,
+   "index_tokens_est": 1302,
+   "total_chars": 18005,
+   "total_tokens_est": 4501,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.0
+   },
+   "lines": 34,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "v3": {
+   "index_chars": 1253,
+   "index_tokens_est": 313,
+   "total_chars": 14050,
+   "total_tokens_est": 3512,
+   "build": {
+    "median_ms": 2.2,
+    "p95_ms": 2.6
+   },
+   "lines": 7,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 760,
+   "expansion_chars_max": 1228
+  },
+  "v4_8k": {
+   "index_chars": 4899,
+   "index_tokens_est": 1224,
+   "total_chars": 17696,
+   "total_tokens_est": 4424,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.1
+   },
+   "lines": 32,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "v4_16k": {
+   "index_chars": 4899,
+   "index_tokens_est": 1224,
+   "total_chars": 17696,
+   "total_tokens_est": 4424,
+   "build": {
+    "median_ms": 0.0,
+    "p95_ms": 0.0
+   },
+   "lines": 32,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  }
+ }
+}

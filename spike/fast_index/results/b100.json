@@ -1,0 +1,189 @@
+{
+ "dataset": "bench2",
+ "engrams": 104,
+ "files": 0,
+ "spaces": 1,
+ "questions": 2,
+ "expected_refs": 2,
+ "with_vector": 104,
+ "with_inbound": 0,
+ "with_activation": 0,
+ "protocol_chars": 11790,
+ "today_latency": {
+  "median_ms": 18.0,
+  "p95_ms": 19.6
+ },
+ "vectors_latency": {
+  "median_ms": 26.1,
+  "p95_ms": 27.5
+ },
+ "today_breakdown": {
+  "engram: description": 16915,
+  "operating_protocol": 12069,
+  "engram: path": 4679,
+  "engram: updated": 4056,
+  "engram: title": 3829,
+  "engram: last_editor": 2184,
+  "engram: tags": 2173,
+  "engram: references": 1664,
+  "engram: size": 1292,
+  "engram: version": 1248,
+  "engram: inbound": 1248,
+  "engram: {}": 208,
+  "version": 62,
+  "space: alias": 19,
+  "space: members": 19,
+  "space: role": 15,
+  "space: owner": 15,
+  "space: version": 14
+ },
+ "variants": {
+  "today": {
+   "index_chars": 39683,
+   "index_tokens_est": 9920,
+   "total_chars": 51752,
+   "total_tokens_est": 12938,
+   "build": {
+    "median_ms": 0.2,
+    "p95_ms": 0.2
+   },
+   "lines": 104,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0,
+   "routed_at_1": 0.5,
+   "routed_at_3": 1.0,
+   "routed_at_5": 1.0,
+   "two_step_found": 1.0,
+   "two_step_extra_chars_median": 0
+  },
+  "slim": {
+   "index_chars": 21915,
+   "index_tokens_est": 5478,
+   "total_chars": 33984,
+   "total_tokens_est": 8496,
+   "build": {
+    "median_ms": 0.2,
+    "p95_ms": 0.2
+   },
+   "lines": 104,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0,
+   "routed_at_1": 0.5,
+   "routed_at_3": 1.0,
+   "routed_at_5": 1.0,
+   "two_step_found": 1.0,
+   "two_step_extra_chars_median": 0
+  },
+  "v1": {
+   "index_chars": 463,
+   "index_tokens_est": 115,
+   "total_chars": 12532,
+   "total_tokens_est": 3133,
+   "build": {
+    "median_ms": 0.3,
+    "p95_ms": 0.3
+   },
+   "lines": 2,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 21569,
+   "expansion_chars_max": 21569,
+   "routed_at_1": 0.0,
+   "routed_at_3": 1.0,
+   "routed_at_5": 1.0,
+   "two_step_found": 1.0,
+   "two_step_extra_chars_median": 21569
+  },
+  "v2": {
+   "index_chars": 2782,
+   "index_tokens_est": 695,
+   "total_chars": 14851,
+   "total_tokens_est": 3712,
+   "build": {
+    "median_ms": 0.3,
+    "p95_ms": 0.3
+   },
+   "lines": 12,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 21569,
+   "expansion_chars_max": 21569,
+   "routed_at_1": 0.0,
+   "routed_at_3": 0.0,
+   "routed_at_5": 0.0,
+   "two_step_found": 0.0,
+   "two_step_extra_chars_median": 0
+  },
+  "v3": {
+   "index_chars": 2008,
+   "index_tokens_est": 502,
+   "total_chars": 14077,
+   "total_tokens_est": 3519,
+   "build": {
+    "median_ms": 13.1,
+    "p95_ms": 15.7
+   },
+   "lines": 11,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 1516,
+   "expansion_chars_max": 1995,
+   "routed_at_1": 0.0,
+   "routed_at_3": 0.5,
+   "routed_at_5": 0.5,
+   "two_step_found": 0.5,
+   "two_step_extra_chars_median": 4156
+  },
+  "v4_8k": {
+   "index_chars": 7385,
+   "index_tokens_est": 1846,
+   "total_chars": 19454,
+   "total_tokens_est": 4863,
+   "build": {
+    "median_ms": 18.7,
+    "p95_ms": 36.6
+   },
+   "lines": 33,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 778,
+   "expansion_chars_max": 1038,
+   "routed_at_1": 1.0,
+   "routed_at_3": 1.0,
+   "routed_at_5": 1.0,
+   "two_step_found": 1.0,
+   "two_step_extra_chars_median": 1256
+  },
+  "v4_16k": {
+   "index_chars": 10350,
+   "index_tokens_est": 2587,
+   "total_chars": 22419,
+   "total_tokens_est": 5604,
+   "build": {
+    "median_ms": 59.3,
+    "p95_ms": 69.8
+   },
+   "lines": 67,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 363,
+   "expansion_chars_max": 562,
+   "routed_at_1": 0.5,
+   "routed_at_3": 1.0,
+   "routed_at_5": 1.0,
+   "two_step_found": 1.0,
+   "two_step_extra_chars_median": 838
+  }
+ }
+}

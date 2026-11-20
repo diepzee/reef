@@ -1,0 +1,154 @@
+{
+ "dataset": "bench44",
+ "engrams": 2046,
+ "files": 0,
+ "spaces": 1,
+ "questions": 44,
+ "expected_refs": 84,
+ "with_vector": 2046,
+ "with_inbound": 0,
+ "with_activation": 0,
+ "protocol_chars": 11790,
+ "today_latency": {
+  "median_ms": 60.1,
+  "p95_ms": 87.1
+ },
+ "vectors_latency": {
+  "median_ms": 245.1,
+  "p95_ms": 337.1
+ },
+ "today_breakdown": {
+  "engram: description": 338881,
+  "engram: path": 91042,
+  "engram: updated": 79794,
+  "engram: title": 75683,
+  "engram: last_editor": 42966,
+  "engram: tags": 42955,
+  "engram: references": 32736,
+  "engram: size": 25610,
+  "engram: version": 24552,
+  "engram: inbound": 24552,
+  "operating_protocol": 12069,
+  "engram: {}": 4092,
+  "version": 63,
+  "space: alias": 19,
+  "space: members": 19,
+  "space: version": 15,
+  "space: role": 15,
+  "space: owner": 15
+ },
+ "variants": {
+  "today": {
+   "index_chars": 783052,
+   "index_tokens_est": 195763,
+   "total_chars": 795121,
+   "total_tokens_est": 198780,
+   "build": {
+    "median_ms": 2.8,
+    "p95_ms": 2.9
+   },
+   "lines": 2046,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "slim": {
+   "index_chars": 431824,
+   "index_tokens_est": 107956,
+   "total_chars": 443893,
+   "total_tokens_est": 110973,
+   "build": {
+    "median_ms": 2.6,
+    "p95_ms": 2.8
+   },
+   "lines": 2046,
+   "visible_engrams": 1.0,
+   "visible_questions": 1.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 0,
+   "expansion_chars_max": 0
+  },
+  "v1": {
+   "index_chars": 610,
+   "index_tokens_est": 152,
+   "total_chars": 12679,
+   "total_tokens_est": 3169,
+   "build": {
+    "median_ms": 4.2,
+    "p95_ms": 4.3
+   },
+   "lines": 2,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 431477,
+   "expansion_chars_max": 431477
+  },
+  "v2": {
+   "index_chars": 2877,
+   "index_tokens_est": 719,
+   "total_chars": 14946,
+   "total_tokens_est": 3736,
+   "build": {
+    "median_ms": 4.2,
+    "p95_ms": 4.3
+   },
+   "lines": 12,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 431477,
+   "expansion_chars_max": 431477
+  },
+  "v3": {
+   "index_chars": 7914,
+   "index_tokens_est": 1978,
+   "total_chars": 19983,
+   "total_tokens_est": 4995,
+   "build": {
+    "median_ms": 390.5,
+    "p95_ms": 401.6
+   },
+   "lines": 46,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 10957,
+   "expansion_chars_max": 17786
+  },
+  "v4_8k": {
+   "index_chars": 8049,
+   "index_tokens_est": 2012,
+   "total_chars": 20118,
+   "total_tokens_est": 5029,
+   "build": {
+    "median_ms": 242.6,
+    "p95_ms": 249.1
+   },
+   "lines": 33,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 17903,
+   "expansion_chars_max": 34883
+  },
+  "v4_16k": {
+   "index_chars": 16480,
+   "index_tokens_est": 4120,
+   "total_chars": 28549,
+   "total_tokens_est": 7137,
+   "build": {
+    "median_ms": 488.5,
+    "p95_ms": 491.5
+   },
+   "lines": 68,
+   "visible_engrams": 0.0,
+   "visible_questions": 0.0,
+   "reachable_engrams": 1.0,
+   "expansion_chars_median": 9461,
+   "expansion_chars_max": 17802
+  }
+ }
+}

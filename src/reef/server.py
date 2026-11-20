@@ -409,7 +409,7 @@ async def _run[**P, R: dict | list](
 
 
 @_read_only("Load index")
-async def load_index(reason: Reason = "") -> dict:
+async def load_index(reason: Reason = "", expand: str | None = None) -> dict:
     """Start here, once per conversation.
 
     Returns your operating protocol and the person's persona (follow both),
@@ -417,8 +417,11 @@ async def load_index(reason: Reason = "") -> dict:
     role there (an owner or member may write, a viewer only reads), and
     every engram and file in it with a one-line description. The index
     holds no engram text: use recall to answer from memory.
+
+    :param expand: leave out to load the index. To list what one collapsed
+        line of the index holds, the reference that line gives (spike only)
     """
-    return await _run(find.load_index, reason)
+    return await _run(find.load_index, reason, expand)
 
 
 @_read_only("Recall")
