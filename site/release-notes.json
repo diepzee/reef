@@ -1,6 +1,64 @@
 {
   "entries": [
     {
+      "version": "2.0.0",
+      "date": "2026-11-20",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "Pages now know what links to them. When your assistant reads a page it also sees the pages that point at it, so it can follow a thread in both directions."
+        },
+        {
+          "kind": "changed",
+          "text": "Search can now find a page by what it means, not only by its words. A question that shares no word with the page that answers it can still find that page. This works once the people who run a reef switch on its own embedding service. Until then, and whenever that service is slow, search works by words as before. A search with a quoted phrase or a `-word` stays exact."
+        },
+        {
+          "kind": "changed",
+          "text": "The privacy page now says how search reads your pages: two models that reef runs itself turn them into search vectors and order the results. Your text goes to no other company, and the models do not learn from it."
+        },
+        {
+          "kind": "changed",
+          "text": "Search can now read its best results again next to your question, and put the one that answers it first. This works once the people who run a reef switch on its own reranking service. Until then, and whenever that service is slow, search keeps the order it had."
+        },
+        {
+          "kind": "changed",
+          "text": "Search now understands Dutch word forms as well as English ones, so \"contract\" finds a page that says \"contracten\". Searching is also faster."
+        },
+        {
+          "kind": "changed",
+          "text": "Reef now says \"space\" where it said \"cove\" and \"engram\" where it said \"page\". Your notes and spaces are the same; only the words changed. Your assistant now has 16 clear tools instead of 31. It can ask a question of your memory, get a brief before a session, or add an entry to a log. Setups you already have keep working: when an assistant uses an old tool, Reef tells it which new one to use. Reload your assistant's tool list once to see the new tools. Creating, renaming and leaving spaces, and inviting people, now happen on the website only. The Claude Code plugin and the command-line tool get a new major version. Update both."
+        },
+        {
+          "kind": "changed",
+          "text": "Search now finds a page even when it does not contain every word you typed. Pages with all of your words still come first, and questions in ordinary language find far more."
+        },
+        {
+          "kind": "changed",
+          "text": "reef can keep a private log of what you search for, to measure and improve search. It is switched off, and it starts only after you have been told. Only you can see your searches, and each one is deleted after 90 days. The privacy page now also lists the record of which pages you open."
+        },
+        {
+          "kind": "fixed",
+          "text": "When you ask a question, stored files no longer crowd out the pages that answer it. A search for a name or a few words still finds the file first."
+        },
+        {
+          "kind": "fixed",
+          "text": "The member list of a shared cove works again, on the website and for your assistant. Sharing a page with a cove works again too: it shows who will see it, and that list failed to load."
+        },
+        {
+          "kind": "fixed",
+          "text": "Pages now show when they last changed, not when they were made. Existing pages were corrected to the time of their latest edit."
+        },
+        {
+          "kind": "fixed",
+          "text": "The privacy page now says that the search log is on. It has been on since 18 November 2026."
+        },
+        {
+          "kind": "fixed",
+          "text": "Every public page now credits rugvin, with the fin mark visible on touchscreens as well as on hover or keyboard focus."
+        }
+      ]
+    },
+    {
       "version": "1.0.1",
       "date": "2026-08-24",
       "changes": [
