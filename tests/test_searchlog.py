@@ -17,7 +17,7 @@ from reef.export import build_full_dump
 from reef.methods import Caller, connector, find
 from reef.models import SearchLog
 from reef.search import search_engrams
-from reef.worker import purge_search_log
+from reef.worker import purge_old_logs
 
 
 def principal_for(person) -> Principal:
@@ -221,10 +221,10 @@ async def test_old_searches_are_deleted_for_everybody_and_young_ones_kept(
         "UPDATE search_log SET searched_at = searched_at - interval '91 days' "
         "WHERE query = 'old'"
     )
-    assert await purge_search_log() == 2
+    assert await purge_old_logs() == 2
     left = await seed.fetch("SELECT query FROM search_log")
     assert [row["query"] for row in left] == ["young"]
-    assert await purge_search_log() == 0
+    assert await purge_old_logs() == 0
 
 
 async def test_the_purge_cannot_be_asked_for_a_shorter_time(seed):

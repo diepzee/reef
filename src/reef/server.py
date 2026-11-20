@@ -23,10 +23,16 @@ and the trace leaves the process.
 **Old names.** The tools from before the workflow methods whose names did not
 live on are not listed. A call to one is answered with an error that names
 what replaces it.
+
+**Refused calls are logged too.** A call to an old name, or with arguments
+that do not fit, never reaches a method, so :class:`_Gate` records it in the
+call log itself: the name called and why it was refused, and nothing from the
+arguments.
 """
 
 import logging
 import os
+import time
 from collections.abc import Callable
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as metadata_version
@@ -41,7 +47,7 @@ from pydantic import BeforeValidator, Field, TypeAdapter, ValidationError
 if TYPE_CHECKING:
     from fastmcp.server.auth.auth import AuthProvider
 
-from reef import telemetry
+from reef import calllog, telemetry
 from reef.auth import current_principal
 from reef.config import get_settings
 from reef.db import transaction_scope
@@ -835,6 +841,70 @@ def _misfit(name: str, arguments: dict) -> str | None:
     return None
 
 
+#: The outcome logged for a call to an old name: the code its answer ends with.
+RETIRED_TOOL = "retired_tool"
+
+#: The outcome logged for arguments that do not fit: the code their answer
+#: ends with.
+INVALID = "invalid_arguments"
+
+
+async def _refuse(name: str, text: str, outcome: str, started: float) -> ToolResult:
+    """Answer a call the gate refuses, after logging it.
+
+    :param name: the tool's name, as the assistant called it
+    :param text: what to tell the client
+    :param outcome: :data:`RETIRED_TOOL` or :data:`INVALID`
+    :param started: :func:`time.perf_counter` when the gate took the call
+    :returns: the error result, the same whether the call was logged or not
+    """
+    duration_ms = round((time.perf_counter() - started) * 1000)
+    await _log_refusal(name, outcome, duration_ms)
+    return _error(text)
+
+
+async def _log_refusal(name: str, outcome: str, duration_ms: int) -> None:
+    """Record a refused call in the caller's call log, if logging is on.
+
+    Nothing is taken from the arguments, not even the reason: an old name's
+    arguments are never checked, and misfit arguments failed the check, so
+    none of them can be trusted. The name is one Reef knows, an old one or a
+    tool's, so it is never free text.
+
+    The caller is found as :func:`_run` finds it, in a short transaction of
+    its own, and the row is written outside it, as the method wrapper writes
+    its rows. If the caller cannot be found, nothing is recorded and only the
+    error's class is logged: its message can name an address. Nothing here
+    can fail the call; :func:`reef.calllog.record` catches its own errors.
+
+    :param name: the tool's name, as the assistant called it
+    :param outcome: :data:`RETIRED_TOOL` or :data:`INVALID`
+    :param duration_ms: how long the gate took to refuse, in milliseconds
+    """
+    if not get_settings().calls.log:
+        return
+    try:
+        async with transaction_scope():
+            principal = await current_principal()
+        session_id = current_session_id()
+    # Broad on purpose: whatever went wrong, the refusal must still answer.
+    except Exception as error:  # noqa: BLE001
+        logger.warning(
+            "call log: a refused call was not recorded (%s)", type(error).__name__
+        )
+        return
+    await calllog.record(
+        principal,
+        session_id=session_id,
+        writer="assistant",
+        method=name,
+        reason="",
+        duration_ms=duration_ms,
+        returned=0,
+        outcome=outcome,
+    )
+
+
 class _Gate(Middleware):
     """Answer, before FastMCP does, the calls FastMCP would answer badly.
 
@@ -845,6 +915,10 @@ class _Gate(Middleware):
     gets their names: FastMCP's own refusal quotes every argument's value,
     in the app log and on the trace, and a value can be anything the person
     said.
+
+    Either refusal is recorded in the call log, by :func:`_log_refusal`, as
+    no method runs to record it. A name Reef does not know is passed on, to
+    FastMCP's own refusal, and not recorded.
     """
 
     async def on_call_tool(
@@ -858,13 +932,14 @@ class _Gate(Middleware):
         :param call_next: the rest of the chain
         :returns: the error, or the call's own result
         """
+        started = time.perf_counter()
         name = context.message.name
         if name in RETIRED:
-            return _error(_retired_message(name))
+            return await _refuse(name, _retired_message(name), RETIRED_TOOL, started)
         if name in _ARGUMENTS:
             misfit = _misfit(name, context.message.arguments or {})
             if misfit is not None:
-                return _error(misfit)
+                return await _refuse(name, misfit, INVALID, started)
         return await call_next(context)
 
 

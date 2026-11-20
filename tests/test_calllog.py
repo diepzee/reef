@@ -14,7 +14,7 @@ from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.export import build_full_dump
 from reef.models import CallLog, Revision
-from reef.worker import purge_search_log
+from reef.worker import purge_old_logs
 
 
 def principal_for(person) -> Principal:
@@ -152,8 +152,61 @@ async def test_the_worker_purges_the_call_log_with_the_search_log(
     async with transaction_scope():
         await _call(me)
     await seed.execute("UPDATE call_log SET called_at = called_at - interval '91 days'")
-    assert await purge_search_log() == 1
+    assert await purge_old_logs() == 1
     assert await seed.fetchval("SELECT count(*) FROM call_log") == 0
+
+
+class PurgeFailed(Exception):
+    """A purge that went wrong, with a message no log line may carry."""
+
+
+async def _old_rows_in_both_logs(seed, person) -> None:
+    """Seed one row past its time in the search log and one in the call log.
+
+    :param seed: the policy-free connection
+    :param person: whose rows they are
+    """
+    await seed.execute(
+        "INSERT INTO search_log (id, person_id, query, engram_ids, searched_at) "
+        "VALUES (gen_random_uuid(), $1, 'old', '{}', "
+        "LOCALTIMESTAMP - interval '91 days')",
+        person.id,
+    )
+    await seed.execute(
+        "INSERT INTO call_log (id, person_id, method, writer, outcome, called_at) "
+        "VALUES (gen_random_uuid(), $1, 'recall', 'assistant', 'ok', "
+        "LOCALTIMESTAMP - interval '91 days')",
+        person.id,
+    )
+
+
+@pytest.mark.parametrize(
+    ("failing", "purged_table", "kept_table"),
+    [
+        ("searchlog", "call_log", "search_log"),
+        ("calllog", "search_log", "call_log"),
+    ],
+)
+async def test_a_failing_purge_does_not_stop_the_other_one(
+    household, seed, monkeypatch, caplog, failing, purged_table, kept_table
+):
+    """Each log is purged on its own: one failing leaves the other on time.
+
+    Only the failure's class is logged, never its message.
+    """
+
+    async def broken() -> int:
+        """Fail as a purge might, with a message that must stay private."""
+        raise PurgeFailed("secret diagnosis")
+
+    monkeypatch.setattr(f"reef.{failing}.purge", broken)
+    await _old_rows_in_both_logs(seed, household["wouter"])
+    with caplog.at_level("INFO", logger="reef.worker"):
+        assert await purge_old_logs() == 1
+    assert await seed.fetchval(f"SELECT count(*) FROM {purged_table}") == 0
+    assert await seed.fetchval(f"SELECT count(*) FROM {kept_table}") == 1
+    assert "PurgeFailed" in caplog.text
+    assert "secret diagnosis" not in caplog.text
 
 
 async def test_the_purge_cannot_be_asked_for_a_shorter_time(seed):

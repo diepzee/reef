@@ -591,3 +591,145 @@ async def test_load_index_reaches_the_client_protocol_first(client):
     text = "".join(block.text for block in result.content)
     assert list(json.loads(text)) == ["operating_protocol", "spaces"]
     assert list(result.structured_content) == ["operating_protocol", "spaces"]
+
+
+# --- the call log: calls the gate refuses ----------------------------------------
+#
+# A call to an old name, or with arguments that do not fit, never reaches a
+# method, so the method wrapper cannot record it. These are the calls that show
+# what assistants asked for that no tool serves, so the gate records them.
+
+#: What the client reads for each refusal below, exactly as before the gate
+#: recorded anything.
+RETIRED_ANSWER = "read_pages is no longer a Reef tool. Use open. [retired_tool]"
+INVALID_ANSWER = (
+    "These arguments were missing or not valid: limit. Check them against the "
+    "tool's description, and send the call again. [invalid_arguments]"
+)
+
+#: A call by an old name, with arguments that are not checked, a reason too.
+RETIRED_CALL = ("read_pages", {"reason": PRIVATE, "cove": PRIVATE, "paths": [PRIVATE]})
+
+#: A call whose ``limit`` is not a number; its reason is valid but unchecked.
+INVALID_CALL = ("recall", {"reason": PRIVATE, "question": PRIVATE, "limit": PRIVATE})
+
+
+#: Run a test once for each kind of refused call.
+each_refusal = pytest.mark.parametrize(
+    "call", [RETIRED_CALL, INVALID_CALL], ids=["retired", "invalid"]
+)
+
+
+def _answer(result) -> tuple:
+    """Reduce a call's result to everything the client receives.
+
+    :param result: what :meth:`fastmcp.Client.call_tool` returned
+    :returns: the error flag, each content block in full, and the structured
+        content
+    """
+    return (
+        result.is_error,
+        [block.model_dump() for block in result.content],
+        result.structured_content,
+    )
+
+
+async def _all_calls(seed) -> list[dict]:
+    """Read every logged call, for everybody, past row security.
+
+    :param seed: the policy-free connection
+    :returns: every row, as a dict
+    """
+    return [dict(row) for row in await seed.fetch("SELECT * FROM call_log")]
+
+
+@pytest.mark.parametrize(
+    ("call", "outcome", "answer"),
+    [
+        (RETIRED_CALL, "retired_tool", RETIRED_ANSWER),
+        (INVALID_CALL, "invalid_arguments", INVALID_ANSWER),
+    ],
+    ids=["retired", "invalid"],
+)
+async def test_a_refused_call_is_logged_by_name_and_outcome_only(
+    client, household, monkeypatch, seed, call, outcome, answer
+):
+    """One row: the name called, the outcome, no reason, nothing returned.
+
+    Nothing is taken from the arguments, not even the reason: they were not
+    valid, so the reason was never checked either.
+    """
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    name, arguments = call
+    result = await client.call_tool(name, arguments, raise_on_error=False)
+    assert result.is_error
+    assert "".join(block.text for block in result.content) == answer
+    [row] = await _all_calls(seed)
+    assert row["person_id"] == household["wouter"].id
+    assert (row["method"], row["outcome"]) == (name, outcome)
+    assert (row["reason"], row["returned"], row["writer"]) == ("", 0, "assistant")
+    assert row["session_id"]
+    assert row["duration_ms"] >= 0
+    assert PRIVATE not in repr(row)
+
+
+@each_refusal
+async def test_a_refused_call_answers_the_same_whether_logged_or_not(
+    client, monkeypatch, seed, call
+):
+    """Logging is invisible to the client, and off means nothing is recorded."""
+    name, arguments = call
+    monkeypatch.setattr(get_settings().calls, "log", False)
+    unlogged = await client.call_tool(name, arguments, raise_on_error=False)
+    assert await _all_calls(seed) == []
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    logged = await client.call_tool(name, arguments, raise_on_error=False)
+    assert len(await _all_calls(seed)) == 1
+    assert _answer(logged) == _answer(unlogged)
+
+
+@each_refusal
+async def test_a_logged_refusal_leaks_no_argument(
+    client, monkeypatch, captured, every_log, call
+):
+    """No argument value reaches a log line or a span when a refusal is logged."""
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    name, arguments = call
+    await _error(client, name, arguments)
+    leaked = {
+        "log": PRIVATE in _logged(every_log),
+        "trace": PRIVATE in _traced(captured),
+    }
+    assert leaked == {"log": False, "trace": False}
+
+
+@each_refusal
+async def test_a_refusal_whose_caller_is_unknown_is_not_logged(
+    client, monkeypatch, seed, every_log, call
+):
+    """Nobody to record it for: nothing is recorded, and the answer stays.
+
+    Only the error's class is logged: its message names an address.
+    """
+    name, arguments = call
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    expected = _answer(await client.call_tool(name, arguments, raise_on_error=False))
+    await seed.execute("DELETE FROM call_log")
+
+    async def unknown():
+        """Fail as principal resolution does, naming an address."""
+        raise AccessDenied("unknown principal: secret@example.test")
+
+    monkeypatch.setattr(server, "current_principal", unknown)
+    result = await client.call_tool(name, arguments, raise_on_error=False)
+    assert _answer(result) == expected
+    assert await _all_calls(seed) == []
+    assert "AccessDenied" in _logged(every_log)
+    assert "secret@example.test" not in _logged(every_log)
+
+
+async def test_an_unknown_tool_name_is_not_logged(client, monkeypatch, seed):
+    """Only names Reef knows are recorded: an unknown name is any text at all."""
+    monkeypatch.setattr(get_settings().calls, "log", True)
+    await _error(client, PRIVATE, {})
+    assert await _all_calls(seed) == []

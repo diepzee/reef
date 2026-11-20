@@ -1326,14 +1326,21 @@ list to see the new names.
 **What it stores.** One row per call: the method, the reason cut to 200
 characters, who called (`assistant`, `person` or `system`), how long the call
 took, how many items it returned, and the outcome. It stores no arguments, no
-engram text and no results.
+engram text and no results. Calls the server refuses before any method runs
+get a row too: a retired tool name (outcome `retired_tool`) or arguments that
+do not fit (`invalid_arguments`), with an empty reason. These show what
+assistants ask for that no tool serves.
+
+**What it is for.** To improve Reef: which tools assistants use, which they
+do not, and what they ask for that no tool serves.
 
 **Who sees it.** Only the person it belongs to. Row-level security stops
 every other reader, operators included. The reason never reaches Logfire or
 the app logs. The person's export includes their rows, and deleting the
 account deletes them.
 
-**How long.** 90 days. The worker purges older rows every hour.
+**How long.** 90 days. The worker purges older rows every hour, separately
+from the search log: one purge failing does not stop the other.
 
 **Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
 `reef-app`. **Before you set it**, update the privacy page and tell the

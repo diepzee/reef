@@ -1,14 +1,21 @@
 """The call log: which method was called, and why.
 
-**Why it exists.** So a person can see what was done in their name and the
-reason their assistant gave. The reason is the assistant's own account of
-why it called, in a sentence.
+**Why it exists.** To improve Reef: to learn which tools assistants use,
+which they do not, and what they ask for that no tool serves. The reason is
+the assistant's own account of why it called, in a sentence. A person sees
+their own rows in their export.
 
 **What is recorded.** The method, the reason (cut to
 :data:`~reef.rls.CALL_LOG_MAX_REASON` characters), who called (``assistant``,
 ``person`` or ``system``), how long it took, how many things it returned,
 the outcome, a label for the session and the time. Not the arguments, not
 engram text, and not the results.
+
+**Calls Reef could not answer.** A call to a retired tool name, or with
+arguments that do not fit, is refused before any method runs. The MCP server
+records it here too: the name called, the outcome ``retired_tool`` or
+``invalid_arguments``, an empty reason, and nothing from the arguments. See
+:class:`reef.server._Gate`.
 
 **Whose it is.** One person's. Row security lets a person read their own
 rows and nobody else's, operators included. Nothing here reads across people.

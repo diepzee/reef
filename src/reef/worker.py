@@ -208,36 +208,55 @@ async def drain(worker: str) -> int:
     return attempted
 
 
-#: How often the worker deletes search log rows that are past their time.
-#: A constant, not a setting: the privacy page promises deletion after 90
-#: days, and only this keeps the promise on time.
+#: How often the worker deletes search log and call log rows that are past
+#: their time. A constant, not a setting: the privacy page promises deletion
+#: after 90 days, and only this keeps the promise on time.
 PURGE_EVERY_SECONDS = 3600.0
 
 
-async def purge_search_log() -> int:
-    """Delete logged searches and calls that are older than they may be kept.
+async def purge_old_logs() -> int:
+    """Delete logged searches and logged calls that are older than they may be kept.
 
     Not a job: a job is done for one person, and this is for everybody. It
     reads no row and needs no principal. See :func:`reef.searchlog.purge` and
     :func:`reef.calllog.purge`.
 
+    Each log is purged in a transaction of its own, so one that fails does
+    not keep the other's rows past their time. A failure is logged by its
+    class only, and tried again at the next purge.
+
     :returns: how many rows were deleted, both logs together
     """
-    async with transaction_scope():
-        searches = await searchlog.purge()
-        calls = await calllog.purge()
-    if searches:
-        log.info("search log: %d old rows deleted", searches)
-    if calls:
-        log.info("call log: %d old rows deleted", calls)
+    searches = await _purge("search log", searchlog.purge)
+    calls = await _purge("call log", calllog.purge)
     return searches + calls
+
+
+async def _purge(log_name: str, purge: Callable[[], Awaitable[int]]) -> int:
+    """Purge one log in a transaction of its own, and never raise.
+
+    :param log_name: the log, as the app log names it
+    :param purge: the log's purge, such as :func:`reef.searchlog.purge`
+    :returns: how many rows were deleted; 0 when the purge failed
+    """
+    try:
+        async with transaction_scope():
+            removed = await purge()
+    # Broad on purpose: one log's failure must not keep the other's rows.
+    except Exception as error:  # noqa: BLE001
+        log.error("%s: old rows were not deleted (%s)", log_name, type(error).__name__)
+        return 0
+    if removed:
+        log.info("%s: %d old rows deleted", log_name, removed)
+    return removed
 
 
 async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
     """Drain the queue, wait, and repeat until asked to stop.
 
-    About once an hour it also deletes old search and call log rows. A count is
-    logged, never a query.
+    About once an hour it also deletes old search log and call log rows, each
+    on its own (see :func:`purge_old_logs`). A count is logged, never a
+    query.
 
     A stop request is honoured between jobs, never during one: the job in
     hand is finished first.
@@ -257,7 +276,7 @@ async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
                 # Set first, so a purge that fails is tried again in an hour
                 # and not on every pass.
                 next_purge = time.monotonic() + PURGE_EVERY_SECONDS
-                await purge_search_log()
+                await purge_old_logs()
             while not stop.is_set() and (job := await claim(worker)) is not None:
                 await run_job(job, worker)
         # Broad on purpose: no error may end the loop. See the docstring.
