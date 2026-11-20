@@ -21,9 +21,11 @@ records it here too: the name called, the outcome ``retired_tool`` or
 rows and nobody else's, operators included.
 
 **Totals across everybody.** :func:`totals` is the one look across people,
-and it sees only totals: per method and outcome, how many calls, how many had
-no reason and how many people made them. Never a person, a reason, a session
-or a time. It is how the log serves its purpose without anyone reading it.
+and it sees only totals: per method and outcome, how many calls and how many
+had no reason. Never a person, a reason, a session, a time, or how many
+people. It counts whole days in UTC, at least a week and at most the
+retention, ending at the start of today, so no window can be aimed at one
+moment. It is how the log serves its purpose without anyone reading it.
 
 **How long.** :data:`RETENTION_DAYS` days. :func:`purge` deletes older rows
 for everybody, through a database function that takes no argument and
@@ -40,14 +42,13 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
 from uuid import uuid4
 
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.models import CallLog
-from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON
+from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON, CALL_LOG_TOTALS_MIN_DAYS
 
 log = logging.getLogger("reef.calllog")
 
@@ -174,27 +175,27 @@ class Total:
     empty_reasons: int
     """How many of them came without a reason."""
 
-    people: int
-    """How many people they were made for."""
 
+async def totals(days: int) -> list[Total]:
+    """Count the calls of the last whole days, for everybody, without reading one.
 
-async def totals(since: datetime) -> list[Total]:
-    """Count the calls made since a moment, for everybody, without reading one.
+    From the start of the day ``days`` days ago to the start of today, in
+    UTC: today is not counted until it is over. Through a database function
+    that returns only these totals, ordered by method and outcome, and that
+    refuses a number of days out of range too. Needs no principal.
 
-    Through a database function that returns only these totals, ordered by
-    method and outcome. Needs no principal.
-
-    :param since: count calls made at or after this moment; it must carry a
-        time zone
+    :param days: how many whole days to count, from
+        :data:`~reef.rls.CALL_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`
     :returns: one total per method and outcome
-    :raises ValueError: when ``since`` has no time zone
+    :raises ValueError: when ``days`` is out of that range
     """
-    if since.tzinfo is None:
-        raise ValueError("since needs a time zone")
+    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= CALL_LOG_DAYS:
+        raise ValueError(
+            f"call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_DAYS} days"
+        )
     rows = await CallLog.raw(
-        "SELECT method, outcome, calls, empty_reasons, people "
-        "FROM reef_call_log_totals({})",
-        since,
+        "SELECT method, outcome, calls, empty_reasons FROM reef_call_log_totals({})",
+        days,
     )
     return [Total(**row) for row in rows]
 

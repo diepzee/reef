@@ -1342,10 +1342,13 @@ account deletes them.
 **How long.** 90 days. The worker purges older rows every hour, separately
 from the search log: one purge failing does not stop the other.
 
-**Totals, never rows.** `reef_call_log_totals(p_since)` is the only way to
-look across people. For each method and outcome since a moment it returns
-how many calls, how many came without a reason, and how many people made
-them. No person, reason, session or time. Print them with
+**Totals, never rows.** `reef_call_log_totals(p_days)` is the only way to
+look across people. For each method and outcome it returns how many calls
+and how many came without a reason. No person, reason, session or time, and
+not how many people: in a reef of three, that would point at one. It counts
+whole days in UTC, from the start of the day `p_days` days ago to the start
+of today, and refuses fewer than 7 days or more than 90. So no window can be
+aimed at one moment, and today's calls count from tomorrow. Print them with
 `just call-totals [days]` (30 by default). In production, run it inside
 `reef-app`, so it uses the app's own role:
 `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/call_totals.py --days 30`.

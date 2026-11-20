@@ -7,7 +7,6 @@ suite's schema.
 
 import importlib
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
 
 import asyncpg
 import pytest_asyncio
@@ -23,16 +22,22 @@ DATABASE = "reef_call_log_totals_drill"
 FIRST = "00000000-0000-0000-0000-0000000000a1"
 SECOND = "00000000-0000-0000-0000-0000000000a2"
 
-TOTALS = "SELECT * FROM reef_call_log_totals($1)"
-SINCE = datetime(2026, 11, 1, tzinfo=UTC)
+TOTALS = "SELECT * FROM reef_call_log_totals(7)"
+
+#: Two days before the start of today, in UTC: inside a week's totals.
+TWO_DAYS_AGO = (
+    "(date_trunc('day', now() AT TIME ZONE 'UTC') - interval '2 days') "
+    "AT TIME ZONE 'UTC'"
+)
 
 
 @pytest_asyncio.fixture(scope="module")
 async def as_of_the_totals() -> AsyncIterator[str]:
     """Build the schema as it stood right after this migration, with calls.
 
-    Two people; each made a call, and one of them a second one without a
-    reason. Seeded as the superuser, which row security does not bind.
+    Two people; each made a call two days ago, and one of them a second one
+    without a reason. Seeded as the superuser, which row security does not
+    bind.
 
     :returns: the DSN of the database, as the owning role
     """
@@ -49,12 +54,12 @@ async def as_of_the_totals() -> AsyncIterator[str]:
         await admin.execute(
             "INSERT INTO call_log (id, person_id, method, reason, writer, outcome, "
             "called_at) VALUES "
-            "(gen_random_uuid(), $1, 'recall', 'why', 'assistant', 'ok', "
-            "'2026-11-10'), "
-            "(gen_random_uuid(), $1, 'recall', '', 'assistant', 'ok', "
-            "'2026-11-11'), "
-            "(gen_random_uuid(), $2, 'recall', 'because', 'assistant', 'ok', "
-            "'2026-11-12')",
+            f"(gen_random_uuid(), $1, 'recall', 'why', 'assistant', 'ok', "
+            f"{TWO_DAYS_AGO}), "
+            f"(gen_random_uuid(), $1, 'recall', '', 'assistant', 'ok', "
+            f"{TWO_DAYS_AGO}), "
+            f"(gen_random_uuid(), $2, 'recall', 'because', 'assistant', 'ok', "
+            f"{TWO_DAYS_AGO})",
             FIRST,
             SECOND,
         )
@@ -86,7 +91,7 @@ async def _totals(dsn: str) -> list[tuple]:
     """
     connection = await asyncpg.connect(dsn)
     try:
-        return [tuple(row) for row in await connection.fetch(TOTALS, SINCE)]
+        return [tuple(row) for row in await connection.fetch(TOTALS)]
     finally:
         await connection.close()
 
@@ -94,8 +99,11 @@ async def _totals(dsn: str) -> list[tuple]:
 async def test_the_chain_creates_the_totals_owned_by_the_authz_role(
     as_of_the_totals,
 ):
-    """Counted across both people, by a function the app's role cannot rewrite."""
-    assert await _totals(as_of_the_totals) == [("recall", "ok", 3, 1, 2)]
+    """Counted across both people, by a function the app's role cannot rewrite.
+
+    Only calls and calls without a reason: no column counts people.
+    """
+    assert await _totals(as_of_the_totals) == [("recall", "ok", 3, 1)]
     admin = await asyncpg.connect(_admin_dsn(DATABASE))
     try:
         owner = await admin.fetchval(
@@ -113,9 +121,9 @@ async def test_it_creates_the_totals_where_they_are_missing_and_can_run_again(
     """Dropped, the totals come back; run on top of itself, nothing changes."""
     admin = await asyncpg.connect(_admin_dsn(DATABASE))
     try:
-        await admin.execute("DROP FUNCTION IF EXISTS reef_call_log_totals(timestamptz)")
+        await admin.execute("DROP FUNCTION IF EXISTS reef_call_log_totals(integer)")
     finally:
         await admin.close()
     await _migrate(as_of_the_totals)
     await _migrate(as_of_the_totals)
-    assert await _totals(as_of_the_totals) == [("recall", "ok", 3, 1, 2)]
+    assert await _totals(as_of_the_totals) == [("recall", "ok", 3, 1)]

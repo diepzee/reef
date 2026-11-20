@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -241,74 +241,97 @@ async def test_the_full_export_carries_only_the_persons_own_calls(
 
 # --- totals across everybody, without reading anybody's calls -----------------
 
-#: When the totals below start; every seeded row but the old one is younger.
-SINCE = datetime(2026, 11, 1, tzinfo=UTC)
-
 #: Words that must never leave the totals: reasons and a session label.
 PRIVATE_REASON = "my divorce lawyer's number"
 PRIVATE_SESSION = "session-zebra-7731"
 
 
+def _midnight() -> datetime:
+    """Return the start of today, in UTC: where every window of totals ends.
+
+    :returns: an aware moment
+    """
+    return datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def _log_at(seed, person, method, reason, outcome, at: datetime) -> None:
+    """Log one call at a given moment, past row security.
+
+    The moment is passed with its time zone, and the column keeps it in the
+    database's own zone, as a call logged at that moment would be kept.
+
+    :param seed: the policy-free connection
+    :param person: whose call it is
+    :param method: the method called
+    :param reason: the reason given
+    :param outcome: how the call ended
+    :param at: when, with a time zone
+    """
+    await seed.execute(
+        "INSERT INTO call_log (id, person_id, session_id, method, reason, writer, "
+        "outcome, called_at) VALUES (gen_random_uuid(), $1, $2, $3, $4, "
+        "'assistant', $5, $6::timestamptz)",
+        person.id,
+        PRIVATE_SESSION,
+        method,
+        reason,
+        outcome,
+        at,
+    )
+
+
 async def _seed_calls(seed, household) -> None:
-    """Log calls for two people, past row security, at fixed times.
+    """Log calls for two people in the last week, and one older call.
 
     Wouter: two recalls (one without a reason) and a retired name. The
-    partner: one recall, and one before :data:`SINCE`, which is not counted.
+    partner: one recall this week, and a write 30 days ago.
 
     :param seed: the policy-free connection
     :param household: the two people
     """
-    wouter, partner = household["wouter"].id, household["partner"].id
-    rows = [
-        (wouter, "recall", PRIVATE_REASON, "ok", "2026-11-10"),
-        (wouter, "recall", "", "ok", "2026-11-11"),
-        (wouter, "read_pages", "", "retired_tool", "2026-11-12"),
-        (partner, "recall", "another private reason", "ok", "2026-11-13"),
-        (partner, "write", "long ago", "version_conflict", "2026-10-01"),
-    ]
-    for person, method, reason, outcome, day in rows:
-        await seed.execute(
-            "INSERT INTO call_log (id, person_id, session_id, method, reason, "
-            "writer, outcome, called_at) VALUES (gen_random_uuid(), $1, $2, $3, "
-            "$4, 'assistant', $5, $6::timestamp)",
-            person,
-            PRIVATE_SESSION,
-            method,
-            reason,
-            outcome,
-            datetime.fromisoformat(day),
-        )
+    wouter, partner = household["wouter"], household["partner"]
+    day = timedelta(days=1)
+    midnight = _midnight()
+    await _log_at(seed, wouter, "recall", PRIVATE_REASON, "ok", midnight - 3 * day)
+    await _log_at(seed, wouter, "recall", "", "ok", midnight - 2 * day)
+    await _log_at(seed, wouter, "read_pages", "", "retired_tool", midnight - day)
+    await _log_at(seed, partner, "recall", "another reason", "ok", midnight - 2 * day)
+    await _log_at(
+        seed, partner, "write", "long ago", "version_conflict", midnight - 30 * day
+    )
 
 
 async def test_the_totals_count_each_method_and_outcome_across_people(household, seed):
-    """Calls, calls without a reason and people, per method and outcome."""
+    """Calls, and calls without a reason, per method and outcome, over a week."""
     await _seed_calls(seed, household)
-    totals = await calllog.totals(SINCE)
-    assert [
-        (t.method, t.outcome, t.calls, t.empty_reasons, t.people) for t in totals
-    ] == [
-        ("read_pages", "retired_tool", 1, 1, 1),
-        ("recall", "ok", 3, 1, 2),
+    totals = await calllog.totals(7)
+    assert [(t.method, t.outcome, t.calls, t.empty_reasons) for t in totals] == [
+        ("read_pages", "retired_tool", 1, 1),
+        ("recall", "ok", 3, 1),
     ]
 
 
 async def test_the_totals_carry_no_person_reason_session_or_time(
     household, seed, probe
 ):
-    """Through the app's own kind of role: five columns, and only totals in them."""
+    """Through the app's own kind of role: four columns, and only totals in them.
+
+    Not even how many people: in a reef of three, that would point at one.
+    """
     await _seed_calls(seed, household)
-    rows = await probe.fetch("SELECT * FROM reef_call_log_totals($1)", SINCE)
+    rows = await probe.fetch("SELECT * FROM reef_call_log_totals(30)")
     assert rows
     assert all(tuple(row.keys()) == CALL_LOG_TOTALS_COLUMNS for row in rows)
+    assert "people" not in CALL_LOG_TOTALS_COLUMNS
     values = " ".join(str(value) for row in rows for value in row.values())
     for private in (
         str(household["wouter"].id),
         str(household["partner"].id),
         household["wouter"].email,
         PRIVATE_REASON,
-        "another private reason",
+        "another reason",
         PRIVATE_SESSION,
-        "2026-11",
+        str(_midnight().year),
     ):
         assert private not in values
 
@@ -316,8 +339,8 @@ async def test_the_totals_carry_no_person_reason_session_or_time(
 async def test_a_person_learns_only_totals_about_other_people(household, seed, probe):
     """Armed as the partner: their own rows in the table, only counts beyond.
 
-    The function takes nothing but a moment, so it cannot be narrowed to one
-    person, and nobody without a grant may call it.
+    The function takes nothing but a number of days, so it cannot be narrowed
+    to one person or one moment, and nobody without a grant may call it.
     """
     await _seed_calls(seed, household)
     async with probe.transaction():
@@ -326,7 +349,7 @@ async def test_a_person_learns_only_totals_about_other_people(household, seed, p
             str(household["partner"].id),
         )
         own = await probe.fetch("SELECT method FROM call_log")
-        totals = await probe.fetch("SELECT * FROM reef_call_log_totals($1)", SINCE)
+        totals = await probe.fetch("SELECT * FROM reef_call_log_totals(7)")
     assert sorted(row["method"] for row in own) == ["recall", "write"]
     assert {(row["method"], row["calls"]) for row in totals} == {
         ("read_pages", 1),
@@ -337,49 +360,97 @@ async def test_a_person_learns_only_totals_about_other_people(household, seed, p
         "pg_get_userbyid(proowner) AS owner, proacl::text[] AS acl "
         "FROM pg_proc WHERE proname = 'reef_call_log_totals'"
     )
-    assert function["args"] == "p_since timestamp with time zone"
+    assert function["args"] == "p_days integer"
     assert function["prosecdef"] is True
     assert function["owner"] in ("reef_authz", "rif_authz")
     assert not [grant for grant in function["acl"] if grant.startswith("=")]
 
 
+@pytest.mark.parametrize("days", [6, 91, None])
+async def test_fewer_than_a_week_or_more_than_ninety_days_is_refused(probe, days):
+    """A short window could be aimed at one call; a long one at nothing kept."""
+    with pytest.raises(asyncpg.InvalidParameterValueError):
+        await probe.fetch("SELECT * FROM reef_call_log_totals($1)", days)
+    if days is not None:
+        with pytest.raises(ValueError, match="7 to 90"):
+            await calllog.totals(days)
+
+
+@pytest.mark.parametrize("days", [7, 90])
+async def test_a_week_and_ninety_days_are_counted(household, seed, days):
+    """The bounds themselves are allowed."""
+    await _seed_calls(seed, household)
+    assert sum(total.calls for total in await calllog.totals(days)) == (
+        4 if days == 7 else 5
+    )
+
+
+async def test_the_window_is_whole_days_in_utc(household, seed):
+    """From the start of the day a week ago to the start of today, in UTC.
+
+    A call at the first moment of the window counts, one a second earlier
+    does not. Today does not count yet, so polling the totals during a day
+    never shows when one call was made.
+    """
+    me = household["wouter"]
+    midnight, second = _midnight(), timedelta(seconds=1)
+    start = midnight - timedelta(days=7)
+    for moment, method in (
+        (start - second, "before"),
+        (start, "first"),
+        (midnight - second, "last"),
+        (midnight, "today"),
+    ):
+        await _log_at(seed, me, method, "", "ok", moment)
+    assert [total.method for total in await calllog.totals(7)] == ["first", "last"]
+
+
 async def test_the_operators_script_prints_only_the_totals(household, seed):
     """``just call-totals`` prints a header and one line per total, nothing more."""
     await _seed_calls(seed, household)
-    root = Path(__file__).resolve().parent.parent
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        str(root / "scripts" / "call_totals.py"),
-        "--days",
-        "36500",
-        env={**os.environ, "DATABASE_URL": get_settings().database.test_url},
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=root,
-    )
-    stdout, stderr = (stream.decode() for stream in await process.communicate())
-    assert process.returncode == 0, stderr
-    lines = stdout.splitlines()
-    assert [line.split() for line in lines] == [
+    stdout, stderr, code = await _script("--days", "90")
+    assert code == 0, stderr
+    assert [line.split() for line in stdout.splitlines()] == [
         list(CALL_LOG_TOTALS_COLUMNS),
-        ["read_pages", "retired_tool", "1", "1", "1"],
-        ["recall", "ok", "3", "1", "2"],
-        ["write", "version_conflict", "1", "0", "1"],
+        ["read_pages", "retired_tool", "1", "1"],
+        ["recall", "ok", "3", "1"],
+        ["write", "version_conflict", "1", "0"],
     ]
-    everything = stdout + stderr
     for private in (
         str(household["wouter"].id),
         household["partner"].email,
         PRIVATE_REASON,
         PRIVATE_SESSION,
     ):
-        assert private not in everything
+        assert private not in stdout + stderr
 
 
-async def test_the_totals_refuse_a_moment_without_a_time_zone():
-    """A naive moment would be read in the server's zone, which nobody sees."""
-    with pytest.raises(ValueError, match="time zone"):
-        await calllog.totals(SINCE.replace(tzinfo=None))
+async def test_the_operators_script_refuses_less_than_a_week():
+    """Refused before the database is asked, and nothing is printed."""
+    stdout, stderr, code = await _script("--days", "6")
+    assert code != 0
+    assert stdout == ""
+    assert "7" in stderr
+
+
+async def _script(*arguments: str) -> tuple[str, str, int]:
+    """Run ``scripts/call_totals.py`` against the test database.
+
+    :param arguments: its command-line arguments
+    :returns: what it printed, what it logged, and its exit code
+    """
+    root = Path(__file__).resolve().parent.parent
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(root / "scripts" / "call_totals.py"),
+        *arguments,
+        env={**os.environ, "DATABASE_URL": get_settings().database.test_url},
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        cwd=root,
+    )
+    stdout, stderr = (stream.decode() for stream in await process.communicate())
+    return stdout, stderr, process.returncode
 
 
 def test_the_reason_is_scrubbed_from_telemetry():
