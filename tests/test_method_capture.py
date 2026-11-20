@@ -8,13 +8,13 @@ import asyncio
 import base64
 
 import pytest
+from conftest import Store, caller_for, save_as
 
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
 from reef.methods import REGISTRY, Caller, MethodError, capture, find, logs
 from reef.models import Engram, Revision
-from tests.test_method_find import Store, _save, caller_for
 
 #: A small cap, so a test can fill a part with a few entries.
 CAP = 1_000
@@ -145,7 +145,7 @@ async def test_log_appends_and_touches_nothing_else(household):
     """The entry lands at the end; everything before it is byte for byte the same."""
     me = caller_for(household["wouter"])
     before = "# Climbing log\n\nIntro  \n\n### 2026-01-01\n\nHung twice.\n\n\n"
-    saved = await _save(
+    saved = await save_as(
         me, "personal", "climbing-log.md", before, title="Climbing", tags=["log", "x"]
     )
     result = await capture.log(
@@ -182,7 +182,7 @@ async def test_log_keeps_the_level_of_a_log_with_level_two_entries(household):
     before = (
         "# Climbing log\n\n## Day 1\n\n```\n### not an entry\n```\n\n## Day 2\n\nx\n"
     )
-    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    await save_as(me, "personal", "climbing-log.md", before, tags=["log"])
     await capture.log(me, "", "personal", "climbing-log.md", "Day 3", "Sent it.")
     after = await _read(me, "personal", "climbing-log.md")
     assert after.body == before + "\n\n## Day 3\n\nSent it.\n"
@@ -199,7 +199,7 @@ async def test_log_keeps_level_two_in_a_new_part(household, small_cap):
     """A full log of ``##`` entries goes on in part two with a ``##`` entry."""
     me = caller_for(household["wouter"])
     before = "## Day 1\n\n" + "x" * 800 + "\n"
-    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    await save_as(me, "personal", "climbing-log.md", before, tags=["log"])
     result = await capture.log(
         me, "", "personal", "climbing-log.md", "Day 2", "y" * 300
     )
@@ -213,7 +213,7 @@ async def test_log_keeps_level_three_when_the_log_has_any(household):
     """A log with a ``###`` entry anywhere gets ``###`` entries."""
     me = caller_for(household["wouter"])
     before = "# Log\n\n## 2026\n\n### Day 1\n\nx\n"
-    await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+    await save_as(me, "personal", "climbing-log.md", before, tags=["log"])
     await capture.log(me, "", "personal", "climbing-log.md", "Day 2", "y")
     after = await _read(me, "personal", "climbing-log.md")
     assert after.body == before + "\n\n### Day 2\n\ny\n"
@@ -222,7 +222,7 @@ async def test_log_keeps_level_three_when_the_log_has_any(household):
 async def test_log_refuses_what_is_not_a_log(household):
     """An engram without the ``log`` tag is not turned into one."""
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "notes.md", "Plain notes.")
+    await save_as(me, "personal", "notes.md", "Plain notes.")
     with pytest.raises(MethodError) as refused:
         await capture.log(me, "", "personal", "notes.md", "Day 1", "x")
     assert refused.value.code == "not_a_log"
@@ -294,7 +294,7 @@ async def test_log_naming_a_part_not_there_yet_adds_to_its_log(household):
 async def test_log_skips_a_part_name_already_taken(household, small_cap):
     """An engram that is not part of the log keeps its name and its text."""
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "climbing-log-2.md", "Something else.")
+    await save_as(me, "personal", "climbing-log-2.md", "Something else.")
     await capture.log(me, "", "personal", "climbing-log.md", "Day 1", "x" * 600)
     result = await capture.log(
         me, "", "personal", "climbing-log.md", "Day 2", "y" * 400
@@ -311,7 +311,7 @@ async def test_log_leaves_out_a_closing_link_that_does_not_fit(household, small_
     """A part filled by other means is not taken past the cap to close it."""
     me = caller_for(household["wouter"])
     full = "x" * (small_cap - 5)
-    await _save(me, "personal", "climbing-log.md", full, tags=["log"])
+    await save_as(me, "personal", "climbing-log.md", full, tags=["log"])
     result = await capture.log(me, "", "personal", "climbing-log.md", "Day 1", "y")
     assert result["engram"] == "climbing-log-2.md"
     assert (await _read(me, "personal", "climbing-log.md")).body == full
@@ -328,7 +328,7 @@ async def test_log_with_an_old_style_path_refuses_to_start_part_two(
     """
     me = caller_for(household["wouter"])
     first = "### Day 1\n\n" + "x" * 600 + "\n"
-    await _save(me, "personal", "notes/climbing-log.md", first, tags=["log"])
+    await save_as(me, "personal", "notes/climbing-log.md", first, tags=["log"])
     # As it was stored before normalize_path existed.
     await seed.execute(
         "UPDATE engrams SET path = 'Notes/climbing-log.md' "
@@ -358,7 +358,7 @@ async def test_two_logs_at_once_both_land(household, exists):
     me = caller_for(household["wouter"])
     before = "# Log\n\nIntro.\n" if exists else ""
     if exists:
-        await _save(me, "personal", "climbing-log.md", before, tags=["log"])
+        await save_as(me, "personal", "climbing-log.md", before, tags=["log"])
     headings = [f"Session {number}" for number in range(4)]
     await asyncio.gather(
         *(
@@ -388,7 +388,7 @@ async def test_log_refuses_an_empty_heading(household):
 async def test_write_writes_a_batch(household):
     """Several engrams in one call, each with its new version, in order."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "existing.md", "old")
+    await save_as(me, "household", "existing.md", "old")
     result = await capture.write(
         me,
         "restructure the house notes",
@@ -430,7 +430,7 @@ async def test_write_refuses_the_persona(household):
 async def test_write_is_all_or_nothing(household):
     """A stale version anywhere refuses the batch, and names the engram."""
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "y.md", "old")
+    await save_as(me, "personal", "y.md", "old")
     with pytest.raises(MethodError) as refused:
         await capture.write(
             me,
@@ -485,7 +485,7 @@ async def test_write_names_the_malformed_engram(household):
 async def test_store_file_then_open(household, store):
     """A stored file can be opened by the reference it comes back with."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", "The car.")
+    await save_as(me, "household", "car.md", "The car.")
     stored = await capture.store_file(
         me,
         "keep the insurance policy",

@@ -6,13 +6,13 @@ Like the other method tests, these manage their own transactions.
 from dataclasses import replace
 
 import pytest
+from conftest import caller_for, save_as
 
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import PERSONA_PATH, get_engram
 from reef.methods import REGISTRY, Caller, MethodError, share
 from reef.models import Engram, Revision
-from tests.test_method_find import _save, caller_for
 
 BOILER = "Vaillant ecoTEC, serviced every autumn."
 
@@ -47,7 +47,7 @@ async def test_share_moves_and_leaves_a_pointer(household):
     """The shared space gets the text; the original becomes a pointer."""
     me = caller_for(household["wouter"])
     partner = caller_for(household["partner"])
-    await _save(me, "personal", "boiler.md", BOILER, title="Boiler")
+    await save_as(me, "personal", "boiler.md", BOILER, title="Boiler")
     first = await share.share(me, "", "boiler.md", "household")
     assert first["expires_in"] == 600
     assert "Everyone in that space can read it" in first["effect"]
@@ -67,8 +67,8 @@ async def test_share_shows_the_exact_text_first(household):
     effect stays a description and quotes none of it.
     """
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "boiler.md", BOILER)
-    await _save(me, "personal", "notes.md", f"Keep this private.\n\n{BOILER}")
+    await save_as(me, "personal", "boiler.md", BOILER)
+    await save_as(me, "personal", "notes.md", f"Keep this private.\n\n{BOILER}")
     whole = await share.share(me, "", "boiler.md", "household")
     assert whole["text"] == BOILER
     section = await share.share(
@@ -81,8 +81,8 @@ async def test_share_shows_the_exact_text_first(household):
 async def test_share_refuses_a_taken_path_at_the_first_call(household):
     """A path already used in the shared space is refused before the person is asked."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "boiler.md", "Joint notes.")
-    await _save(me, "personal", "boiler.md", BOILER)
+    await save_as(me, "household", "boiler.md", "Joint notes.")
+    await save_as(me, "personal", "boiler.md", BOILER)
     with pytest.raises(MethodError) as refused:
         await share.share(me, "", "boiler.md", "household")
     assert refused.value.code == "share_target_exists"
@@ -94,7 +94,7 @@ async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     """A section share without a path is refused; with one, the rest stays."""
     me = caller_for(household["wouter"])
     partner = caller_for(household["partner"])
-    await _save(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
+    await save_as(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
     with pytest.raises(MethodError) as refused:
         await share.share(me, "", "notes.md", "household", section=BOILER)
     assert refused.value.code == "share_needs_path"
@@ -137,7 +137,7 @@ async def _last_channel(caller: Caller, space: str, path: str) -> str:
 async def test_share_keeps_who_shared_on_both_revisions(household, section):
     """The shared copy and what stays behind both name the caller's writer kind."""
     me = replace(caller_for(household["wouter"]), writer="person")
-    await _save(me, "personal", "boiler.md", f"Keep.\n\n{BOILER}")
+    await save_as(me, "personal", "boiler.md", f"Keep.\n\n{BOILER}")
     args = {"section": section, "to_path": "shared-boiler.md"}
     first = await share.share(me, "", "boiler.md", "household", **args)
     await share.share(me, "", "boiler.md", "household", confirm=first["token"], **args)
@@ -149,7 +149,7 @@ async def test_share_token_does_not_act_twice(household):
     """A retry with the same token answers as done and moves nothing again."""
     me = caller_for(household["wouter"])
     partner = caller_for(household["partner"])
-    await _save(me, "personal", "boiler.md", BOILER)
+    await save_as(me, "personal", "boiler.md", BOILER)
     first = await share.share(me, "", "boiler.md", "household")
     done = await share.share(me, "", "boiler.md", "household", confirm=first["token"])
     assert done["already_done"] is False
@@ -170,8 +170,8 @@ async def test_share_token_refused_for_other_arguments(household, changed):
     """A token for one engram, path or section does not move another."""
     me = caller_for(household["wouter"])
     partner = caller_for(household["partner"])
-    await _save(me, "personal", "boiler.md", BOILER)
-    await _save(me, "personal", "other.md", "Other private text.")
+    await save_as(me, "personal", "boiler.md", BOILER)
+    await save_as(me, "personal", "other.md", "Other private text.")
     first = await share.share(me, "", "boiler.md", "household")
     args = {"engram": "boiler.md", "to_space": "household"} | changed
     with pytest.raises(MethodError) as refused:
@@ -185,7 +185,7 @@ async def test_share_token_refused_for_other_arguments(household, changed):
 async def test_share_refusals_are_plain_codes(household):
     """Unknown space, personal target, a viewer's space and a missing engram."""
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "boiler.md", BOILER)
+    await save_as(me, "personal", "boiler.md", BOILER)
     for to_space, code in (
         ("nowhere", "unknown_space"),
         ("personal", "share_to_personal"),

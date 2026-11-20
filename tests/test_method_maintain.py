@@ -5,6 +5,7 @@ opens its own, as it does behind the tools.
 """
 
 import pytest
+from conftest import Store, attach_file, caller_for, save_as
 
 from reef.access import arm
 from reef.config import get_settings
@@ -12,7 +13,6 @@ from reef.db import transaction_scope
 from reef.engrams import get_engram
 from reef.methods import REGISTRY, Caller, MethodError, find, maintain
 from reef.models import Engram, Revision
-from tests.test_method_find import Store, _file, _save, caller_for
 
 CAR = "The car is a blue estate.\n\nInsured with Ethias."
 
@@ -84,9 +84,9 @@ async def _versions(me: Caller, space: str = "household") -> None:
     :param me: who writes
     :param space: the space to write in
     """
-    await _save(me, space, "car.md", "one", title="First", tags=["a"])
-    await _save(me, space, "car.md", "two", title="Second", tags=["b"])
-    await _save(me, space, "car.md", "three", title="Third", tags=["c"])
+    await save_as(me, space, "car.md", "one", title="First", tags=["a"])
+    await save_as(me, space, "car.md", "two", title="Second", tags=["b"])
+    await save_as(me, space, "car.md", "three", title="Third", tags=["c"])
 
 
 def test_the_three_are_methods():
@@ -101,7 +101,7 @@ def test_the_three_are_methods():
 async def test_correct_replaces_one_passage(household):
     """One passage changes; history keeps who changed it and the old text."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
+    await save_as(me, "household", "car.md", CAR)
     done = await maintain.correct(
         me, "fix colour", "household", "car.md", "blue", "green", "colour was wrong"
     )
@@ -124,7 +124,7 @@ async def test_correct_replaces_one_passage(household):
 async def test_correct_needs_the_passage_exactly_once(household, old, code):
     """A passage that is missing or occurs more than once changes nothing."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
+    await save_as(me, "household", "car.md", CAR)
     with pytest.raises(MethodError) as refused:
         await maintain.correct(me, "", "household", "car.md", old, "x", "m")
     assert refused.value.code == code
@@ -134,7 +134,7 @@ async def test_correct_needs_the_passage_exactly_once(household, old, code):
 async def test_correct_refuses_a_stale_version_and_a_missing_engram(household):
     """An old expected version conflicts; a missing engram is not found."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
+    await save_as(me, "household", "car.md", CAR)
     with pytest.raises(MethodError) as stale:
         await maintain.correct(
             me, "", "household", "car.md", "blue", "red", "m", expected_version=7
@@ -178,8 +178,8 @@ async def test_maintain_refuses_unknown_spaces_and_viewers(household, graph, sto
     await graph.add_membership(person, household["shared"], "viewer", alias="household")
     viewer = caller_for(person)
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
-    key = await _file(me, "household", "A policy.")
+    await save_as(me, "household", "car.md", CAR)
+    key = await attach_file(me, "household", "A policy.")
     for who, space, code in [
         (viewer, "household", "read_only"),
         (me, "nowhere", "unknown_space"),
@@ -229,12 +229,12 @@ async def test_undo_to_a_given_version(household):
 async def test_undo_at_version_one_refuses(household):
     """The first version has nothing before it; neither has the current one."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", "one")
+    await save_as(me, "household", "car.md", "one")
     for version in (None, 1):
         with pytest.raises(MethodError) as refused:
             await maintain.undo(me, "", "household", "car.md", version=version)
         assert refused.value.code == "nothing_to_undo"
-    await _save(me, "household", "car.md", "two")
+    await save_as(me, "household", "car.md", "two")
     with pytest.raises(MethodError) as same:
         await maintain.undo(me, "", "household", "car.md", version=2)
     assert same.value.code == "nothing_to_undo"
@@ -244,8 +244,8 @@ async def test_undo_at_version_one_refuses(household):
 async def test_undo_refuses_a_version_that_does_not_exist(household, version):
     """A version below 1 or above the current one is not there."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", "one")
-    await _save(me, "household", "car.md", "two")
+    await save_as(me, "household", "car.md", "one")
+    await save_as(me, "household", "car.md", "two")
     with pytest.raises(MethodError) as refused:
         await maintain.undo(me, "", "household", "car.md", version=version)
     assert refused.value.code == "no_such_version"
@@ -268,7 +268,7 @@ async def test_undo_cannot_bring_back_a_forgotten_engram(household):
 async def test_forget_needs_the_token(household):
     """The first call deletes nothing; the second, with the token, does."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR, title="The car")
+    await save_as(me, "household", "car.md", CAR, title="The car")
     staged = await maintain.forget(me, "", "household", engram="car.md")
     assert staged["expires_in"] == 600
     assert "The car" in staged["effect"]
@@ -287,8 +287,8 @@ async def test_forget_needs_the_token(household):
 async def test_forget_token_cannot_delete_something_else(household):
     """A token for engram A is refused for engram B, which stays."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "a.md", "A")
-    await _save(me, "household", "b.md", "B")
+    await save_as(me, "household", "a.md", "A")
+    await save_as(me, "household", "b.md", "B")
     staged = await maintain.forget(me, "", "household", engram="a.md")
     for kwargs in ({"engram": "b.md"}, {"file": "a.md"}):
         with pytest.raises(MethodError) as refused:
@@ -309,7 +309,7 @@ async def test_forget_unreadable_is_not_found(household):
     """A missing engram and one in someone else's space look the same."""
     me = caller_for(household["wouter"])
     partner = caller_for(household["partner"])
-    await _save(partner, "personal", "secret.md", "Mine.")
+    await save_as(partner, "personal", "secret.md", "Mine.")
     answers = []
     for target in ("missing.md", "secret.md"):
         with pytest.raises(MethodError) as refused:
@@ -334,10 +334,10 @@ async def test_forget_takes_exactly_one_target(household, kwargs):
 async def test_forget_replayed_token_after_deletion_is_not_found(household):
     """Using a token again once the engram is gone deletes nothing more."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
+    await save_as(me, "household", "car.md", CAR)
     staged = await maintain.forget(me, "", "household", engram="car.md")
     await maintain.forget(me, "", "household", engram="car.md", confirm=staged["token"])
-    await _save(me, "household", "other.md", "Other.")
+    await save_as(me, "household", "other.md", "Other.")
     with pytest.raises(MethodError) as replay:
         await maintain.forget(
             me, "", "household", engram="car.md", confirm=staged["token"]
@@ -349,7 +349,7 @@ async def test_forget_replayed_token_after_deletion_is_not_found(household):
 async def test_forget_a_file(household, store):
     """A file is described by name and size, then deleted with its bytes."""
     me = caller_for(household["wouter"])
-    key = await _file(me, "household", "A policy.")
+    key = await attach_file(me, "household", "A policy.")
     staged = await maintain.forget(me, "", "household", file=key)
     assert "policy.pdf" in staged["effect"]
     assert "4 bytes" in staged["effect"]
@@ -365,7 +365,7 @@ async def test_forget_a_file(household, store):
 async def test_forget_in_a_personal_space_does_not_name_other_members(household):
     """In a personal space nobody else loses anything."""
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "note.md", "Note.")
+    await save_as(me, "personal", "note.md", "Note.")
     staged = await maintain.forget(me, "", "personal", engram="note.md")
     assert "member" not in staged["effect"].lower()
 
@@ -375,7 +375,7 @@ async def test_undo_keeps_the_log_tag_a_migration_added(household):
     from reef.methods import capture
 
     me = caller_for(household["wouter"])
-    await _save(me, "household", "trip-log.md", "# Trip\n")
+    await save_as(me, "household", "trip-log.md", "# Trip\n")
     async with transaction_scope():
         await arm(me.principal)
         await Engram.update({Engram.tags: ["log"]}).where(Engram.path == "trip-log.md")
@@ -391,10 +391,10 @@ async def test_undo_keeps_the_log_tag_a_migration_added(household):
 async def test_forget_token_does_not_delete_a_recreated_engram(household):
     """A replayed token cannot delete a new engram at the old path."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", CAR)
+    await save_as(me, "household", "car.md", CAR)
     staged = await maintain.forget(me, "", "household", engram="car.md")
     await maintain.forget(me, "", "household", engram="car.md", confirm=staged["token"])
-    await _save(me, "household", "car.md", "A new car.")
+    await save_as(me, "household", "car.md", "A new car.")
     with pytest.raises(MethodError) as replay:
         await maintain.forget(
             me, "", "household", engram="car.md", confirm=staged["token"]
@@ -409,8 +409,8 @@ async def test_forget_token_is_refused_when_the_name_points_elsewhere(household,
 
     me = caller_for(household["wouter"])
     club = await graph.shared_space("club", household["wouter"])
-    await _save(me, "household", "car.md", CAR)
-    await _save(me, "club", "car.md", "Club car.")
+    await save_as(me, "household", "car.md", CAR)
+    await save_as(me, "club", "car.md", "Club car.")
     staged = await maintain.forget(me, "", "household", engram="car.md")
     async with transaction_scope():
         await rename_space(me.principal, "household", "home")

@@ -4,10 +4,10 @@ Like the other find tests, these manage their own transactions.
 """
 
 import pytest
+from conftest import caller_for, save_as
 
 from reef.methods import REGISTRY, MethodError, find, logs
 from reef.models import Engram
-from tests.test_method_find import _save, caller_for
 
 
 def _entries(first: int, last: int) -> str:
@@ -29,8 +29,8 @@ def test_brief_is_a_method():
 
 async def test_brief_gives_plan_and_recent_entries(household):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "climbing-plan.md", "The climbing plan: hang twice.")
-    await _save(
+    await save_as(me, "personal", "climbing-plan.md", "The climbing plan: hang twice.")
+    await save_as(
         me,
         "personal",
         "climbing-log.md",
@@ -55,14 +55,14 @@ async def test_brief_gives_plan_and_recent_entries(household):
 
 async def test_brief_stitches_entries_across_parts(household):
     me = caller_for(household["wouter"])
-    await _save(
+    await save_as(
         me,
         "personal",
         "climbing-log.md",
         "# Climbing\n\n" + _entries(1, 3),
         tags=["log"],
     )
-    await _save(
+    await save_as(
         me,
         "personal",
         "climbing-log-2.md",
@@ -83,7 +83,7 @@ async def test_brief_stitches_entries_across_parts(household):
 async def test_brief_stays_within_budget(household):
     me = caller_for(household["wouter"])
     for number in range(5):
-        await _save(me, "personal", f"budget-{number}.md", "budget " * 3_000)
+        await save_as(me, "personal", f"budget-{number}.md", "budget " * 3_000)
     result = await find.brief(me, "money", "budget")
     sizes = [len(item["body"]) for item in result["engrams"]]
     assert sizes == [8_000, 8_000, 8_000, 6_000]
@@ -92,7 +92,7 @@ async def test_brief_stays_within_budget(household):
 async def test_brief_cuts_a_log_from_its_oldest_entries(household, monkeypatch):
     me = caller_for(household["wouter"])
     monkeypatch.setattr(find, "BRIEF_BUDGET", 100)
-    await _save(
+    await save_as(
         me, "personal", "climbing-log.md", "# Log\n\n" + _entries(1, 9), tags=["log"]
     )
     [item] = (await find.brief(me, "", "climbing", entries=9))["engrams"]
@@ -108,14 +108,14 @@ async def test_brief_without_matches_is_empty(household):
 
 async def test_brief_never_shows_what_the_caller_may_not_read(household):
     partner = caller_for(household["partner"])
-    await _save(partner, "personal", "secret.md", "The zeppelin plan.")
+    await save_as(partner, "personal", "secret.md", "The zeppelin plan.")
     me = caller_for(household["wouter"])
     assert await find.brief(me, "", "zeppelin") == {"engrams": []}
 
 
 async def test_brief_clamps_entries(household):
     me = caller_for(household["wouter"])
-    await _save(
+    await save_as(
         me, "personal", "climbing-log.md", "# Log\n\n" + _entries(1, 9), tags=["log"]
     )
     [item] = (await find.brief(me, "", "climbing", entries=0))["engrams"]
@@ -141,8 +141,8 @@ async def test_recall_refuses_an_unknown_space(household):
 async def test_series_orders_parts_numerically(household):
     me = caller_for(household["wouter"])
     for path in ("a-log.md", "a-log-2.md", "a-log-10.md", "a-log-3.md"):
-        await _save(me, "personal", path, _entries(1, 1), tags=["log"])
-    await _save(me, "personal", "a-log-4.md", _entries(1, 1))
+        await save_as(me, "personal", path, _entries(1, 1), tags=["log"])
+    await save_as(me, "personal", "a-log-4.md", _entries(1, 1))
     for start in ("a-log-10.md", "a-log.md", "a-log-3.md"):
         parts = await logs.series(me, "personal", start)
         assert [part.path for part in parts] == [
@@ -155,7 +155,7 @@ async def test_series_orders_parts_numerically(household):
 
 async def test_series_is_empty_for_what_is_not_a_log(household):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "note.md", "Not a log.")
+    await save_as(me, "personal", "note.md", "Not a log.")
     assert await logs.series(me, "personal", "note.md") == []
     assert await logs.series(me, "personal", "missing.md") == []
 
@@ -163,7 +163,7 @@ async def test_series_is_empty_for_what_is_not_a_log(household):
 async def test_last_entries_use_level_two_without_level_three(household):
     me = caller_for(household["wouter"])
     body = "# Log\n\nIntro.\n\n## One\nx\n\n## Two\ny\n"
-    await _save(me, "personal", "l.md", body, tags=["log"])
+    await save_as(me, "personal", "l.md", body, tags=["log"])
     parts = await logs.series(me, "personal", "l.md")
     assert logs.last_entries(parts, 5) == ["## One\nx", "## Two\ny"]
     assert logs.last_entries(parts, 0) == []

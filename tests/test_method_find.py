@@ -10,57 +10,19 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 
 import pytest
+from conftest import Store, attach_file, caller_for, save_as
 
 from reef import embedding, sections
-from reef.access import Principal
 from reef.attachments import add_attachment
 from reef.breaker import Breaker
 from reef.config import get_settings
 from reef.context import build_index
 from reef.db import transaction_scope
 from reef.engrams import get_engram, save_engram
-from reef.methods import REGISTRY, Caller, MethodError, find
-from reef.models import Engram
+from reef.methods import REGISTRY, MethodError, find
 
 CAR = "The car is a blue estate, insured with Ethias for 45 euro a month. "
 HOUSE = "The house policy covers fire and storm damage, renewed every March. "
-
-
-def caller_for(person) -> Caller:
-    """Build the caller the MCP transport would build for this person.
-
-    :param person: a seeded person
-    :returns: the caller
-    """
-    principal = Principal(person_id=person.id, email=person.email)
-    return Caller(principal=principal, writer="assistant", session_id=None)
-
-
-async def _save(caller: Caller, space: str, path: str, body: str, **kw) -> Engram:
-    """Save an engram in a transaction of its own, as a tool call would.
-
-    :param caller: who saves it
-    :param space: the caller's name for the space
-    :param path: the engram's path
-    :param body: its text
-    :param kw: further arguments to :func:`reef.engrams.save_engram`
-    :returns: the saved engram
-    """
-    async with transaction_scope():
-        return await save_engram(caller.principal, space, path, body, message="x", **kw)
-
-
-class Store:
-    """An object store that keeps nothing and signs fake URLs."""
-
-    async def put(self, key: str, data: bytes, mime: str) -> None:
-        """Discard the bytes."""
-
-    async def signed_url(
-        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
-    ) -> str:
-        """Return a stand-in URL."""
-        return f"https://files.example/{key}?ttl={expires_in}"
 
 
 @pytest.fixture
@@ -69,26 +31,6 @@ def store(monkeypatch) -> Store:
     fake = Store()
     monkeypatch.setattr(find, "S3ObjectStore", lambda: fake)
     return fake
-
-
-async def _file(caller: Caller, space: str, description: str) -> str:
-    """Store a described PDF and return its key.
-
-    :param caller: who stores it
-    :param space: the caller's name for the space
-    :param description: what the file is
-    :returns: the file's key
-    """
-    attachment = await add_attachment(
-        caller.principal,
-        space,
-        b"%PDF",
-        "application/pdf",
-        filename="policy.pdf",
-        description=description,
-        store=Store(),
-    )
-    return attachment.object_key
 
 
 class WordCounter:
@@ -146,7 +88,7 @@ def test_the_four_are_methods():
 
 async def test_load_index_lists_members_per_space(household):
     me = caller_for(household["wouter"])
-    await _save(me, "household", "house.md", "# House\n\nThe boiler is new.\n")
+    await save_as(me, "household", "house.md", "# House\n\nThe boiler is new.\n")
     index = await find.load_index(me, "start of the conversation")
     members = {space["alias"]: space["members"] for space in index["spaces"]}
     assert members == {"personal": ["Wouter"], "household": ["Partner", "Wouter"]}
@@ -219,8 +161,10 @@ async def test_load_index_puts_the_protocol_first(household):
 async def test_load_index_lists_no_files_but_counts_them(household):
     """A space says how many ready files it has; the engram they hang on says so too."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "car.md", "# Car\n\nThe blue estate.\n", title="Car")
-    await _save(me, "household", "house.md", "# House\n\nThe boiler.\n", title="House")
+    await save_as(me, "household", "car.md", "# Car\n\nThe blue estate.\n", title="Car")
+    await save_as(
+        me, "household", "house.md", "# House\n\nThe boiler.\n", title="House"
+    )
     for description in ("the policy", "the invoice"):
         await add_attachment(
             me.principal,
@@ -257,7 +201,7 @@ async def test_load_index_lists_no_files_but_counts_them(household):
 async def test_an_engram_line_has_one_exact_shape(household):
     """Path, title, description and tags in one line; empty parts are left out."""
     me = caller_for(household["wouter"])
-    await _save(
+    await save_as(
         me,
         "household",
         "a.md",
@@ -265,9 +209,9 @@ async def test_an_engram_line_has_one_exact_shape(household):
         title="The  boiler\nand  more",
         tags=["home", "core"],
     )
-    await _save(me, "household", "b.md", "# Bare\n", title="Bare")
-    await _save(me, "household", "c.md", "Only a description.", title="C", tags=["x"])
-    await _save(me, "household", "d.md", "A  gap.", title="D")
+    await save_as(me, "household", "b.md", "# Bare\n", title="Bare")
+    await save_as(me, "household", "c.md", "Only a description.", title="C", tags=["x"])
+    await save_as(me, "household", "d.md", "A  gap.", title="D")
     household_index = _space(await find.load_index(me, ""), "household")
     assert household_index["engrams"] == [
         "a.md | The boiler and more | Serviced in May. #home #core",
@@ -280,8 +224,8 @@ async def test_an_engram_line_has_one_exact_shape(household):
 async def test_load_index_drops_what_open_gives(household):
     """No version, size, editor, references, inbound or time per engram."""
     me = caller_for(household["wouter"])
-    await _save(me, "household", "a.md", "# A\n\nSee [[b.md]].\n")
-    await _save(me, "household", "b.md", "# B\n\nText.\n")
+    await save_as(me, "household", "a.md", "# A\n\nSee [[b.md]].\n")
+    await save_as(me, "household", "b.md", "# B\n\nText.\n")
     index = await find.load_index(me, "")
     assert set(index) == {"operating_protocol", "spaces"}
     for space in index["spaces"]:
@@ -308,7 +252,7 @@ async def test_a_big_memory_stays_under_the_client_cut_off(household):
             "and fifty characters, which is how long a real opening paragraph "
             "tends to run before it ends."
         )
-        await _save(
+        await save_as(
             me,
             "personal",
             f"topic/engram-{number:03d}.md",
@@ -339,7 +283,7 @@ async def test_a_big_memory_stays_under_the_client_cut_off(household):
 
 async def test_load_index_carries_the_persona(household):
     me = caller_for(household["wouter"])
-    await _save(
+    await save_as(
         me, "personal", "meta/persona.md", "You are Nemo.", allow_protected=True
     )
     index = await find.load_index(me, "")
@@ -353,7 +297,7 @@ async def test_load_index_carries_the_persona(household):
 
 async def test_recall_returns_passage_and_source(household):
     partner = caller_for(household["partner"])
-    await _save(
+    await save_as(
         partner,
         "household",
         "boiler.md",
@@ -407,8 +351,8 @@ async def test_recall_passage_is_the_section_that_answers(household, service):
 
 async def test_recall_respects_space(household):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "boiler.md", "My notes on the boiler.")
-    await _save(me, "household", "boiler.md", "The boiler is a Vaillant.")
+    await save_as(me, "personal", "boiler.md", "My notes on the boiler.")
+    await save_as(me, "household", "boiler.md", "The boiler is a Vaillant.")
     everywhere = await find.recall(me, "", "boiler")
     assert {hit["space"] for hit in everywhere} == {"personal", "household"}
     hits = await find.recall(me, "", "boiler", space="household")
@@ -417,7 +361,7 @@ async def test_recall_respects_space(household):
 
 async def test_recall_keeps_file_hits(household, store):
     me = caller_for(household["wouter"])
-    key = await _file(me, "personal", "The car insurance policy from Ethias.")
+    key = await attach_file(me, "personal", "The car insurance policy from Ethias.")
     [hit] = await find.recall(me, "", "insurance policy")
     assert hit["kind"] == "file"
     assert hit["engram"] is None
@@ -441,9 +385,9 @@ async def test_recall_finds_nothing_for_nothing(household):
 
 async def test_open_engram_and_file(household, store):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "house.md", "# House\n\nSee [[boiler.md]].\n")
-    await _save(me, "personal", "boiler.md", "The boiler is a Vaillant.")
-    key = await _file(me, "personal", "The house insurance policy.")
+    await save_as(me, "personal", "house.md", "# House\n\nSee [[boiler.md]].\n")
+    await save_as(me, "personal", "boiler.md", "The boiler is a Vaillant.")
+    key = await attach_file(me, "personal", "The house insurance policy.")
     ttl = get_settings().files.signed_url_ttl_seconds
 
     engram, file = await find.open(
@@ -475,9 +419,9 @@ async def test_open_engram_and_file(household, store):
 
 async def test_open_reads_the_past(household):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "house.md", "The boiler is broken.")
+    await save_as(me, "personal", "house.md", "The boiler is broken.")
     between = datetime.now(UTC).isoformat()
-    await _save(me, "personal", "house.md", "The boiler is fixed.")
+    await save_as(me, "personal", "house.md", "The boiler is fixed.")
     [then] = await find.open(me, "", ["personal/house.md"], as_of=between)
     assert then["body"] == "The boiler is broken."
     assert then["as_of"] == between
@@ -496,8 +440,8 @@ async def test_open_refuses_a_bad_as_of(household):
 
 async def test_open_unreadable_is_not_found(household, store):
     partner = caller_for(household["partner"])
-    await _save(partner, "personal", "diary.md", "A private entry.")
-    key = await _file(partner, "personal", "A private letter.")
+    await save_as(partner, "personal", "diary.md", "A private entry.")
+    key = await attach_file(partner, "personal", "A private letter.")
     # The positive control: the engram and the file are there to be read.
     own = await find.open(partner, "", ["personal/diary.md", f"personal/file/{key}"])
     assert [result.get("error") for result in own] == [None, None]
@@ -515,7 +459,7 @@ async def test_open_unreadable_is_not_found(household, store):
 
 async def test_open_malformed_refs_are_not_found(household):
     me = caller_for(household["wouter"])
-    await _save(me, "personal", "house.md", "The boiler.")
+    await save_as(me, "personal", "house.md", "The boiler.")
     refs = ["", "personal", "house.md", "/house.md", "personal/", "personal/file/"]
     refs.append("personal/house\x00.md")
     assert await find.open(me, "", refs) == [
@@ -528,7 +472,7 @@ async def test_open_malformed_refs_are_not_found(household):
 
 async def test_catch_up_lists_what_changed(household):
     partner = caller_for(household["partner"])
-    await _save(partner, "household", "house.md", "The boiler was serviced.")
+    await save_as(partner, "household", "house.md", "The boiler was serviced.")
     me = caller_for(household["wouter"])
     news = await find.catch_up(me, "back after a week")
     assert news["since"] == "the last 7 days"

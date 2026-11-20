@@ -22,8 +22,12 @@ from opentelemetry.sdk.trace.export import (
 )
 from piccolo.table import create_db_tables, drop_db_tables
 
+from reef.access import Principal
+from reef.attachments import add_attachment
 from reef.db import DB, transaction_scope
-from reef.models import TABLES, Person, Space, SpaceKind
+from reef.engrams import save_engram
+from reef.methods import Caller
+from reef.models import TABLES, Engram, Person, Space, SpaceKind
 from reef.rls import (
     AUTHZ_ROLE,
     FORMER_AUTHZ_ROLE,
@@ -699,3 +703,60 @@ def captured() -> SpanCapture:
         additional_span_processors=[SimpleSpanProcessor(sink)],
     )
     return sink
+
+
+def caller_for(person) -> Caller:
+    """Build the caller the MCP transport would build for this person.
+
+    :param person: a seeded person
+    :returns: the caller
+    """
+    principal = Principal(person_id=person.id, email=person.email)
+    return Caller(principal=principal, writer="assistant", session_id=None)
+
+
+async def save_as(caller: Caller, space: str, path: str, body: str, **kw) -> Engram:
+    """Save an engram in a transaction of its own, as a tool call would.
+
+    :param caller: who saves it
+    :param space: the caller's name for the space
+    :param path: the engram's path
+    :param body: its text
+    :param kw: further arguments to :func:`reef.engrams.save_engram`
+    :returns: the saved engram
+    """
+    async with transaction_scope():
+        return await save_engram(caller.principal, space, path, body, message="x", **kw)
+
+
+class Store:
+    """An object store that keeps nothing and signs fake URLs."""
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Discard the bytes."""
+
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
+        """Return a stand-in URL."""
+        return f"https://files.example/{key}?ttl={expires_in}"
+
+
+async def attach_file(caller: Caller, space: str, description: str) -> str:
+    """Store a described PDF and return its key.
+
+    :param caller: who stores it
+    :param space: the caller's name for the space
+    :param description: what the file is
+    :returns: the file's key
+    """
+    attachment = await add_attachment(
+        caller.principal,
+        space,
+        b"%PDF",
+        "application/pdf",
+        filename="policy.pdf",
+        description=description,
+        store=Store(),
+    )
+    return attachment.object_key
