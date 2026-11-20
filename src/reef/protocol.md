@@ -14,6 +14,9 @@ person's role there, how many files it holds, and every engram as one line:
 path, title, description, tags and how many files are attached to it. It holds
 no engram text.
 
+To open an engram from the index, put its space before its path:
+`personal/notes/car.md`.
+
 Files are not listed. Find them with `recall`, which returns file hits with a
 ref, and read them with `open`. `open` also gives an engram's full details.
 

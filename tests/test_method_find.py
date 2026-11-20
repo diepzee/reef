@@ -196,11 +196,11 @@ async def test_load_index_says_the_callers_role_and_the_owner(household, graph):
         assert str(household["wouter"].id) not in json.dumps(index)
 
 
-#: What an engram line is made of, for the fixtures below.
+#: The keys of one space in the payload.
 LINE_KEYS = {"alias", "role", "owner", "members", "files", "engrams"}
 
 
-async def _space(index: dict, alias: str) -> dict:
+def _space(index: dict, alias: str) -> dict:
     """Pick one space out of an index.
 
     :param index: what ``load_index`` returned
@@ -242,9 +242,9 @@ async def test_load_index_lists_no_files_but_counts_them(household):
         store=Store(),
     )
     index = await find.load_index(me, "")
-    household_index = await _space(index, "household")
+    household_index = _space(index, "household")
     assert household_index["files"] == 3
-    assert (await _space(index, "personal"))["files"] == 0
+    assert (_space(index, "personal"))["files"] == 0
     assert household_index["engrams"] == [
         "car.md | Car | The blue estate. (2 files)",
         "house.md | House | The boiler.",
@@ -268,7 +268,7 @@ async def test_an_engram_line_has_one_exact_shape(household):
     await _save(me, "household", "b.md", "# Bare\n", title="Bare")
     await _save(me, "household", "c.md", "Only a description.", title="C", tags=["x"])
     await _save(me, "household", "d.md", "A  gap.", title="D")
-    household_index = await _space(await find.load_index(me, ""), "household")
+    household_index = _space(await find.load_index(me, ""), "household")
     assert household_index["engrams"] == [
         "a.md | The boiler and more | Serviced in May. #home #core",
         "b.md | Bare",
@@ -292,14 +292,21 @@ async def test_load_index_drops_what_open_gives(household):
         assert dropped not in text
 
 
-async def test_a_big_memory_stays_under_the_limit(household, capsys):
-    """100 engrams and 400 files give a payload under 30,000 characters."""
+async def test_a_big_memory_stays_under_the_client_cut_off(household):
+    """100 engrams and 400 files stay far below where Claude Code cuts a result.
+
+    Claude Code replaces a tool result of about 50,000 characters with a short
+    preview. The fixture is realistic: titles of about 40 characters and
+    descriptions of about 150. The index part must also be a fraction of
+    the full index the web app gets.
+    """
     me = caller_for(household["wouter"])
     for number in range(100):
         title = f"Engram number {number:03d} about one thing"
         description = (
-            f"What engram {number:03d} holds: a sentence of about ninety "
-            "characters, as a real one reads."
+            f"What engram {number:03d} holds: two sentences of about a hundred "
+            "and fifty characters, which is how long a real opening paragraph "
+            "tends to run before it ends."
         )
         await _save(
             me,
@@ -307,7 +314,7 @@ async def test_a_big_memory_stays_under_the_limit(household, capsys):
             f"topic/engram-{number:03d}.md",
             f"# {title}\n\n{description}\n",
             title=title,
-            tags=["one"],
+            tags=["one", "two"],
         )
     for number in range(400):
         await add_attachment(
@@ -322,14 +329,12 @@ async def test_a_big_memory_stays_under_the_limit(household, capsys):
             engram_path=f"topic/engram-{number % 100:03d}.md",
         )
     async with transaction_scope():
-        before = len(json.dumps(asdict(await build_index(me.principal))))
+        full = len(json.dumps(asdict(await build_index(me.principal))))
     index = await find.load_index(me, "")
-    after = len(json.dumps(index))
-    with capsys.disabled():
-        print(f"\nPAYLOAD before={before} after={after}")
-    assert (await _space(index, "personal"))["files"] == 400
-    assert len(index["spaces"][0]["engrams"]) == 100
-    assert after < 30_000
+    assert _space(index, "personal")["files"] == 400
+    assert len(_space(index, "personal")["engrams"]) == 100
+    assert len(json.dumps(index)) < 45_000
+    assert len(json.dumps(index["spaces"])) < full / 3
 
 
 async def test_load_index_carries_the_persona(household):
