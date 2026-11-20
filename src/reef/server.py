@@ -414,9 +414,12 @@ async def load_index(reason: Reason = "") -> dict:
 
     Returns your operating protocol and the person's persona (follow both),
     and the index: each space with its members, its owner, the person's
-    role there (an owner or member may write, a viewer only reads), and
-    every engram and file in it with a one-line description. The index
-    holds no engram text: use recall to answer from memory.
+    role there (an owner or member may write, a viewer only reads), how
+    many files it holds, and every engram as one line: path, title,
+    description, tags and file count. Files are not listed: find them with
+    recall and read them with open, which also gives an engram's full
+    details. The index holds no engram text: use recall to answer from
+    memory.
     """
     return await _run(find.load_index, reason)
 

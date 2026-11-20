@@ -579,3 +579,15 @@ async def test_a_tool_call_is_logged_as_the_assistant(client, household, monkeyp
     ]
     assert {row["writer"] for row in rows} == {"assistant"}
     assert all(row["session_id"] for row in rows)
+
+
+async def test_load_index_reaches_the_client_protocol_first(client):
+    """The protocol is the first key the client receives, then the spaces.
+
+    The protocol field holds the protocol and the persona together. A client
+    that cuts a long result keeps the start, so the start is what matters.
+    """
+    result = await client.call_tool("load_index", {"reason": "start"})
+    text = "".join(block.text for block in result.content)
+    assert list(json.loads(text)) == ["operating_protocol", "spaces"]
+    assert list(result.structured_content) == ["operating_protocol", "spaces"]

@@ -10,8 +10,12 @@ may also be in shared spaces, which every member can read.
 
 Call `load_index` first. It returns this protocol, the person's persona
 (follow both), and the index. The index lists each space, its members, the
-person's role there, and every engram and file in it, with a one-line
-description. It holds no engram text.
+person's role there, how many files it holds, and every engram as one line:
+path, title, description, tags and how many files are attached to it. It holds
+no engram text.
+
+Files are not listed. Find them with `recall`, which returns file hits with a
+ref, and read them with `open`. `open` also gives an engram's full details.
 
 Read the index to learn what exists. Never answer from a description alone.
 

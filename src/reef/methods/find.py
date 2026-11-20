@@ -1,8 +1,8 @@
 """Find: the methods an assistant reads memory with.
 
-- :func:`load_index` starts a conversation: the operating protocol, the
-  persona, and the index of every engram and file, per space, with each
-  space's members.
+- :func:`load_index` starts a conversation: the operating protocol and the
+  persona, then the index per space: one line per engram, a count of files,
+  and the space's members.
 - :func:`recall` answers a question with passages, each saying where it
   comes from and giving a reference to open it.
 - :func:`open` reads whole engrams and stored files by reference.
@@ -25,6 +25,7 @@ Each method opens the short transactions it needs, armed for the caller.
 embedding service or the reranker.
 """
 
+from collections import Counter
 from dataclasses import asdict
 from datetime import datetime
 
@@ -70,21 +71,27 @@ NOT_FOUND = "not_found"
 async def load_index(caller: Caller, reason: str) -> dict:
     """Return the operating protocol, the persona and the index, per space.
 
-    The index lists every engram the caller can see, without its body, and
-    every described file. Each space also lists its members by display
-    name, so the assistant knows who will read what it writes there, and
-    says what the caller may do there and who owns it, so the assistant
-    knows before writing whether it can.
+    The payload stays small so a client never cuts it: the protocol comes
+    first, then the spaces, and each engram is one line. Files are not
+    listed, only counted; an assistant finds them with :func:`recall` and
+    reads them with :func:`open`. Each space also lists its members by
+    display name, so the assistant knows who will read what it writes there,
+    and says what the caller may do there and who owns it.
+
+    The web app's ``/api/index`` keeps the full :func:`reef.context.build_index`
+    payload; this shaping is for assistants only.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
-    :returns: ``version``, ``spaces`` and ``operating_protocol``, the
-        protocol and the persona. Each space has ``alias``, ``version``,
-        ``engrams``, ``attachments``, ``members``; ``role``, the caller's
-        own (see :func:`_role`); and ``owner``, the owner's display name
+    :returns: ``operating_protocol`` (the protocol, then the persona), then
+        ``spaces``. Each space has ``alias``, ``role`` (the caller's own, see
+        :func:`_role`), ``owner`` (the owner's display name), ``members``,
+        ``files`` (how many ready files it holds) and ``engrams``, one line
+        each (see :func:`_engram_line`)
     """
     principal = caller.principal
     async with transaction_scope():
+        protocol = await build_instructions(principal)
         index = asdict(await build_index(principal))
         aliases = await alias_map(principal)
         spaces = {space.id: space for space in await accessible_spaces(principal)}
@@ -95,14 +102,47 @@ async def load_index(caller: Caller, reason: str) -> dict:
             ).where(Membership.person_id == principal.person_id)
         }
         space_ids = {alias: space_id for space_id, alias in aliases.items()}
+        shaped = []
         for space in index["spaces"]:
             space_id = space_ids[space["alias"]]
             owner = await space_owner(space_id)
-            space["members"] = await member_names(space_id)
-            space["role"] = _role(principal, spaces[space_id], roles.get(space_id))
-            space["owner"] = owner["display_name"] if owner else None
-        index["operating_protocol"] = await build_instructions(principal)
-    return index
+            files_on = Counter(file["engram_path"] for file in space["attachments"])
+            shaped.append(
+                {
+                    "alias": space["alias"],
+                    "role": _role(principal, spaces[space_id], roles.get(space_id)),
+                    "owner": owner["display_name"] if owner else None,
+                    "members": await member_names(space_id),
+                    "files": len(space["attachments"]),
+                    "engrams": [
+                        _engram_line(engram, files_on[engram["path"]])
+                        for engram in space["engrams"]
+                    ],
+                }
+            )
+    return {"operating_protocol": protocol, "spaces": shaped}
+
+
+def _engram_line(engram: dict, files: int) -> str:
+    """Write one engram as one line: ``path | title | description #tag``.
+
+    Whitespace in the title and the description collapses to single spaces.
+    An empty description and an empty tag list leave their parts out.
+
+    :param engram: one engram of :func:`reef.context.build_index`
+    :param files: how many files are attached to it
+    :returns: the line, ending in `` (N files)`` when there are files
+    """
+    title = " ".join(engram["title"].split())
+    description = " ".join(engram["description"].split())
+    line = f"{engram['path']} | {title}"
+    if description:
+        line += f" | {description}"
+    for tag in engram["tags"]:
+        line += f" #{tag}"
+    if files:
+        line += f" ({files} files)"
+    return line
 
 
 def _role(principal: Principal, space: Space, membership: str | None) -> str:
