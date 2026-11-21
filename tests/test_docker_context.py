@@ -97,6 +97,11 @@ def test_the_image_installs_tesseract_and_the_reader_user():
 
     The packages must be in an ``apt-get install`` command itself: a comment
     that names them installs nothing.
+
+    ``reader`` has a fixed id. The child caps the processes of its user, and
+    Linux counts them by id across every container on the same kernel. The
+    id ``useradd --system`` picks, 999, is the one Postgres and Redis
+    containers run as: their processes would use up the cap.
     """
     installed = {
         word
@@ -107,7 +112,9 @@ def test_the_image_installs_tesseract_and_the_reader_user():
         if not word.startswith("-")
     }
     assert {"tesseract-ocr", "tesseract-ocr-nld", "tesseract-ocr-fra"} <= installed
-    reader = "useradd --system --no-create-home --shell /usr/sbin/nologin reader"
+    reader = (
+        "useradd --system --uid 48271 --no-create-home --shell /usr/sbin/nologin reader"
+    )
     assert reader.split() in _commands()
 
 

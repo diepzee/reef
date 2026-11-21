@@ -12,7 +12,8 @@ when the answer holds one. The child:
 - runs as the unprivileged ``reader`` user, with its group only, when the
   worker runs as root;
 - caps its own memory, CPU time, open files and core dumps before it reads
-  a byte (:func:`reef.reading.child.apply_limits`);
+  a byte, and, as ``reader``, the processes it may start
+  (:func:`reef.reading.child.apply_limits`);
 - runs in a session of its own, so its whole process group can be killed
   once the read ends, however it ended;
 - has its stderr thrown away, and is heard on stdout only up to a bound
@@ -80,6 +81,14 @@ PROC = Path("/proc")
 
 _SWEEPS = 100
 """How many times a sweep looks again for processes started while it looked."""
+
+PROCESSES_PER_PAGE = 4
+"""How many processes of ``reader`` one page read at once may need: its
+child, the Tesseract the child starts, and room for two more. Linux counts
+each thread as one too. A child that runs as ``reader`` may have this many
+times ``reading.parallel_pages``, because Linux counts every process of the
+user together. Enough for the reads (in the image, four pages at once peak
+at eight), too few for a fork chain."""
 
 _CHUNK_BYTES = 64 * 1024
 
@@ -403,9 +412,12 @@ def kill_owned_by(uid: int, proc: Path) -> int:
 
     A process is the user's when any of its user ids is: real, effective,
     saved or file system. So a setuid program the user started counts too. A
-    zombie has ended already and is passed over. After each round of kills
-    the sweep looks again, for processes forked while it looked, at most
-    :data:`_SWEEPS` times.
+    zombie with no other thread has ended and is passed over. A zombie with
+    more threads has not: code can end its main thread alone, and the others
+    run on as the user. It is killed like any live process: a signal to its
+    id reaches every thread. After each round of kills the sweep looks
+    again, for processes forked while it looked, at most :data:`_SWEEPS`
+    times.
 
     :param uid: the user
     :param proc: where the processes are listed, ``/proc`` on Linux
@@ -427,6 +439,10 @@ def kill_owned_by(uid: int, proc: Path) -> int:
 def _owned_by(uid: int, proc: Path) -> list[int]:
     """List the live processes of one user.
 
+    A zombie, or a process being removed, counts as ended only when it has
+    at most one thread, its main thread, which has ended. One whose thread
+    count cannot be read counts as live.
+
     The kernel escapes a line break in a process's name, so no process can
     write a line of its status that reads as another field.
 
@@ -445,7 +461,9 @@ def _owned_by(uid: int, proc: Path) -> list[int]:
             continue
         fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
         state = fields.get("State", "").strip()[:1]
-        if state not in ("Z", "X") and str(uid) in fields.get("Uid", "").split():
+        threads = fields.get("Threads", "").strip()
+        ended = state in ("Z", "X") and threads in ("0", "1")
+        if not ended and str(uid) in fields.get("Uid", "").split():
             owned.append(int(entry.name))
     return sorted(owned)
 
@@ -471,6 +489,11 @@ async def run_child(
     gives, and handed back as ``bytes``. When the read ends, however it
     ends, the child's process group is killed.
 
+    A child that runs as ``reader`` is also given a cap on its processes:
+    :data:`PROCESSES_PER_PAGE` for each page read at once. One that runs as
+    the worker's own user is not: Linux would count the worker's processes
+    against it.
+
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits
     :param data: the bytes the child reads from stdin
@@ -494,15 +517,18 @@ async def run_child(
     json_bytes = answer_bytes
     if operation is not None and operation.json_bytes is not None:
         json_bytes = min(json_bytes, operation.json_bytes(args))
+    reading = get_settings().reading
+    identity = _identity()
+    cap = PROCESSES_PER_PAGE * reading.parallel_pages
     command = [
         *child_command(),
         "--memory-mb",
-        str(get_settings().reading.memory_mb),
+        str(reading.memory_mb),
         "--cpu-seconds",
         str(math.ceil(seconds)),
+        *(["--processes", str(cap)] if identity else []),
         *args,
     ]
-    identity = _identity()
     try:
         process = await asyncio.create_subprocess_exec(
             *command,

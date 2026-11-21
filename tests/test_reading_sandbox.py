@@ -107,7 +107,11 @@ async def test_the_child_gets_no_variable_of_the_worker(monkeypatch, spawned):
 
 
 async def test_the_child_is_started_isolated_and_limited(spawned):
-    """Isolated mode, no bytecode, a new session, stderr dropped, limits first."""
+    """Isolated mode, no bytecode, a new session, stderr dropped, limits first.
+
+    Not root here, so the child runs as the worker's own user and gets no
+    process cap: it would count all of that user's processes.
+    """
     seconds = 2.5
     await sandbox.run_child(
         ["parts", "plain", "20000", "200"], b"hello", seconds=seconds
@@ -180,6 +184,52 @@ async def test_a_root_worker_drops_its_groups_too(monkeypatch):
     with pytest.raises(Stop):
         await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=5)
     assert (seen["user"], seen["group"], seen["extra_groups"]) == (999, 998, [])
+
+
+async def test_a_child_that_runs_as_reader_gets_a_process_cap(monkeypatch):
+    """Enough for each page read at once and its Tesseract, not for a fork chain.
+
+    The cap counts every process of ``reader``, so it grows with the pages
+    read at the same time. A child that runs as the worker's own user gets
+    none: see :func:`test_the_child_is_started_isolated_and_limited`.
+    """
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    reader = pwd.struct_passwd(
+        ("reader", "x", 999, 998, "", "/nonexistent", "/usr/sbin/nologin")
+    )
+    monkeypatch.setattr(sandbox.pwd, "getpwnam", lambda name: reader)
+    monkeypatch.setattr(get_settings().reading, "parallel_pages", 3)
+    seen: list[str] = []
+
+    class Stop(Exception):
+        """Ends the call before anything starts."""
+
+    async def spawn(*command: str, **options) -> None:
+        """Record the command and start nothing.
+
+        :param command: the program and its arguments
+        :param options: the keyword arguments
+        :raises Stop: always
+        """
+        seen.extend(command)
+        raise Stop
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    with pytest.raises(Stop):
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=5)
+    assert seen == [
+        *sandbox.child_command(),
+        "--memory-mb",
+        str(get_settings().reading.memory_mb),
+        "--cpu-seconds",
+        "5",
+        "--processes",
+        str(sandbox.PROCESSES_PER_PAGE * 3),
+        "parts",
+        "plain",
+        "20000",
+        "200",
+    ]
 
 
 async def test_a_child_that_runs_too_long_is_stopped(monkeypatch, spawned):
@@ -443,17 +493,29 @@ class _Stdin:
 ARGV = ["--memory-mb", "512", "--cpu-seconds", "7", "parts", "markdown", "20000", "200"]
 
 
-def test_the_child_caps_itself_before_it_reads_the_file(monkeypatch, capsysbinary):
-    """Not one byte of the file is read before the limits are in place."""
+@pytest.mark.parametrize(
+    ("argv", "processes"),
+    [(ARGV, "None"), (["--processes", "16", *ARGV], "16")],
+)
+def test_the_child_caps_itself_before_it_reads_the_file(
+    monkeypatch, capsysbinary, argv: list[str], processes: str
+):
+    """Not one byte of the file is read before the limits are in place.
+
+    :param argv: the child's arguments, with or without a process cap
+    :param processes: the cap the limits are given
+    """
     events: list[str] = []
     monkeypatch.setattr(
         child,
         "apply_limits",
-        lambda memory, cpu: events.append(f"limits {memory} {cpu}"),
+        lambda memory, cpu, processes: events.append(
+            f"limits {memory} {cpu} {processes}"
+        ),
     )
     monkeypatch.setattr(child.sys, "stdin", _Stdin(events, b"# Notes"))
-    assert child.main(ARGV) == 0
-    assert events == ["limits 512 7", "read"]
+    assert child.main(argv) == 0
+    assert events == [f"limits 512 7 {processes}", "read"]
     assert json.loads(capsysbinary.readouterr().out) == {
         "parts": ["# Notes"],
         "pages": 1,
@@ -462,7 +524,7 @@ def test_the_child_caps_itself_before_it_reads_the_file(monkeypatch, capsysbinar
 
 def test_running_out_of_memory_while_reading_is_too_large(monkeypatch, capsysbinary):
     """A file too large to read in is ``TooLarge``, not a crash."""
-    monkeypatch.setattr(child, "apply_limits", lambda memory, cpu: None)
+    monkeypatch.setattr(child, "apply_limits", lambda memory, cpu, processes: None)
     monkeypatch.setattr(child.sys, "stdin", _Stdin([], None))
     assert child.main(ARGV) == 0
     assert json.loads(capsysbinary.readouterr().out) == {"error": "TooLarge"}
@@ -499,6 +561,51 @@ def test_the_child_caps_cpu_files_and_core_dumps():
     assert cpu[0] == 5
     assert files == [64, 64]
     assert core == [0, 0]
+
+
+@pytest.mark.skipif(not ON_LINUX, reason="RLIMIT_NPROC is set on Linux only")
+def test_the_child_caps_its_processes():
+    """A fork chain stops at the cap: the soft and the hard limit are both set."""
+    code = (
+        "import json, resource\n"
+        "from reef.reading.child import apply_limits\n"
+        "apply_limits(64, 5, 16)\n"
+        "print(json.dumps(resource.getrlimit(resource.RLIMIT_NPROC)))\n"
+    )
+    out = subprocess.run(
+        [sys.executable, "-I", "-c", code], capture_output=True, text=True, check=True
+    )
+    assert json.loads(out.stdout) == [16, 16]
+
+
+@pytest.mark.parametrize(
+    ("platform", "processes", "capped"),
+    [("linux", 16, True), ("linux", None, False), ("darwin", 16, False)],
+)
+def test_the_process_cap_is_set_on_linux_when_given(
+    monkeypatch, platform: str, processes: int | None, capped: bool
+):
+    """Linux counts the processes of the child's real user, across the system.
+
+    So the sandbox gives a cap only to a child that runs as ``reader``, and
+    only Linux sets it.
+
+    :param platform: the platform the child runs on
+    :param processes: the cap the child is given, if any
+    :param capped: whether ``RLIMIT_NPROC`` is set
+    """
+    limits: list[int] = []
+    monkeypatch.setattr(child.sys, "platform", platform)
+    monkeypatch.setattr(
+        child.resource,
+        "getrlimit",
+        lambda limit: (child.resource.RLIM_INFINITY, child.resource.RLIM_INFINITY),
+    )
+    monkeypatch.setattr(
+        child.resource, "setrlimit", lambda limit, values: limits.append(limit)
+    )
+    child.apply_limits(64, 5, processes)
+    assert (child.resource.RLIMIT_NPROC in limits) is capped
 
 
 _SURVEY = ["survey", "pdf", "200"]
@@ -769,18 +876,27 @@ async def test_a_child_that_answers_leaves_no_process_in_its_group(monkeypatch):
     assert not _running(left)
 
 
-def _proc(root: Path, pid: str, uids: tuple[int, ...], state: str = "S") -> None:
+def _proc(
+    root: Path,
+    pid: str,
+    uids: tuple[int, ...],
+    state: str = "S",
+    threads: int | None = 1,
+) -> None:
     """Write a process's status as Linux shows it under ``/proc``.
 
     :param root: the stand-in for ``/proc``
     :param pid: the process id
     :param uids: real, effective, saved and file system user ids
     :param state: its state letter
+    :param threads: how many threads it has; None leaves the line out
     """
     (root / pid).mkdir()
+    count = "" if threads is None else f"Threads:\t{threads}\n"
     (root / pid / "status").write_text(
         f"Name:\tsleep\nState:\t{state} (x)\nPid:\t{pid}\n"
         f"Uid:\t{chr(9).join(str(uid) for uid in uids)}\nGid:\t0\t0\t0\t0\n"
+        f"{count}"
     )
 
 
@@ -820,6 +936,20 @@ def test_every_live_process_of_the_reader_is_killed(proc):
     root, killed = proc
     assert sandbox.kill_owned_by(999, root) == 2
     assert killed == [101, 104]
+
+
+def test_a_zombie_whose_threads_run_on_is_killed(proc):
+    """Hostile code can end its main thread alone and keep the others running.
+
+    Linux then shows the process as a zombie, with more than one thread, and
+    those threads still run as ``reader``. A signal to its id reaches them
+    all. A zombie whose thread count cannot be read is killed too.
+    """
+    root, killed = proc
+    _proc(root, "106", (999, 999, 999, 999), state="Z", threads=2)
+    _proc(root, "107", (999, 999, 999, 999), state="Z", threads=None)
+    assert sandbox.kill_owned_by(999, root) == 4
+    assert killed == [101, 104, 106, 107]
 
 
 def test_a_process_started_during_the_sweep_is_killed_too(proc, monkeypatch):

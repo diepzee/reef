@@ -417,6 +417,88 @@ async def test_the_reader_is_swept_before_and_after_each_reading_job(
     assert happened == ["sweep", "read", "sweep"]
 
 
+def _sweeps_failing(at: int, happened: list[str]):
+    """Make a sweep that fails on one call, as ``/proc`` or ``kill`` might.
+
+    :param at: which call fails, counted from 1
+    :param happened: where each call is noted
+    :returns: the sweep
+    """
+
+    def sweep() -> int:
+        """Note the sweep; fail it on the chosen call.
+
+        :returns: how many processes it killed
+        :raises PermissionError: on the chosen call, with a path in the message
+        """
+        happened.append("sweep")
+        if happened.count("sweep") == at:
+            raise PermissionError(13, "Permission denied", "/proc/4711/status")
+        return 0
+
+    return sweep
+
+
+async def test_a_sweep_that_fails_after_a_read_keeps_the_pages(
+    household, monkeypatch, caplog
+):
+    """The pages read are kept, and only the error's class is logged."""
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+    happened: list[str] = []
+    monkeypatch.setattr(sandbox, "kill_reader_processes", _sweeps_failing(2, happened))
+    with caplog.at_level(logging.INFO, logger="reef.worker"):
+        assert await drain("test") == 1
+    assert happened == ["sweep", "sweep"]
+    assert [job["status"] for job in await _jobs(me.principal, READ_FILE)] == ["done"]
+    assert await _status(me.principal, file.id) == ("read", 1, None)
+    lines = [record.getMessage() for record in caplog.records]
+    assert "read_file: the sweep after the read failed (PermissionError)" in lines
+    assert not any("4711" in line for line in lines)
+
+
+async def test_a_sweep_that_fails_after_a_failed_read_keeps_its_error(
+    household, monkeypatch
+):
+    """The job is retried under the read's own error, not the sweep's."""
+    me = caller_for(household["wouter"])
+    await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+    happened: list[str] = []
+
+    async def read_file(*args, **kwargs):
+        """Fail the read.
+
+        :raises SandboxUnavailable: always
+        """
+        raise SandboxUnavailable
+
+    monkeypatch.setattr(sandbox, "kill_reader_processes", _sweeps_failing(2, happened))
+    monkeypatch.setattr(filetext, "read_file", read_file)
+    assert await drain("test") == 1
+    jobs = await _jobs(me.principal, READ_FILE)
+    assert [(job["status"], job["error"]) for job in jobs] == [
+        ("queued", "SandboxUnavailable")
+    ]
+
+
+async def test_a_sweep_that_fails_before_a_read_fails_the_job(household, monkeypatch):
+    """No file is read while a process an earlier read left may still run.
+
+    The job is retried, so the next attempt sweeps again.
+    """
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+    happened: list[str] = []
+    monkeypatch.setattr(sandbox, "kill_reader_processes", _sweeps_failing(1, happened))
+    assert await drain("test") == 1
+    assert happened == ["sweep"]
+    jobs = await _jobs(me.principal, READ_FILE)
+    assert [(job["status"], job["error"]) for job in jobs] == [
+        ("queued", "PermissionError")
+    ]
+    assert await _status(me.principal, file.id) == ("waiting", None, None)
+
+
 async def test_a_missing_sandbox_fails_the_job_so_the_queue_retries(
     household, monkeypatch
 ):

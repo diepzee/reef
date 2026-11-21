@@ -37,7 +37,14 @@ https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
 # itself, and the child could then read the worker's secrets from
 # /proc/<worker>/environ (see reef.reading.sandbox, and
 # tests/test_docker_context.py, which checks both).
-RUN useradd --system --no-create-home --shell /usr/sbin/nologin reader
+#
+# `reader` has a fixed id that no common image uses. The child caps how many
+# processes its user may have (RLIMIT_NPROC), and Linux counts them by id
+# across every container on the same kernel. The id `useradd --system`
+# would pick, 999, is the one Postgres and Redis containers run as: their
+# processes would use up the cap, and Tesseract could not start. useradd
+# warns that the id is above the system range; that is expected.
+RUN useradd --system --uid 48271 --no-create-home --shell /usr/sbin/nologin reader
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 # LICENSE travels with pyproject.toml because the metadata names it:

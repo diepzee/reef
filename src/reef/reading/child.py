@@ -2,7 +2,8 @@
 
 Started by :func:`reef.reading.sandbox.run_child`, never by hand::
 
-    python -I -B -m reef.reading.child --memory-mb N --cpu-seconds S <op> ...
+    python -I -B -m reef.reading.child --memory-mb N --cpu-seconds S \
+        [--processes P] <op> ...
 
 It caps itself before it reads a byte, reads the whole file from stdin, runs
 one operation and prints one JSON object on one line. An answer that holds a
@@ -65,7 +66,9 @@ def _cap(limit: int, value: int, *, slack: int = 0) -> None:
     resource.setrlimit(limit, (value, top))
 
 
-def apply_limits(memory_mb: int, cpu_seconds: int) -> None:
+def apply_limits(
+    memory_mb: int, cpu_seconds: int, processes: int | None = None
+) -> None:
     """Cap this process before it touches a file.
 
     Memory is capped as address space, on Linux only: macOS does not
@@ -73,11 +76,23 @@ def apply_limits(memory_mb: int, cpu_seconds: int) -> None:
     later with ``SIGKILL`` if that signal is ignored. No core dump is
     written: it would hold the file.
 
+    Processes are capped on Linux only, and only when a cap is given
+    (``RLIMIT_NPROC``). Linux counts every process and thread of the real
+    user, across the system, not this process's own. So the cap means
+    something only when the child runs as ``reader``, and the sandbox gives
+    one only then: as the worker's own user, the worker's processes would
+    use it up. With it, code that a hostile file runs cannot fork without
+    end, and a fork chain stops within the cap.
+
     :param memory_mb: the most address space, in MB
     :param cpu_seconds: the most CPU time, in seconds
+    :param processes: the most processes and threads of this user, this one
+        included; None sets no cap
     """
     if sys.platform.startswith("linux"):
         _cap(resource.RLIMIT_AS, memory_mb * 1024 * 1024)
+        if processes is not None:
+            _cap(resource.RLIMIT_NPROC, processes)
     _cap(resource.RLIMIT_CPU, cpu_seconds, slack=1)
     _cap(resource.RLIMIT_NOFILE, _OPEN_FILES)
     _cap(resource.RLIMIT_CORE, 0)
@@ -165,11 +180,13 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     """Read the command line.
 
     :param argv: the arguments after the program name
-    :returns: the limits, the operation and its operands
+    :returns: the limits, the process cap if any, the operation and its
+        operands
     """
     parser = argparse.ArgumentParser(prog="reef.reading.child", add_help=False)
     parser.add_argument("--memory-mb", type=int, required=True)
     parser.add_argument("--cpu-seconds", type=int, required=True)
+    parser.add_argument("--processes", type=int)
     parser.add_argument("operation", choices=sorted(_OPERATIONS))
     parser.add_argument("operands", nargs=argparse.REMAINDER)
     return parser.parse_args(argv)
@@ -178,11 +195,11 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     """Cap this process, read the file from stdin, answer on stdout.
 
-    :param argv: ``--memory-mb N --cpu-seconds S <op> ...``
+    :param argv: ``--memory-mb N --cpu-seconds S [--processes P] <op> ...``
     :returns: 0 once an answer is printed, a failure's class included
     """
     arguments = _arguments(argv)
-    apply_limits(arguments.memory_mb, arguments.cpu_seconds)
+    apply_limits(arguments.memory_mb, arguments.cpu_seconds, arguments.processes)
     try:
         data = sys.stdin.buffer.read()
         answer = _OPERATIONS[arguments.operation](data, arguments.operands)

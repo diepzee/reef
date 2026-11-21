@@ -164,7 +164,10 @@ async def _read_file(principal: Principal, job: ClaimedJob) -> None:
     Before and after the job, however it ends, every process of the
     ``reader`` user is killed: see
     :func:`reef.reading.sandbox.kill_reader_processes`. This worker runs one
-    job at a time, so no read is in flight then.
+    job at a time, so no read is in flight then. A sweep that fails before
+    the read fails the job, so no file is read beside a process an earlier
+    read left; the job is retried. One that fails after the read is only
+    logged (see :func:`_sweep_after_read`).
 
     :param principal: the person the job runs as
     :param job: the claimed job
@@ -176,14 +179,34 @@ async def _read_file(principal: Principal, job: ClaimedJob) -> None:
     try:
         await _read_files(principal, job, settings.retry_seconds)
     finally:
-        _sweep_reader()
+        _sweep_after_read()
 
 
 def _sweep_reader() -> None:
-    """Kill what earlier reads left running as ``reader``, and log how many."""
+    """Kill what earlier reads left running as ``reader``, and log how many.
+
+    :raises OSError: when ``/proc`` cannot be read or a process not signalled
+    """
     left = sandbox.kill_reader_processes()
     if left:
         log.warning("read_file: killed %d processes left by earlier reads", left)
+
+
+def _sweep_after_read() -> None:
+    """Sweep as :func:`_sweep_reader` does once the read has ended, and never raise.
+
+    An error here must not take the place of the read's own outcome: pages
+    read and paid for would be rolled back, or a failed read retried under
+    the sweep's error. Only the error's class is logged. The next reading
+    job sweeps before it reads, and fails if that sweep fails too.
+    """
+    try:
+        _sweep_reader()
+    # Broad on purpose: whatever the sweep raises, the read's outcome stands.
+    except Exception as error:  # noqa: BLE001
+        log.error(
+            "read_file: the sweep after the read failed (%s)", type(error).__name__
+        )
 
 
 async def _read_files(

@@ -1404,7 +1404,14 @@ day's pages are spent, the job ends normally and the file waits six hours
 a child process that has an empty environment, runs as the `reader` user when
 the worker runs as root, and has limits on CPU, memory and time. The
 Dockerfile has no `USER` line for this reason: do not add one, or the child
-runs as the worker and can read its secrets. The child makes no network calls
+runs as the worker and can read its secrets.
+
+As `reader`, the child may also have only so many processes: 4 for each page
+read at once (`REEF_FILE_TEXT_PARALLEL_PAGES`), so 16 by default. Linux
+counts every process of the user id, across every container on the same
+machine. So `reader` has a fixed id, 48271, that no common image uses. Do
+not change it to 999: Postgres and Redis containers run as 999, and their
+processes would leave Tesseract no room to start. The child makes no network calls
 itself, but it is not cut off from the network. Closing that needs Linux
 namespaces or seccomp, which phase 1 does not do.
 
@@ -1413,7 +1420,15 @@ A hostile file could still start a process that leaves the child's process
 group. So the worker kills every `reader` process when a reading job starts
 and when it ends. If it finds one, it logs `read_file: killed N processes
 left by earlier reads`. That line means a file ran code it should not have:
-look at which files were read just before it.
+look at which files were read just before it. The worker also kills a
+process that shows as a zombie but still has threads running: code can end
+its main thread alone to look dead.
+
+If that sweep fails, for example because `/proc` cannot be read, the worker
+logs only the error's class. At the start of a job, the job fails and is
+retried, and no file is read. At the end, the pages already read are kept
+and the log says `read_file: the sweep after the read failed (ERROR)`. The
+next job sweeps again before it reads.
 
 **What is logged.** Counts, page numbers, durations, the kind of file (PDF or
 image) and the class of an error. Never a text, a passage, a filename, a

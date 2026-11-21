@@ -1456,7 +1456,7 @@ async def search_engrams(
     chosen = ranking[:limit]
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []
-    files: list[dict] = []
+    file_rows: list[dict] = []
     pages: dict[UUID, _Pages] = {}
     async with transaction_scope():
         await arm(principal)
@@ -1474,7 +1474,7 @@ async def search_engrams(
             best, texts = await _read_best_pieces(
                 [row["id"] for row in rows if row["kind"] == "page"], embedded
             )
-            files, pages = await _read_files(
+            file_rows, pages = await _read_files(
                 {
                     row["id"]: nearest[row["id"]]
                     for row in rows
@@ -1483,6 +1483,6 @@ async def search_engrams(
             )
     # In a thread, like the reranker's passages: cutting long engrams takes time.
     found = await asyncio.to_thread(_passages, best, texts) if texts else {}
-    if files:
-        found |= await asyncio.to_thread(_file_passages, nearest, files, pages)
+    if file_rows:
+        found |= await asyncio.to_thread(_file_passages, nearest, file_rows, pages)
     return [_row_payload(row, aliases, found if passages else None) for row in rows]
