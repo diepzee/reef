@@ -13,19 +13,23 @@ import os
 import signal
 import socket
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from reef import calllog, embedding, searchlog, telemetry
+from reef import calllog, embedding, filetext, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
 from reef.db import DB, transaction_scope
 from reef.jobs import (
     BACKFILL_EMBEDDINGS,
+    BACKFILL_FILES,
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
     EMBED_ENGRAM,
+    EMBED_FILE,
+    READ_FILE,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -34,6 +38,8 @@ from reef.jobs import (
     hold,
 )
 from reef.links import backfill_links
+from reef.models import TextStatus
+from reef.reading import TEXT_FORMATS, sandbox
 from reef.usage import refresh_activation
 
 log = logging.getLogger("reef.worker")
@@ -110,6 +116,144 @@ async def _embed_engram(principal: Principal, job: ClaimedJob) -> None:
             )
 
 
+async def _embed_file(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the chunks of the job's files.
+
+    Does nothing with the reading switch off or no embedding service: either
+    was switched off after the job was queued. Retries as
+    :func:`_embed_engram` does, and logs only the class of a failure.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    embedder = embedding.get_embedder()
+    if embedder is None or not get_settings().reading.enabled:
+        return
+    retry = get_settings().embedding
+    for attachment_id in job.subject_ids:
+        try:
+            await embedding.embed_file(principal, attachment_id, embedder)
+        except embedding.CapReached:
+            await embedding.request_file(
+                principal,
+                attachment_id,
+                delay=timedelta(seconds=retry.cap_retry_seconds),
+            )
+        except embedding.ServiceFailed as failure:
+            log.warning("embedding: the service failed on a file (%s)", failure)
+            await embedding.request_file(
+                principal,
+                attachment_id,
+                delay=timedelta(seconds=retry.failure_retry_seconds),
+            )
+
+
+async def _read_file(principal: Principal, job: ClaimedJob) -> None:
+    """Read the next pages of the job's files, and queue what is left.
+
+    Does nothing with the reading switch off: it was switched off after the
+    job was queued. A file with pages left is queued again at once; one
+    whose person has spent today's pages, after ``reading.retry_seconds``.
+    Either way the job ends normally, so the pages read and their cost are
+    committed.
+
+    Logs one line per file: pages read by text layer, by OCR and by text
+    format, the outcome and the time. Never a name, a description, a text,
+    a space or the person.
+
+    Before and after the job, however it ends, every process of the
+    ``reader`` user is killed: see
+    :func:`reef.reading.sandbox.kill_reader_processes`. This worker runs one
+    job at a time, so no read is in flight then. A sweep that fails before
+    the read fails the job, so no file is read beside a process an earlier
+    read left; the job is retried. One that fails after the read is only
+    logged (see :func:`_sweep_after_read`).
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    settings = get_settings().reading
+    if not settings.enabled:
+        return
+    _sweep_reader()
+    try:
+        await _read_files(principal, job, settings.retry_seconds)
+    finally:
+        _sweep_after_read()
+
+
+def _sweep_reader() -> None:
+    """Kill what earlier reads left running as ``reader``, and log how many.
+
+    :raises OSError: when ``/proc`` cannot be read or a process not signalled
+    """
+    left = sandbox.kill_reader_processes()
+    if left:
+        log.warning("read_file: killed %d processes left by earlier reads", left)
+
+
+def _sweep_after_read() -> None:
+    """Sweep as :func:`_sweep_reader` does once the read has ended, and never raise.
+
+    An error here must not take the place of the read's own outcome: pages
+    read and paid for would be rolled back, or a failed read retried under
+    the sweep's error. Only the error's class is logged. The next reading
+    job sweeps before it reads, and fails if that sweep fails too.
+    """
+    try:
+        _sweep_reader()
+    # Broad on purpose: whatever the sweep raises, the read's outcome stands.
+    except Exception as error:  # noqa: BLE001
+        log.error(
+            "read_file: the sweep after the read failed (%s)", type(error).__name__
+        )
+
+
+async def _read_files(
+    principal: Principal, job: ClaimedJob, retry_seconds: float
+) -> None:
+    """Read the job's files, one after the other. See :func:`_read_file`.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    :param retry_seconds: how long a file waits when the day's pages are spent
+    """
+    for attachment_id in job.subject_ids:
+        started = time.monotonic()
+        counts: Counter[str] = Counter()
+        try:
+            status = await filetext.read_file(principal, attachment_id, counts=counts)
+        except filetext.AllowanceSpent:
+            await filetext.request_read(
+                principal, attachment_id, delay=timedelta(seconds=retry_seconds)
+            )
+            outcome = "allowance spent"
+        else:
+            if status is TextStatus.WAITING:
+                await filetext.request_read(principal, attachment_id)
+            outcome = "skipped" if status is None else status.value
+        log.info(
+            "read_file: %d pages (layer %d, ocr %d, format %d) %s in %.1f s",
+            sum(counts.values()),
+            counts["pdf-text"],
+            counts["tesseract"],
+            sum(counts[kind.value] for kind in TEXT_FORMATS),
+            outcome,
+            time.monotonic() - started,
+        )
+
+
+async def _backfill_files(principal: Principal, job: ClaimedJob) -> None:
+    """Queue reading and embedding for each of the person's files that needs it.
+
+    Does nothing with the reading switch off.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    await filetext.backfill(principal)
+
+
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
     """Queue a job for each of the person's engrams that has no vectors.
 
@@ -130,7 +274,10 @@ HANDLERS: dict[str, Handler] = {
     BACKFILL_LINKS: _backfill_links,
     REFRESH_ACTIVATION: _refresh_activation,
     EMBED_ENGRAM: _embed_engram,
+    EMBED_FILE: _embed_file,
     BACKFILL_EMBEDDINGS: _backfill_embeddings,
+    READ_FILE: _read_file,
+    BACKFILL_FILES: _backfill_files,
 }
 
 
@@ -289,7 +436,21 @@ async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
 
 
 async def _main() -> None:
-    """Start the pool, serve until SIGTERM or SIGINT, and close the pool."""
+    """Adopt orphans, start the pool, serve until SIGTERM or SIGINT, and close the pool.
+
+    A root worker on Linux adopts the orphans of the processes it starts, so
+    it can collect their zombies: under ``uv run``, PID 1 never does, and
+    each one counts against the reading child's cap on processes (see
+    :func:`reef.reading.sandbox.adopt_orphans`). A refusal is logged by its
+    class, and the worker serves anyway: reads then run out of processes
+    and are retried, which the log shows.
+    """
+    try:
+        sandbox.adopt_orphans()
+    except OSError as error:
+        log.error(
+            "worker: orphaned processes are not adopted (%s)", type(error).__name__
+        )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):

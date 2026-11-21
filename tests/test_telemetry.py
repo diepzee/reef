@@ -108,6 +108,9 @@ def test_scrub_patterns_cover_every_content_field():
         "page_path",
         "question",
         "passage",
+        "filename",
+        "description",
+        "text",
     } <= set(telemetry.SCRUB_PATTERNS)
     assert os.environ.get("LOGFIRE_TOKEN") is None or True
 

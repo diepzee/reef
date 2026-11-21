@@ -146,13 +146,27 @@ def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
 
 
 def _parts(text: str) -> list[str]:
-    """Cut a long text between paragraphs.
+    """Cut a long section between paragraphs.
 
     :param text: a section's text
-    :returns: parts of at most ``REEF_EMBEDDING_PIECE_MAX_CHARS`` characters. A single
-        paragraph longer than that is cut where it has to be.
+    :returns: parts of at most ``REEF_EMBEDDING_PIECE_MAX_CHARS`` characters
     """
-    limit = get_settings().embedding.piece_max_chars
+    return cut(text, get_settings().embedding.piece_max_chars)
+
+
+def cut(text: str, limit: int) -> list[str]:
+    """Cut a text between paragraphs into parts.
+
+    A paragraph ends at a blank line. Parts are filled with whole paragraphs,
+    joined by the blank line between them, so joining the parts the same way
+    gives back the text, unless a paragraph had to be cut. A file read as
+    text is cut this way into pages.
+
+    :param text: the text
+    :param limit: the most characters in one part
+    :returns: the parts, in order. A single paragraph longer than ``limit``
+        is cut where it has to be. A text of only whitespace gives none.
+    """
     parts: list[str] = []
     current = ""
     for paragraph in text.split("\n\n"):
@@ -171,7 +185,7 @@ def _parts(text: str) -> list[str]:
     return parts
 
 
-def _piece(
+def piece(
     anchor: str | None,
     heading_path: tuple[str, ...],
     body: str,
@@ -179,6 +193,8 @@ def _piece(
     description: str,
 ) -> Section:
     """Build one piece, with the context in front of its text.
+
+    Public: file chunks are built the same way, see :mod:`reef.filechunks`.
 
     :param anchor: the piece's anchor
     :param heading_path: the headings above it
@@ -217,7 +233,7 @@ def split(title: str, description: str, body: str) -> list[Section]:
     if not body:
         return []
     sizes = get_settings().embedding
-    whole = _piece(None, (), body[: sizes.engram_chars], title, description)
+    whole = piece(None, (), body[: sizes.engram_chars], title, description)
     if len(body) <= sizes.piece_max_chars:
         return [whole]
 
@@ -250,5 +266,5 @@ def split(title: str, description: str, body: str) -> list[Section]:
             base = f"{base}-{seen[base]}"
         for number, part in enumerate(_parts(text), 1):
             anchor = base if number == 1 else f"{base}~{number}"
-            pieces.append(_piece(anchor, where, part, title, description))
+            pieces.append(piece(anchor, where, part, title, description))
     return pieces

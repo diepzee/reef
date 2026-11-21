@@ -656,11 +656,13 @@ rebuild the service, these are its settings:
 - **Variables:** `DATABASE_URL` for the app role and `LOGFIRE_TOKEN`. Both
   are references to `reef-app`'s values (`${{reef-app.DATABASE_URL}}`), so a
   rotation there reaches the worker too. **Not** the
-  migration or backup credentials, the session secret, the signing key or
-  the storage keys. It needs none of them.
+  migration or backup credentials, the session secret or the signing key.
+  Once file reading is on (see "Reading files (RUG-37)"), it also needs the
+  four storage variables, with a **read-only** token. Never the app's keys.
 - **No public domain and no volume.** It listens on nothing.
-- **One replica is enough.** More than one is safe: two workers never take
-  the same job.
+- **Run one replica.** Two workers never take the same job, but replicas
+  on one machine share the reading child's process count. See "The process
+  cap" under "Reading files (RUG-37)".
 
 **What it reports.** With `LOGFIRE_TOKEN` set, each job is one span in
 Logfire named `job <kind>`, with the job's id, the attempt number, the
@@ -1362,6 +1364,123 @@ nobody reads another person's calls.
 people who use Reef. The privacy page promises that people hear about this
 first. Setting the variable is a separate decision from the RUG-40 deploy.
 
+## Reading files (RUG-37)
+
+**What it does.** Reef reads the text inside stored files, on its own
+servers, and makes that text searchable. It reads PDFs and images (scans go
+through Tesseract, in Dutch, French and English), Markdown, plain text, HTML,
+Word, Excel and PowerPoint. Nothing leaves Reef: no other company sees a
+file or its text. A file that cannot be read stays findable by its name and
+description.
+
+**Off by default.** Set `REEF_FILE_TEXT=1` on both `reef-app` and
+`reef-worker`. The app queues files and searches their text. The worker reads
+them. With the variable unset, Reef behaves as before.
+
+**The worker's storage token.** The worker fetches each file from R2, so it
+needs `REEF_S3_ENDPOINT`, `REEF_S3_BUCKET`, `REEF_S3_ACCESS_KEY` and
+`REEF_S3_SECRET_KEY`. Make a Cloudflare API token with "Object Read only" on
+the bucket, and use its keys here. Never copy the app's read-write keys to the
+worker: a worker that can write can also delete.
+
+**Settings.** They have the prefix `REEF_FILE_TEXT_`; the table under
+"Reference" lists each one. Three things to know:
+
+- With `REEF_FILE_TEXT` on, a deployment that sets `REEF_ENGRAM_MAX_CHARS`
+  (or the old `REEF_PAGE_MAX_CHARS`) below 20,000 refuses to start until
+  `REEF_FILE_TEXT_PAGE_CHARS` is lowered to match. A page may not be longer
+  than an engram may be. With it off, this is not checked.
+- Text formats are read whole, so a day can go over `daily_pages` by up to
+  one file's parts (at most `pages_per_file`).
+- The reading job holds its database transaction while it reads. This is on
+  purpose. The job row's lock is the queue's lease, and the worker runs one
+  job at a time.
+
+**What it costs.** Each person may have 2,000 pages read and 2,000 pieces
+embedded per day. A large account therefore takes days to finish. When the
+day's pages are spent, the job ends normally and the file waits six hours
+(`REEF_FILE_TEXT_RETRY_SECONDS`). Pages already read are kept.
+
+**The sandbox.** The worker never parses a file itself. Each file is read in
+a child process that has an empty environment, runs as the `reader` user when
+the worker runs as root, and has limits on CPU, memory and time. The
+Dockerfile has no `USER` line for this reason: do not add one, or the child
+runs as the worker and can read its secrets. The child makes no network calls
+itself, but it is not cut off from the network. Closing that needs Linux
+namespaces or seccomp, which phase 1 does not do.
+
+**The process cap.** As `reader`, the child may have only so many processes
+and threads: 4 for each page read at once (`REEF_FILE_TEXT_PARALLEL_PAGES`),
+so 16 by default. Linux counts them by user id, across every container on
+the same machine. So `reader` has a fixed user and group id, 48271, that no
+common image uses. Do not change it to 999: Postgres and Redis containers
+run as 999, and their processes would leave Tesseract no room to start.
+
+- **Run one replica of `reef-worker`.** Replicas on one machine share one
+  count for id 48271. So do the old and the new container while a deploy
+  overlaps. Two workers reading at once can fill the cap.
+- **A killed process counts until it is collected.** The worker adopts the
+  orphans of the processes it starts. It collects their zombies before and
+  after each child, and in each sweep. Without that, they would go to PID 1
+  (`uv`), which never collects them, and the cap would stay full.
+- **What a full cap looks like.** Reading jobs fail with the error
+  `OutOfProcesses` and are retried. The file gets no error of its own and
+  stays `waiting`. Once its job has used up its attempts, the file is tried
+  again a day later, not on every index load: a hostile file can fill its
+  cap on every read. If many jobs show this error, restart `reef-worker`:
+  that empties its container. If the errors come back at once, something
+  else on the machine runs as id 48271.
+
+When a read ends, its child and every process the child started are killed.
+A hostile file could still start a process that leaves the child's process
+group. So the worker kills every `reader` process when a reading job starts
+and when it ends. If it finds one, it logs `read_file: killed N processes
+left by earlier reads`. That line means a file ran code it should not have:
+look at which files were read just before it. The worker also kills a
+process that shows as a zombie but still has threads running: code can end
+its main thread alone to look dead.
+
+If that sweep fails, for example because `/proc` cannot be read, the worker
+logs only the error's class. At the start of a job, the job fails and is
+retried, and no file is read. At the end, the pages already read are kept
+and the log says `read_file: the sweep after the read failed (ERROR)`. The
+next job sweeps again before it reads.
+
+**What is logged.** Counts, page numbers, durations, the kind of file (PDF or
+image) and the class of an error. Never a text, a passage, a filename, a
+description, a space name or a person. `filename`, `description` and `text`
+are scrubbed from Logfire.
+
+**Switching it off.** Unset `REEF_FILE_TEXT` on both services. Reading and
+file search stop once both services have restarted. The text already stored stays, and is used again
+when it is switched back on.
+
+**Scripts.** Both print numbers only. Neither prints a name, a question, a
+passage or an address.
+
+- `scripts/file_report.py --email PERSON [--time N] [--queue]`, run in
+  `reef-worker`. It prints how many ready files and pages the person has,
+  per kind. `--time N` reads up to N scan pages through the real sandbox,
+  stores nothing, and adds the seconds a page took (median and longest), the
+  median word confidence, and `unreadable`: how many files it could not read
+  and skipped. The worker stops every `reader` process when a reading job
+  starts and ends, so a timing run beside a busy worker can lose a file to
+  `unreadable`. `--queue` queues reading for every file that needs it and
+  adds how many jobs it queued. It needs `REEF_FILE_TEXT`.
+  In production:
+  `railway ssh -s reef-worker -- uv run --frozen --no-dev python scripts/file_report.py --email PERSON --time 10`
+- `scripts/measure_recall.py --email PERSON --file-text on|off`, run in
+  `reef-app`. It reads questions as JSON on stdin (`id`, `text`, `expected`
+  as `<space>/<path>` or `<space>/file/<key>`, and optionally `answer`),
+  searches each with five results, and logs no search. It prints how many
+  engram and file questions were found in the first five, how many answers
+  were in the passage, and the median time. Run it with `off`, then `on`,
+  and compare. Keep the questions in `~/.reef-eval-private`, never in git.
+  In production, pipe the questions from your own machine into
+  `railway ssh`, so they are never written to the container's disk:
+  `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/measure_recall.py --email PERSON --file-text on < ~/.reef-eval-private/file-questions.json`
+  The `<` is read by your shell, which sends the file on stdin.
+
 ## Deploying the rename (RUG-40)
 
 RUG-40 is one breaking release. It renames cove to space and page to engram
@@ -1513,6 +1632,17 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | usage | `REEF_USAGE_MIN_AGE_HOURS` | `0.01667` | The youngest a use is treated as, so none dominates. |
 | usage | `REEF_USAGE_REFRESH_DELAY_SECONDS` | `300` | How long after a use the refresh runs, once per busy session. |
 | calls | `REEF_CALL_LOG` | `0` | Log each call and the reason the assistant gave, for 90 days. Off unless switched on: the privacy page promises that people are told first. |
+| reading | `REEF_FILE_TEXT` | `0` | Read the text inside stored files and search it. Off unless switched on: with it off, files are found by name and description only. Same value on app and worker. |
+| reading | `REEF_FILE_TEXT_DPI` | `200` | How finely a scanned page is rendered before it is read. |
+| reading | `REEF_FILE_TEXT_LANGUAGES` | `nld+fra+eng` | The languages Tesseract reads a scan in, joined by +. |
+| reading | `REEF_FILE_TEXT_PARALLEL_PAGES` | `4` | How many pages the worker reads at the same time. |
+| reading | `REEF_FILE_TEXT_PAGES_PER_FILE` | `200` | The most pages read of one file. The rest is not read. |
+| reading | `REEF_FILE_TEXT_PAGES_PER_JOB` | `10` | How many pages one job reads. A text format is read whole. |
+| reading | `REEF_FILE_TEXT_PAGE_SECONDS` | `60` | The longest one page may take to read. A text format gets this time for the whole file. |
+| reading | `REEF_FILE_TEXT_PAGE_CHARS` | `20000` | The most text kept of one page, in characters. A text format is cut into pages no longer than this. |
+| reading | `REEF_FILE_TEXT_DAILY_PAGES` | `2000` | The most pages read for one person in one day. |
+| reading | `REEF_FILE_TEXT_RETRY_SECONDS` | `21600` | How long a file waits when its person's daily pages are spent. |
+| reading | `REEF_FILE_TEXT_MEMORY_MB` | `1024` | The most memory the process reading one file may use, in MB. |
 <!-- settings:end -->
 
 **Escape hatches, in order of severity:**

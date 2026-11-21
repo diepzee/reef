@@ -1914,6 +1914,136 @@ def embedding_statements() -> list[str]:
     ]
 
 
+READERS = ("pdf-text", "tesseract", "markdown", "plain", "html", "docx", "xlsx", "pptx")
+"""What may read a page: a PDF's own text layer, Tesseract on a scan, or one
+reader per text format. Every one runs on Reef's own servers. Adding one
+changes ``file_pages_reader_known``, which takes a migration."""
+
+_TEXT_STATUSES = ("waiting", "read", "partly_read", "unreadable", "not_read")
+"""The values of :class:`reef.models.TextStatus`. Null means never looked at."""
+
+_FILE_READ = "attachment_id IN (SELECT id FROM attachments)"
+"""The file is readable. The subquery runs under ``attachments``' own policy."""
+
+_FILE_WRITE = "attachment_id IN (SELECT id FROM attachments WHERE space_id IN (SELECT reef_member_space_ids()))"
+"""The file is in a space the person may write to. A viewer may read a file's
+text and search its vectors, but not change them: planted text or a planted
+vector would steer every other member's search."""
+
+
+def file_text_statements() -> list[str]:
+    """Return idempotent DDL for the text read from files, and what it costs.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives. Needs the ``vector`` extension, as
+    :func:`embedding_statements` does.
+
+    **``file_pages``.** One row per page, numbered from 1. A page is visible
+    exactly when its file is: the text inside a file says at least as much
+    as the file's description. Writing needs write access to the file's
+    space. A page may be rewritten in place, so a better reading can replace
+    a worse one.
+
+    **``file_embeddings``.** Built and guarded as ``engram_embeddings`` is,
+    with the file in place of the engram. No ``UPDATE`` policy: a vector is
+    replaced by deleting it and adding the new one. No vector index, for the
+    reason :func:`embedding_statements` gives.
+
+    **``reading_spend``.** Private to the person, as ``embedding_spend`` is.
+    One row per person, day and reader.
+
+    **``attachments.text_status``.** Only the values of
+    :class:`reef.models.TextStatus`, or null for a file never looked at.
+
+    :returns: SQL statements to execute in order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    readers = ", ".join(f"'{reader}'" for reader in READERS)
+    statuses = ", ".join(f"'{status}'" for status in _TEXT_STATUSES)
+    return [
+        "ALTER TABLE attachments DROP CONSTRAINT IF EXISTS attachments_text_status_known",
+        (
+            "ALTER TABLE attachments ADD CONSTRAINT attachments_text_status_known "
+            f"CHECK (text_status IS NULL OR text_status IN ({statuses}))"
+        ),
+        "ALTER TABLE file_pages DROP CONSTRAINT IF EXISTS file_pages_reader_known",
+        (
+            "ALTER TABLE file_pages ADD CONSTRAINT file_pages_reader_known "
+            f"CHECK (reader IN ({readers}))"
+        ),
+        "ALTER TABLE file_pages DROP CONSTRAINT IF EXISTS file_pages_sane",
+        (
+            "ALTER TABLE file_pages ADD CONSTRAINT file_pages_sane "
+            "CHECK (number >= 1 AND (confidence IS NULL OR confidence BETWEEN 0 AND 100))"
+        ),
+        # One text per page. It also serves the cascade from attachments.
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS file_pages_number "
+            "ON file_pages (attachment_id, number)"
+        ),
+        "ALTER TABLE file_pages ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE file_pages FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS file_pages_select ON file_pages",
+        "DROP POLICY IF EXISTS file_pages_insert ON file_pages",
+        "DROP POLICY IF EXISTS file_pages_update ON file_pages",
+        "DROP POLICY IF EXISTS file_pages_delete ON file_pages",
+        f"CREATE POLICY file_pages_select ON file_pages FOR SELECT USING ({_FILE_READ})",
+        (
+            f"CREATE POLICY file_pages_insert ON file_pages "
+            f"FOR INSERT WITH CHECK ({_FILE_WRITE})"
+        ),
+        (
+            f"CREATE POLICY file_pages_update ON file_pages "
+            f"FOR UPDATE USING ({_FILE_WRITE}) WITH CHECK ({_FILE_WRITE})"
+        ),
+        f"CREATE POLICY file_pages_delete ON file_pages FOR DELETE USING ({_FILE_WRITE})",
+        "ALTER TABLE file_embeddings DROP CONSTRAINT IF EXISTS file_embeddings_dims",
+        (
+            "ALTER TABLE file_embeddings ADD CONSTRAINT file_embeddings_dims "
+            "CHECK (dims = vector_dims(embedding) AND dims BETWEEN 1 AND 4096)"
+        ),
+        # One vector per chunk and model. COALESCE because NULL, the whole
+        # file, must count as one value and not as "never equal".
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS file_embeddings_chunk "
+            "ON file_embeddings (attachment_id, model_id, COALESCE(chunk_anchor, ''))"
+        ),
+        "ALTER TABLE file_embeddings ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE file_embeddings FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS file_embeddings_select ON file_embeddings",
+        "DROP POLICY IF EXISTS file_embeddings_insert ON file_embeddings",
+        "DROP POLICY IF EXISTS file_embeddings_delete ON file_embeddings",
+        (
+            f"CREATE POLICY file_embeddings_select ON file_embeddings "
+            f"FOR SELECT USING ({_FILE_READ})"
+        ),
+        (
+            f"CREATE POLICY file_embeddings_insert ON file_embeddings "
+            f"FOR INSERT WITH CHECK ({_FILE_WRITE})"
+        ),
+        (
+            f"CREATE POLICY file_embeddings_delete ON file_embeddings "
+            f"FOR DELETE USING ({_FILE_WRITE})"
+        ),
+        (
+            "CREATE UNIQUE INDEX IF NOT EXISTS reading_spend_person_day_reader "
+            "ON reading_spend (person_id, day, reader)"
+        ),
+        "ALTER TABLE reading_spend DROP CONSTRAINT IF EXISTS reading_spend_sane",
+        (
+            "ALTER TABLE reading_spend ADD CONSTRAINT reading_spend_sane "
+            "CHECK (pages >= 0 AND input_tokens >= 0 AND output_tokens >= 0)"
+        ),
+        "ALTER TABLE reading_spend ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE reading_spend FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS reading_spend_owner ON reading_spend",
+        (
+            f"CREATE POLICY reading_spend_owner ON reading_spend "
+            f"USING ({own}) WITH CHECK ({own})"
+        ),
+    ]
+
+
 def promotion_statements() -> list[str]:
     """Return idempotent DDL arming RLS on ``promotions``.
 

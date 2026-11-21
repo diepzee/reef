@@ -6,6 +6,7 @@ too late.
 """
 
 import os
+from typing import ClassVar
 
 from reef.config import get_settings
 
@@ -27,7 +28,7 @@ from reef.attachments import add_attachment
 from reef.db import DB, transaction_scope
 from reef.engrams import save_engram
 from reef.methods import Caller
-from reef.models import TABLES, Engram, Person, Space, SpaceKind
+from reef.models import TABLES, Attachment, Engram, Person, Space, SpaceKind
 from reef.rls import (
     AUTHZ_ROLE,
     FORMER_AUTHZ_ROLE,
@@ -41,6 +42,7 @@ from reef.rls import (
     drop_mutation_statements,
     embedding_statements,
     enable_statements,
+    file_text_statements,
     job_statements,
     link_statements,
     open_door_statements,
@@ -239,6 +241,9 @@ async def schema():
         "call_log",
         "engram_embeddings",
         "embedding_spend",
+        "file_pages",
+        "file_embeddings",
+        "reading_spend",
     ):
         await DB._run_in_new_connection(
             f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {PROBE_ROLE}"
@@ -286,6 +291,7 @@ async def schema():
         + search_log_statements()
         + call_log_statements()
         + embedding_statements()
+        + file_text_statements()
         + session_epoch_statements()
         + alias_statements()
         + open_door_statements()
@@ -740,6 +746,84 @@ class Store:
     ) -> str:
         """Return a stand-in URL."""
         return f"https://files.example/{key}?ttl={expires_in}"
+
+
+class MemoryStore:
+    """An object store that keeps bytes in memory and gives them back.
+
+    Every instance shares one dict, so a store the code under test makes for
+    itself, with ``S3ObjectStore`` patched to this class, reads what a test
+    stored. Keys are unique per file, so tests do not see each other's bytes.
+    """
+
+    objects: ClassVar[dict[str, bytes]] = {}
+
+    async def put(self, key: str, data: bytes, mime: str) -> None:
+        """Keep the bytes.
+
+        :param key: object key
+        :param data: raw bytes
+        :param mime: content type, ignored here
+        """
+        self.objects[key] = data
+
+    async def signed_url(
+        self, key: str, expires_in: int, *, mime: str = "", filename: str = ""
+    ) -> str:
+        """Return a stand-in URL.
+
+        :param key: object key
+        :param expires_in: lifetime in seconds
+        :param mime: the stored content type, ignored here
+        :param filename: the stored filename, ignored here
+        :returns: a URL that names the key
+        """
+        return f"https://files.example/{key}?ttl={expires_in}"
+
+    async def get(self, key: str) -> bytes:
+        """Return the bytes kept under a key.
+
+        :param key: object key
+        :returns: the bytes
+        :raises KeyError: when nothing is kept under it
+        """
+        return self.objects[key]
+
+    async def delete(self, key: str) -> None:
+        """Forget the bytes under a key, if any.
+
+        :param key: object key
+        """
+        self.objects.pop(key, None)
+
+
+async def store_as(
+    caller: Caller,
+    space: str,
+    filename: str,
+    data: bytes,
+    mime: str,
+    description: str,
+) -> Attachment:
+    """Store a file as a tool call would, its bytes kept in a :class:`MemoryStore`.
+
+    :param caller: who stores it
+    :param space: the caller's name for the space
+    :param filename: the file's name
+    :param data: its bytes
+    :param mime: the type the caller claims for it
+    :param description: what the file is
+    :returns: the stored file, ready
+    """
+    return await add_attachment(
+        caller.principal,
+        space,
+        data,
+        mime,
+        filename=filename,
+        description=description,
+        store=MemoryStore(),
+    )
 
 
 async def attach_file(caller: Caller, space: str, description: str) -> str:

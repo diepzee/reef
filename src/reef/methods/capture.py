@@ -713,7 +713,10 @@ async def store_file(
     :param engram: the path of an engram in the same space the file belongs
         to; a path that names no engram attaches it to none
     :returns: ``space``, ``key``, ``ref`` (what :func:`reef.methods.find.open`
-        takes), ``filename``, ``mime``, ``size`` and ``status``
+        takes), ``filename``, ``mime``, ``size`` and ``status``; with reading
+        of files switched on, also ``text``: ``waiting`` when Reef will read
+        the text inside the file, ``not_read`` when it does not read that
+        kind
     :raises MethodError: ``invalid_filename``, ``invalid_mime``,
         ``description_required``, ``invalid_base64``, ``file_too_large``,
         ``unknown_space`` or ``read_only``
@@ -751,7 +754,7 @@ async def store_file(
             engram_path=engram,
         )
     key = attachment.object_key
-    return {
+    stored = {
         "space": space,
         "key": key,
         "ref": f"{space}/{FILE_PREFIX}{key}",
@@ -760,3 +763,6 @@ async def store_file(
         "size": attachment.byte_size,
         "status": attachment.status,
     }
+    if get_settings().reading.enabled and attachment.text_status is not None:
+        stored["text"] = attachment.text_status
+    return stored

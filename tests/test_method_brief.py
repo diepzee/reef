@@ -4,8 +4,12 @@ Like the other find tests, these manage their own transactions.
 """
 
 import pytest
-from conftest import caller_for, save_as
+from conftest import attach_file, caller_for, save_as
 
+from reef.access import arm
+from reef.attachments import get_attachment
+from reef.config import get_settings
+from reef.db import transaction_scope
 from reef.methods import REGISTRY, MethodError, find, logs
 from reef.models import Engram
 
@@ -99,6 +103,61 @@ async def test_brief_cuts_a_log_from_its_oldest_entries(household, monkeypatch):
     assert sum(len(entry) for entry in item["entries"]) <= 100
     assert item["entries"][-1].startswith("### 2026-01-09")
     assert item["entries"][0] != _entries(1, 1).strip()
+
+
+async def _climbing_files(me, count: int) -> None:
+    """Store files that match "climbing" better than any engram does.
+
+    Each has the word in its description and on its one page, and is newer
+    than the engrams, which wins a tie.
+
+    :param me: who stores them
+    :param count: how many
+    """
+    for _ in range(count):
+        key = await attach_file(me, "personal", "Climbing climbing climbing.")
+        async with transaction_scope():
+            await arm(me.principal)
+            file = await get_attachment(me.principal, "personal", key)
+            assert file is not None
+            await Engram.raw(
+                "INSERT INTO file_pages (id, attachment_id, number, text, reader) "
+                "VALUES (gen_random_uuid(), {}, 1, 'Climbing climbing.', 'pdf-text')",
+                file.id,
+            )
+
+
+async def test_brief_keeps_five_engrams_when_files_match_better(household, monkeypatch):
+    """With reading on, files match on their pages too; they take no place."""
+    monkeypatch.setattr(get_settings().reading, "enabled", True)
+    me = caller_for(household["wouter"])
+    for number in range(6):
+        await save_as(
+            me, "personal", f"route-{number}.md", f"Route {number}, some climbing."
+        )
+    await _climbing_files(me, 6)
+    result = await find.brief(me, "", "climbing")
+    assert len(result["engrams"]) == find.BRIEF_ENGRAMS == 5
+
+
+async def test_brief_searches_as_before_with_the_switch_off(household, monkeypatch):
+    """Off, brief asks the search exactly what it asked before files had text."""
+    asked: list[dict] = []
+    search = find.search_engrams
+
+    async def spy(*args, **kwargs):
+        """Note the keywords the search is asked with, and search.
+
+        :returns: the search's hits
+        """
+        asked.append(kwargs)
+        return await search(*args, **kwargs)
+
+    monkeypatch.setattr(find, "search_engrams", spy)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "route.md", "Some climbing.")
+    await find.brief(me, "", "climbing")
+    assert asked == [{"log": False, "files": True}]
 
 
 async def test_brief_without_matches_is_empty(household):

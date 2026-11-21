@@ -439,7 +439,8 @@ async def recall(
 
     Returns the passages that best answer it, best first, each with where it
     comes from and a ref. Use it for any question about the person or their
-    spaces. Open a ref only when its passage is not enough.
+    spaces. Open a ref only when its passage is not enough. A passage from
+    inside a file names its page, and its ref ends in #page=N.
 
     :param question: the question, in the person's words
     :param space: search one space only, by its name from load_index; leave
@@ -475,11 +476,14 @@ async def open(
     """Read whole engrams and stored files.
 
     Use it when passages are not enough, or to read an engram's current
-    version before you change it. A file comes as its description and a
-    short-lived link to its bytes.
+    version before you change it. A file comes as its description, a
+    short-lived link to its bytes and, when Reef has read it, its text with
+    every page marked. A long file is cut at a page: to read on, open its ref
+    again with #page=N at the end.
 
     :param refs: refs as recall gives them: ``<space>/<path>`` for an engram,
-        ``<space>/file/<key>`` for a file
+        ``<space>/file/<key>`` for a file, or ``<space>/file/<key>#page=N`` to
+        read a long file from page N
     :param as_of: a moment in ISO 8601, to read engrams as they stood then
     """
     return await _run(find.open, reason, refs=refs, as_of=as_of)
@@ -569,7 +573,9 @@ async def store_file(
 
     Use it when the person gives you a file to keep. Write the description
     yourself, concretely: later conversations find and understand the file
-    through it.
+    through it. When this Reef reads the text inside files, the answer's
+    text says waiting while it reads this one, or not_read for a kind it
+    does not read.
 
     :param space: the space's name from load_index
     :param filename: the file's own name, with its extension

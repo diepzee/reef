@@ -204,9 +204,27 @@ def test_protocol_sends_personal_inbox_entries_through_share():
     assert "goes there only through `share`" in text
 
 
+#: The only forms in which the protocol may say "page": a page of a file.
+FILE_PAGE_FORMS = (
+    r"#page=\w+",
+    r"\bpage (?:3|n)\b",
+    r"with the page it came from",
+    r"each page\b",
+    r"cut at a page",
+    r"a page is a pdf page",
+)
+
+
 def test_protocol_uses_the_new_words():
-    """People and assistants say space and engram, never cove and page."""
-    text = (ROOT / "src/reef/protocol.md").read_text().lower()
+    """People and assistants say space and engram, never cove and page.
+
+    "Page" stays only where it means a page of a file.
+    """
+    text = (ROOT / "src/reef/protocol.md").read_text()
+    assert "#page=" in text
+    text = text.lower()
+    for form in FILE_PAGE_FORMS:
+        text = re.sub(form, "", text)
     assert not re.search(r"\bcoves?\b|\bpages?\b", text)
 
 

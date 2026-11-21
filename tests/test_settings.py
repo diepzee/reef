@@ -148,7 +148,7 @@ def test_every_setting_says_what_it_does():
 @pytest.mark.parametrize(
     ("variable", "value", "read"),
     [
-        ("REEF_ENGRAM_MAX_CHARS", "7000", lambda s: s.engrams.max_chars == 7000),
+        ("REEF_ENGRAM_MAX_CHARS", "70000", lambda s: s.engrams.max_chars == 70000),
         ("REEF_RERANK_MIN_ENGRAMS", "7", lambda s: s.rerank.min_engrams == 7),
         ("REEF_SEARCH_LOG", "1", lambda s: s.search.log is True),
         ("WORKOS_CLIENT_ID", "abc", lambda s: s.auth.workos_client_id == "abc"),
@@ -158,11 +158,19 @@ def test_every_setting_says_what_it_does():
             "60",
             lambda s: s.embedding.cap_retry_seconds == 60,
         ),
+        ("REEF_FILE_TEXT", "1", lambda s: s.reading.enabled is True),
     ],
 )
 def test_a_variable_reaches_its_setting(monkeypatch, variable, value, read):
     monkeypatch.setenv(variable, value)
     assert read(config.get_settings())
+
+
+def test_file_text_is_off_by_default(monkeypatch):
+    """Reef reads no file's text until the operator switches it on."""
+    monkeypatch.delenv("REEF_FILE_TEXT", raising=False)
+    monkeypatch.delenv("RIF_FILE_TEXT", raising=False)
+    assert config.get_settings().reading.enabled is False
 
 
 def test_a_name_inside_a_group_is_not_a_second_spelling(monkeypatch):
@@ -174,8 +182,8 @@ def test_a_name_inside_a_group_is_not_a_second_spelling(monkeypatch):
 def test_old_engram_cap_name_still_read(monkeypatch):
     """A deployment that still sets ``REEF_PAGE_MAX_CHARS`` keeps its cap."""
     monkeypatch.delenv("REEF_ENGRAM_MAX_CHARS", raising=False)
-    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "7000")
-    assert config.get_settings().engrams.max_chars == 7000
+    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "70000")
+    assert config.get_settings().engrams.max_chars == 70000
 
 
 def test_old_rerank_floor_name_still_read(monkeypatch):
@@ -185,20 +193,20 @@ def test_old_rerank_floor_name_still_read(monkeypatch):
 
 
 def test_new_name_wins_over_old(monkeypatch):
-    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "7000")
-    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "9000")
+    monkeypatch.setenv("REEF_PAGE_MAX_CHARS", "70000")
+    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "90000")
     monkeypatch.setenv("REEF_RERANK_MIN_PAGES", "12")
     monkeypatch.setenv("REEF_RERANK_MIN_ENGRAMS", "34")
     settings = config.get_settings()
-    assert settings.engrams.max_chars == 9000
+    assert settings.engrams.max_chars == 90000
     assert settings.rerank.min_engrams == 34
 
 
 def test_the_old_names_arrive_through_the_legacy_prefix_too(monkeypatch):
     monkeypatch.delenv("REEF_ENGRAM_MAX_CHARS", raising=False)
     monkeypatch.delenv("REEF_PAGE_MAX_CHARS", raising=False)
-    monkeypatch.setenv("RIF_ENGRAM_MAX_CHARS", "8000")
-    assert config.get_settings().engrams.max_chars == 8000
+    monkeypatch.setenv("RIF_ENGRAM_MAX_CHARS", "80000")
+    assert config.get_settings().engrams.max_chars == 80000
 
 
 def test_a_variable_named_like_a_group_cannot_stop_the_app(monkeypatch):
@@ -255,3 +263,27 @@ def test_a_value_that_would_break_search_is_refused(monkeypatch, variable):
     monkeypatch.setenv(variable, "0")
     with pytest.raises(ValueError):
         config.get_settings()
+
+
+def test_a_page_longer_than_an_engram_is_refused(monkeypatch):
+    """``open`` cuts at a page, so a page must fit the engram cap."""
+    monkeypatch.setenv("REEF_FILE_TEXT", "true")
+    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "10000")
+    monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "10001")
+    with pytest.raises(ValueError, match="PAGE_CHARS"):
+        config.Settings()
+    monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "10000")
+    assert config.Settings().reading.page_chars == 10_000
+
+
+def test_the_page_size_is_not_checked_with_reading_off(monkeypatch):
+    """Off, no page is read: a small engram cap must not stop the app."""
+    monkeypatch.setenv("REEF_FILE_TEXT", "false")
+    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "10000")
+    assert config.Settings().reading.page_chars == 20_000
+
+
+def test_a_page_may_not_pass_200000_characters(monkeypatch):
+    monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "200001")
+    with pytest.raises(ValueError):
+        config.Settings()

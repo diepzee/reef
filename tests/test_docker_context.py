@@ -1,15 +1,19 @@
-"""The image carries every file the project metadata says it needs.
+"""The image carries every file the project metadata says it needs, and the
+reader's sandbox: Tesseract, the ``reader`` user, and a root worker.
 
-Nothing in CI builds this image — Railway is the first thing that ever runs
-the Dockerfile, and it does so *after* the merge. So a file that `uv build`
-finds on a laptop but the build context lacks does not fail a check; it fails
-production, and keeps failing for every merge after it.
+CI's ``image`` job builds the image now; these checks run with the tests,
+in seconds, and name the line that is wrong. Before that job, nothing in CI
+built this image: Railway was the first thing to run the Dockerfile, *after*
+the merge. So a file that `uv build` found on a laptop but the build context
+lacked did not fail a check; it failed production, and kept failing for
+every merge after it.
 
 That is not hypothetical. Declaring `license-files = ["LICENSE"]` without
 adding LICENSE to a COPY line broke four consecutive deploys, because the
 laptop had the file and the image did not.
 """
 
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -60,3 +64,71 @@ def test_declared_license_files_reach_the_image():
                 f"{relative} is declared in license-files but no COPY line "
                 "puts it in the image; uv sync will fail the build"
             )
+
+
+def _instructions() -> list[str]:
+    """The Dockerfile's instructions, as Docker reads them.
+
+    Comment lines go first, as Docker drops them even inside a continued
+    instruction; then continued lines are joined.
+
+    :returns: one instruction per item
+    """
+    lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    kept = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+    return [line.strip() for line in kept.replace("\\\n", " ").splitlines()]
+
+
+def _commands() -> list[list[str]]:
+    """Every shell command the ``RUN`` instructions run, split into words.
+
+    :returns: one list of words per command between ``&&``
+    """
+    return [
+        shlex.split(command)
+        for instruction in _instructions()
+        if instruction.startswith("RUN ")
+        for command in instruction.removeprefix("RUN ").split("&&")
+    ]
+
+
+def test_the_image_installs_tesseract_and_the_reader_user():
+    """Scans are read by Tesseract in Dutch, French and English, as ``reader``.
+
+    The packages must be in an ``apt-get install`` command itself: a comment
+    that names them installs nothing.
+
+    ``reader`` has a fixed id, and a group of the same id. The child caps
+    the processes of its user, and Linux counts them by id across every
+    container on the same kernel. The id ``useradd --system`` picks, 999,
+    is the one Postgres and Redis containers run as: their processes would
+    use up the cap.
+    """
+    installed = {
+        word
+        for command in _commands()
+        if command[:2] == ["apt-get", "install"]
+        and "--no-install-recommends" in command
+        for word in command[2:]
+        if not word.startswith("-")
+    }
+    assert {"tesseract-ocr", "tesseract-ocr-nld", "tesseract-ocr-fra"} <= installed
+    group = "groupadd --system --gid 48271 reader"
+    reader = (
+        "useradd --system --uid 48271 --gid 48271 --no-create-home "
+        "--shell /usr/sbin/nologin reader"
+    )
+    assert group.split() in _commands()
+    assert reader.split() in _commands()
+
+
+def test_the_image_runs_as_root():
+    """The worker runs as root, so it can hand each file to ``reader``.
+
+    A worker that is not root runs the child as itself (see
+    ``reef.reading.sandbox.child_user``). A child that a hostile file has
+    taken over could then read ``/proc/<worker>/environ``, and with it the
+    storage key and the database URL. A ``USER`` line would do exactly that.
+    """
+    users = [line for line in _instructions() if line.upper().startswith("USER ")]
+    assert users == []

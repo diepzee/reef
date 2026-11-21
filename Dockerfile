@@ -11,6 +11,10 @@ FROM python:3.13-slim
 # and Railway's managed Postgres is 18.4 while trixie ships 17.x -- so the
 # stock package makes scripts/backup.py fail every run. Pin this to the major
 # version Railway is on, and re-check it if that server is ever upgraded.
+#
+# Tesseract reads scanned pages on Reef's own servers, in Dutch, French and
+# English: tesseract-ocr brings English and the orientation data, the other
+# two are their own packages (see reef.reading.pages).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
     && install -d /usr/share/postgresql-common/pgdg \
@@ -22,8 +26,28 @@ https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
         > /etc/apt/sources.list.d/pgdg.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends postgresql-client-18 \
+        tesseract-ocr tesseract-ocr-nld tesseract-ocr-fra \
     && apt-get purge -y curl gnupg && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*
+# Every uploaded file is parsed in a child process that runs as `reader`, a
+# user with no home, no shell and nothing of the worker's: a parser bug that
+# a hostile file triggers gets that user's rights, not the worker's. The
+# worker can hand files to `reader` only because it runs as root, so this
+# image has no USER line: a worker that is not root runs the child as
+# itself, and the child could then read the worker's secrets from
+# /proc/<worker>/environ (see reef.reading.sandbox, and
+# tests/test_docker_context.py, which checks both).
+#
+# `reader` has a fixed id that no common image uses, and a group of the same
+# id. The child caps how many processes its user may have (RLIMIT_NPROC),
+# and Linux counts them by id across every container on the same kernel.
+# The id `useradd --system` would pick, 999, is the one Postgres and Redis
+# containers run as: their processes would use up the cap, and Tesseract
+# could not start. useradd warns that the id is above the system range;
+# that is expected.
+RUN groupadd --system --gid 48271 reader \
+    && useradd --system --uid 48271 --gid 48271 --no-create-home \
+        --shell /usr/sbin/nologin reader
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 # LICENSE travels with pyproject.toml because the metadata names it:

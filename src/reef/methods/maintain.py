@@ -14,8 +14,10 @@ refused as a write to them is.
 is logged. Titles and file names appear only in the reply to the caller.
 """
 
+from reef import filetext
 from reef.access import resolve_writable_space
 from reef.attachments import S3ObjectStore, delete_attachment, get_attachment
+from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import (
     PERSONA_PATH,
@@ -380,12 +382,18 @@ async def _forget_file(
             async with transaction_scope():
                 resolved = await resolve_writable_space(caller.principal, space)
                 attachment = await get_attachment(caller.principal, space, key)
+                read = (
+                    attachment is not None
+                    and get_settings().reading.enabled
+                    and await filetext.has_pages(attachment.id)
+                )
         if attachment is None:
             raise MethodError("not_found")
         name = attachment.filename or key.rsplit("/", 1)[-1]
+        gone = " and the text Reef read from it" if read else ""
         effect = (
             f'This permanently deletes the file "{name}" '
-            f"({attachment.byte_size:,} bytes). It cannot be undone."
+            f"({attachment.byte_size:,} bytes){gone}. It cannot be undone."
         )
         return {
             "effect": _shared(effect, space, resolved.kind),
