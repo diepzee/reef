@@ -146,13 +146,27 @@ def _blocks(body: str) -> list[tuple[tuple[str, ...], str]]:
 
 
 def _parts(text: str) -> list[str]:
-    """Cut a long text between paragraphs.
+    """Cut a long section between paragraphs.
 
     :param text: a section's text
-    :returns: parts of at most ``REEF_EMBEDDING_PIECE_MAX_CHARS`` characters. A single
-        paragraph longer than that is cut where it has to be.
+    :returns: parts of at most ``REEF_EMBEDDING_PIECE_MAX_CHARS`` characters
     """
-    limit = get_settings().embedding.piece_max_chars
+    return cut(text, get_settings().embedding.piece_max_chars)
+
+
+def cut(text: str, limit: int) -> list[str]:
+    """Cut a text between paragraphs into parts.
+
+    A paragraph ends at a blank line. Parts are filled with whole paragraphs,
+    joined by the blank line between them, so joining the parts the same way
+    gives back the text, unless a paragraph had to be cut. A file read as
+    text is cut this way into pages.
+
+    :param text: the text
+    :param limit: the most characters in one part
+    :returns: the parts, in order. A single paragraph longer than ``limit``
+        is cut where it has to be. A text of only whitespace gives none.
+    """
     parts: list[str] = []
     current = ""
     for paragraph in text.split("\n\n"):
