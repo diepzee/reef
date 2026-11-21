@@ -169,6 +169,34 @@ async def run(argv: list[str], store: ObjectStore | None = None) -> str:
     return json.dumps(report)
 
 
+async def release_orphans(settle: float = 0.5) -> int:
+    """Kill and collect what this report's reads left, before it ends.
+
+    Run as root, the report adopts its children's orphans (see
+    :func:`_main`): a Tesseract whose read timed out, or a process a hostile
+    file left. When the report ends they would go to PID 1, which never
+    collects them, and count against the worker's cap until a restart. So,
+    with no read in flight, it kills every process of ``reader`` that
+    descends from it, gives them a moment to end, and collects every zombie
+    of ``reader`` it adopted, session leaders too. Never the worker's: they
+    descend from the worker.
+
+    :param settle: how long the killed processes get to end, in seconds
+    :returns: how many processes were killed; 0 when not root on Linux, or
+        when ``/proc`` cannot be read
+    """
+    uid = sandbox.reader_uid()
+    if uid is None:
+        return 0
+    try:
+        killed = sandbox.kill_descendants(uid, sandbox.PROC)
+        await asyncio.sleep(settle)
+        sandbox.reap_orphans(uid, sandbox.PROC, leaders=True)
+    except OSError:
+        return 0
+    return killed
+
+
 async def _main() -> None:
     """Open the database, print the report, and close it.
 
@@ -177,7 +205,7 @@ async def _main() -> None:
     (:func:`reef.reading.sandbox.adopt_orphans`). Otherwise a Tesseract
     whose read timed out would go to PID 1, which never collects it, and
     its zombie would count against the worker's cap until a restart.
-    Before it ends, it collects what its last read left.
+    Before it ends, it clears what its reads left (:func:`release_orphans`).
     """
     with contextlib.suppress(OSError):
         sandbox.adopt_orphans()
@@ -186,9 +214,7 @@ async def _main() -> None:
         print(await run(sys.argv[1:]))
     finally:
         await DB.close_connection_pool()
-        # A process the last read killed may take a moment to end.
-        await asyncio.sleep(0.5)
-        sandbox.collect_orphans()
+        await release_orphans()
 
 
 if __name__ == "__main__":

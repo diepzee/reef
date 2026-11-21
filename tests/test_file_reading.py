@@ -873,6 +873,54 @@ async def test_a_file_left_waiting_is_healed_by_the_next_index_load(
         assert await filetext.request_backfill(me.principal) is False
 
 
+async def test_a_file_out_of_processes_is_tried_again_a_day_later(
+    household, reading, monkeypatch, seed
+):
+    """A worker fault is not healed on every index load, or a hostile file
+    that fills its cap would be read again on each: its failed attempts
+    roll back and cost nothing. Any other failure still heals at once."""
+    me = caller_for(household["wouter"])
+    held = await store_as(me, "personal", "a.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute(
+        "UPDATE jobs SET status = 'failed', error = 'OutOfProcesses', "
+        "finished_at = LOCALTIMESTAMP WHERE $1 = ANY(subject_ids)",
+        held.id,
+    )
+    async with transaction_scope():
+        await build_index(me.principal)
+    assert await _jobs(me.principal, BACKFILL_FILES) == []
+    async with transaction_scope():
+        assert await filetext.request_backfill(me.principal) is False
+
+    other = await store_as(me, "personal", "b.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute(
+        "UPDATE jobs SET status = 'failed', error = 'SandboxUnavailable', "
+        "finished_at = LOCALTIMESTAMP WHERE $1 = ANY(subject_ids)",
+        other.id,
+    )
+    async with transaction_scope():
+        await build_index(me.principal)
+    assert await drain("test") == 2
+    assert await _status(me.principal, other.id) == ("read", 1, None)
+    assert await _status(me.principal, held.id) == ("waiting", None, None)
+    held_jobs = [
+        job["status"]
+        for job in await _jobs(me.principal, READ_FILE)
+        if job["subject_ids"] == [held.id]
+    ]
+    assert held_jobs == ["failed"]
+
+    await seed.execute(
+        "UPDATE jobs SET finished_at = LOCALTIMESTAMP - interval '25 hours' "
+        "WHERE $1 = ANY(subject_ids)",
+        held.id,
+    )
+    async with transaction_scope():
+        await build_index(me.principal)
+    assert await drain("test") == 2
+    assert await _status(me.principal, held.id) == ("read", 1, None)
+
+
 async def test_a_file_whose_job_is_running_does_not_ask_for_the_backfill(
     household, seed
 ):

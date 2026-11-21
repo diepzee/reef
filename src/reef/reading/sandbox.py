@@ -400,7 +400,7 @@ def _sweeps_reader() -> bool:
     return sys.platform.startswith("linux") and os.geteuid() == 0
 
 
-def _reader_uid() -> int | None:
+def reader_uid() -> int | None:
     """Return the user id of ``reader`` when this process sweeps it.
 
     :returns: the id; None when this process does not sweep, or there is
@@ -470,7 +470,7 @@ def kill_reader_processes() -> int:
     :returns: how many processes were killed
     :raises OSError: when ``/proc`` cannot be read
     """
-    uid = _reader_uid()
+    uid = reader_uid()
     if uid is None:
         return 0
     reap_orphans(uid, PROC, leaders=True)
@@ -518,6 +518,58 @@ def reap_orphans(uid: int, proc: Path, *, leaders: bool) -> int:
     return collected
 
 
+def kill_descendants(uid: int, proc: Path) -> int:
+    """Kill every live process of one user that descends from this process.
+
+    For a script that reads through the sandbox and adopts orphans, such as
+    ``scripts/file_report.py``, once no read of its own is in flight: what
+    its reads left is its own, and when it ends, its orphans would go to
+    PID 1, which never collects them. The worker's processes descend from
+    the worker, not from it, and are left alone. Descent is followed
+    through each process's parent, so a process a leftover started goes
+    too. Like :func:`kill_owned_by`, it looks again after each round, at
+    most :data:`_SWEEPS` times.
+
+    :param uid: the user
+    :param proc: where the processes are listed, ``/proc`` on Linux
+    :returns: how many processes were killed
+    :raises OSError: when ``proc`` cannot be listed
+    """
+    me = os.getpid()
+    killed: set[int] = set()
+    for _ in range(_SWEEPS):
+        statuses = dict(_statuses(proc))
+        children: dict[int, list[int]] = {}
+        for pid, fields in statuses.items():
+            parent = fields.get("PPid", "").strip()
+            if parent.isdecimal():
+                children.setdefault(int(parent), []).append(pid)
+        found: list[int] = []
+        seen: set[int] = set()
+        below = list(children.get(me, []))
+        while below:
+            pid = below.pop()
+            if pid in seen:
+                continue
+            seen.add(pid)
+            below.extend(children.get(pid, []))
+            fields = statuses[pid]
+            if (
+                pid not in killed
+                and not _ended(fields)
+                and str(uid) in fields.get("Uid", "").split()
+            ):
+                found.append(pid)
+        if not found:
+            break
+        for pid in found:
+            # It may have ended since it was listed.
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        killed.update(found)
+    return len(killed)
+
+
 def collect_orphans() -> None:
     """Collect the zombies of ``reader`` a child left, around a read.
 
@@ -526,7 +578,7 @@ def collect_orphans() -> None:
     reports it, and must not take the place of the read's own outcome.
     Linux only, and only as root; elsewhere it does nothing.
     """
-    uid = _reader_uid()
+    uid = reader_uid()
     if uid is not None:
         with contextlib.suppress(OSError):
             reap_orphans(uid, PROC, leaders=False)

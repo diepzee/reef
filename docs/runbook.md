@@ -1425,9 +1425,11 @@ run as 999, and their processes would leave Tesseract no room to start.
   (`uv`), which never collects them, and the cap would stay full.
 - **What a full cap looks like.** Reading jobs fail with the error
   `OutOfProcesses` and are retried. The file gets no error of its own and
-  stays `waiting`. If many jobs show this error, restart `reef-worker`: that
-  empties its container. If the errors come back at once, something else on
-  the machine runs as id 48271.
+  stays `waiting`. Once its job has used up its attempts, the file is tried
+  again a day later, not on every index load: a hostile file can fill its
+  cap on every read. If many jobs show this error, restart `reef-worker`:
+  that empties its container. If the errors come back at once, something
+  else on the machine runs as id 48271.
 
 When a read ends, its child and every process the child started are killed.
 A hostile file could still start a process that leaves the child's process

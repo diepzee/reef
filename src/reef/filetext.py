@@ -51,6 +51,7 @@ from reef.reading import (
     TEXT_FORMATS,
     FileKind,
     NoMainPart,
+    OutOfProcesses,
     ReadFailed,
     Reading,
     ReadTimedOut,
@@ -73,6 +74,43 @@ FINAL: frozenset[TextStatus] = frozenset(
 _WRITABLE = "space_id IN (SELECT reef_member_space_ids())"
 """The file is in a space the person may write to: a member's, not a
 viewer's. A fixed literal, spliced into SQL."""
+
+WORKER_FAULT_WAIT = timedelta(hours=24)
+"""How long a file waits before it is healed again after its reading job
+failed for good with :class:`~reef.reading.OutOfProcesses`."""
+
+_WORKER_FAULT = (
+    "EXISTS (SELECT 1 FROM (SELECT j.status, j.error, j.finished_at FROM jobs j "
+    "WHERE j.person_id = {} AND j.kind = {} AND j.subject_ids = ARRAY[a.id] "
+    "ORDER BY j.created_at DESC LIMIT 1) latest "
+    "WHERE latest.status = 'failed' AND latest.error = {} "
+    "AND latest.finished_at > LOCALTIMESTAMP - make_interval(secs => {}))"
+)
+"""The file ``a``'s latest reading job of the person's failed for good with
+:class:`~reef.reading.OutOfProcesses`, within :data:`WORKER_FAULT_WAIT`. A
+fixed literal, spliced into SQL; its values come from
+:func:`_worker_fault_values`.
+
+Such a file stays ``waiting`` and is not healed on every index load. The
+worker was short of processes, which a hostile file can cause on every
+read, and its failed attempts roll back and cost nothing: healing it at
+once would read it again on each load, without end. It is healed again
+once a day. A file whose job failed for any other reason heals at once."""
+
+
+def _worker_fault_values(principal: Principal) -> tuple[object, ...]:
+    """Return the values :data:`_WORKER_FAULT` takes, in order.
+
+    :param principal: the person whose jobs count
+    :returns: the person, the job kind, the error class and the wait in
+        seconds
+    """
+    return (
+        principal.person_id,
+        READ_FILE,
+        OutOfProcesses.__name__,
+        WORKER_FAULT_WAIT.total_seconds(),
+    )
 
 
 @dataclass(frozen=True)
@@ -535,10 +573,12 @@ async def request_backfill(principal: Principal) -> bool:
     ready, in a space the person may write to, and either never looked at,
     or ``waiting`` with no ``read_file`` job of this person's queued or
     running: its job failed for good, or ended with the switch off. Left
-    alone, such a file would never be read, nor embedded. With an embedding
-    service, a file also needs it when its reading has ended and it has no
-    vector. Without a service vectors are not asked about: the files would
-    lack them on every load.
+    alone, such a file would never be read, nor embedded. A file whose job
+    failed for good because the worker was short of processes waits a day
+    first (:data:`_WORKER_FAULT`). With an embedding service, a file also
+    needs it when its reading has ended and it has no vector. Without a
+    service vectors are not asked about: the files would lack them on every
+    load.
 
     :param principal: the person whose index was just built
     :returns: True if a job was added; False with the switch off, when
@@ -554,9 +594,10 @@ async def request_backfill(principal: Principal) -> bool:
         "AND (a.text_status IS NULL OR (a.text_status = 'waiting' AND NOT EXISTS ("
         "SELECT 1 FROM jobs j WHERE j.person_id = {} AND j.kind = {} "
         "AND j.status IN ('queued', 'running') "
-        "AND j.subject_ids = ARRAY[a.id]))) LIMIT 1",
+        f"AND j.subject_ids = ARRAY[a.id]) AND NOT {_WORKER_FAULT})) LIMIT 1",
         principal.person_id,
         READ_FILE,
+        *_worker_fault_values(principal),
     )
     if not unread and not (
         settings.embedding.url and await embedding.files_lacking(principal, limit=1)
@@ -570,9 +611,11 @@ async def backfill(principal: Principal) -> int:
 
     Reads nothing itself. Files never looked at become ``waiting`` and get a
     ``read_file`` job; a ``waiting`` file without a job of this person's
-    waiting gets one again; a file whose reading ended without a vector gets
-    an ``embed_file`` job. Only ready files in spaces the person may write
-    to count.
+    waiting gets one again, unless its job failed for good because the
+    worker was short of processes less than a day ago
+    (:data:`_WORKER_FAULT`); a file whose reading ended without a vector
+    gets an ``embed_file`` job. Only ready files in spaces the person may
+    write to count.
 
     :param principal: the person the work is for
     :returns: how many jobs were added; 0 with the switch off
@@ -585,8 +628,10 @@ async def backfill(principal: Principal) -> int:
         f"AND text_status IS NULL AND {_WRITABLE}"
     )
     waiting = await Attachment.raw(
-        "SELECT id FROM attachments WHERE status = 'ready' "
-        f"AND text_status = 'waiting' AND {_WRITABLE} ORDER BY created_at DESC"
+        "SELECT a.id FROM attachments a WHERE a.status = 'ready' "
+        f"AND a.text_status = 'waiting' AND {_WRITABLE} "
+        f"AND NOT {_WORKER_FAULT} ORDER BY a.created_at DESC",
+        *_worker_fault_values(principal),
     )
     added = 0
     for row in waiting:
