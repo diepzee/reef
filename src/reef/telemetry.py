@@ -33,9 +33,14 @@ from uuid import UUID
 # backstop -- the primary defence is never passing the values in.
 SCRUB_PATTERNS = [
     "body",
+    # What a stored file is called, what it is said to be, and what Reef read
+    # inside it. A job kind, log line or span value must not contain these
+    # words: Logfire redacts the whole value.
+    "description",
     "display_name",
     "email",
     "engram_path",
+    "filename",
     # The same path under the tools' and the web API's name for it.
     "page_path",
     # What recall answers with: a piece of an engram.
@@ -47,6 +52,7 @@ SCRUB_PATTERNS = [
     "reason",
     "section_text",
     "subject",
+    "text",
     "title",
 ]
 
