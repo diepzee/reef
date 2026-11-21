@@ -1,8 +1,9 @@
 """The call log: which method was called, and why.
 
-**Why it exists.** So a person can see what was done in their name and the
-reason their assistant gave. The reason is the assistant's own account of
-why it called, in a sentence.
+**Why it exists.** To improve Reef: to learn which tools assistants use,
+which they do not, and what they ask for that no tool serves. The reason is
+the assistant's own account of why it called, in a sentence. A person sees
+their own rows in their export.
 
 **What is recorded.** The method, the reason (cut to
 :data:`~reef.rls.CALL_LOG_MAX_REASON` characters), who called (``assistant``,
@@ -10,8 +11,21 @@ why it called, in a sentence.
 the outcome, a label for the session and the time. Not the arguments, not
 engram text, and not the results.
 
+**Calls Reef could not answer.** A call to a retired tool name, or with
+arguments that do not fit, is refused before any method runs. The MCP server
+records it here too: the name called, the outcome ``retired_tool`` or
+``invalid_arguments``, an empty reason, and nothing from the arguments. See
+:class:`reef.server._Gate`.
+
 **Whose it is.** One person's. Row security lets a person read their own
-rows and nobody else's, operators included. Nothing here reads across people.
+rows and nobody else's, operators included.
+
+**Totals across everybody.** :func:`totals` is the one look across people,
+and it sees only totals: per method and outcome, how many calls and how many
+had no reason. Never a person, a reason, a session, a time, or how many
+people. It counts whole days in UTC, at least a week and at most the
+retention, ending at the start of today, so no window can be aimed at one
+moment. It is how the log serves its purpose without anyone reading it.
 
 **How long.** :data:`RETENTION_DAYS` days. :func:`purge` deletes older rows
 for everybody, through a database function that takes no argument and
@@ -27,13 +41,14 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
 import logging
+from dataclasses import dataclass
 from uuid import uuid4
 
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.models import CallLog
-from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON
+from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON, CALL_LOG_TOTALS_MIN_DAYS
 
 log = logging.getLogger("reef.calllog")
 
@@ -142,6 +157,47 @@ async def _insert(
         await savepoint.rollback_to()
         raise
     await savepoint.release()
+
+
+@dataclass(frozen=True)
+class Total:
+    """How the calls to one method that ended one way add up, across everybody."""
+
+    method: str
+    """The method, or the retired tool name, that was called."""
+
+    outcome: str
+    """How the calls ended: ``ok``, a refusal's code, or an error's class."""
+
+    calls: int
+    """How many calls."""
+
+    empty_reasons: int
+    """How many of them came without a reason."""
+
+
+async def totals(days: int) -> list[Total]:
+    """Count the calls of the last whole days, for everybody, without reading one.
+
+    From the start of the day ``days`` days ago to the start of today, in
+    UTC: today is not counted until it is over. Through a database function
+    that returns only these totals, ordered by method and outcome, and that
+    refuses a number of days out of range too. Needs no principal.
+
+    :param days: how many whole days to count, from
+        :data:`~reef.rls.CALL_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`
+    :returns: one total per method and outcome
+    :raises ValueError: when ``days`` is out of that range
+    """
+    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= CALL_LOG_DAYS:
+        raise ValueError(
+            f"call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_DAYS} days"
+        )
+    rows = await CallLog.raw(
+        "SELECT method, outcome, calls, empty_reasons FROM reef_call_log_totals({})",
+        days,
+    )
+    return [Total(**row) for row in rows]
 
 
 async def purge() -> int:

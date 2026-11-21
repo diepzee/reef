@@ -1326,14 +1326,36 @@ list to see the new names.
 **What it stores.** One row per call: the method, the reason cut to 200
 characters, who called (`assistant`, `person` or `system`), how long the call
 took, how many items it returned, and the outcome. It stores no arguments, no
-engram text and no results.
+engram text and no results. Calls the server refuses before any method runs
+get a row too: a retired tool name (outcome `retired_tool`) or arguments that
+do not fit (`invalid_arguments`), with an empty reason. These show what
+assistants ask for that no tool serves.
+
+**What it is for.** To improve Reef: which tools assistants use, which they
+do not, and what they ask for that no tool serves.
 
 **Who sees it.** Only the person it belongs to. Row-level security stops
 every other reader, operators included. The reason never reaches Logfire or
 the app logs. The person's export includes their rows, and deleting the
 account deletes them.
 
-**How long.** 90 days. The worker purges older rows every hour.
+**How long.** 90 days. The worker purges older rows every hour, separately
+from the search log: one purge failing does not stop the other.
+
+**Totals, never rows.** `reef_call_log_totals(p_days)` is the only way to
+look across people. For each method and outcome it returns how many calls
+and how many came without a reason. No person, reason, session or time, and
+not how many people: in a reef of three, that would point at one. It counts
+whole days in UTC, from the start of the day `p_days` days ago to the start
+of today, and refuses fewer than 7 days or more than 90. The caller's
+`TimeZone` setting does not move these bounds: `called_at` holds UTC clock
+time and is compared as it is. So no window can be aimed at one moment, and
+today's calls count from tomorrow. Print them with
+`just call-totals [days]` (30 by default). In production, run it inside
+`reef-app`, so it uses the app's own role:
+`railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/call_totals.py --days 30`.
+Do not read `call_log` itself as a superuser: the privacy page promises
+nobody reads another person's calls.
 
 **Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
 `reef-app`. **Before you set it**, update the privacy page and tell the

@@ -1721,9 +1721,41 @@ BEGIN
 END
 """
 
+#: The columns :func:`call_log_statements`' totals return, and nothing else.
+#: Not how many people: in a reef of three, that would point at one of them.
+CALL_LOG_TOTALS_COLUMNS = ("method", "outcome", "calls", "empty_reasons")
+
+CALL_LOG_TOTALS_MIN_DAYS = 7
+"""The fewest whole days the call log's totals cover. A shorter window could
+be aimed at one call."""
+
+#: The start of today on a UTC clock, as a ``timestamp``. ``called_at`` holds
+#: UTC clock time too, so the window's bounds are compared with it as they
+#: are, with no time zone in between: a caller's ``TimeZone`` setting, which
+#: any session may set to an offset to the minute, cannot move them.
+_TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
+
+_CALL_LOG_TOTALS = f"""
+BEGIN
+    IF p_days IS NULL
+       OR p_days NOT BETWEEN {CALL_LOG_TOTALS_MIN_DAYS} AND {CALL_LOG_DAYS} THEN
+        RAISE EXCEPTION 'call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_DAYS} days'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    RETURN QUERY
+    SELECT c.method::text, c.outcome::text, count(*),
+           count(*) FILTER (WHERE c.reason = '')
+    FROM call_log c
+    WHERE c.called_at >= {_TODAY_UTC} - make_interval(days => p_days)
+      AND c.called_at < {_TODAY_UTC}
+    GROUP BY c.method, c.outcome
+    ORDER BY c.method, c.outcome;
+END
+"""
+
 
 def call_log_statements() -> list[str]:
-    """Return idempotent DDL arming RLS on the call log, and its purge.
+    """Return idempotent DDL arming RLS on the call log, its purge and its totals.
 
     Not part of :func:`enable_statements`, for the reason
     :func:`appearance_statements` gives. Also adds the check on
@@ -1738,6 +1770,17 @@ def call_log_statements() -> list[str]:
     **The purge.** ``reef_purge_call_log`` is built like
     ``reef_purge_search_log``: no argument, returns a count and never a row,
     and deletes only rows that were due for deletion anyway.
+
+    **The totals.** ``reef_call_log_totals(p_days)`` is the one way to look
+    across people, and it returns only totals: for each method and outcome,
+    how many calls and how many had no reason. No person, reason, session or
+    time leaves it, and not how many people either. It counts whole days in
+    UTC, from the start of the day ``p_days`` days ago to the start of today,
+    and refuses fewer than :data:`CALL_LOG_TOTALS_MIN_DAYS` days or more than
+    :data:`CALL_LOG_DAYS`. So no window can be aimed at one moment, and the
+    totals do not change during a day. This is what the call log is for:
+    learning which tools assistants use and what they ask for that no tool
+    serves, without reading anybody's calls.
 
     :returns: SQL statements to execute in order
     """
@@ -1778,6 +1821,13 @@ def call_log_statements() -> list[str]:
             returns="integer",
             writes=("call_log",),
             volatility="VOLATILE",
+            language="plpgsql",
+        ),
+        *_function_ddl(
+            "reef_call_log_totals(p_days integer)",
+            _CALL_LOG_TOTALS,
+            returns="TABLE(method text, outcome text, calls bigint, empty_reasons bigint)",
+            reads=("call_log",),
             language="plpgsql",
         ),
     ]

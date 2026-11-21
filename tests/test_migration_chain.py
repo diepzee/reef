@@ -293,6 +293,7 @@ def _declared(pattern: str) -> set[str]:
     from reef.rls import (
         alias_statements,
         appearance_statements,
+        call_log_statements,
         enable_statements,
         job_statements,
         link_statements,
@@ -312,6 +313,7 @@ def _declared(pattern: str) -> set[str]:
         + alias_statements()
         + open_door_statements()
         + person_column_grant_statements()
+        + call_log_statements()
     )
     return set(re.findall(pattern, everything))
 

@@ -455,8 +455,9 @@ class SearchLog(Table, tablename="search_log", db=DB):
 class CallLog(Table, tablename="call_log", db=DB):
     """One call to one method by one person's assistant, or by the person.
 
-    Kept so a person can see what was done in their name and why. Strictly
-    per person, like the search log: a person sees their own rows and nobody
+    Kept to learn which tools assistants use and what they ask for that no
+    tool serves, so Reef can be improved. Strictly per person, like the
+    search log: a person sees their own rows and nobody
     else's, operators included. See :func:`reef.rls.call_log_statements`.
 
     ``reason`` is the assistant's own words for why it called, cut to
