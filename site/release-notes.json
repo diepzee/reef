@@ -1,6 +1,20 @@
 {
   "entries": [
     {
+      "version": "2.1.0",
+      "date": "2026-11-21",
+      "changes": [
+        {
+          "kind": "changed",
+          "text": "The privacy page now says where Reef would keep the text it reads from your files: in its own database, next to your engrams. Reef does not read files yet."
+        },
+        {
+          "kind": "changed",
+          "text": "The privacy page now says why reef would keep a record of your assistant's calls: to learn which tools assistants use, and what they ask for that reef cannot do yet. reef would count calls across everyone, and nobody would read yours. The record is not switched on yet."
+        }
+      ]
+    },
+    {
       "version": "2.0.0",
       "date": "2026-11-20",
       "changes": [
