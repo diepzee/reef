@@ -185,7 +185,7 @@ def cut(text: str, limit: int) -> list[str]:
     return parts
 
 
-def _piece(
+def piece(
     anchor: str | None,
     heading_path: tuple[str, ...],
     body: str,
@@ -193,6 +193,8 @@ def _piece(
     description: str,
 ) -> Section:
     """Build one piece, with the context in front of its text.
+
+    Public: file chunks are built the same way, see :mod:`reef.filechunks`.
 
     :param anchor: the piece's anchor
     :param heading_path: the headings above it
@@ -231,7 +233,7 @@ def split(title: str, description: str, body: str) -> list[Section]:
     if not body:
         return []
     sizes = get_settings().embedding
-    whole = _piece(None, (), body[: sizes.engram_chars], title, description)
+    whole = piece(None, (), body[: sizes.engram_chars], title, description)
     if len(body) <= sizes.piece_max_chars:
         return [whole]
 
@@ -264,5 +266,5 @@ def split(title: str, description: str, body: str) -> list[Section]:
             base = f"{base}-{seen[base]}"
         for number, part in enumerate(_parts(text), 1):
             anchor = base if number == 1 else f"{base}~{number}"
-            pieces.append(_piece(anchor, where, part, title, description))
+            pieces.append(piece(anchor, where, part, title, description))
     return pieces

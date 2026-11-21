@@ -38,19 +38,27 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Protocol
 from uuid import UUID, uuid4
 
 import httpx
 
-from reef import sections
+from reef import filechunks, sections
 from reef.access import Principal, arm
 from reef.breaker import Breaker, describe, is_refusal
 from reef.config import get_settings
 from reef.indexfields import summary
-from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_ENGRAM, enqueue
-from reef.models import EmbeddingSpend, Engram, EngramEmbedding, Job
+from reef.jobs import BACKFILL_EMBEDDINGS, EMBED_ENGRAM, EMBED_FILE, enqueue
+from reef.models import (
+    Attachment,
+    EmbeddingSpend,
+    Engram,
+    EngramEmbedding,
+    FilePage,
+    Job,
+)
 
 #: The longest vector accepted. The table's own check has the same bound.
 MAX_DIMS = 4096
@@ -326,6 +334,110 @@ async def _charge(principal: Principal, pieces: int) -> None:
     )
 
 
+@dataclass(frozen=True)
+class _Vectors:
+    """Where one kind of vector is stored: a table and two of its columns.
+
+    Only the two instances below exist. Their values are spliced into SQL,
+    so they are fixed literals here and never input.
+    """
+
+    table: str
+    owner: str
+    anchor: str
+
+
+_ENGRAM_VECTORS = _Vectors("engram_embeddings", "engram_id", "section_anchor")
+_FILE_VECTORS = _Vectors("file_embeddings", "attachment_id", "chunk_anchor")
+
+
+async def _bring_up_to_date(
+    principal: Principal,
+    where: _Vectors,
+    owner_id: UUID,
+    pieces: list[sections.Section],
+    embedder: Embedder,
+) -> int:
+    """Make the stored vectors of one engram or file match its pieces.
+
+    Embeds the pieces whose text changed, removes the vectors of pieces that
+    are gone, and leaves the rest alone. Vectors of another model are
+    removed: they cannot be compared with this model's.
+
+    :param principal: the person the work is for
+    :param where: the table the vectors are in
+    :param owner_id: the engram's or file's id
+    :param pieces: what the vectors should be made from
+    :param embedder: the embedding service
+    :returns: how many pieces were embedded
+    :raises CapReached: if the pieces do not fit in what is left of today's
+        cap. Old vectors are kept.
+    :raises ServiceFailed: if the service failed or answered badly. The
+        pieces sent are charged, and the old vectors are kept.
+    """
+    wanted = {piece.anchor: piece for piece in pieces}
+    stored = await EngramEmbedding.raw(
+        f"SELECT id, {where.anchor} AS anchor, model_id, content_hash "
+        f"FROM {where.table} WHERE {where.owner} = {{}}",
+        owner_id,
+    )
+    current: set[str | None] = set()
+    stale: list[UUID] = []
+    for row in stored:
+        piece = wanted.get(row["anchor"])
+        if (
+            row["model_id"] == embedder.model_id
+            and piece is not None
+            and piece.content_hash == row["content_hash"]
+        ):
+            current.add(row["anchor"])
+        else:
+            stale.append(row["id"])
+    missing = [piece for piece in pieces if piece.anchor not in current]
+
+    if missing:
+        cap = get_settings().embedding.daily_cap
+        if len(missing) > cap:
+            # It can never fit, on any day. Waiting for it would be forever.
+            return 0
+        if len(missing) > cap - await spent_today(principal):
+            raise CapReached
+        try:
+            async with asyncio.timeout(get_settings().embedding.engram_seconds):
+                vectors = _checked(
+                    await embedder.embed(
+                        [passage(embedder.model_id, piece.text) for piece in missing]
+                    ),
+                    len(missing),
+                )
+        except (httpx.HTTPError, BadEmbedding, TimeoutError) as error:
+            # The text was sent, so it counts, whatever came back.
+            await _charge(principal, len(missing))
+            raise ServiceFailed(type(error).__name__) from error
+    if stale:
+        await EngramEmbedding.raw(
+            f"DELETE FROM {where.table} WHERE id = ANY({{}}::uuid[])",
+            [str(row_id) for row_id in stale],
+        )
+    if not missing:
+        return 0
+    for piece, vector in zip(missing, vectors, strict=True):
+        await EngramEmbedding.raw(
+            f"INSERT INTO {where.table} "
+            f"(id, {where.owner}, {where.anchor}, model_id, dims, content_hash, "
+            "embedding) VALUES ({}, {}, {}, {}, {}, {}, {}::vector)",
+            uuid4(),
+            owner_id,
+            piece.anchor,
+            embedder.model_id,
+            len(vector),
+            piece.content_hash,
+            literal(vector),
+        )
+    await _charge(principal, len(missing))
+    return len(missing)
+
+
 async def embed_engram(
     principal: Principal, engram_id: UUID, embedder: Embedder
 ) -> int:
@@ -362,67 +474,54 @@ async def embed_engram(
         engram["description"] or summary(engram["body"]),
         engram["body"],
     )
-    wanted = {piece.anchor: piece for piece in pieces}
-    stored = await EngramEmbedding.raw(
-        "SELECT id, section_anchor, model_id, content_hash FROM engram_embeddings "
-        "WHERE engram_id = {}",
-        engram_id,
+    return await _bring_up_to_date(
+        principal, _ENGRAM_VECTORS, engram_id, pieces, embedder
     )
-    current: set[str | None] = set()
-    stale: list[UUID] = []
-    for row in stored:
-        piece = wanted.get(row["section_anchor"])
-        if (
-            row["model_id"] == embedder.model_id
-            and piece is not None
-            and piece.content_hash == row["content_hash"]
-        ):
-            current.add(row["section_anchor"])
-        else:
-            stale.append(row["id"])
-    missing = [piece for piece in pieces if piece.anchor not in current]
 
-    if missing:
-        cap = get_settings().embedding.daily_cap
-        if len(missing) > cap:
-            # It can never fit, on any day. Waiting for it would be forever.
-            return 0
-        if len(missing) > cap - await spent_today(principal):
-            raise CapReached
-        try:
-            async with asyncio.timeout(get_settings().embedding.engram_seconds):
-                vectors = _checked(
-                    await embedder.embed(
-                        [passage(embedder.model_id, piece.text) for piece in missing]
-                    ),
-                    len(missing),
-                )
-        except (httpx.HTTPError, BadEmbedding, TimeoutError) as error:
-            # The text was sent, so it counts, whatever came back.
-            await _charge(principal, len(missing))
-            raise ServiceFailed(type(error).__name__) from error
-    if stale:
-        await EngramEmbedding.raw(
-            "DELETE FROM engram_embeddings WHERE id = ANY({}::uuid[])",
-            [str(row_id) for row_id in stale],
-        )
-    if not missing:
+
+async def embed_file(
+    principal: Principal, attachment_id: UUID, embedder: Embedder
+) -> int:
+    """Bring one file's vectors up to date.
+
+    As :func:`embed_engram`, for a ready file in a space the person may
+    write to. The chunks come from the filename, the description and the
+    pages read so far: see :mod:`reef.filechunks`. A file without text has
+    the whole-file chunk, so it is found by meaning all the same.
+
+    Nothing is logged: not the name, not the description, not the text.
+
+    :param principal: the person the work is for
+    :param attachment_id: the file
+    :param embedder: the embedding service
+    :returns: how many chunks were embedded. Zero also for a file the person
+        cannot write to, and for one with more changed chunks than the whole
+        daily cap.
+    :raises CapReached: if the file does not fit in what is left of today's
+        cap. Its old vectors are kept.
+    :raises ServiceFailed: if the service failed or answered badly. The
+        chunks sent are charged, and the old vectors are kept.
+    """
+    await arm(principal)
+    rows = await Attachment.raw(
+        "SELECT filename, description FROM attachments WHERE id = {} "
+        "AND status = 'ready' AND space_id IN (SELECT reef_member_space_ids())",
+        attachment_id,
+    )
+    if not rows:
         return 0
-    for piece, vector in zip(missing, vectors, strict=True):
-        await EngramEmbedding.raw(
-            "INSERT INTO engram_embeddings "
-            "(id, engram_id, section_anchor, model_id, dims, content_hash, embedding) "
-            "VALUES ({}, {}, {}, {}, {}, {}, {}::vector)",
-            uuid4(),
-            engram_id,
-            piece.anchor,
-            embedder.model_id,
-            len(vector),
-            piece.content_hash,
-            literal(vector),
-        )
-    await _charge(principal, len(missing))
-    return len(missing)
+    pages = await FilePage.raw(
+        "SELECT number, text FROM file_pages WHERE attachment_id = {} ORDER BY number",
+        attachment_id,
+    )
+    chunks = filechunks.split(
+        rows[0]["filename"] or "",
+        rows[0]["description"] or "",
+        [(page["number"], page["text"]) for page in pages],
+    )
+    return await _bring_up_to_date(
+        principal, _FILE_VECTORS, attachment_id, chunks, embedder
+    )
 
 
 async def backfill(principal: Principal) -> int:
@@ -511,3 +610,59 @@ async def request_backfill(principal: Principal) -> bool:
     if not await _lacking(principal, limit=1):
         return False
     return await enqueue(principal, BACKFILL_EMBEDDINGS)
+
+
+async def files_lacking(principal: Principal, limit: int | None = None) -> list[UUID]:
+    """Find the person's writable files with no whole-file vector of this model.
+
+    Only ready files whose reading has ended, whatever the outcome: a file
+    still waiting to be read is embedded when its pages are in.
+
+    :param principal: the person
+    :param limit: stop after this many
+    :returns: the files' ids, newest first
+    """
+    await arm(principal)
+    rows = await Attachment.raw(
+        "SELECT a.id FROM attachments a "
+        "WHERE a.space_id IN (SELECT reef_member_space_ids()) "
+        "AND a.status = 'ready' "
+        "AND a.text_status IN ('read', 'partly_read', 'unreadable', 'not_read') "
+        "AND NOT EXISTS ("
+        "SELECT 1 FROM file_embeddings e WHERE e.attachment_id = a.id "
+        "AND e.model_id = {} AND e.chunk_anchor IS NULL) "
+        "ORDER BY a.created_at DESC" + (f" LIMIT {int(limit)}" if limit else ""),
+        get_settings().embedding.model,
+    )
+    return [row["id"] for row in rows]
+
+
+async def request_file(
+    principal: Principal, attachment_id: UUID, delay: timedelta | None = None
+) -> bool:
+    """Ask for a file to be embedded, a little later.
+
+    Does nothing without an embedding service, with the reading switch off,
+    or when a job for this file is already waiting.
+
+    :param principal: the person whose act queued it
+    :param attachment_id: the file
+    :param delay: how long to wait; the configured delay by default
+    :returns: True if a job was added
+    """
+    settings = get_settings()
+    if not settings.embedding.url or not settings.reading.enabled:
+        return False
+    await arm(principal)
+    waiting = await Job.raw(
+        "SELECT 1 FROM jobs WHERE person_id = {} AND kind = {} "
+        "AND status = 'queued' AND subject_ids = ARRAY[{}]::uuid[]",
+        principal.person_id,
+        EMBED_FILE,
+        str(attachment_id),
+    )
+    if waiting:
+        return False
+    if delay is None:
+        delay = timedelta(seconds=settings.embedding.delay_seconds)
+    return await enqueue(principal, EMBED_FILE, (attachment_id,), delay=delay)

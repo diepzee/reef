@@ -26,6 +26,7 @@ from reef.jobs import (
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
     EMBED_ENGRAM,
+    EMBED_FILE,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -110,6 +111,38 @@ async def _embed_engram(principal: Principal, job: ClaimedJob) -> None:
             )
 
 
+async def _embed_file(principal: Principal, job: ClaimedJob) -> None:
+    """Embed the chunks of the job's files.
+
+    Does nothing with the reading switch off or no embedding service: either
+    was switched off after the job was queued. Retries as
+    :func:`_embed_engram` does, and logs only the class of a failure.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    embedder = embedding.get_embedder()
+    if embedder is None or not get_settings().reading.enabled:
+        return
+    retry = get_settings().embedding
+    for attachment_id in job.subject_ids:
+        try:
+            await embedding.embed_file(principal, attachment_id, embedder)
+        except embedding.CapReached:
+            await embedding.request_file(
+                principal,
+                attachment_id,
+                delay=timedelta(seconds=retry.cap_retry_seconds),
+            )
+        except embedding.ServiceFailed as failure:
+            log.warning("embedding: the service failed on a file (%s)", failure)
+            await embedding.request_file(
+                principal,
+                attachment_id,
+                delay=timedelta(seconds=retry.failure_retry_seconds),
+            )
+
+
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
     """Queue a job for each of the person's engrams that has no vectors.
 
@@ -130,6 +163,7 @@ HANDLERS: dict[str, Handler] = {
     BACKFILL_LINKS: _backfill_links,
     REFRESH_ACTIVATION: _refresh_activation,
     EMBED_ENGRAM: _embed_engram,
+    EMBED_FILE: _embed_file,
     BACKFILL_EMBEDDINGS: _backfill_embeddings,
 }
 
