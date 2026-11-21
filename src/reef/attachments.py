@@ -20,6 +20,7 @@ from reef.access import Principal, arm, resolve_space, resolve_writable_space
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.models import Attachment, AttachmentStatus, Engram
+from reef.reading.kinds import HEAD_BYTES
 
 logger = logging.getLogger(__name__)
 
@@ -293,10 +294,17 @@ async def add_attachment(
     # A second transaction, because the first one had to commit. The RLS
     # principal was bound transaction-locally and is therefore gone; without
     # re-arming, FORCE RLS hides the pending row and the flip updates nothing.
+    #
+    # Reading is queued in the same transaction, so a ready file always has
+    # its job, or its status says why it needs none. Imported here because
+    # reef.filetext reads the bytes through this module's object store.
+    from reef.filetext import queue_reading
+
     async with transaction_scope():
         await arm(principal)
         attachment.status = AttachmentStatus.READY.value
         await attachment.save()
+        await queue_reading(principal, attachment, data[:HEAD_BYTES])
     return attachment
 
 

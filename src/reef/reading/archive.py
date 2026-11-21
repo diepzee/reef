@@ -16,7 +16,7 @@ refused as too large.
 import struct
 from collections.abc import Iterator
 
-from reef.reading import FileKind, TooLarge, Unreadable
+from reef.reading import FileKind, NoMainPart, TooLarge, Unreadable
 
 ZIP_MAX_BYTES = 200_000_000
 """The most an archive may unpack to, by what its directory declares."""
@@ -118,7 +118,8 @@ def check_archive(
     :param max_entries: the most entries the archive may have
     :returns: what the archive unpacks to, in bytes
     :raises TooLarge: past either cap
-    :raises Unreadable: when it is not a ZIP, or lacks the format's main part
+    :raises Unreadable: when it is not a ZIP
+    :raises NoMainPart: when it lacks the format's main part
     """
     total = 0
     names: set[bytes] = set()
@@ -128,5 +129,5 @@ def check_archive(
             raise TooLarge
         names.add(name)
     if MAIN_PARTS[kind].encode() not in names:
-        raise Unreadable
+        raise NoMainPart
     return total

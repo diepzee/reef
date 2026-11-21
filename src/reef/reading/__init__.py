@@ -121,6 +121,11 @@ class Unreadable(ReadFailed):
     """The file could not be parsed."""
 
 
+class NoMainPart(Unreadable):
+    """The archive lacks its format's main part: it is not the Office file its
+    name says. Reef does not read it, so it is ``not_read``, not unreadable."""
+
+
 class Encrypted(ReadFailed):
     """The file is locked with a password."""
 

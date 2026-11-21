@@ -53,6 +53,13 @@ BACKFILL_EMBEDDINGS = "backfill_embeddings"
 #: Embed the chunks of the files named in ``subject_ids``.
 EMBED_FILE = "embed_file"
 
+#: Read the next pages of the files named in ``subject_ids``. No job kind
+#: holds a word Logfire scrubs, such as "text": it would redact the kind.
+READ_FILE = "read_file"
+
+#: Queue reading and embedding for every file of the person's that lacks it.
+BACKFILL_FILES = "backfill_files"
+
 #: Seconds to wait before the second attempt. Each later attempt waits four
 #: times as long as the one before: 30 seconds, 2 minutes, 8, 32.
 _FIRST_RETRY_SECONDS = 30

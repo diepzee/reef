@@ -13,20 +13,23 @@ import os
 import signal
 import socket
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from reef import calllog, embedding, searchlog, telemetry
+from reef import calllog, embedding, filetext, searchlog, telemetry
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
 from reef.db import DB, transaction_scope
 from reef.jobs import (
     BACKFILL_EMBEDDINGS,
+    BACKFILL_FILES,
     BACKFILL_INDEX_FIELDS,
     BACKFILL_LINKS,
     EMBED_ENGRAM,
     EMBED_FILE,
+    READ_FILE,
     REFRESH_ACTIVATION,
     ClaimedJob,
     claim,
@@ -35,6 +38,8 @@ from reef.jobs import (
     hold,
 )
 from reef.links import backfill_links
+from reef.models import TextStatus
+from reef.reading import TEXT_FORMATS
 from reef.usage import refresh_activation
 
 log = logging.getLogger("reef.worker")
@@ -143,6 +148,63 @@ async def _embed_file(principal: Principal, job: ClaimedJob) -> None:
             )
 
 
+async def _read_file(principal: Principal, job: ClaimedJob) -> None:
+    """Read the next pages of the job's files, and queue what is left.
+
+    Does nothing with the reading switch off: it was switched off after the
+    job was queued. A file with pages left is queued again at once; one
+    whose person has spent today's pages, after ``reading.retry_seconds``.
+    Either way the job ends normally, so the pages read and their cost are
+    committed.
+
+    Logs one line per file: pages read by text layer, by OCR and by text
+    format, the outcome and the time. Never a name, a description, a text,
+    a space or the person.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    settings = get_settings().reading
+    if not settings.enabled:
+        return
+    for attachment_id in job.subject_ids:
+        started = time.monotonic()
+        counts: Counter[str] = Counter()
+        try:
+            status = await filetext.read_file(principal, attachment_id, counts=counts)
+        except filetext.AllowanceSpent:
+            await filetext.request_read(
+                principal,
+                attachment_id,
+                delay=timedelta(seconds=settings.retry_seconds),
+            )
+            outcome = "allowance spent"
+        else:
+            if status is TextStatus.WAITING:
+                await filetext.request_read(principal, attachment_id)
+            outcome = "skipped" if status is None else status.value
+        log.info(
+            "read_file: %d pages (layer %d, ocr %d, format %d) %s in %.1f s",
+            sum(counts.values()),
+            counts["pdf-text"],
+            counts["tesseract"],
+            sum(counts[kind.value] for kind in TEXT_FORMATS),
+            outcome,
+            time.monotonic() - started,
+        )
+
+
+async def _backfill_files(principal: Principal, job: ClaimedJob) -> None:
+    """Queue reading and embedding for each of the person's files that needs it.
+
+    Does nothing with the reading switch off.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    """
+    await filetext.backfill(principal)
+
+
 async def _backfill_embeddings(principal: Principal, job: ClaimedJob) -> None:
     """Queue a job for each of the person's engrams that has no vectors.
 
@@ -165,6 +227,8 @@ HANDLERS: dict[str, Handler] = {
     EMBED_ENGRAM: _embed_engram,
     EMBED_FILE: _embed_file,
     BACKFILL_EMBEDDINGS: _backfill_embeddings,
+    READ_FILE: _read_file,
+    BACKFILL_FILES: _backfill_files,
 }
 
 

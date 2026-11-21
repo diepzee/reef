@@ -40,6 +40,7 @@ from reef.config import get_settings
 from reef.reading import (
     ChildCrashed,
     Encrypted,
+    NoMainPart,
     ReadFailed,
     ReadTimedOut,
     SandboxUnavailable,
@@ -64,7 +65,14 @@ _CHUNK_BYTES = 64 * 1024
 
 _FAILURES: dict[str, type[ReadFailed]] = {
     failure.__name__: failure
-    for failure in (Unreadable, Encrypted, TooLarge, ReadTimedOut, ChildCrashed)
+    for failure in (
+        Unreadable,
+        NoMainPart,
+        Encrypted,
+        TooLarge,
+        ReadTimedOut,
+        ChildCrashed,
+    )
 }
 """The failures a child may name. Any other name counts as a crash."""
 

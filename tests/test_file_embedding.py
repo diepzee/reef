@@ -33,21 +33,29 @@ def service(monkeypatch):
 
 
 async def _file(principal: Principal, space: str = "personal") -> UUID:
-    """Store a ready, described file.
+    """Store a ready, described file, as it was stored before reading began.
+
+    Stored with the reading switch off, so storing it queues nothing: these
+    tests ask for embedding themselves.
 
     :param principal: who stores it
     :param space: the person's name for the space
     :returns: the file's id
     """
-    file = await add_attachment(
-        principal,
-        space,
-        b"%PDF",
-        "application/pdf",
-        filename="policy.pdf",
-        description="Car insurance",
-        store=Store(),
-    )
+    reading = get_settings().reading
+    enabled, reading.enabled = reading.enabled, False
+    try:
+        file = await add_attachment(
+            principal,
+            space,
+            b"%PDF",
+            "application/pdf",
+            filename="policy.pdf",
+            description="Car insurance",
+            store=Store(),
+        )
+    finally:
+        reading.enabled = enabled
     return file.id
 
 

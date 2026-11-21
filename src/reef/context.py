@@ -7,7 +7,7 @@ Both entry points assume they run inside :func:`reef.db.transaction_scope`;
 from dataclasses import dataclass
 from uuid import UUID
 
-from reef import embedding
+from reef import embedding, filetext
 from reef.access import Principal, accessible_spaces, alias_map
 from reef.indexfields import index_fields, resolve_references
 from reef.jobs import BACKFILL_INDEX_FIELDS, BACKFILL_LINKS, enqueue
@@ -141,6 +141,7 @@ async def _queue_backfills(principal: Principal, engrams: list[dict]) -> None:
         ``linked_version`` still say what was stored
     """
     await embedding.request_backfill(principal)
+    await filetext.request_backfill(principal)
     stale = {
         BACKFILL_INDEX_FIELDS: {
             engram["space_id"]
