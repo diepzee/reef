@@ -1,15 +1,19 @@
-"""The image carries every file the project metadata says it needs.
+"""The image carries every file the project metadata says it needs, and the
+reader's sandbox: Tesseract, the ``reader`` user, and a root worker.
 
-Nothing in CI builds this image — Railway is the first thing that ever runs
-the Dockerfile, and it does so *after* the merge. So a file that `uv build`
-finds on a laptop but the build context lacks does not fail a check; it fails
-production, and keeps failing for every merge after it.
+CI's ``image`` job builds the image now; these checks run with the tests,
+in seconds, and name the line that is wrong. Before that job, nothing in CI
+built this image: Railway was the first thing to run the Dockerfile, *after*
+the merge. So a file that `uv build` found on a laptop but the build context
+lacked did not fail a check; it failed production, and kept failing for
+every merge after it.
 
 That is not hypothetical. Declaring `license-files = ["LICENSE"]` without
 adding LICENSE to a COPY line broke four consecutive deploys, because the
 laptop had the file and the image did not.
 """
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -60,3 +64,38 @@ def test_declared_license_files_reach_the_image():
                 f"{relative} is declared in license-files but no COPY line "
                 "puts it in the image; uv sync will fail the build"
             )
+
+
+def _instructions() -> str:
+    """The Dockerfile with its continued lines joined.
+
+    :returns: the text, one instruction per line
+    """
+    return DOCKERFILE.read_text(encoding="utf-8").replace("\\\n", " ")
+
+
+def test_the_image_installs_tesseract_and_the_reader_user():
+    """Scans are read by Tesseract in Dutch, French and English, as ``reader``."""
+    text = _instructions()
+    words = set(text.split())
+    for package in ("tesseract-ocr", "tesseract-ocr-nld", "tesseract-ocr-fra"):
+        assert package in words
+    assert re.search(
+        r"useradd --system --no-create-home --shell /usr/sbin/nologin reader\b", text
+    )
+
+
+def test_the_image_runs_as_root():
+    """The worker runs as root, so it can hand each file to ``reader``.
+
+    A worker that is not root runs the child as itself (see
+    ``reef.reading.sandbox.child_user``). A child that a hostile file has
+    taken over could then read ``/proc/<worker>/environ``, and with it the
+    storage key and the database URL. A ``USER`` line would do exactly that.
+    """
+    users = [
+        line
+        for line in _instructions().splitlines()
+        if line.strip().upper().startswith("USER ")
+    ]
+    assert users == []

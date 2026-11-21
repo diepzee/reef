@@ -18,8 +18,19 @@ Operations:
     ``pages`` is the true number of parts for a text format. For Word, Excel
     and PowerPoint extraction stops once there are more than ``max_parts``,
     so ``pages`` is then ``max_parts + 1``: "more than ``max_parts``".
+``survey <kind>``
+    Count a PDF's pages or an image's frames: ``{"pages": N}``.
+``page <number> <dpi> <page_chars>``
+    One PDF page: ``{"text": ...}`` from its text layer, at most
+    ``page_chars`` characters, or ``{"png": ...}``, rendered at ``dpi``.
+``frame <number>``
+    One image, or one frame of a TIFF, upright: ``{"png": ...}``.
+``ocr <tesseract> <languages> <dpi> <page_chars>``
+    Read the PNG on stdin with Tesseract:
+    ``{"text": ..., "confidence": ..., "model": ...}``.
 
-This process reads no setting and no environment variable: it gets none.
+Each operation imports only the libraries it needs. This process reads no
+setting and no environment variable: it gets none.
 """
 
 import argparse
@@ -29,7 +40,6 @@ import sys
 from collections.abc import Callable
 
 from reef.reading import FileKind, ReadFailed, TooLarge
-from reef.reading.formats import text_parts
 
 _OPEN_FILES = 64
 """Enough for a parser and the programs it runs, not for much else."""
@@ -77,12 +87,73 @@ def _parts(data: bytes, operands: list[str]) -> dict:
         parts to give
     :returns: ``{"parts": [...], "pages": N}``
     """
+    from reef.reading.formats import text_parts
+
     kind, part_chars, max_parts = operands
     parts = text_parts(data, FileKind(kind), int(part_chars), int(max_parts))
     return {"parts": parts[: int(max_parts)], "pages": len(parts)}
 
 
-_OPERATIONS: dict[str, Callable[[bytes, list[str]], dict]] = {"parts": _parts}
+def _survey(data: bytes, operands: list[str]) -> dict:
+    """Count a PDF's pages or an image's frames.
+
+    :param data: the file's bytes
+    :param operands: the kind
+    :returns: ``{"pages": N}``
+    """
+    from reef.reading.pages import survey
+
+    (kind,) = operands
+    return {"pages": survey(data, FileKind(kind))}
+
+
+def _page(data: bytes, operands: list[str]) -> dict:
+    """Read one PDF page, or render it.
+
+    :param data: the file's bytes
+    :param operands: the page number, the resolution and the most characters
+    :returns: ``{"text": ...}`` or ``{"png": ...}``
+    """
+    from reef.reading.pages import pdf_page
+
+    number, dpi, page_chars = operands
+    return pdf_page(data, int(number), int(dpi), int(page_chars))
+
+
+def _frame(data: bytes, operands: list[str]) -> dict:
+    """Turn one image or TIFF frame into an upright PNG.
+
+    :param data: the file's bytes
+    :param operands: the frame number
+    :returns: ``{"png": ...}``
+    """
+    from reef.reading.pages import image_frame
+
+    (number,) = operands
+    return image_frame(data, int(number))
+
+
+def _ocr(data: bytes, operands: list[str]) -> dict:
+    """Read a scan page with Tesseract.
+
+    :param data: the page, a PNG
+    :param operands: Tesseract's path, the languages, the resolution and the
+        most characters
+    :returns: ``{"text": ..., "confidence": ..., "model": ...}``
+    """
+    from reef.reading.pages import ocr
+
+    tesseract, languages, dpi, page_chars = operands
+    return ocr(data, tesseract, languages, int(dpi), int(page_chars))
+
+
+_OPERATIONS: dict[str, Callable[[bytes, list[str]], dict]] = {
+    "parts": _parts,
+    "survey": _survey,
+    "page": _page,
+    "frame": _frame,
+    "ocr": _ocr,
+}
 
 
 def _arguments(argv: list[str]) -> argparse.Namespace:

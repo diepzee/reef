@@ -15,7 +15,8 @@ to its stdin and reads JSON from its stdout. The child:
 - runs in a session of its own, so the whole process group can be killed
   when it takes too long;
 - has its stderr thrown away, and is heard on stdout only up to a bound
-  derived from the file it was given (see :func:`run_child`).
+  derived from its operation and the limits, never from what the file
+  declares (see :func:`run_child`).
 
 A failure comes back as a :class:`~reef.reading.ReadFailed` class and
 nothing else. Whatever the child printed stays out of every exception, log
@@ -44,6 +45,7 @@ from reef.reading import (
     TooLarge,
     Unreadable,
 )
+from reef.reading.pages import MAX_PIXELS, MODEL_CHARS
 
 READER_USER = "reader"
 """The unprivileged user a root worker runs the child as. The Docker image
@@ -103,6 +105,122 @@ def _is_parts(answer: dict, args: list[str]) -> bool:
     )
 
 
+def text_answer_bytes(chars: int) -> int:
+    """Return the most an answer holding one page of text can print.
+
+    The same reckoning as :func:`parts_answer_bytes`, for one part. Room for
+    a confidence and a model's name is in the slack.
+
+    :param chars: the most characters in the text
+    :returns: the bound, in bytes
+    """
+    return parts_answer_bytes(chars, 1)
+
+
+def png_answer_bytes(pixels: int) -> int:
+    """Return the most an answer holding one page's PNG can print.
+
+    The PNG is greyscale, a byte a pixel, and each row adds a filter byte:
+    at worst, a row one pixel wide, twice the pixels. Deflate and the PNG's
+    chunks add well under 1% to that, and base64 makes four bytes of three.
+    So the bound follows from the pixel cap, never from the file.
+
+    :param pixels: the most pixels in the page
+    :returns: the bound, in bytes
+    """
+    raw = 2 * pixels
+    png = raw + raw // 100 + ANSWER_SLACK
+    return 4 * math.ceil(png / 3) + ANSWER_SLACK
+
+
+def _is_count(value: object) -> bool:
+    """Tell whether a value is a whole number, and not a truth value.
+
+    :param value: from the child's answer
+    :returns: True for an ``int`` that is not a ``bool``
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_text(value: object, chars: int) -> bool:
+    """Tell whether a value is a text no longer than allowed.
+
+    :param value: from the child's answer
+    :param chars: the most characters
+    :returns: True for a ``str`` of at most ``chars`` characters
+    """
+    return isinstance(value, str) and len(value) <= chars
+
+
+def _is_survey(answer: dict, args: list[str]) -> bool:
+    """Tell whether an answer is what ``survey`` gives.
+
+    :param answer: the child's answer
+    :param args: ``survey`` and the kind
+    :returns: True for ``{"pages": int}``, at least one page
+    """
+    return (
+        answer.keys() == {"pages"}
+        and _is_count(answer["pages"])
+        and answer["pages"] >= 1
+    )
+
+
+def _is_png(answer: dict) -> bool:
+    """Tell whether an answer is one page's PNG.
+
+    :param answer: the child's answer
+    :returns: True for ``{"png": str}``; the worker decodes and checks it
+    """
+    return answer.keys() == {"png"} and isinstance(answer["png"], str)
+
+
+def _is_page(answer: dict, args: list[str]) -> bool:
+    """Tell whether an answer is what ``page`` gives.
+
+    :param answer: the child's answer
+    :param args: ``page``, the number, the resolution and the most characters
+    :returns: True for ``{"text": str}`` within the most characters, or a PNG
+    """
+    if answer.keys() == {"text"}:
+        return _is_text(answer["text"], int(args[3]))
+    return _is_png(answer)
+
+
+def _is_confidence(value: object) -> bool:
+    """Tell whether a value is a confidence, or none.
+
+    :param value: from the child's answer
+    :returns: True for None, or a finite number from 0 to 1
+    """
+    if value is None:
+        return True
+    return (
+        isinstance(value, int | float)
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+        and 0 <= value <= 1
+    )
+
+
+def _is_ocr(answer: dict, args: list[str]) -> bool:
+    """Tell whether an answer is what ``ocr`` gives.
+
+    :param answer: the child's answer
+    :param args: ``ocr``, the program, the languages, the resolution and the
+        most characters
+    :returns: True for a text within the most characters, a confidence and a
+        model's name
+    """
+    return (
+        answer.keys() == {"text", "confidence", "model"}
+        and _is_text(answer["text"], int(args[4]))
+        and _is_confidence(answer["confidence"])
+        and _is_text(answer["model"], MODEL_CHARS)
+        and bool(answer["model"])
+    )
+
+
 _OPERATIONS: dict[
     str,
     tuple[Callable[[list[str], bytes], int], Callable[[dict, list[str]], bool]],
@@ -111,9 +229,21 @@ _OPERATIONS: dict[
         lambda args, data: parts_answer_bytes(int(args[2]), int(args[3])),
         _is_parts,
     ),
+    "survey": (lambda args, data: ANSWER_SLACK, _is_survey),
+    "page": (
+        lambda args, data: max(
+            text_answer_bytes(int(args[3])), png_answer_bytes(MAX_PIXELS)
+        ),
+        _is_page,
+    ),
+    "frame": (
+        lambda args, data: png_answer_bytes(MAX_PIXELS),
+        lambda answer, args: _is_png(answer),
+    ),
+    "ocr": (lambda args, data: text_answer_bytes(int(args[4])), _is_ocr),
 }
-"""Each operation's bound on its answer, derived from its arguments and
-input, and the check of its answer's shape. An operation not here gets
+"""Each operation's bound on its answer, derived from its arguments and the
+limits, and the check of its answer's shape. An operation not here gets
 :data:`DEFAULT_ANSWER_BYTES` and no check: every operation a later reader
 adds belongs here."""
 
@@ -192,9 +322,11 @@ async def run_child(
 
     The answer is read only up to a bound, and parsed only within it: a
     child that gets code from a hostile file must not cost the worker its
-    memory. Each operation needs a bound derived from its input, declared in
-    ``_OPERATIONS`` or passed as ``answer_bytes``. ``parts`` declares
-    :func:`parts_answer_bytes` and its answer's shape.
+    memory. Each operation needs a bound derived from its input and the
+    limits, declared in ``_OPERATIONS`` or passed as ``answer_bytes``, with
+    its answer's shape: ``parts`` (:func:`parts_answer_bytes`), ``survey``,
+    ``page``, ``frame`` (:func:`png_answer_bytes`) and ``ocr``
+    (:func:`text_answer_bytes`).
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits

@@ -499,3 +499,108 @@ def test_the_child_caps_cpu_files_and_core_dumps():
     assert cpu[0] == 5
     assert files == [64, 64]
     assert core == [0, 0]
+
+
+_SURVEY = ["survey", "pdf"]
+_PAGE = ["page", "1", "200", "1000"]
+_FRAME = ["frame", "1"]
+_OCR = ["ocr", "/usr/bin/tesseract", "nld+fra+eng", "200", "1000"]
+
+
+@pytest.mark.parametrize(
+    ("args", "answer"),
+    [
+        (_SURVEY, {"pages": 0}),
+        (_SURVEY, {"pages": True}),
+        (_SURVEY, {"pages": "1"}),
+        (_SURVEY, {"pages": 1.0}),
+        (_SURVEY, {"pages": 1, "more": 1}),
+        (_SURVEY, {}),
+        (_PAGE, {"text": "x" * 1_001}),
+        (_PAGE, {"text": 1}),
+        (_PAGE, {"png": 1}),
+        (_PAGE, {"text": "a", "png": "b"}),
+        (_PAGE, {}),
+        (_FRAME, {"text": "a"}),
+        (_FRAME, {"png": None}),
+        (_FRAME, {"png": "a", "more": 1}),
+        (_OCR, {"text": "a"}),
+        (_OCR, {"text": "x" * 1_001, "confidence": 0.9, "model": "t"}),
+        (_OCR, {"text": "a", "confidence": 1.5, "model": "t"}),
+        (_OCR, {"text": "a", "confidence": -0.1, "model": "t"}),
+        (_OCR, {"text": "a", "confidence": True, "model": "t"}),
+        (_OCR, {"text": "a", "confidence": "0.9", "model": "t"}),
+        (_OCR, {"text": "a", "confidence": float("nan"), "model": "t"}),
+        (_OCR, {"text": "a", "confidence": 0.9, "model": ""}),
+        (_OCR, {"text": "a", "confidence": 0.9, "model": "t" * 201}),
+        (_OCR, {"text": "a", "confidence": 0.9, "model": 1}),
+    ],
+)
+async def test_a_page_answer_of_the_wrong_shape_is_a_crash(monkeypatch, args, answer):
+    """Each page operation has one shape of answer; anything else is a crash.
+
+    :param args: the operation and its operands
+    :param answer: what the child prints
+    """
+    _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
+    with pytest.raises(ChildCrashed):
+        await sandbox.run_child(args, b"x", seconds=10)
+
+
+@pytest.mark.parametrize(
+    ("args", "answer"),
+    [
+        (_SURVEY, {"pages": 3}),
+        (_PAGE, {"text": "x" * 1_000}),
+        (_PAGE, {"png": "iVBORw0KGgo="}),
+        (_FRAME, {"png": "iVBORw0KGgo="}),
+        (_OCR, {"text": "", "confidence": None, "model": "tesseract 5.5.4 nld"}),
+        (_OCR, {"text": "a", "confidence": 0.96, "model": "t"}),
+        (_OCR, {"text": "a", "confidence": 1, "model": "t"}),
+    ],
+)
+async def test_a_page_answer_of_the_right_shape_is_returned(monkeypatch, args, answer):
+    """An answer in its operation's shape comes back as it was given.
+
+    :param args: the operation and its operands
+    :param answer: what the child prints
+    """
+    _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
+    assert await sandbox.run_child(args, b"x", seconds=10) == answer
+
+
+@pytest.mark.parametrize(
+    ("args", "bound"),
+    [
+        (_SURVEY, sandbox.ANSWER_SLACK),
+        (_OCR, sandbox.text_answer_bytes(1_000)),
+    ],
+)
+async def test_a_page_answer_is_bounded_by_the_limits(monkeypatch, args, bound):
+    """A survey says one number; a reading says at most one page of text.
+
+    :param args: the operation and its operands
+    :param bound: the most it may print
+    """
+    _child_runs(monkeypatch, f"import sys; sys.stdout.write('x' * {bound + 1})")
+    with pytest.raises(ChildCrashed):
+        await sandbox.run_child(args, b"x" * 50_000_000, seconds=10)
+    assert sandbox.text_answer_bytes(1_000) == 4 * 1_000 + 4 + sandbox.ANSWER_SLACK
+
+
+def test_the_png_bound_holds_for_the_worst_image():
+    """A page one pixel wide, of pure noise, still fits its bound.
+
+    The bound follows from the pixel cap alone: no file can make the worker
+    hold more than it allows.
+    """
+    from PIL import Image
+
+    from reef.reading import pages
+
+    for size in [(1, 2_000_000), (2_000, 1_000)]:
+        pixels = size[0] * size[1]
+        image = Image.frombytes("L", size, os.urandom(pixels))
+        answer = json.dumps({"png": pages._png(image)}, ensure_ascii=False)
+        assert len(answer.encode()) <= sandbox.png_answer_bytes(pixels)
+    assert sandbox.png_answer_bytes(pages.MAX_PIXELS) < 110_000_000

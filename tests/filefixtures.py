@@ -6,6 +6,11 @@ later readers add whole files built with the same libraries Reef reads them
 with.
 """
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PIL import Image
+
 PDF_HEAD = b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n1 0 obj\n"
 """The start of a PDF: its version line and a binary comment."""
 
@@ -185,3 +190,248 @@ def forged_directory_docx() -> bytes:
     end = data.rfind(b"PK\x05\x06")
     struct.pack_into("<HH", data, end + 8, 1, 1)
     return bytes(data)
+
+
+A4_POINTS = (595, 842)
+"""An A4 page, in PDF points of 1/72 inch."""
+
+SCAN_DPI = 200
+"""The resolution scans are drawn at, as Reef renders them."""
+
+A4_PIXELS = (1654, 2339)
+"""An A4 page at 200 dpi."""
+
+
+def _pdf_string(text: str) -> bytes:
+    """Write a text as a PDF string, in Helvetica's own encoding.
+
+    :param text: the text
+    :returns: the string, parentheses and backslashes escaped
+    """
+    raw = text.encode("cp1252")
+    for special in (b"\\", b"(", b")"):
+        raw = raw.replace(special, b"\\" + special)
+    return b"(" + raw + b")"
+
+
+def text_pdf(pages: list[str], *, size: tuple[float, float] = A4_POINTS) -> bytes:
+    """Write a PDF by hand whose pages carry a text layer in Helvetica.
+
+    :param pages: each page's text; a newline starts a new line, and an empty
+        text gives a page with no text at all
+    :param size: every page's width and height, in points
+    :returns: the PDF
+    """
+    width, height = size
+    font = (
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica "
+        b"/Encoding /WinAnsiEncoding >>"
+    )
+    first_page = 4
+    kids = " ".join(f"{first_page + 2 * n} 0 R" for n in range(len(pages)))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode(),
+        font,
+    ]
+    for number, text in enumerate(pages):
+        lines = [_pdf_string(line) + b" Tj T*" for line in text.split("\n") if line]
+        stream = b"BT /F1 24 Tf 72 " + str(height - 72).encode() + b" Td 30 TL "
+        stream += b" ".join(lines) + b" ET"
+        objects.append(
+            (
+                "<< /Type /Page /Parent 2 0 R "
+                f"/MediaBox [0 0 {width} {height}] "
+                "/Resources << /Font << /F1 3 0 R >> >> "
+                f"/Contents {first_page + 2 * number + 1} 0 R >>"
+            ).encode()
+        )
+        objects.append(
+            f"<< /Length {len(stream)} >>\nstream\n".encode() + stream + b"\nendstream"
+        )
+    out = bytearray(b"%PDF-1.7\n%\xe2\xe3\xcf\xd3\n")
+    offsets: list[int] = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
+    table = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    for offset in offsets:
+        out += f"{offset:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{table}\n%%EOF\n"
+    ).encode()
+    return bytes(out)
+
+
+def _drawn(lines: list[str], size: tuple[int, int]) -> "Image.Image":
+    """Draw lines of black text on a white page, as a scanner would see them.
+
+    :param lines: the lines, top to bottom
+    :param size: the page's width and height, in pixels
+    :returns: a greyscale image
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    image = Image.new("L", size, 255)
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default(size=48)
+    for number, line in enumerate(lines):
+        draw.text((120, 150 + 90 * number), line, fill=0, font=font)
+    return image
+
+
+def scan_pdf(lines: list[str]) -> bytes:
+    """Make a scanned A4 page: a picture of text, with no text layer.
+
+    :param lines: the lines on the page, drawn at 48 px
+    :returns: a one-page PDF, written by Pillow at 200 dpi
+    """
+    import io
+
+    buffer = io.BytesIO()
+    _drawn(lines, A4_PIXELS).save(buffer, "PDF", resolution=SCAN_DPI)
+    return buffer.getvalue()
+
+
+def scan_image(
+    lines: list[str],
+    fmt: str,
+    exif_orientation: int | None = None,
+    *,
+    size: tuple[int, int] = (1200, 900),
+    frames: int = 1,
+    mode: str = "L",
+) -> bytes:
+    """Make a photo or scan of text, as a camera or scanner writes it.
+
+    With an orientation, the EXIF data also holds a GPS position, as a
+    phone's photo does.
+
+    :param lines: the lines, drawn at 48 px
+    :param fmt: ``JPEG``, ``PNG``, ``WEBP`` or ``TIFF``
+    :param exif_orientation: the EXIF orientation tag, if any
+    :param size: the image's stored width and height
+    :param frames: how many frames, for a TIFF; each repeats the lines
+    :param mode: the image's colour mode, such as ``L``, ``RGBA`` or ``I;16``
+    :returns: the file
+    """
+    import io
+
+    from PIL import ExifTags, Image
+
+    image = _drawn(lines, size)
+    if mode == "I;16":
+        image = image.point(lambda value: value * 256, "I").convert("I;16")
+    elif mode == "RGBA":
+        # Black text on a see-through page, as a screenshot may be.
+        image = Image.merge(
+            "RGBA", (image, image, image, image.point(lambda v: 255 - v))
+        )
+    elif mode != "L":
+        image = image.convert(mode)
+    options: dict = {}
+    if exif_orientation is not None:
+        exif = Image.Exif()
+        exif[ExifTags.Base.Orientation] = exif_orientation
+        exif[ExifTags.IFD.GPSInfo] = {
+            ExifTags.GPS.GPSLatitudeRef: "N",
+            ExifTags.GPS.GPSLatitude: (51.0, 3.0, 0.0),
+        }
+        options["exif"] = exif
+    if frames > 1:
+        options["save_all"] = True
+        options["append_images"] = [image.copy() for _ in range(frames - 1)]
+    buffer = io.BytesIO()
+    image.save(buffer, fmt, **options)
+    return buffer.getvalue()
+
+
+def png_header(width: int, height: int) -> bytes:
+    """Write a PNG that declares a size and holds no pixels.
+
+    Reading it whole would take ``width × height`` bytes and more; its
+    header alone says so.
+
+    :param width: the declared width
+    :param height: the declared height
+    :returns: a signature, an IHDR for an 8-bit greyscale image, an empty
+        IDAT and an IEND, each with a valid checksum
+    """
+    import struct
+    import zlib
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        """Write one chunk.
+
+        :param kind: its four-letter type
+        :param body: its data
+        :returns: length, type, data and checksum
+        """
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body))
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 0, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(b""))
+        + chunk(b"IEND", b"")
+    )
+
+
+def png_chunks(png: bytes) -> list[bytes]:
+    """List a PNG's chunk types, in order.
+
+    :param png: the PNG
+    :returns: each chunk's four-letter type
+    """
+    import struct
+
+    kinds: list[bytes] = []
+    position = 8
+    while position < len(png):
+        (length,) = struct.unpack_from(">I", png, position)
+        kinds.append(png[position + 4 : position + 8])
+        position += 12 + length
+    return kinds
+
+
+def combined_pdf(*pdfs: bytes) -> bytes:
+    """Join PDFs into one, page after page, with pypdf.
+
+    :param pdfs: the PDFs, in order
+    :returns: one PDF holding all their pages
+    """
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter()
+    for pdf in pdfs:
+        writer.append(PdfReader(io.BytesIO(pdf)))
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
+def encrypted_pdf() -> bytes:
+    """Lock a text PDF with a password, with pypdf.
+
+    :returns: a PDF that opens only with the password
+    """
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter()
+    writer.append(PdfReader(io.BytesIO(text_pdf(["Polisnummer 4711-2026"]))))
+    writer.encrypt(user_password="geheim", algorithm="RC4-128")
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()

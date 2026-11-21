@@ -76,6 +76,15 @@ jobs:
       - name: Format
         run: uv run ruff format --check src tests
 
+      # The scan tests run Tesseract for real and fail without it: a scan
+      # reader that silently goes untested is how one ships broken. The same
+      # packages as the Dockerfile's.
+      - name: Install Tesseract
+        run: >-
+          sudo apt-get update &&
+          sudo apt-get install -y --no-install-recommends
+          tesseract-ocr tesseract-ocr-nld tesseract-ocr-fra
+
       - name: Test
         run: uv run pytest -q
 
@@ -146,12 +155,28 @@ jobs:
         with:
           context: .
           push: false
+          # Loaded into the runner's Docker, so the steps below can run it.
+          load: true
+          tags: reef:ci
           # Layer cache in the Actions cache, so the apt and uv layers are
           # not rebuilt on every pull request. `max` caches intermediate
           # layers as well as the final one, which is what makes the long
           # postgresql-client-18 layer reusable.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Tesseract and the reader user are in the image
+        run: docker run --rm reef:ci sh -c 'tesseract --list-langs && id reader'
+
+      # The sandbox's promise holds only in the image: a root worker, a
+      # `reader` user, Tesseract's languages where the child finds them. The
+      # tests on the runner cannot see any of that. This reads a Markdown
+      # file and a scan through reef.reading inside the image, as root, and
+      # checks the child runs as `reader` without the worker's environment.
+      - name: A file is read in the sandbox, inside the image
+        run: >-
+          docker run --rm reef:ci
+          uv run --frozen --no-dev python scripts/check_reading_in_image.py
 
   # A no-write semantic-release run, so a broken .releaserc.json or an
   # unparseable commit history fails in review rather than on main -- where it
