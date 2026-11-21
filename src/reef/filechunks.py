@@ -37,29 +37,44 @@ def page_of(anchor: str | None) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def split(
-    filename: str, description: str, pages: list[tuple[int, str]]
+def whole(filename: str, description: str, start: str) -> Section:
+    """Build the whole-file chunk.
+
+    :param filename: the file's name
+    :param description: the file's description
+    :param start: the start of the file's text: the text of its pages with
+        words, stripped and joined by a blank line. Only the first
+        ``REEF_EMBEDDING_ENGRAM_CHARS`` characters are used.
+    :returns: the chunk, anchored None
+    """
+    limit = get_settings().embedding.engram_chars
+    return sections.piece(None, (), start[:limit], filename, description)
+
+
+def page_chunks(
+    filename: str,
+    description: str,
+    pages: list[tuple[int, str]],
+    page_count: int | None = None,
 ) -> list[Section]:
-    """Cut a file into the chunks that get embedded.
+    """Cut pages into their chunks, without the whole-file chunk.
+
+    ``pages`` may be only some of a file's pages: a page that starts a chunk
+    and the pages after it, up to the next page that starts one. Its chunks
+    are then exactly the ones :func:`split` gives for the whole file, as
+    long as ``page_count`` says how many pages the file has.
 
     :param filename: the file's name
     :param description: the file's description
     :param pages: the page number and text of each page, in order
-    :returns: the whole-file chunk first, then a chunk for each page that has
-        words. A file without text gives the whole-file chunk alone.
+    :param page_count: how many pages the file has; ``len(pages)`` when None.
+        It decides whether a chunk names its page.
+    :returns: a chunk for each page that has words, in order
     """
     sizes = get_settings().embedding
     texts = [(number, text.strip()) for number, text in pages]
     texts = [(number, text) for number, text in texts if text]
-    whole = sections.piece(
-        None,
-        (),
-        "\n\n".join(text for _, text in texts)[: sizes.engram_chars],
-        filename,
-        description,
-    )
-
-    many = len(pages) > 1
+    many = (len(pages) if page_count is None else page_count) > 1
     chunks: list[tuple[str, tuple[str, ...], str]] = []
     for number, text in texts:
         where = (f"page {number}",) if many else ()
@@ -74,7 +89,25 @@ def split(
         for part, body in enumerate(sections.cut(text, sizes.piece_max_chars), 1):
             anchor = f"p{number}" if part == 1 else f"p{number}~{part}"
             chunks.append((anchor, where, body))
-    return [whole] + [
+    return [
         sections.piece(anchor, where, body, filename, description)
         for anchor, where, body in chunks
     ]
+
+
+def split(
+    filename: str, description: str, pages: list[tuple[int, str]]
+) -> list[Section]:
+    """Cut a file into the chunks that get embedded.
+
+    :param filename: the file's name
+    :param description: the file's description
+    :param pages: the page number and text of each page, in order
+    :returns: the whole-file chunk first, then a chunk for each page that has
+        words. A file without text gives the whole-file chunk alone.
+    """
+    texts = [text.strip() for _, text in pages]
+    start = "\n\n".join(text for text in texts if text)
+    return [whole(filename, description, start)] + page_chunks(
+        filename, description, pages
+    )

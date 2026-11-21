@@ -58,6 +58,25 @@ def test_the_whole_file_chunk_stops_at_the_engram_limit():
     assert len(whole.body) <= limit
 
 
+def test_a_run_of_pages_gives_the_chunks_the_whole_file_gives():
+    """Search rebuilds one chunk from its page and the short pages after it."""
+    pages = [(1, PAGE), (2, PAGE), (3, "Signed."), (4, ""), (5, PAGE)]
+    every = {
+        chunk.anchor: chunk.text for chunk in filechunks.split("a.pdf", "A", pages)
+    }
+    run = filechunks.page_chunks("a.pdf", "A", pages[1:4], page_count=len(pages))
+    assert [(chunk.anchor, chunk.text) for chunk in run] == [("p2", every["p2"])]
+    assert "page 3\n\nSigned." in run[0].text
+
+
+def test_the_whole_file_chunk_can_be_built_from_the_start_alone():
+    """Search builds it from the start of the text, without every page."""
+    pages = [(number, "y" * 1500) for number in range(1, 20)]
+    every = filechunks.split("a.pdf", "A report", pages)[0]
+    start = "\n\n".join(text for _, text in pages[:6])
+    assert filechunks.whole("a.pdf", "A report", start) == every
+
+
 def test_page_of_reads_the_anchor():
     assert filechunks.page_of("p12~3") == 12
     assert filechunks.page_of("p4") == 4

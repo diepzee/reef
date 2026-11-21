@@ -349,16 +349,20 @@ _CHOSEN_SQL = """
 
 _CHOSEN_RESULTS_SQL = _results_sql("hits.ord")
 
-#: As :data:`_CHOSEN_SQL`, with a page for each row: the page of a file's
-#: closest chunk, given as the third array, else its best page by words.
+#: As :data:`_CHOSEN_SQL`, with a page for each row: the page the passage
+#: comes from. The third array gives the page of a file's closest chunk, and
+#: the fourth says whether the file has one. A file with a closest chunk is
+#: shown at that chunk's page, which is None for the whole-file chunk; only a
+#: file without one is looked for by words, and shown at its best page.
 _CHOSEN_PAGES_SQL = f"""
     hits AS (
         SELECT chosen.kind, chosen.id, chosen.ord,
-            COALESCE(chosen.page, best.page) AS page
-        FROM unnest({{}}::text[], {{}}::uuid[], {{}}::int[]) WITH ORDINALITY
-            AS chosen(kind, id, page, ord)
+            CASE WHEN chosen.closest THEN chosen.page ELSE best.page END AS page
+        FROM unnest({{}}::text[], {{}}::uuid[], {{}}::int[], {{}}::boolean[])
+            WITH ORDINALITY AS chosen(kind, id, page, closest, ord)
         CROSS JOIN query
-        LEFT JOIN attachments ON chosen.kind = 'file' AND attachments.id = chosen.id
+        LEFT JOIN attachments ON chosen.kind = 'file' AND NOT chosen.closest
+            AND attachments.id = chosen.id
         LEFT JOIN LATERAL ({_FILE_MATCH_SQL}) best ON true
     )
 """
@@ -422,13 +426,79 @@ _FILE_PASSAGES_SQL = """
     ORDER BY ranked.attachment_id, ranked.n
 """
 
-#: Every page of the candidate files, in order: what their chunks are cut
-#: from again, see :func:`reef.filechunks.split`. Whole, because a chunk is
-#: rebuilt from the pages around it as well as its own.
-_FILE_PAGES_SQL = (
-    "SELECT attachment_id, number, text FROM file_pages "
-    "WHERE attachment_id = ANY({}::uuid[]) ORDER BY attachment_id, number"
-)
+#: What some files' chunks are cut from again, and nothing more. One
+#: statement for every file.
+#:
+#: Each wanted row names a file and a page. That page starts a chunk, which
+#: also holds the short pages after it, up to the next page of at least
+#: ``REEF_EMBEDDING_PIECE_MIN_CHARS`` characters: see
+#: :func:`reef.filechunks.page_chunks`. Those pages come whole (``in_chunk``).
+#:
+#: A wanted row without a page asks for the start of the text, which the
+#: whole-file chunk holds: the first pages, cut to ``start`` characters, up
+#: to the page that reaches that length (``in_start``). Every row says how
+#: many pages the file has, which decides whether a chunk names its page.
+#:
+#: A long file is not read whole to find these pages. Where a page starts in
+#: the text is bounded by its stored bytes alone: ``octet_length`` reads the
+#: stored size without unpacking the text, and a character takes at most four
+#: bytes, so a quarter of the bytes never places a page later than it is. A
+#: few pages too many may come; no page the start needs is left out. Whether
+#: a page is short shows in its first characters, because readers store
+#: pages stripped.
+_FILE_PAGES_SQL = """
+    WITH sizes AS (SELECT {}::int AS start, {}::int AS piece_min),
+    wanted AS (
+        SELECT DISTINCT w.attachment_id, w.number
+        FROM unnest({}::uuid[], {}::int[]) AS w(attachment_id, number)
+    ),
+    placed AS (
+        SELECT p.attachment_id, p.number, p.text,
+            count(*) OVER (PARTITION BY p.attachment_id) AS pages,
+            coalesce(sum(octet_length(p.text) / 4
+                + CASE WHEN octet_length(p.text) > 0 THEN 2 ELSE 0 END) OVER (
+                    PARTITION BY p.attachment_id ORDER BY p.number
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                ), 0) AS least_before
+        FROM file_pages p
+        WHERE p.attachment_id IN (SELECT attachment_id FROM wanted)
+    ),
+    runs AS (
+        SELECT w.attachment_id, w.number AS first, (
+            SELECT q.number FROM file_pages q
+            WHERE q.attachment_id = w.attachment_id AND q.number > w.number
+              AND length(btrim(left(q.text, 2 * sizes.piece_min))) >= sizes.piece_min
+            ORDER BY q.number
+            LIMIT 1
+        ) AS stop
+        FROM wanted w CROSS JOIN sizes
+        WHERE w.number IS NOT NULL
+    ),
+    marked AS (
+        SELECT placed.attachment_id, placed.number, placed.pages, placed.text,
+            placed.least_before,
+            EXISTS (
+                SELECT 1 FROM runs
+                WHERE runs.attachment_id = placed.attachment_id
+                  AND placed.number >= runs.first
+                  AND (runs.stop IS NULL OR placed.number < runs.stop)
+            ) AS in_chunk,
+            placed.least_before < sizes.start AND EXISTS (
+                SELECT 1 FROM wanted
+                WHERE wanted.attachment_id = placed.attachment_id
+                  AND wanted.number IS NULL
+            ) AS in_start
+        FROM placed CROSS JOIN sizes
+    )
+    SELECT marked.attachment_id, marked.number, marked.pages,
+        marked.in_chunk, marked.in_start,
+        CASE WHEN marked.in_chunk THEN marked.text
+            ELSE left(marked.text, (sizes.start - marked.least_before)::int)
+        END AS text
+    FROM marked CROSS JOIN sizes
+    WHERE marked.in_chunk OR marked.in_start
+    ORDER BY marked.attachment_id, marked.number
+"""
 
 #: Engrams by meaning: each engram counts for its closest piece. Only vectors of
 #: the model that embedded the question can be compared with it, and only
@@ -717,20 +787,111 @@ async def _best_chunks(
     )
 
 
-async def _read_pages(file_ids: list[UUID]) -> dict[UUID, list[tuple[int, str]]]:
-    """Read every page of some files, in one statement.
+@dataclass
+class _Pages:
+    """What was read of one file's pages to cut some of its chunks again.
 
-    Under the caller's row security, like every read here. Call it inside a
-    savepoint: it raises as the statement does.
-
-    :param file_ids: the files
-    :returns: each file's pages, as number and text, in order
+    ``chunk_pages`` holds each wanted chunk's page and the short pages after
+    it, whole. ``head`` holds the first pages, cut, for the start of the
+    text, of which ``start_chars`` characters were asked for. ``count`` is
+    how many pages the file has.
     """
-    rows = await Engram.raw(_FILE_PAGES_SQL, [str(file_id) for file_id in file_ids])
-    pages: dict[UUID, list[tuple[int, str]]] = {}
+
+    count: int = 0
+    chunk_pages: list[tuple[int, str]] = field(default_factory=list)
+    head: list[str] = field(default_factory=list)
+    start_chars: int = 0
+
+    @property
+    def start(self) -> str:
+        """The start of the file's text, as the whole-file chunk holds it.
+
+        Only as long as was asked for: a page cut short is followed by the
+        next, and past that length their join is not the file's text.
+        """
+        joined = "\n\n".join(text for text in map(str.strip, self.head) if text)
+        return joined[: self.start_chars]
+
+
+async def _read_pages(
+    wanted: dict[UUID, set[int | None]], start_chars: int
+) -> dict[UUID, _Pages]:
+    """Read what some files' chunks are cut from, in one statement.
+
+    Only the pages the wanted chunks need, see :data:`_FILE_PAGES_SQL`, so a
+    file of 200 pages is not read whole for one passage. Under the caller's
+    row security, like every read here. Call it inside a savepoint: it
+    raises as the statement does.
+
+    :param wanted: for each file, the pages whose chunks are wanted; None
+        wants the start of the text, for the whole-file chunk
+    :param start_chars: how much of the start is wanted
+    :returns: what was read of each file that has pages
+    """
+    ids: list[str] = []
+    numbers: list[int | None] = []
+    for file_id, pages in wanted.items():
+        for number in pages:
+            ids.append(str(file_id))
+            numbers.append(number)
+    rows = await Engram.raw(
+        _FILE_PAGES_SQL,
+        start_chars,
+        get_settings().embedding.piece_min_chars,
+        ids,
+        numbers,
+    )
+    read: dict[UUID, _Pages] = {}
     for row in rows:
-        pages.setdefault(row["attachment_id"], []).append((row["number"], row["text"]))
-    return pages
+        pages = read.setdefault(
+            row["attachment_id"],
+            _Pages(count=row["pages"], start_chars=start_chars),
+        )
+        if row["in_chunk"]:
+            pages.chunk_pages.append((row["number"], row["text"]))
+        if row["in_start"]:
+            pages.head.append(row["text"])
+    return read
+
+
+def _wanted_pages(anchors: list[str | None]) -> set[int | None]:
+    """Say which pages the chunks with these anchors are cut from.
+
+    :param anchors: a file's chunk anchors; none for a file without vectors
+    :returns: the page each chunk starts on; None for the whole-file chunk,
+        which needs the start of the text. A file without vectors needs it
+        too: the reranker then reads it by its start.
+    """
+    return {filechunks.page_of(anchor) for anchor in anchors} or {None}
+
+
+def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
+    """Cut a file's chunks with these anchors out of what was read of it.
+
+    Each comes out as it was cut for embedding, see
+    :func:`reef.filechunks.page_chunks` and :func:`reef.filechunks.whole`.
+    A chunk the file no longer has, read again since it was embedded, gives
+    nothing.
+
+    :param row: the file's id, filename and description
+    :param pages: what :func:`_read_pages` read of it
+    :param anchors: the chunks wanted, best first
+    :returns: their texts, in that order
+    """
+    filename, description = row["filename"] or "", row["description"] or ""
+    cut = {
+        chunk.anchor: chunk.text
+        for chunk in filechunks.page_chunks(
+            filename, description, pages.chunk_pages, page_count=pages.count
+        )
+    }
+    texts: list[str] = []
+    for anchor in anchors:
+        if anchor is None:
+            texts.append(filechunks.whole(filename, description, pages.start).text)
+        elif anchor in cut:
+            texts.append(cut[anchor])
+    return texts
 
 
 @dataclass
@@ -748,7 +909,7 @@ class _Reading:
     files: list[dict] = field(default_factory=list)
     file_text: bool = False
     chunks: dict[UUID, list[str | None]] = field(default_factory=dict)
-    pages: dict[UUID, list[tuple[int, str]]] = field(default_factory=dict)
+    pages: dict[UUID, _Pages] = field(default_factory=dict)
 
 
 async def _read_candidates(
@@ -803,7 +964,17 @@ async def _read_candidates(
             if file_ids
             else []
         )
-        pages = await _read_pages(file_ids) if file_text and file_ids else {}
+        pages = (
+            await _read_pages(
+                {
+                    file_id: _wanted_pages(chunks.get(file_id, []))
+                    for file_id in file_ids
+                },
+                settings.embedding.engram_chars,
+            )
+            if file_text and file_ids
+            else {}
+        )
     # Broad on purpose: without passages the search keeps its order.
     except Exception as error:  # noqa: BLE001
         await savepoint.rollback_to()
@@ -811,33 +982,36 @@ async def _read_candidates(
         return _Reading(candidates=[])
     await savepoint.release()
     return _Reading(
-        candidates, anchors, list(engrams), list(files), file_text, chunks, pages
+        candidates=candidates,
+        anchors=anchors,
+        engrams=list(engrams),
+        files=list(files),
+        file_text=file_text,
+        chunks=chunks,
+        pages=pages,
     )
 
 
-def _file_documents(
-    row: dict, pages: list[tuple[int, str]], anchors: list[str | None]
-) -> list[str]:
+def _file_documents(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
     """Give the passages the reranker reads of one file.
 
-    Its chunks closest to the query, cut again from its pages as they were
-    cut for embedding, so each carries the filename, the description and
-    the page in front. A file without vectors, or whose chunks changed since,
-    gives what its whole-file chunk holds: its name, description and the
-    start of its text. They are laid out as the reranker read a file before
-    files had text, so a file without text reads exactly as it did then.
+    Its chunks closest to the query, cut again as they were cut for
+    embedding, so each carries the filename, the description and the page
+    in front. A file without vectors gives what its whole-file chunk holds:
+    its name, description and the start of its text. They are laid out as
+    the reranker read a file before files had text, so a file without text
+    reads exactly as it did then. A file whose chunks changed since it was
+    embedded gives its name and description: its start was not read.
 
     :param row: the file's id, filename and description
-    :param pages: its pages, as number and text, in order
+    :param pages: what :func:`_read_pages` read of it
     :param anchors: its best chunks' anchors, best first
     :returns: the passages
     """
-    chunks = filechunks.split(row["filename"] or "", row["description"] or "", pages)
-    by_anchor = {chunk.anchor: chunk.text for chunk in chunks}
-    best = [by_anchor[anchor] for anchor in anchors if anchor in by_anchor]
+    best = _file_chunks(row, pages, anchors)
     if best:
         return best
-    whole = (row["filename"], row["description"], chunks[0].body)
+    whole = (row["filename"], row["description"], pages.start)
     return ["\n\n".join(part for part in whole if part).strip()]
 
 
@@ -873,7 +1047,7 @@ def _documents(reading: _Reading) -> tuple[list[str], list[int]]:
         if reading.file_text:
             texts[("file", row["id"])] = _file_documents(
                 row,
-                reading.pages.get(row["id"], []),
+                reading.pages.get(row["id"], _Pages()),
                 reading.chunks.get(row["id"], []),
             )
             continue
@@ -936,26 +1110,35 @@ def _passages(best: dict[UUID, str | None], engrams: list[dict]) -> dict[UUID, s
 
 
 async def _read_files(
-    file_ids: list[UUID],
-) -> tuple[list[dict], dict[UUID, list[tuple[int, str]]]]:
+    nearest: dict[UUID, list[str | None]],
+) -> tuple[list[dict], dict[UUID, _Pages]]:
     """Read what each file's passage is cut from: its name, description and pages.
 
-    One statement for the files, one for their pages, in a savepoint: on any
-    failure nothing is read, and each file's passage is its snippet.
+    One statement for the files, one for the pages their closest chunks
+    need, in a savepoint: on any failure nothing is read, and each file's
+    passage is its snippet. A passage is at most :data:`PASSAGE_CHARS`
+    long, so no more of the start of a text is read.
 
-    :param file_ids: the files found that have a closest chunk
-    :returns: the files' id, filename and description, and their pages
+    :param nearest: the closest chunks of the files found that have one
+    :returns: the files' id, filename and description, and what was read of
+        their pages
     """
-    if not file_ids:
+    if not nearest:
         return [], {}
     savepoint = await DB.current_transaction.get().savepoint()
     try:
         files = await Engram.raw(
             _FILE_TEXT_SQL,
-            [str(file_id) for file_id in file_ids],
+            [str(file_id) for file_id in nearest],
             AttachmentStatus.READY.value,
         )
-        pages = await _read_pages(file_ids)
+        pages = await _read_pages(
+            {
+                file_id: _wanted_pages(anchors[:1])
+                for file_id, anchors in nearest.items()
+            },
+            PASSAGE_CHARS,
+        )
     # Broad on purpose: without its text, a file's snippet will do.
     except Exception as error:  # noqa: BLE001
         await savepoint.rollback_to()
@@ -968,29 +1151,26 @@ async def _read_files(
 def _file_passages(
     nearest: dict[UUID, list[str | None]],
     files: list[dict],
-    pages: dict[UUID, list[tuple[int, str]]],
+    pages: dict[UUID, _Pages],
 ) -> dict[UUID, str]:
-    """Cut each file's closest chunk out of its pages, as the reranker reads it.
+    """Cut each file's closest chunk out of what was read, as the reranker reads it.
 
     The chunk carries the filename, the description and its page in front,
-    see :func:`reef.filechunks.split`. A file read again since it was
-    embedded may no longer have that chunk; it gets none. Pure, so it can
-    run in a thread.
+    see :func:`_file_chunks`. A file read again since it was embedded may no
+    longer have that chunk; it gets none. Pure, so it can run in a thread.
 
     :param nearest: each file's closest chunks, best first
     :param files: the files' id, filename and description
-    :param pages: the files' pages
+    :param pages: what :func:`_read_pages` read of them
     :returns: each file's passage, at most :data:`PASSAGE_CHARS` long
     """
     passages: dict[UUID, str] = {}
     for row in files:
-        anchor = nearest[row["id"]][0]
-        chunks = filechunks.split(
-            row["filename"] or "", row["description"] or "", pages.get(row["id"], [])
+        texts = _file_chunks(
+            row, pages.get(row["id"], _Pages()), nearest[row["id"]][:1]
         )
-        text = next((chunk.text for chunk in chunks if chunk.anchor == anchor), "")
         # A file without text ends its only chunk in a blank line.
-        text = text.rstrip()
+        text = texts[0].rstrip() if texts else ""
         if text:
             passages[row["id"]] = text[:PASSAGE_CHARS]
     return passages
@@ -1009,8 +1189,10 @@ async def _chosen_rows(
 
     :param query: the search text
     :param chosen: kind and id of each hit, best first
-    :param file_text: whether reading is on. A file hit then names a page:
-        its closest chunk's, else its best by words.
+    :param file_text: whether reading is on. A file hit then names the page
+        its passage comes from: its closest chunk's page, None for the
+        whole-file chunk, and for a file without vectors its best page by
+        words.
     :param nearest: each file's closest chunks, best first
     :returns: the rows
     """
@@ -1020,11 +1202,10 @@ async def _chosen_rows(
         return await Engram.raw(
             _QUERY_SQL + _CHOSEN_SQL + _CHOSEN_RESULTS_SQL, query, query, kinds, ids
         )
+    closest = [kind == "file" and row_id in nearest for kind, row_id in chosen]
     pages = [
-        filechunks.page_of(nearest[row_id][0])
-        if kind == "file" and row_id in nearest
-        else None
-        for kind, row_id in chosen
+        filechunks.page_of(nearest[row_id][0]) if has_chunk else None
+        for (_, row_id), has_chunk in zip(chosen, closest, strict=True)
     ]
     return await Engram.raw(
         _QUERY_SQL + _CHOSEN_PAGES_SQL + _CHOSEN_PAGE_RESULTS_SQL,
@@ -1033,6 +1214,7 @@ async def _chosen_rows(
         kinds,
         ids,
         pages,
+        closest,
     )
 
 
@@ -1164,8 +1346,10 @@ async def search_engrams(
         does every file with reading off.
     :returns: one dict per hit — engrams carry path and title, files key,
         filename and ``page``; both carry the space alias, kind, and a
-        snippet. ``page`` is the page of the file's closest chunk, else its
-        best page by words, else None; its snippet comes from that page.
+        snippet. ``page`` always says where the file's passage comes from:
+        the page of its closest chunk, None when that is the whole-file
+        chunk, and for a file without vectors its best page by words, else
+        None. A file's snippet comes from that page.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -1254,7 +1438,7 @@ async def search_engrams(
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []
     files: list[dict] = []
-    pages: dict[UUID, list[tuple[int, str]]] = {}
+    pages: dict[UUID, _Pages] = {}
     async with transaction_scope():
         await arm(principal)
         # Without a vector in sight, no file has a closest chunk.
@@ -1272,11 +1456,11 @@ async def search_engrams(
                 [row["id"] for row in rows if row["kind"] == "page"], embedded
             )
             files, pages = await _read_files(
-                [
-                    row["id"]
+                {
+                    row["id"]: nearest[row["id"]]
                     for row in rows
                     if row["kind"] == "file" and row["id"] in nearest
-                ]
+                }
             )
     # In a thread, like the reranker's passages: cutting long engrams takes time.
     found = await asyncio.to_thread(_passages, best, texts) if texts else {}

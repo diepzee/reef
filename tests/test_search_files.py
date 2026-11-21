@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 from test_search_hybrid import SubjectEmbedder
 
-from reef import embedding, rerank, search
+from reef import embedding, filechunks, rerank, search
 from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import get_settings
@@ -220,12 +220,21 @@ async def test_a_file_counts_once_by_its_best_page(tx, household):
 
 
 async def test_page_words_are_not_searched_with_the_switch_off(
-    tx, household, reading, monkeypatch
+    tx, household, reading, service, reranker, monkeypatch
 ):
-    """Switched off, search runs today's statements and reads no file text."""
-    monkeypatch.setattr(reading, "enabled", False)
+    """Switched off, search runs today's statements and reads no file text.
+
+    The file has pages and vectors, and there is a reranker, so every place
+    that asks whether reading is on is reached: the ranking by meaning, the
+    reranker's reads and the reads for passages.
+    """
     me = principal_for(household["wouter"])
-    await _file(me, household["w_personal"], "letter.pdf", "A scanned letter.", LETTER)
+    await _engram(me, service, "personal", "auto.md", "The garage visit is in May.")
+    letter = await _file(
+        me, household["w_personal"], "letter.pdf", "A scanned letter.", LETTER
+    )
+    await embedding.embed_file(me, letter, service)
+    monkeypatch.setattr(reading, "enabled", False)
     statements: list[str] = []
     original = Engram.raw
 
@@ -234,10 +243,12 @@ async def test_page_words_are_not_searched_with_the_switch_off(
         return original(sql, *args)
 
     monkeypatch.setattr(Engram, "raw", recording)
-    assert await search_engrams(me, "xylophone") == []
-    [hit] = await search_engrams(me, "letter", passages=True)
+    assert not _files(await search_engrams(me, "xylophone", passages=True))
+    [hit] = _files(await search_engrams(me, "letter", passages=True))
     assert hit["page"] is None
     assert hit["passage"] == hit["snippet"]
+    # The reranker read the file as it always did.
+    assert "letter.pdf\n\nA scanned letter." in reranker.documents
     assert not [sql for sql in statements if "file_pages" in sql]
     assert not [sql for sql in statements if "file_embeddings" in sql]
 
@@ -284,6 +295,161 @@ async def test_a_file_hit_carries_the_passage_closest_to_the_question(
     [hit] = await search_engrams(me, "car paint")
     assert hit["page"] == 2
     assert "passage" not in hit
+
+
+class LabelEmbedder:
+    """Stands in for the embedding service: a chunk that names its page points away."""
+
+    model_id = "fake-labels"
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Point a chunk of one page one way, and anything else the other.
+
+        :param texts: what to embed
+        :returns: one vector per text
+        """
+        return [[0.0, 1.0] if "\npage " in text else [1.0, 0.0] for text in texts]
+
+
+async def test_when_the_whole_file_chunk_is_closest_the_hit_names_no_page(
+    tx, household, monkeypatch
+):
+    """The passage then comes from no one page, so the hit names none.
+
+    Page 3 holds the word searched for, but the page by words gives way:
+    ``page`` always says where the passage came from.
+    """
+    fake = LabelEmbedder()
+    settings = get_settings()
+    monkeypatch.setattr(settings.embedding, "url", "http://embedder.internal")
+    monkeypatch.setattr(settings.embedding, "model", fake.model_id)
+    monkeypatch.setattr(embedding, "get_embedder", lambda: fake)
+    monkeypatch.setattr(
+        embedding,
+        "breaker",
+        Breaker(
+            settings.embedding.rest_after_failures, settings.embedding.rest_seconds
+        ),
+    )
+    me = principal_for(household["wouter"])
+    # Long enough for each page to be a chunk of its own.
+    pages = [f"{line} {'word ' * 50}" for line in LETTER]
+    letter = await _file(
+        me, household["w_personal"], "letter.pdf", "A scanned letter.", pages
+    )
+    await embedding.embed_file(me, letter, fake)
+    [hit] = await search_engrams(me, "xylophone", passages=True)
+    assert hit["page"] is None
+    assert hit["passage"].startswith(
+        "letter.pdf\nA scanned letter.\n\nDear neighbours,"
+    )
+    assert "**xylophone**" not in hit["snippet"]
+
+
+async def test_a_long_file_is_read_only_where_its_passage_is(
+    tx, household, service, reranker, monkeypatch
+):
+    """A 200-page file in the candidates is read at its chunks' pages, not whole."""
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage visit is in May.")
+    filler = "word " * 300
+    pages = [f"Nothing to see. {filler}"] * 200
+    pages[149] = "The vehicle went in for its yearly check. " + "word " * 60
+    # A short page joins the chunk of the page before it.
+    pages[150] = "Signed."
+    ledger = await _file(
+        me, household["w_personal"], "ledger.pdf", "A long ledger.", pages
+    )
+    await embedding.embed_file(me, ledger, service)
+    returned: list[dict] = []
+    original = Engram.raw
+
+    def counting(sql: str, *args):
+        query = original(sql, *args)
+        if sql != search._FILE_PAGES_SQL:
+            return query
+
+        async def run():
+            rows = await query
+            returned.extend(rows)
+            return rows
+
+        return run()
+
+    monkeypatch.setattr(Engram, "raw", counting)
+    [hit] = _files(await search_engrams(me, "car", passages=True))
+    assert hit["page"] == 150
+    assert "page 150" in hit["passage"]
+    assert "The vehicle went in" in hit["passage"]
+    assert "page 151\n\nSigned." in hit["passage"]
+    # The reranker read it too, by the same chunk.
+    assert any("page 151\n\nSigned." in text for text in reranker.documents)
+    # Pages 150 and 151 for each read, and one more page for the reranker's
+    # second chunk: never the 200 pages, nor 300 000 characters.
+    assert 0 < len(returned) <= 6
+    assert sum(len(row["text"]) for row in returned) <= 3 * len(pages[0])
+
+
+async def test_every_chunk_is_rebuilt_from_the_pages_read_as_it_was_cut(tx, household):
+    """What the pages statement returns cuts each chunk as embedding cut it.
+
+    The file has a short first page, empty pages, a page cut in two, short
+    pages that join the chunk before them, and a start longer than the
+    whole-file chunk holds.
+    """
+    me = principal_for(household["wouter"])
+    pages = [
+        "Cover.",
+        "",
+        "a " * 1500,
+        "Signed.",
+        "",
+        "Note.",
+        "b " * 150,
+        "c " * 150,
+        "End.",
+        "d " * 4000,
+        "e " * 150,
+    ]
+    ledger = await _file(me, household["w_personal"], "ledger.pdf", "A ledger.", pages)
+    row = {"id": ledger, "filename": "ledger.pdf", "description": "A ledger."}
+    every = filechunks.split("ledger.pdf", "A ledger.", list(enumerate(pages, 1)))
+    assert [chunk.anchor for chunk in every] == [
+        None,
+        "p3",
+        "p3~2",
+        "p7",
+        "p8",
+        "p10",
+        "p10~2",
+        "p10~3",
+        "p10~4",
+        "p11",
+    ]
+    limit = get_settings().embedding.engram_chars
+    for chunk in every:
+        read = await search._read_pages(
+            {ledger: {filechunks.page_of(chunk.anchor)}}, limit
+        )
+        rebuilt = search._file_chunks(row, read[ledger], [chunk.anchor])
+        assert rebuilt == [chunk.text], chunk.anchor
+
+
+async def test_scoping_to_one_space_holds_for_file_chunks(tx, household, service):
+    """A file in another space is not found by meaning either."""
+    me = principal_for(household["wouter"])
+    mine = await _file(
+        me, household["w_personal"], "IMG_1.jpg", "Our dwelling, from the street."
+    )
+    ours = await _file(
+        me, household["shared"], "IMG_2.jpg", "Our dwelling, from the garden."
+    )
+    for file in (mine, ours):
+        await embedding.embed_file(me, file, service)
+    results = await search_engrams(me, "house", space="household")
+    assert [hit["filename"] for hit in results] == ["IMG_2.jpg"]
+    results = await search_engrams(me, "house")
+    assert sorted(hit["filename"] for hit in results) == ["IMG_1.jpg", "IMG_2.jpg"]
 
 
 async def test_without_vectors_the_passage_is_the_best_pages_snippet(
