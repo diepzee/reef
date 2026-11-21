@@ -52,6 +52,7 @@ from reef.reading import (
     NoMainPart,
     ReadFailed,
     Reading,
+    ReadTimedOut,
     ScanReader,
     TooLarge,
     local,
@@ -338,7 +339,7 @@ async def _read_pages(
             if failures:
                 return None
             try:
-                return await _read_page(data, kind, number, reader, settings.dpi)
+                return await _read_page(data, kind, number, reader, settings)
             except TooLarge:
                 # Too large to read even at the lowest resolution: kept
                 # empty, as read by the reader that would have read it.
@@ -359,20 +360,36 @@ async def _read_pages(
 
 
 async def _read_page(
-    data: bytes, kind: FileKind, number: int, reader: ScanReader, dpi: int
+    data: bytes,
+    kind: FileKind,
+    number: int,
+    reader: ScanReader,
+    settings: ReadingSettings,
 ) -> _Page:
     """Read one page: from its text layer, or as a scan.
+
+    A scan page takes two child calls, one to render it and one to read it.
+    Together they get ``reading.page_seconds``, the time one page may take;
+    a child still running when it is up is stopped.
 
     :param data: the file's bytes
     :param kind: ``PDF`` or ``IMAGE``
     :param number: the page, from 1
     :param reader: reads a scan page
-    :param dpi: the resolution a scan page is rendered at
+    :param settings: the reading settings
     :returns: the page as read
+    :raises ReadTimedOut: when the page takes longer than it may
     :raises ReadFailed: when the page cannot be read
     """
-    opened = await local.open_page(data, kind, number, dpi=dpi)
-    reading = opened if isinstance(opened, Reading) else await reader.read(opened)
+    try:
+        async with asyncio.timeout(settings.page_seconds):
+            opened = await local.open_page(data, kind, number, dpi=settings.dpi)
+            if isinstance(opened, Reading):
+                reading = opened
+            else:
+                reading = await reader.read(opened)
+    except TimeoutError:
+        raise ReadTimedOut from None
     confidence = reading.confidence
     return _Page(
         number,
@@ -404,8 +421,7 @@ async def _keep(
     """Store pages that are not stored yet, and charge them to the person.
 
     A page another job stored meanwhile is left as it is. Each text is cut
-    to ``reading.page_chars`` and loses any NUL character, which Postgres
-    cannot store.
+    to ``reading.page_chars`` and made fit to store (:func:`_storable`).
 
     :param principal: the person the job runs as
     :param attachment_id: the file
@@ -422,7 +438,7 @@ async def _keep(
             uuid4(),
             attachment_id,
             page.number,
-            page.text.replace("\x00", "")[:chars],
+            _storable(page.text)[:chars],
             page.reader,
             page.model,
             page.confidence,
@@ -440,6 +456,20 @@ async def _keep(
             reader,
             count,
         )
+
+
+def _storable(text: str) -> str:
+    """Make a text fit to store in Postgres.
+
+    Drops NUL characters, which Postgres cannot store, and turns a lone
+    surrogate into ``?``: it is not UTF-8, so the insert would fail and the
+    job be retried again and again. A child only gives either if something
+    went wrong in it.
+
+    :param text: a page's text, as a reader gave it
+    :returns: the text, NUL-free and valid UTF-8
+    """
+    return text.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
 
 
 async def _mark(
@@ -501,8 +531,11 @@ async def request_backfill(principal: Principal) -> bool:
 
     Called when the person's index is loaded, as
     :func:`reef.embedding.request_backfill` is. A file needs it when it is
-    ready, in a space the person may write to, and never looked at; or,
-    with an embedding service, when its reading has ended and it has no
+    ready, in a space the person may write to, and either never looked at,
+    or ``waiting`` with no ``read_file`` job of this person's queued or
+    running: its job failed for good, or ended with the switch off. Left
+    alone, such a file would never be read, nor embedded. With an embedding
+    service, a file also needs it when its reading has ended and it has no
     vector. Without a service vectors are not asked about: the files would
     lack them on every load.
 
@@ -514,11 +547,17 @@ async def request_backfill(principal: Principal) -> bool:
     if not settings.reading.enabled:
         return False
     await arm(principal)
-    never_read = await Attachment.raw(
-        "SELECT 1 FROM attachments WHERE status = 'ready' "
-        f"AND text_status IS NULL AND {_WRITABLE} LIMIT 1"
+    unread = await Attachment.raw(
+        "SELECT 1 FROM attachments a WHERE a.status = 'ready' "
+        "AND a.space_id IN (SELECT reef_member_space_ids()) "
+        "AND (a.text_status IS NULL OR (a.text_status = 'waiting' AND NOT EXISTS ("
+        "SELECT 1 FROM jobs j WHERE j.person_id = {} AND j.kind = {} "
+        "AND j.status IN ('queued', 'running') "
+        "AND j.subject_ids = ARRAY[a.id]))) LIMIT 1",
+        principal.person_id,
+        READ_FILE,
     )
-    if not never_read and not (
+    if not unread and not (
         settings.embedding.url and await embedding.files_lacking(principal, limit=1)
     ):
         return False

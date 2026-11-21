@@ -5,6 +5,7 @@ to see committed rows. Files are kept in a :class:`conftest.MemoryStore`,
 which stands in for the object store the job reads from.
 """
 
+import asyncio
 import logging
 import re
 from uuid import UUID
@@ -28,7 +29,14 @@ from reef.context import build_index
 from reef.db import transaction_scope
 from reef.jobs import BACKFILL_FILES, EMBED_FILE, READ_FILE, enqueue
 from reef.models import FilePage, Job, TextStatus
-from reef.reading import SandboxUnavailable, TooLarge, Unreadable, local
+from reef.reading import (
+    Reading,
+    SandboxUnavailable,
+    ScanPage,
+    TooLarge,
+    Unreadable,
+    local,
+)
 from reef.worker import HANDLERS, drain
 
 PDF = "application/pdf"
@@ -107,12 +115,12 @@ async def _jobs(principal: Principal, kind: str) -> list[dict]:
 
     :param principal: whose jobs
     :param kind: which kind
-    :returns: each job's status, subjects and seconds until it may run
+    :returns: each job's status, subjects, error and seconds until it may run
     """
     async with transaction_scope():
         await arm(principal)
         return await Job.raw(
-            "SELECT status, subject_ids, "
+            "SELECT status, subject_ids, error, "
             "EXTRACT(EPOCH FROM run_after - LOCALTIMESTAMP) AS wait "
             "FROM jobs WHERE kind = {} ORDER BY created_at",
             kind,
@@ -390,8 +398,114 @@ async def test_a_missing_sandbox_fails_the_job_so_the_queue_retries(
     monkeypatch.setattr(local, "survey", survey)
     assert await drain("test") == 1
     jobs = await _jobs(me.principal, READ_FILE)
-    assert [job["status"] for job in jobs] == ["queued"]
+    assert [(job["status"], job["error"]) for job in jobs] == [
+        ("queued", "SandboxUnavailable")
+    ]
     assert await _status(me.principal, file.id) == ("waiting", None, None)
+
+
+async def test_a_missing_sandbox_while_reading_pages_fails_the_job(
+    household, monkeypatch
+):
+    """Raised inside the reads running together, it still fails the job by name."""
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "polis.pdf", _pdf(3), PDF, DESCRIPTION)
+    opened = local.open_page
+
+    async def open_page(data, kind, number, *, dpi):
+        if number == 2:
+            raise SandboxUnavailable
+        return await opened(data, kind, number, dpi=dpi)
+
+    monkeypatch.setattr(local, "open_page", open_page)
+    assert await drain("test") == 1
+    jobs = await _jobs(me.principal, READ_FILE)
+    assert [(job["status"], job["error"]) for job in jobs] == [
+        ("queued", "SandboxUnavailable")
+    ]
+    assert await _pages(me.principal, file.id) == []
+    assert await _status(me.principal, file.id) == ("waiting", None, None)
+    async with transaction_scope():
+        assert await filetext.spent_pages_today(me.principal) == 0
+
+
+async def test_a_scan_page_has_one_time_limit_for_render_and_ocr(
+    household, reading, monkeypatch
+):
+    """Rendering and reading each fit in the page's time, but not together."""
+    me = caller_for(household["wouter"])
+    monkeypatch.setattr(reading, "page_seconds", 0.3)
+
+    async def survey(data, kind):
+        return 1
+
+    async def open_page(data, kind, number, *, dpi):
+        await asyncio.sleep(0.2)
+        return ScanPage(number=number, image=b"", source="pdf", dpi=dpi)
+
+    async def read(self, page):
+        await asyncio.sleep(0.2)
+        return Reading(
+            text="Polisnummer 4711 van de woning", reader="tesseract", model="t"
+        )
+
+    monkeypatch.setattr(local, "survey", survey)
+    monkeypatch.setattr(local, "open_page", open_page)
+    monkeypatch.setattr(local.TesseractReader, "read", read)
+    file = await store_as(me, "personal", "scan.pdf", _pdf(1), PDF, DESCRIPTION)
+    assert await drain("test") == 1
+    assert await _status(me.principal, file.id) == (
+        "unreadable",
+        None,
+        "ReadTimedOut",
+    )
+    assert await _pages(me.principal, file.id) == []
+
+
+async def test_a_lone_surrogate_is_stored_as_a_question_mark(household, monkeypatch):
+    """Text that is not UTF-8 cannot make the insert fail and the job retry."""
+    me = caller_for(household["wouter"])
+
+    async def open_page(data, kind, number, *, dpi):
+        text = "Polisnummer\ud8004711\x00 van de woning"
+        return Reading(text=text, reader="pdf-text", model="pdfium")
+
+    monkeypatch.setattr(local, "open_page", open_page)
+    file = await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+    assert await drain("test") == 1
+    (row,) = await _pages(me.principal, file.id)
+    assert row["text"] == "Polisnummer?4711 van de woning"
+    assert await _status(me.principal, file.id) == ("read", 1, None)
+
+
+async def test_a_finished_file_is_not_read_again(household, reading, monkeypatch):
+    """An unreadable file and a read Word file start no child and cost nothing."""
+    me = caller_for(household["wouter"])
+    monkeypatch.setattr(reading, "page_chars", 1_000)
+    broken = await store_as(
+        me, "personal", "bad.pdf", b"%PDF-1.7 garbage", PDF, DESCRIPTION
+    )
+    data = docx_bytes(paragraphs(3, 600))
+    word = await store_as(me, "personal", "notes.docx", data, DOCX, DESCRIPTION)
+    assert await drain("test") == 2
+    assert (await _status(me.principal, broken.id))[0] == "unreadable"
+    assert (await _status(me.principal, word.id))[0] == "read"
+    async with transaction_scope():
+        spent = await filetext.spent_pages_today(me.principal)
+    children: list[list[str]] = []
+
+    async def run_child(args, data, **kwargs):
+        children.append(args)
+        raise AssertionError("no child may be started")
+
+    monkeypatch.setattr(local, "run_child", run_child)
+    async with transaction_scope():
+        assert await filetext.read_file(me.principal, broken.id) is (
+            TextStatus.UNREADABLE
+        )
+        assert await filetext.read_file(me.principal, word.id) is TextStatus.READ
+        assert await filetext.spent_pages_today(me.principal) == spent
+    assert children == []
 
 
 async def test_a_spent_allowance_requeues_the_file_for_later(
@@ -541,6 +655,49 @@ async def test_the_backfill_reads_never_read_files_and_requeues_stuck_ones(
     jobs = await _jobs(me.principal, READ_FILE)
     subjects = sorted(str(job["subject_ids"][0]) for job in jobs)
     assert subjects == sorted(str(file.id) for file in (never, stuck, queued))
+
+
+async def test_a_file_left_waiting_is_healed_by_the_next_index_load(
+    household, reading, monkeypatch, seed
+):
+    """A file whose job failed for good, or ended with the switch off, is read."""
+    me = caller_for(household["wouter"])
+    failed = await store_as(me, "personal", "a.pdf", _pdf(1), PDF, DESCRIPTION)
+    ended = await store_as(me, "personal", "b.pdf", _pdf(1), PDF, DESCRIPTION)
+    async with transaction_scope():
+        await build_index(me.principal)
+    assert await _jobs(me.principal, BACKFILL_FILES) == []
+
+    await seed.execute(
+        "UPDATE jobs SET status = 'failed', error = 'SandboxUnavailable' "
+        "WHERE $1 = ANY(subject_ids)",
+        failed.id,
+    )
+    monkeypatch.setattr(reading, "enabled", False)
+    assert await drain("test") == 1
+    monkeypatch.setattr(reading, "enabled", True)
+    for file in (failed, ended):
+        assert await _status(me.principal, file.id) == ("waiting", None, None)
+
+    for _ in range(2):
+        async with transaction_scope():
+            await build_index(me.principal)
+    assert len(await _jobs(me.principal, BACKFILL_FILES)) == 1
+    assert await drain("test") == 3
+    for file in (failed, ended):
+        assert await _status(me.principal, file.id) == ("read", 1, None)
+    async with transaction_scope():
+        assert await filetext.request_backfill(me.principal) is False
+
+
+async def test_a_file_whose_job_is_running_does_not_ask_for_the_backfill(
+    household, seed
+):
+    me = caller_for(household["wouter"])
+    await store_as(me, "personal", "a.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute("UPDATE jobs SET status = 'running'")
+    async with transaction_scope():
+        assert await filetext.request_backfill(me.principal) is False
 
 
 async def test_the_backfill_queues_embedding_for_files_without_a_vector(
