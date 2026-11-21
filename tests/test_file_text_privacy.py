@@ -11,9 +11,11 @@ The marker is a plain word on purpose: Logfire scrubs values that say
 nothing about our own patterns.
 """
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -164,8 +166,6 @@ async def test_a_marker_word_reaches_no_log_or_span(
 
 
 def test_file_job_spans_keep_their_kind(live, forwarded, caplog):
-    from uuid import uuid4
-
     caplog.set_level(logging.INFO)
     for kind in (READ_FILE, EMBED_FILE, BACKFILL_FILES):
         with telemetry.job_span(uuid4(), kind, 1) as result:
@@ -196,7 +196,7 @@ async def test_a_job_that_reads_a_file_keeps_its_kind_in_the_span(
 
 @pytest.fixture
 def requests(monkeypatch) -> list[httpx.URL]:
-    """Record every request an httpx client sends, and answer a vector for each.
+    """Record every request an httpx client sends, and answer as the model services do.
 
     :param monkeypatch: pytest's monkeypatch fixture
     :returns: the addresses asked, in order
@@ -207,22 +207,34 @@ def requests(monkeypatch) -> list[httpx.URL]:
         """Note the request, and answer as an embedding service would.
 
         :param request: what the client wants to send
-        :returns: one vector per input
+        :returns: one vector or score per input
         """
-        import json
-
         sent.append(request.url)
-        inputs = json.loads(request.content)["input"]
-        rows = [{"index": i, "embedding": [1.0, 0.0, 0.0]} for i in range(len(inputs))]
+        body = json.loads(request.content)
+        if request.url.path.endswith("/rerank"):
+            rows = [
+                {"index": i, "relevance_score": 1.0}
+                for i in range(len(body["documents"]))
+            ]
+            return httpx.Response(200, json={"results": rows}, request=request)
+        rows = [
+            {"index": i, "embedding": [1.0, 0.0, 0.0]}
+            for i in range(len(body["input"]))
+        ]
         return httpx.Response(200, json={"data": rows}, request=request)
 
     monkeypatch.setattr(httpx.AsyncClient, "send", send)
     return sent
 
 
-async def test_reading_and_embedding_reach_only_their_own_services(
+async def test_reading_sends_nothing_and_embedding_and_search_reach_only_model_services(
     household, requests, monkeypatch
 ):
+    """Reading sends nothing anywhere; embedding and search reach only the
+    embedding and reranking services the deployment runs itself.
+
+    Reef's own storage (R2) is out of scope: it is exercised elsewhere.
+    """
     me = caller_for(household["wouter"])
     for name, make in KINDS.items():
         data, mime, extension = make()
@@ -233,11 +245,20 @@ async def test_reading_and_embedding_reach_only_their_own_services(
     assert await drain("test") >= len(KINDS)
     assert requests == []
 
-    # Embedding with the real client sends only to the embedding service.
-    url = "http://embedder.internal"
-    monkeypatch.setattr(embedding, "get_embedder", lambda: HttpEmbedder(url, "fake-1"))
+    # Embedding and search, with real clients, reach only the two services.
+    embedder, reranker = "http://embedder.internal", "http://reranker.internal"
+    rerank_settings = get_settings().rerank
+    monkeypatch.setattr(rerank_settings, "url", reranker)
+    monkeypatch.setattr(rerank_settings, "enabled", True)
+    monkeypatch.setattr(rerank_settings, "min_engrams", 0)
+    monkeypatch.setattr(
+        embedding, "get_embedder", lambda: HttpEmbedder(embedder, "fake-1")
+    )
     async with transaction_scope():
         await filetext.backfill(me.principal)
     assert await _drain_all() > 0
     assert requests
-    assert {(u.scheme, u.host) for u in requests} == {("http", "embedder.internal")}
+    await find.recall(me, "", "policy")
+    hosts = {(u.scheme, u.host) for u in requests}
+    assert hosts <= {("http", "embedder.internal"), ("http", "reranker.internal")}
+    assert any(u.host == "reranker.internal" for u in requests), "reranker not called"
