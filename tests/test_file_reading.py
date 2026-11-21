@@ -11,7 +11,14 @@ from uuid import UUID
 
 import pytest
 from conftest import MemoryStore, caller_for, store_as
-from filefixtures import docx_bytes, paragraphs, scan_pdf, text_pdf, zip_bytes
+from filefixtures import (
+    docx_bytes,
+    paragraphs,
+    scan_image,
+    scan_pdf,
+    text_pdf,
+    zip_bytes,
+)
 
 from reef import filetext
 from reef.access import Principal, arm
@@ -155,6 +162,22 @@ async def test_a_text_pdf_is_read_and_marked_read(household, embedder):
     assert [job["subject_ids"] for job in embeds] == [[file.id]]
     async with transaction_scope():
         assert await filetext.spent_pages_today(me.principal) == 3
+
+    # A job that comes after the end, such as a duplicate, reads nothing more.
+    async with transaction_scope():
+        assert await filetext.read_file(me.principal, file.id) is TextStatus.READ
+        assert await filetext.spent_pages_today(me.principal) == 3
+
+
+async def test_a_photo_is_read_by_tesseract(household):
+    me = caller_for(household["wouter"])
+    data = scan_image(["Polisnummer 4711", "Verzekering van de woning"], "PNG")
+    file = await store_as(me, "personal", "foto.png", data, "image/png", DESCRIPTION)
+    assert await drain("test") == 1
+    (row,) = await _pages(me.principal, file.id)
+    assert row["reader"] == "tesseract"
+    assert "4711" in row["text"]
+    assert await _status(me.principal, file.id) == ("read", 1, None)
 
 
 async def test_a_long_file_is_read_ten_pages_a_job(household):
