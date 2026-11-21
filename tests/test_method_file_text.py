@@ -348,14 +348,21 @@ async def test_load_index_is_the_same_size_with_the_switch_on(
 
 def test_render_text_marks_pages_and_cuts_at_a_page():
     pages = [filetext.StoredPage(n, "x" * 10, "tesseract") for n in (1, 2, 3)]
-    whole, cut = filetext.render_text(pages)
+    whole, cut, _ = filetext.render_text(pages)
     assert whole.count("--- page") == 3 and cut is None
-    text, cut = filetext.render_text(pages, cap=55)
+    text, cut, _ = filetext.render_text(pages, cap=55)
     assert cut == 2 and text.count("--- page") == 2
     assert filetext.render_text(pages, start=3, cap=55)[0].startswith("--- page 3")
     five = [filetext.StoredPage(n, "x" * 10, "tesseract") for n in range(1, 6)]
     assert filetext.render_text(five, start=2, cap=55)[1] == 3
     assert filetext.render_text(pages, start=2, cap=1_000)[0].startswith("--- page 1")
+
+
+def test_a_page_longer_than_the_cap_is_cut_inside_and_says_so():
+    pages = [filetext.StoredPage(n, "x" * 100, "tesseract") for n in (1, 2)]
+    text, after, inside = filetext.render_text(pages, cap=50)
+    assert len(text) == 50 and after is None and inside == 1
+    assert filetext.render_text(pages, start=2, cap=50)[2] == 2
 
 
 def test_read_by_names_the_readers_of_pages_with_text():
@@ -376,3 +383,46 @@ def test_a_ref_ends_in_a_page_only():
     assert find._parse_ref("personal/notes/car.md") == find.Ref(
         "personal", "engram", "notes/car.md"
     )
+
+
+@pytest.mark.parametrize(
+    "anchor", ["#page=" + "9" * 5000, "#page=-1", "#page=1234567890", "#page=+1"]
+)
+async def test_a_huge_or_signed_anchor_is_not_found(household, store, reading, anchor):
+    me = caller_for(household["wouter"])
+    ref = await _file(me, ["One."])
+    [file] = await find.open(me, "", [f"{ref}{anchor}"])
+    assert file == {"ref": f"{ref}{anchor}", "error": "not_found"}
+
+
+async def test_a_leading_zero_reads_as_the_number_it_spells():
+    assert find._parse_ref("personal/file/k#page=01").page == 1
+
+
+async def test_fetch_with_no_slack_stays_within_the_cap(
+    household, store, reading, monkeypatch
+):
+    monkeypatch.setattr(get_settings().engrams, "max_chars", 1_000)
+    me = caller_for(household["wouter"])
+    # Description 100, separator 2, page 1 marked: 15 + 883 = 898. Exactly 1,000.
+    ref = await _file(me, ["a" * 883], description="D" * 100)
+    key = ref.removeprefix("personal/file/")
+    fetched = await connector.fetch(me, "", f"file:personal/{key}")
+    assert len(fetched["text"]) == 1_000
+    # One character more and the page no longer fits.
+    ref = await _file(me, ["a" * 884], description="D" * 100)
+    key = ref.removeprefix("personal/file/")
+    fetched = await connector.fetch(me, "", f"file:personal/{key}")
+    assert len(fetched["text"]) <= 1_000
+
+
+async def test_fetch_of_a_file_the_caller_cannot_open_is_not_found(
+    household, store, reading
+):
+    me = caller_for(household["wouter"])
+    ref = await _file(me, ["Private."])
+    key = ref.removeprefix("personal/file/")
+    stranger = caller_for(household["partner"])
+    assert await connector.fetch(stranger, "", f"file:personal/{key}") == {
+        "error": "not_found"
+    }

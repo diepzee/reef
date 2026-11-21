@@ -1,7 +1,7 @@
 import os
 from functools import lru_cache
 
-from pydantic import AliasChoices, BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 #: What settings are spelled with now.
@@ -548,6 +548,7 @@ class ReadingSettings(BaseSettings):
     page_chars: int = Field(
         20_000,
         ge=1_000,
+        le=200_000,
         description=(
             "The most text kept of one page, in characters. A text format is "
             "cut into pages no longer than this."
@@ -596,6 +597,23 @@ class Settings(BaseModel):
     usage: UsageSettings = Field(default_factory=UsageSettings)
     calls: CallSettings = Field(default_factory=CallSettings)
     reading: ReadingSettings = Field(default_factory=ReadingSettings)
+
+    @model_validator(mode="after")
+    def _a_page_fits_an_engram(self) -> "Settings":
+        """Refuse a page longer than the longest engram.
+
+        ``open`` cuts a file's text at the engram cap, at a page. A page
+        longer than the cap could never be shown whole.
+
+        :returns: the settings
+        :raises ValueError: when ``reading.page_chars`` is above
+            ``engrams.max_chars``
+        """
+        if self.reading.page_chars > self.engrams.max_chars:
+            raise ValueError(
+                "REEF_FILE_TEXT_PAGE_CHARS must not be above REEF_ENGRAM_MAX_CHARS"
+            )
+        return self
 
     @property
     def dsn(self) -> str:

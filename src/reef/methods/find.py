@@ -66,8 +66,10 @@ BRIEF_ENGRAMS = 5
 #: The fewest and most entries :func:`brief` returns from one log.
 BRIEF_ENTRIES = (1, 100)
 
-_PAGE_ANCHOR = re.compile(r"page=([0-9]+)")
-"""The one anchor a file reference may carry."""
+_PAGE_ANCHOR = re.compile(r"page=([0-9]{1,9})")
+"""The one anchor a file reference may carry: ``page=`` and one to nine
+digits. A leading zero is read as the number it spells (``page=01`` is 1); a
+sign or more digits make the reference malformed."""
 
 NOT_FOUND = "not_found"
 """The answer for a reference to nothing, or to something the caller may not read."""
@@ -327,7 +329,9 @@ async def open(
         ``{"ref", "error": "not_found"}``. A file adds, with reading
         switched on: ``text_status``, ``pages``, ``read_by``, ``text`` and
         ``text_cut_after_page`` (the last page of ``text`` when the file was
-        cut, else None).
+        cut, else None). Only when a single page was longer than the cap and
+        its text was cut inside it, ``text_cut_inside_page`` names that page;
+        the rest of it is not shown.
     :raises MethodError: ``invalid_as_of`` when ``as_of`` is not a moment
     """
     moment = _moment(as_of, "invalid_as_of")
@@ -502,7 +506,7 @@ async def _read_file(
     }
     if get_settings().reading.enabled:
         pages = (await filetext.stored_pages([attachment.id]))[attachment.id]
-        text, cut = filetext.render_text(
+        text, cut, inside = filetext.render_text(
             pages, start=page, cap=get_settings().engrams.max_chars
         )
         file |= {
@@ -512,6 +516,10 @@ async def _read_file(
             "text": text,
             "text_cut_after_page": cut,
         }
+        # Settings keep a page within the cap; this is the honest answer
+        # should one not fit.
+        if inside is not None:
+            file["text_cut_inside_page"] = inside
     return file
 
 

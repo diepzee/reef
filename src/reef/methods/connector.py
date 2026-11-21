@@ -183,8 +183,9 @@ async def _file(principal: Principal, id: str, space: str, key: str) -> dict | N
     text = attachment.description or ""
     if get_settings().reading.enabled:
         pages = (await filetext.stored_pages([attachment.id]))[attachment.id]
-        room = max(0, get_settings().engrams.max_chars - len(text))
-        read, _ = filetext.render_text(pages, cap=room)
+        # Two characters for the blank line between description and text.
+        room = max(0, get_settings().engrams.max_chars - len(text) - 2)
+        read, _, _ = filetext.render_text(pages, cap=room)
         if read:
             text = f"{text}\n\n{read}"
     return {

@@ -647,26 +647,27 @@ def _marked(page: StoredPage) -> str:
 
 def render_text(
     pages: list[StoredPage], *, start: int | None = None, cap: int | None = None
-) -> tuple[str, int | None]:
+) -> tuple[str, int | None, int | None]:
     """Write pages as one text, each page marked with its number.
 
     The marked pages are joined by a blank line. When the whole text does not
     fit ``cap``, whole pages are kept up to it, from page ``min(start, last)``
-    when ``start`` is given, else from the first. A first page that alone
-    passes ``cap`` is cut at ``cap``, so a text is never empty for want of
-    room.
+    when ``start`` is given, else from the first. Settings keep a page
+    shorter than ``cap``, so a page always fits; should one not, the text is
+    cut inside it and says so, rather than claim the page was read whole.
 
     :param pages: the pages, in page order
     :param start: the page to read from when the text must be cut
     :param cap: the most characters to return; no limit when None
-    :returns: the text, and the number of the last page included when pages
-        were left out after it, else None
+    :returns: the text; the number of the last page included when pages were
+        left out after it, else None; and the number of the page the text was
+        cut inside, else None
     """
     if not pages:
-        return "", None
+        return "", None, None
     whole = "\n\n".join(_marked(page) for page in pages)
     if cap is None or len(whole) <= cap:
-        return whole, None
+        return whole, None, None
     first = min(start, pages[-1].number) if start is not None else pages[0].number
     kept: list[str] = []
     used = 0
@@ -678,13 +679,12 @@ def render_text(
         cost = len(marked) + (2 if kept else 0)
         if used + cost > cap:
             if not kept:
-                kept.append(marked[:cap])
-                last = page.number
-            return "\n\n".join(kept), last
+                return marked[:cap], None, page.number
+            return "\n\n".join(kept), last, None
         kept.append(marked)
         used += cost
         last = page.number
-    return "\n\n".join(kept), None
+    return "\n\n".join(kept), None, None
 
 
 def read_by(pages: list[StoredPage]) -> list[str]:
