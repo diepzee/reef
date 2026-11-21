@@ -165,3 +165,23 @@ def pptx_bytes(slides: list[list[str]]) -> bytes:
     buffer = io.BytesIO()
     presentation.save(buffer)
     return buffer.getvalue()
+
+
+def forged_directory_docx() -> bytes:
+    """Build a Word file whose end record hides entries from a count-based walk.
+
+    The end record says the directory has one entry. A second one, which
+    claims to unpack to 300 MB, follows it in the directory: ``zipfile`` walks
+    the directory by its byte size and reads both. Only headers are forged;
+    the file stays small.
+
+    :returns: the archive
+    """
+    import struct
+
+    data = bytearray(zip_bytes({"word/document.xml": b"<x/>", "big.xml": b"<x/>"}))
+    second = data.rfind(b"PK\x01\x02")
+    struct.pack_into("<L", data, second + 24, 300_000_000)
+    end = data.rfind(b"PK\x05\x06")
+    struct.pack_into("<HH", data, end + 8, 1, 1)
+    return bytes(data)

@@ -96,7 +96,7 @@ def _running(pid: int) -> bool:
 async def test_the_child_gets_no_variable_of_the_worker(monkeypatch, spawned):
     """A storage key in the worker's environment does not reach the child."""
     monkeypatch.setenv("REEF_S3_SECRET_KEY", "canary")
-    await sandbox.run_child(["parts", "plain", "20000"], b"hello", seconds=30)
+    await sandbox.run_child(["parts", "plain", "20000", "200"], b"hello", seconds=30)
     assert spawned.options["env"] == sandbox.child_environment()
     assert sandbox.child_environment() == {
         "PATH": "/usr/bin:/bin",
@@ -109,7 +109,9 @@ async def test_the_child_gets_no_variable_of_the_worker(monkeypatch, spawned):
 async def test_the_child_is_started_isolated_and_limited(spawned):
     """Isolated mode, no bytecode, a new session, stderr dropped, limits first."""
     seconds = 2.5
-    await sandbox.run_child(["parts", "plain", "20000"], b"hello", seconds=seconds)
+    await sandbox.run_child(
+        ["parts", "plain", "20000", "200"], b"hello", seconds=seconds
+    )
     memory = get_settings().reading.memory_mb
     assert spawned.command == [
         *sandbox.child_command(),
@@ -120,6 +122,7 @@ async def test_the_child_is_started_isolated_and_limited(spawned):
         "parts",
         "plain",
         "20000",
+        "200",
     ]
     assert sandbox.child_command()[1:] == ["-I", "-B", "-m", "reef.reading.child"]
     assert spawned.options["start_new_session"] is True
@@ -175,7 +178,7 @@ async def test_a_root_worker_drops_its_groups_too(monkeypatch):
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     with pytest.raises(Stop):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=5)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=5)
     assert (seen["user"], seen["group"], seen["extra_groups"]) == (999, 998, [])
 
 
@@ -184,7 +187,7 @@ async def test_a_child_that_runs_too_long_is_stopped(monkeypatch, spawned):
     _child_runs(monkeypatch, "import time; time.sleep(5)")
     started = time.monotonic()
     with pytest.raises(ReadTimedOut):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=0.5)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=0.5)
     assert time.monotonic() - started < 2
     assert spawned.process is not None
     assert spawned.process.returncode is not None
@@ -203,7 +206,7 @@ async def test_a_stopped_child_takes_its_own_children_with_it(monkeypatch, tmp_p
     )
     _child_runs(monkeypatch, code)
     with pytest.raises(ReadTimedOut):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=1)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=1)
     grandchild = int(Path(pid_file).read_text())
     deadline = time.monotonic() + 2
     while _running(grandchild) and time.monotonic() < deadline:
@@ -249,7 +252,7 @@ async def test_a_child_out_of_cpu_time_has_timed_out(monkeypatch):
         "os.kill(os.getpid(), signal.SIGXCPU)\n",
     )
     with pytest.raises(ReadTimedOut):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=10)
 
 
 @pytest.mark.parametrize(
@@ -262,7 +265,7 @@ async def test_a_childs_error_class_is_raised_again(monkeypatch, failure):
     """
     _child_runs(monkeypatch, f'print(\'{{"error": "{failure.__name__}"}}\')')
     with pytest.raises(failure) as caught:
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=10)
     assert type(caught.value) is failure
     assert issubclass(failure, ReadFailed)
     assert caught.value.args == ()
@@ -276,18 +279,24 @@ def test_a_missing_sandbox_is_not_a_failed_read():
 async def test_a_markdown_file_is_read_in_the_child():
     """The real child reads a Markdown file into parts."""
     data = "# Notes\n\nCafé at nine.".encode()
-    answer = await sandbox.run_child(["parts", "markdown", "20000"], data, seconds=30)
-    assert answer == {"parts": ["# Notes\n\nCafé at nine."]}
+    answer = await sandbox.run_child(
+        ["parts", "markdown", "20000", "200"], data, seconds=30
+    )
+    assert answer == {"parts": ["# Notes\n\nCafé at nine."], "pages": 1}
 
 
 async def test_the_child_reads_html_and_cuts_long_text():
     """HTML loses its markup, and long text comes back in parts."""
     page = b"<p>one</p><script>ZEBRAQUILT</script><p>two</p>"
-    answer = await sandbox.run_child(["parts", "html", "20000"], page, seconds=30)
-    assert answer == {"parts": ["one\n\ntwo"]}
+    answer = await sandbox.run_child(
+        ["parts", "html", "20000", "200"], page, seconds=30
+    )
+    assert answer == {"parts": ["one\n\ntwo"], "pages": 1}
     long = "\n\n".join(["x" * 1_000] * 2_000).encode()
-    answer = await sandbox.run_child(["parts", "plain", "20000"], long, seconds=30)
-    assert len(answer["parts"]) == 106
+    answer = await sandbox.run_child(
+        ["parts", "plain", "20000", "200"], long, seconds=30
+    )
+    assert len(answer["parts"]) == answer["pages"] == 106
     assert "\n\n".join(answer["parts"]).encode() == long
 
 
@@ -307,10 +316,11 @@ async def test_a_child_that_talks_too_much_is_stopped(monkeypatch, spawned):
 
 
 async def test_a_parts_answer_is_bounded_by_its_file(monkeypatch):
-    """A child reading parts may print about three times its file, no more.
+    """A child reading parts may print what the limits allow, no more.
 
-    The worker stops one byte past the bound, so what it holds, and what it
-    would parse, is never more than the file allows.
+    The bound comes from the part size and the most parts, never from the
+    file. The worker stops one byte past it, so what it holds, and what it
+    would parse, is never more.
     """
     read = 0
 
@@ -345,14 +355,15 @@ async def test_a_parts_answer_is_bounded_by_its_file(monkeypatch):
     monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
     _child_runs(
         monkeypatch,
-        "import sys, time\nsys.stdout.write('x' * 2_000_000)\nsys.stdout.flush()\n"
+        "import sys, time\nsys.stdout.write('x' * 20_000_000)\nsys.stdout.flush()\n"
         "time.sleep(30)\n",
     )
     data = b"x" * 10_000
-    bound = sandbox.parts_answer_bytes(data, 20_000)
-    assert bound == 3 * 10_000 + 4 + sandbox.ANSWER_SLACK
+    bound = sandbox.parts_answer_bytes(20_000, 200)
+    assert bound < 17_000_000
+    assert bound == 200 * (4 * 20_000 + 4) + sandbox.ANSWER_SLACK
     with pytest.raises(ChildCrashed):
-        await sandbox.run_child(["parts", "plain", "20000"], data, seconds=20)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], data, seconds=20)
     assert read == bound + 1
 
 
@@ -363,27 +374,38 @@ async def test_a_parts_answer_is_bounded_by_its_file(monkeypatch):
         {"parts": [1]},
         {"parts": [["one"]]},
         {"parts": None},
-        {"parts": ["one"], "more": True},
-        {"pages": ["one"]},
+        {"parts": ["one"], "pages": 1, "more": True},
+        {"parts": ["one"]},
+        {"parts": ["one"], "pages": "1"},
+        {"parts": ["one"], "pages": True},
+        {"parts": ["one", "two"], "pages": 1},
+        {"parts": ["x"] * 201, "pages": 201},
+        {"pages": 1},
         {},
     ],
 )
 async def test_a_parts_answer_of_the_wrong_shape_is_a_crash(monkeypatch, answer):
-    """Only a list of strings is a ``parts`` answer.
+    """Only a list of strings, at most the most parts, and a page count at
+    least as large, is a ``parts`` answer.
 
     :param answer: what the child prints
     """
     _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
     with pytest.raises(ChildCrashed):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=10)
 
 
 async def test_a_parts_answer_of_the_right_shape_is_returned(monkeypatch):
     """A list of strings, empty or not, is an answer."""
     for parts in ([], ["one", "two"]):
-        _child_runs(monkeypatch, f"print({json.dumps(json.dumps({'parts': parts}))})")
-        answer = await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
-        assert answer == {"parts": parts}
+        _child_runs(
+            monkeypatch,
+            f"print({json.dumps(json.dumps({'parts': parts, 'pages': len(parts)}))})",
+        )
+        answer = await sandbox.run_child(
+            ["parts", "plain", "20000", "200"], b"x", seconds=10
+        )
+        assert answer == {"parts": parts, "pages": len(parts)}
 
 
 async def test_a_child_need_not_read_all_it_is_given(monkeypatch):
@@ -418,7 +440,7 @@ class _Stdin:
         return self._data
 
 
-ARGV = ["--memory-mb", "512", "--cpu-seconds", "7", "parts", "markdown", "20000"]
+ARGV = ["--memory-mb", "512", "--cpu-seconds", "7", "parts", "markdown", "20000", "200"]
 
 
 def test_the_child_caps_itself_before_it_reads_the_file(monkeypatch, capsysbinary):
@@ -432,7 +454,10 @@ def test_the_child_caps_itself_before_it_reads_the_file(monkeypatch, capsysbinar
     monkeypatch.setattr(child.sys, "stdin", _Stdin(events, b"# Notes"))
     assert child.main(ARGV) == 0
     assert events == ["limits 512 7", "read"]
-    assert json.loads(capsysbinary.readouterr().out) == {"parts": ["# Notes"]}
+    assert json.loads(capsysbinary.readouterr().out) == {
+        "parts": ["# Notes"],
+        "pages": 1,
+    }
 
 
 def test_running_out_of_memory_while_reading_is_too_large(monkeypatch, capsysbinary):

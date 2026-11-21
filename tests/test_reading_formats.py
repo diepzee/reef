@@ -8,6 +8,7 @@ import pytest
 from filefixtures import (
     ZIP_HEAD,
     docx_bytes,
+    forged_directory_docx,
     html_page,
     long_text,
     paragraphs,
@@ -173,12 +174,11 @@ def test_an_answer_stays_within_its_files_bound(data: bytes, kind: FileKind):
     :param kind: its kind
     """
     part_chars = 1_000
-    answer = json.dumps(
-        {"parts": text_parts(data, kind, part_chars)}, ensure_ascii=False
-    ).encode()
-    envelope = len(b'{"parts": []}')
-    bound = sandbox.parts_answer_bytes(data, part_chars) - sandbox.ANSWER_SLACK
-    assert len(answer) <= bound + envelope
+    max_parts = 50
+    parts = text_parts(data, kind, part_chars)[:max_parts]
+    answer = json.dumps({"parts": parts}, ensure_ascii=False).encode()
+    bound = sandbox.parts_answer_bytes(part_chars, max_parts) - sandbox.ANSWER_SLACK
+    assert len(answer) <= bound
 
 
 def test_word_keeps_paragraphs_and_table_cells_in_order():
@@ -401,7 +401,7 @@ async def test_each_office_format_round_trips_through_the_child(
     :param expected: a line its text must hold
     """
     answer = await sandbox.run_child(
-        ["parts", kind.value, str(PAGE_CHARS)], data, seconds=60
+        ["parts", kind.value, str(PAGE_CHARS), "200"], data, seconds=60
     )
     assert expected in "\n".join(answer["parts"])
 
@@ -410,7 +410,7 @@ async def test_a_bad_office_file_fails_through_the_child_as_unreadable():
     """The child names ``Unreadable`` and the worker raises it."""
     with pytest.raises(Unreadable):
         await sandbox.run_child(
-            ["parts", "docx", str(PAGE_CHARS)], b"PK\x03\x04junk", seconds=60
+            ["parts", "docx", str(PAGE_CHARS), "200"], b"PK\x03\x04junk", seconds=60
         )
 
 
@@ -419,16 +419,68 @@ async def test_the_answer_bound_fits_an_office_file_that_unpacks_big():
     data = docx_bytes(paragraphs(2_000, 1_000))
     assert len(data) * 3 < 2_000 * 1_000
     answer = await sandbox.run_child(
-        ["parts", "docx", str(PAGE_CHARS)], data, seconds=60
+        ["parts", "docx", str(PAGE_CHARS), "200"], data, seconds=60
     )
     assert len(answer["parts"]) > 1
 
 
-def test_the_office_bound_follows_the_unpacked_size_and_falls_back_on_junk():
-    """The bound grows with what the archive unpacks to, not its own size."""
-    data = docx_bytes(paragraphs(2_000, 1_000))
-    assert sandbox.office_answer_bytes(data, PAGE_CHARS) > 4 * 2_000 * 1_000
-    junk = b"not a zip"
-    assert sandbox.office_answer_bytes(junk, PAGE_CHARS) == (
-        sandbox.parts_answer_bytes(junk, PAGE_CHARS)
-    )
+def test_a_forged_directory_count_cannot_hide_entries_from_the_caps():
+    """``zipfile`` walks the directory by size, so the caps are checked on its view.
+
+    The end record says one entry; the directory holds a second that claims
+    300 MB. Libraries would see both.
+    """
+    data = forged_directory_docx()
+    assert len(data) < 10_000
+    with pytest.raises(Unreadable):
+        check_archive(data, FileKind.DOCX)
+    with pytest.raises(Unreadable):
+        text_parts(data, FileKind.DOCX, PAGE_CHARS)
+
+
+def test_the_caps_hold_on_the_view_the_libraries_have():
+    """Even where the walk by count and by size agree, ``zipfile``'s view is capped."""
+    data = zip_bytes({"word/document.xml": b"<x/>", "big.xml": b"<x/>"})
+    patched = bytearray(data)
+    second = patched.rfind(b"PK\x01\x02")
+    patched[second + 24 : second + 28] = (300_000_000).to_bytes(4, "little")
+    with pytest.raises(TooLarge):
+        text_parts(bytes(patched), FileKind.DOCX, PAGE_CHARS)
+
+
+def test_a_zip64_locator_is_refused():
+    """A ZIP64 locator before the end record sends ``zipfile`` elsewhere."""
+    data = zip_bytes({"word/document.xml": b"<x/>"})
+    end = data.rfind(b"PK\x05\x06")
+    data = data[:end] + b"PK\x06\x07" + bytes(16) + data[end:]
+    with pytest.raises(TooLarge):
+        check_archive(data, FileKind.DOCX)
+
+
+def test_a_text_format_is_read_whole_and_counted():
+    """Only Office stops early; a long text file gives its true page count."""
+    text = long_text(10, 100).encode()
+    assert len(text_parts(text, FileKind.PLAIN, 250, max_parts=2)) == 5
+
+
+def test_an_office_file_stops_one_part_past_the_limit():
+    """Word, Excel and PowerPoint give ``max_parts + 1`` parts at most."""
+    word = docx_bytes(paragraphs(50, 100))
+    sheet = xlsx_bytes({"Big": [[f"row{n:04d}"] for n in range(500)]})
+    slides = pptx_bytes([[f"slide {n}"] for n in range(20)])
+    assert len(text_parts(word, FileKind.DOCX, 250, 3)) == 4
+    assert len(text_parts(sheet, FileKind.XLSX, 100, 3)) == 4
+    assert len(text_parts(slides, FileKind.PPTX, 250, 3)) == 4
+    assert len(text_parts(slides, FileKind.PPTX, 250, 30)) == 20
+
+
+async def test_the_child_gives_max_parts_and_the_page_count():
+    """A long text gives exactly ``max_parts`` parts and its true count."""
+    text = long_text(100, 100).encode()
+    answer = await sandbox.run_child(["parts", "plain", "250", "10"], text, seconds=30)
+    assert len(answer["parts"]) == 10
+    assert answer["pages"] == 50
+    word = docx_bytes(paragraphs(100, 100))
+    answer = await sandbox.run_child(["parts", "docx", "250", "10"], word, seconds=30)
+    assert len(answer["parts"]) == 10
+    assert answer["pages"] == 11

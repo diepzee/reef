@@ -6,7 +6,10 @@ with :mod:`struct` and nothing else, so it is cheap and safe to run before
 any library opens the bytes, and in the worker itself, which uses it to
 bound the child's answer (:func:`reef.reading.sandbox.office_answer_bytes`).
 
-Every limit sits below the point where ZIP64 starts, so ZIP64 archives are
+The walk must agree with how :mod:`zipfile` reads the same bytes, since
+the libraries use it: it ends exactly at the end record, and a ZIP64
+locator is refused. Every limit sits below the point where ZIP64 starts, so
+ZIP64 archives are
 refused as too large.
 """
 
@@ -33,6 +36,7 @@ _END_SIZE = 22
 _ENTRY = b"PK\x01\x02"
 _ENTRY_SIZE = 46
 _COMMENT_MAX = 65_535
+_ZIP64_LOCATOR = b"PK\x06\x07"
 _UNSET = 0xFFFFFFFF
 _UNSET_COUNT = 0xFFFF
 
@@ -53,6 +57,8 @@ def entries(
     if end < 0 or end + _END_SIZE > len(data):
         raise Unreadable
     count, size, offset = struct.unpack_from("<10xHLL", data, end)
+    if data[max(0, end - 20) : max(0, end - 16)] == _ZIP64_LOCATOR:
+        raise TooLarge
     if count == _UNSET_COUNT or size == _UNSET or offset == _UNSET:
         raise TooLarge
     if count > max_entries:
@@ -77,6 +83,10 @@ def entries(
             raise Unreadable
         yield name, unpacked
         position = name_start + name_len + extra_len + comment_len
+    # The directory must end where its end record starts: ``zipfile`` walks
+    # by byte size, not by count, and entries left over would be its to read.
+    if position != end:
+        raise Unreadable
 
 
 def unpacked_size(data: bytes, *, max_entries: int = ZIP_MAX_ENTRIES) -> int:

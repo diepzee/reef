@@ -317,12 +317,15 @@ def _office(
     data: bytes,
     kind: FileKind,
     read: Callable[[io.BytesIO, _Budget], list[str]],
+    max_parts: int | None,
 ) -> list[str]:
     """Check an Office file, run its reader and turn every failure plain.
 
     :param data: the file's bytes
     :param kind: its kind
     :param read: reads the opened file into parts, within the budget
+    :param max_parts: when given, the reader may stop once it has more parts
+        than this, and the parts returned are cut to ``max_parts + 1``
     :returns: the parts
     :raises TooLarge: when the archive or its text is too large
     :raises Unreadable: for anything else that goes wrong, whatever the
@@ -332,8 +335,17 @@ def _office(
     failed = False
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            # The libraries see the archive as ``zipfile`` does, so the caps
+            # hold for that view too.
+            infos = archive.infolist()
+            if (
+                len(infos) > ZIP_MAX_ENTRIES
+                or sum(info.file_size for info in infos) > ZIP_MAX_BYTES
+            ):
+                raise TooLarge
             _refuse_dtds(archive)
-        return read(io.BytesIO(data), _Budget(total))
+        parts = read(io.BytesIO(data), _Budget(total))
+        return parts if max_parts is None else parts[: max_parts + 1]
     except (TooLarge, Unreadable):
         raise
     except MemoryError:
@@ -378,32 +390,48 @@ def _docx_blocks(blocks: Iterable[Any]) -> Iterator[str]:
             yield text
 
 
-def _read_docx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+def _read_docx(
+    file: io.BytesIO, budget: _Budget, part_chars: int, max_parts: int | None
+) -> list[str]:
     """Read a Word file: paragraphs and table cells, in body order.
 
     :param file: the opened file
     :param budget: the text allowance
     :param part_chars: the most characters in one part
+    :param max_parts: stop reading once the text fills more parts than this
     :returns: the text cut between paragraphs
     """
     from docx import Document
 
     document = Document(file)
-    lines = (budget.spend(line) for line in _docx_blocks(document.iter_inner_content()))
+    lines: list[str] = []
+    chars = 0
+    for line in _docx_blocks(document.iter_inner_content()):
+        lines.append(budget.spend(line))
+        chars += len(line) + 2
+        # Parts are at most ``part_chars`` long, so this fills more than
+        # ``max_parts`` of them.
+        if max_parts is not None and chars > (max_parts + 1) * part_chars:
+            break
     return cut("\n\n".join(lines), part_chars)
 
 
-def _pages(title: str, rows: Iterable[str], part_chars: int) -> list[str]:
+def _pages(
+    title: str, rows: Iterable[str], part_chars: int, max_parts: int | None
+) -> list[str]:
     """Cut a sheet into pages between its rows.
 
     :param title: the sheet's name, the first line of the first page
     :param rows: the sheet's rows, one text each
     :param part_chars: the most characters in one page
+    :param max_parts: stop reading rows once there are more pages than this
     :returns: the pages, each of whole rows unless a row is longer than a page
     """
     pages: list[str] = []
     current = title[:part_chars]
     for row in rows:
+        if max_parts is not None and len(pages) > max_parts:
+            break
         while len(row) > part_chars:
             if current:
                 pages.append(current)
@@ -418,7 +446,9 @@ def _pages(title: str, rows: Iterable[str], part_chars: int) -> list[str]:
     return pages
 
 
-def _read_xlsx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+def _read_xlsx(
+    file: io.BytesIO, budget: _Budget, part_chars: int, max_parts: int | None
+) -> list[str]:
     """Read an Excel file: each sheet's name, then its rows.
 
     Cached values are read, never formulas: a formula without a cached value
@@ -427,6 +457,7 @@ def _read_xlsx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
     :param file: the opened file
     :param budget: the text allowance
     :param part_chars: the most characters in one page
+    :param max_parts: stop once there are more pages than this, if given
     :returns: the pages, a sheet after a sheet
     """
     from openpyxl import load_workbook
@@ -446,7 +477,10 @@ def _read_xlsx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
             budget.spend(_plain(sheet.title)),
             (budget.spend(row) for row in rows if row),
             part_chars,
+            max_parts,
         )
+        if max_parts is not None and len(pages) > max_parts:
+            break
     workbook.close()
     return pages
 
@@ -469,12 +503,15 @@ def _shape_lines(shapes: Iterable[Any]) -> Iterator[str]:
             yield text
 
 
-def _read_pptx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+def _read_pptx(
+    file: io.BytesIO, budget: _Budget, part_chars: int, max_parts: int | None
+) -> list[str]:
     """Read a PowerPoint file: a page per slide, empty ones included.
 
     :param file: the opened file
     :param budget: the text allowance
     :param part_chars: the most characters in one page
+    :param max_parts: stop once there are more pages than this, if given
     :returns: the pages, a slide after a slide; a slide longer than a page
         goes on over more
     """
@@ -484,15 +521,22 @@ def _read_pptx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
     for slide in Presentation(file).slides:
         lines = (budget.spend(line) for line in _shape_lines(slide.shapes))
         pages += cut("\n\n".join(lines), part_chars) or [""]
+        if max_parts is not None and len(pages) > max_parts:
+            break
     return pages
 
 
-def text_parts(data: bytes, kind: FileKind, part_chars: int) -> list[str]:
+def text_parts(
+    data: bytes, kind: FileKind, part_chars: int, max_parts: int | None = None
+) -> list[str]:
     """Read a Markdown, plain text, HTML, Word, Excel or PowerPoint file.
 
     :param data: the file's bytes
     :param kind: the file's kind
     :param part_chars: the most characters in one part
+    :param max_parts: for Word, Excel and PowerPoint, stop extracting once
+        there are more parts than this, and return at most ``max_parts + 1``:
+        the last says "more than ``max_parts``". Text formats are read whole.
     :returns: the parts, each at most ``part_chars`` long. Text formats and
         Word are cut between paragraphs, and an empty file gives none. Excel
         gives a page per sheet and PowerPoint a page per slide, a longer one
@@ -507,11 +551,26 @@ def text_parts(data: bytes, kind: FileKind, part_chars: int) -> list[str]:
         case FileKind.HTML:
             text = html_text(data)
         case FileKind.DOCX:
-            return _office(data, kind, lambda f, b: _read_docx(f, b, part_chars))
+            return _office(
+                data,
+                kind,
+                lambda f, b: _read_docx(f, b, part_chars, max_parts),
+                max_parts,
+            )
         case FileKind.XLSX:
-            return _office(data, kind, lambda f, b: _read_xlsx(f, b, part_chars))
+            return _office(
+                data,
+                kind,
+                lambda f, b: _read_xlsx(f, b, part_chars, max_parts),
+                max_parts,
+            )
         case FileKind.PPTX:
-            return _office(data, kind, lambda f, b: _read_pptx(f, b, part_chars))
+            return _office(
+                data,
+                kind,
+                lambda f, b: _read_pptx(f, b, part_chars, max_parts),
+                max_parts,
+            )
         case _:
             raise ValueError(f"not read as text here: {kind}")
     return cut(text, part_chars)

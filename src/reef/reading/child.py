@@ -12,9 +12,12 @@ traceback goes to stderr, which the worker throws away.
 
 Operations:
 
-``parts <kind> <part_chars>``
-    Read a Markdown, plain text or HTML file into parts of at most
-    ``part_chars`` characters: ``{"parts": [...]}``.
+``parts <kind> <part_chars> <max_parts>``
+    Read a file into parts of at most ``part_chars`` characters:
+    ``{"parts": [...], "pages": N}``. At most ``max_parts`` parts are given.
+    ``pages`` is the true number of parts for a text format. For Word, Excel
+    and PowerPoint extraction stops once there are more than ``max_parts``,
+    so ``pages`` is then ``max_parts + 1``: "more than ``max_parts``".
 
 This process reads no setting and no environment variable: it gets none.
 """
@@ -70,11 +73,13 @@ def _parts(data: bytes, operands: list[str]) -> dict:
     """Read a text format into parts.
 
     :param data: the file's bytes
-    :param operands: the kind and the most characters in one part
-    :returns: ``{"parts": [...]}``
+    :param operands: the kind, the most characters in one part and the most
+        parts to give
+    :returns: ``{"parts": [...], "pages": N}``
     """
-    kind, part_chars = operands
-    return {"parts": text_parts(data, FileKind(kind), int(part_chars))}
+    kind, part_chars, max_parts = operands
+    parts = text_parts(data, FileKind(kind), int(part_chars), int(max_parts))
+    return {"parts": parts[: int(max_parts)], "pages": len(parts)}
 
 
 _OPERATIONS: dict[str, Callable[[bytes, list[str]], dict]] = {"parts": _parts}
