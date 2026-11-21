@@ -14,8 +14,8 @@ to its stdin and reads JSON from its stdout. The child:
   a byte (:func:`reef.reading.child.apply_limits`);
 - runs in a session of its own, so the whole process group can be killed
   when it takes too long;
-- has its stderr thrown away, and is heard on stdout only up to
-  :data:`ANSWER_BYTES`.
+- has its stderr thrown away, and is heard on stdout only up to a bound
+  derived from the file it was given (see :func:`run_child`).
 
 A failure comes back as a :class:`~reef.reading.ReadFailed` class and
 nothing else. Whatever the child printed stays out of every exception, log
@@ -31,6 +31,7 @@ import pwd
 import signal
 import subprocess
 import sys
+from collections.abc import Callable
 from typing import Any
 
 from reef.config import get_settings
@@ -48,9 +49,13 @@ READER_USER = "reader"
 """The unprivileged user a root worker runs the child as. The Docker image
 creates it."""
 
-ANSWER_BYTES = 256 * 1024 * 1024
-"""The most a child may print. A 25 MB file gives far less; a child that
-prints more is not answering, and would cost the worker its memory."""
+DEFAULT_ANSWER_BYTES = 16 * 1024 * 1024
+"""The most an operation without a bound of its own may print. Parsing JSON
+takes many times its size in memory, so an operation that answers with
+more must declare a bound derived from its input."""
+
+ANSWER_SLACK = 64 * 1024
+"""Room for the JSON around an answer, and for an error."""
 
 _CHUNK_BYTES = 64 * 1024
 
@@ -59,6 +64,48 @@ _FAILURES: dict[str, type[ReadFailed]] = {
     for failure in (Unreadable, Encrypted, TooLarge, ReadTimedOut, ChildCrashed)
 }
 """The failures a child may name. Any other name counts as a crash."""
+
+
+def parts_answer_bytes(data: bytes, part_chars: int) -> int:
+    """Return the most the ``parts`` operation can print for a file.
+
+    Decoding at most triples a byte: Windows-1252 and the replacement
+    character take up to three bytes in UTF-8. JSON escaping at most doubles
+    a character that stays one byte, such as a quote. A tag turned into a
+    line break stays within that too. Each part adds a quote pair and a
+    separator; most parts also drop a blank line of the file that paid for
+    them, and the others are at most one per ``part_chars`` characters.
+
+    :param data: the file's bytes
+    :param part_chars: the most characters in one part
+    :returns: the bound, in bytes
+    """
+    return 3 * len(data) + 4 * (len(data) // part_chars + 1) + ANSWER_SLACK
+
+
+def _is_parts(answer: dict) -> bool:
+    """Tell whether an answer is what ``parts`` gives: a list of strings.
+
+    :param answer: the child's answer
+    :returns: True for ``{"parts": [str, ...]}`` and nothing else
+    """
+    parts = answer.get("parts")
+    return (
+        answer.keys() == {"parts"}
+        and isinstance(parts, list)
+        and all(isinstance(part, str) for part in parts)
+    )
+
+
+_OPERATIONS: dict[
+    str, tuple[Callable[[list[str], bytes], int], Callable[[dict], bool]]
+] = {
+    "parts": (lambda args, data: parts_answer_bytes(data, int(args[2])), _is_parts),
+}
+"""Each operation's bound on its answer, derived from its arguments and
+input, and the check of its answer's shape. An operation not here gets
+:data:`DEFAULT_ANSWER_BYTES` and no check: every operation a later reader
+adds belongs here."""
 
 
 def child_command() -> list[str]:
@@ -124,20 +171,39 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
         os.killpg(process.pid, signal.SIGKILL)
 
 
-async def run_child(args: list[str], data: bytes, *, seconds: float) -> dict:
+async def run_child(
+    args: list[str],
+    data: bytes,
+    *,
+    seconds: float,
+    answer_bytes: int | None = None,
+) -> dict:
     """Run one operation in the child and return its answer.
+
+    The answer is read only up to a bound, and parsed only within it: a
+    child that gets code from a hostile file must not cost the worker its
+    memory. Each operation needs a bound derived from its input, declared in
+    ``_OPERATIONS`` or passed as ``answer_bytes``. ``parts`` declares
+    :func:`parts_answer_bytes` and its answer's shape.
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits
     :param data: the bytes the child reads from stdin
     :param seconds: the longest the child may run, wall clock; its CPU time
         is capped at this, rounded up
-    :returns: the child's answer, a JSON object without an ``error`` key
+    :param answer_bytes: the most the child may print; by default the
+        operation's own bound, else :data:`DEFAULT_ANSWER_BYTES`
+    :returns: the child's answer, a JSON object without an ``error`` key,
+        in the operation's shape
     :raises ReadTimedOut: when the child runs out of time
     :raises ReadFailed: the class the child named, when it named one
-    :raises ChildCrashed: when the child ends without a usable answer
+    :raises ChildCrashed: when the child prints more than its bound, or
+        ends without an answer of the right shape
     :raises SandboxUnavailable: when the child cannot be started safely
     """
+    bound, shaped = _OPERATIONS.get(args[0], (None, None))
+    if answer_bytes is None:
+        answer_bytes = DEFAULT_ANSWER_BYTES if bound is None else bound(args, data)
     command = [
         *child_command(),
         "--memory-mb",
@@ -163,7 +229,7 @@ async def run_child(args: list[str], data: bytes, *, seconds: float) -> dict:
     finished = False
     try:
         async with asyncio.timeout(seconds):
-            stdout = await _exchange(process, data)
+            stdout = await _exchange(process, data, answer_bytes)
         finished = True
     except TimeoutError:
         raise ReadTimedOut from None
@@ -174,7 +240,10 @@ async def run_child(args: list[str], data: bytes, *, seconds: float) -> dict:
             # group goes, whatever the child's own state.
             _kill_group(process)
             await process.wait()
-    return _answer(process.returncode, stdout)
+    answer = _answer(process.returncode, stdout)
+    if shaped is not None and not shaped(answer):
+        raise ChildCrashed
+    return answer
 
 
 async def _feed(stdin: asyncio.StreamWriter, data: bytes) -> None:
@@ -191,34 +260,38 @@ async def _feed(stdin: asyncio.StreamWriter, data: bytes) -> None:
     stdin.close()
 
 
-async def _exchange(process: asyncio.subprocess.Process, data: bytes) -> bytes:
+async def _exchange(
+    process: asyncio.subprocess.Process, data: bytes, limit: int
+) -> bytearray:
     """Give the child the file and take its answer, as ``communicate`` would.
 
-    Unlike ``communicate``, it stops listening at :data:`ANSWER_BYTES`.
+    Unlike ``communicate``, it reads no more than one byte past ``limit``,
+    into one buffer that is not copied again.
 
     :param process: the child, started with pipes for stdin and stdout
     :param data: the file's bytes
+    :param limit: the most the child may print
     :returns: everything the child printed, once it has ended
-    :raises ChildCrashed: when the child prints more than it may
+    :raises ChildCrashed: when the child prints more than ``limit``
     """
     assert process.stdin is not None and process.stdout is not None
     feeder = asyncio.create_task(_feed(process.stdin, data))
     try:
-        chunks: list[bytes] = []
-        size = 0
-        while chunk := await process.stdout.read(_CHUNK_BYTES):
-            size += len(chunk)
-            if size > ANSWER_BYTES:
+        printed = bytearray()
+        while chunk := await process.stdout.read(
+            min(_CHUNK_BYTES, limit + 1 - len(printed))
+        ):
+            printed += chunk
+            if len(printed) > limit:
                 raise ChildCrashed
-            chunks.append(chunk)
         await feeder
         await process.wait()
     finally:
         feeder.cancel()
-    return b"".join(chunks)
+    return printed
 
 
-def _answer(returncode: int | None, stdout: bytes) -> dict:
+def _answer(returncode: int | None, stdout: bytes | bytearray) -> dict:
     """Turn what the child left behind into its answer or a failure.
 
     Raised outside any ``except`` block, so no failure carries the parse

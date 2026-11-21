@@ -102,8 +102,8 @@ def main(argv: list[str]) -> int:
     """
     arguments = _arguments(argv)
     apply_limits(arguments.memory_mb, arguments.cpu_seconds)
-    data = sys.stdin.buffer.read()
     try:
+        data = sys.stdin.buffer.read()
         answer = _OPERATIONS[arguments.operation](data, arguments.operands)
     except ReadFailed as failure:
         answer = {"error": type(failure).__name__}

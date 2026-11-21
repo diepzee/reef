@@ -1,8 +1,11 @@
 """Markdown, plain text and HTML, read by Reef's own code."""
 
+import json
+
+import pytest
 from filefixtures import html_page, long_text, paragraphs
 
-from reef.reading import FileKind
+from reef.reading import FileKind, sandbox
 from reef.reading.formats import decode_text, html_text, text_parts
 from reef.sections import cut
 
@@ -117,3 +120,50 @@ def test_cut_splits_a_paragraph_longer_than_the_limit():
     """A paragraph that does not fit is cut where it has to be."""
     assert cut("a" * 25, 10) == ["a" * 10, "a" * 10, "a" * 5]
     assert cut("one\n\ntwo\n\nthree", 9) == ["one\n\ntwo", "three"]
+
+
+@pytest.mark.parametrize(
+    ("data", "kind"),
+    [
+        (b"\x81" * 50_000, FileKind.PLAIN),
+        (b"\x80" * 50_000, FileKind.PLAIN),
+        (b"\x81\n\n" * 20_000, FileKind.PLAIN),
+        ("€".encode() * 20_000, FileKind.MARKDOWN),
+        (b'"\\' * 25_000, FileKind.MARKDOWN),
+        (b"a\t" * 25_000, FileKind.PLAIN),
+        (b"<p>\x81" * 20_000, FileKind.HTML),
+        (b"<br>\x81" * 20_000, FileKind.HTML),
+        (b"<td>\x81" * 20_000, FileKind.HTML),
+        (b"<pre>\x81\n</pre>" * 10_000, FileKind.HTML),
+        (b"&#65533;&quot;&#9;" * 10_000, FileKind.HTML),
+    ],
+    ids=[
+        "undefined-cp1252",
+        "euro-cp1252",
+        "undefined-cp1252-paragraphs",
+        "euro-utf8",
+        "quotes-backslashes",
+        "tabs",
+        "html-paragraphs",
+        "html-breaks",
+        "html-cells",
+        "html-pre",
+        "html-references",
+    ],
+)
+def test_an_answer_stays_within_its_files_bound(data: bytes, kind: FileKind):
+    """The worker's bound on a ``parts`` answer holds without its slack.
+
+    Each case is a worst case for growth: bytes Windows-1252 turns into
+    three, characters JSON escapes, markup that turns into line breaks.
+
+    :param data: the file
+    :param kind: its kind
+    """
+    part_chars = 1_000
+    answer = json.dumps(
+        {"parts": text_parts(data, kind, part_chars)}, ensure_ascii=False
+    ).encode()
+    envelope = len(b'{"parts": []}')
+    bound = sandbox.parts_answer_bytes(data, part_chars) - sandbox.ANSWER_SLACK
+    assert len(answer) <= bound + envelope

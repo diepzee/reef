@@ -20,6 +20,7 @@ from reef.reading import (
     SandboxUnavailable,
     TooLarge,
     Unreadable,
+    child,
     sandbox,
 )
 
@@ -229,7 +230,8 @@ async def test_a_crashing_child_is_reported_by_class_only(monkeypatch, code: str
     """
     _child_runs(monkeypatch, code)
     with pytest.raises(ChildCrashed) as caught:
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+        # An operation of no fixed shape, so each answer reaches the parser.
+        await sandbox.run_child(["x"], b"x", seconds=10)
     error = caught.value
     assert "secret" not in str(error)
     assert "secret" not in repr(error)
@@ -290,8 +292,7 @@ async def test_the_child_reads_html_and_cuts_long_text():
 
 
 async def test_a_child_that_talks_too_much_is_stopped(monkeypatch, spawned):
-    """Past the most a child may print, it is a crash, and it is killed."""
-    monkeypatch.setattr(sandbox, "ANSWER_BYTES", 100_000)
+    """Past the bound it was given, a child has crashed, and it is killed."""
     _child_runs(
         monkeypatch,
         "import sys, time\nsys.stdout.write('x' * 200_000)\nsys.stdout.flush()\n"
@@ -299,10 +300,90 @@ async def test_a_child_that_talks_too_much_is_stopped(monkeypatch, spawned):
     )
     started = time.monotonic()
     with pytest.raises(ChildCrashed):
-        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=20)
+        await sandbox.run_child(["x"], b"x", seconds=20, answer_bytes=100_000)
     assert time.monotonic() - started < 5
     assert spawned.process is not None
     assert spawned.process.returncode is not None
+
+
+async def test_a_parts_answer_is_bounded_by_its_file(monkeypatch):
+    """A child reading parts may print about three times its file, no more.
+
+    The worker stops one byte past the bound, so what it holds, and what it
+    would parse, is never more than the file allows.
+    """
+    read = 0
+
+    async def spawn(*command: str, **options) -> asyncio.subprocess.Process:
+        """Start the child, counting what is read from its stdout.
+
+        :param command: the program and its arguments
+        :param options: the keyword arguments
+        :returns: the started process
+        """
+        process = await _real_spawn(*command, **options)
+        stdout = process.stdout
+        assert stdout is not None
+
+        class Counted:
+            """The child's stdout, counting every byte taken from it."""
+
+            async def read(self, n: int = -1) -> bytes:
+                """Read and count.
+
+                :param n: the most bytes to read
+                :returns: what was read
+                """
+                nonlocal read
+                chunk = await stdout.read(n)
+                read += len(chunk)
+                return chunk
+
+        process.stdout = Counted()  # type: ignore[assignment]
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    _child_runs(
+        monkeypatch,
+        "import sys, time\nsys.stdout.write('x' * 2_000_000)\nsys.stdout.flush()\n"
+        "time.sleep(30)\n",
+    )
+    data = b"x" * 10_000
+    bound = sandbox.parts_answer_bytes(data, 20_000)
+    assert bound == 3 * 10_000 + 4 + sandbox.ANSWER_SLACK
+    with pytest.raises(ChildCrashed):
+        await sandbox.run_child(["parts", "plain", "20000"], data, seconds=20)
+    assert read == bound + 1
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"parts": "one"},
+        {"parts": [1]},
+        {"parts": [["one"]]},
+        {"parts": None},
+        {"parts": ["one"], "more": True},
+        {"pages": ["one"]},
+        {},
+    ],
+)
+async def test_a_parts_answer_of_the_wrong_shape_is_a_crash(monkeypatch, answer):
+    """Only a list of strings is a ``parts`` answer.
+
+    :param answer: what the child prints
+    """
+    _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
+    with pytest.raises(ChildCrashed):
+        await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+
+
+async def test_a_parts_answer_of_the_right_shape_is_returned(monkeypatch):
+    """A list of strings, empty or not, is an answer."""
+    for parts in ([], ["one", "two"]):
+        _child_runs(monkeypatch, f"print({json.dumps(json.dumps({'parts': parts}))})")
+        answer = await sandbox.run_child(["parts", "plain", "20000"], b"x", seconds=10)
+        assert answer == {"parts": parts}
 
 
 async def test_a_child_need_not_read_all_it_is_given(monkeypatch):
@@ -310,6 +391,56 @@ async def test_a_child_need_not_read_all_it_is_given(monkeypatch):
     _child_runs(monkeypatch, "print('{\"parts\": []}')")
     answer = await sandbox.run_child(["x"], b"x" * 5_000_000, seconds=10)
     assert answer == {"parts": []}
+
+
+class _Stdin:
+    """Stands in for ``sys.stdin``, noting when the file is read."""
+
+    def __init__(self, events: list[str], data: bytes | None) -> None:
+        """Hold the file, or None to fail for lack of memory.
+
+        :param events: where to note the read
+        :param data: what the read returns
+        """
+        self.buffer = self
+        self._events = events
+        self._data = data
+
+    def read(self) -> bytes:
+        """Note the read and return the file.
+
+        :returns: the file
+        :raises MemoryError: when there is no file to give
+        """
+        self._events.append("read")
+        if self._data is None:
+            raise MemoryError
+        return self._data
+
+
+ARGV = ["--memory-mb", "512", "--cpu-seconds", "7", "parts", "markdown", "20000"]
+
+
+def test_the_child_caps_itself_before_it_reads_the_file(monkeypatch, capsysbinary):
+    """Not one byte of the file is read before the limits are in place."""
+    events: list[str] = []
+    monkeypatch.setattr(
+        child,
+        "apply_limits",
+        lambda memory, cpu: events.append(f"limits {memory} {cpu}"),
+    )
+    monkeypatch.setattr(child.sys, "stdin", _Stdin(events, b"# Notes"))
+    assert child.main(ARGV) == 0
+    assert events == ["limits 512 7", "read"]
+    assert json.loads(capsysbinary.readouterr().out) == {"parts": ["# Notes"]}
+
+
+def test_running_out_of_memory_while_reading_is_too_large(monkeypatch, capsysbinary):
+    """A file too large to read in is ``TooLarge``, not a crash."""
+    monkeypatch.setattr(child, "apply_limits", lambda memory, cpu: None)
+    monkeypatch.setattr(child.sys, "stdin", _Stdin([], None))
+    assert child.main(ARGV) == 0
+    assert json.loads(capsysbinary.readouterr().out) == {"error": "TooLarge"}
 
 
 @pytest.mark.skipif(not ON_LINUX, reason="RLIMIT_AS is set on Linux only")
