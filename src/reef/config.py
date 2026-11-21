@@ -600,16 +600,17 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def _a_page_fits_an_engram(self) -> "Settings":
-        """Refuse a page longer than the longest engram.
+        """Refuse a page longer than the longest engram, with reading on.
 
         ``open`` cuts a file's text at the engram cap, at a page. A page
-        longer than the cap could never be shown whole.
+        longer than the cap could never be shown whole. With reading off no
+        page is read, so a deployment with a small engram cap still starts.
 
         :returns: the settings
-        :raises ValueError: when ``reading.page_chars`` is above
-            ``engrams.max_chars``
+        :raises ValueError: when reading is on and ``reading.page_chars`` is
+            above ``engrams.max_chars``
         """
-        if self.reading.page_chars > self.engrams.max_chars:
+        if self.reading.enabled and self.reading.page_chars > self.engrams.max_chars:
             raise ValueError(
                 "REEF_FILE_TEXT_PAGE_CHARS must not be above REEF_ENGRAM_MAX_CHARS"
             )

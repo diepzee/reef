@@ -166,7 +166,11 @@ description, start of the text), then each page cut between paragraphs at
 `REEF_EMBEDDING_PIECE_MAX_CHARS`. A very short page joins the one before.
 Each chunk starts with filename, description and "page N", as an engram's
 sections start with title and headings. Embedding reuses the engram path:
-same service, digests, daily cap, spend table and retries.
+same service, digests, daily cap, spend table and retries. A file of one
+short page has the whole-file chunk only: its page chunk would repeat it.
+At most the first 500 page chunks are embedded, and never more than fit in
+one day's cap beside the whole-file chunk, so a long file still gets its
+vectors. Its later pages are found by their words.
 
 **Every file has a vector** (decision 10). A file without text, because it
 is a photo without writing, a format Reef does not read, or a file it could
@@ -279,8 +283,11 @@ person before storing a scan there. Nothing per file.
 **`forget`** on a file says the text goes too. If Google read it, it adds
 that Google may keep a copy up to 55 days, beyond Reef's reach.
 
-**`fetch`** returns description plus text, cut at the same cap. **`search`**
-and **`brief`** are unchanged. **`protocol.md`** explains pages, `#page=N`
+**`fetch`** returns description plus text, cut at the same cap. A cut text
+ends with a line naming the last page it holds and the `#page=N` ref that
+`open` reads on from. **`search`** and **`brief`** are unchanged: `brief`
+keeps to engrams, and with the switch on it does not search files, so no
+file takes an engram's place. **`protocol.md`** explains pages, `#page=N`
 and `scans_read_by`.
 
 ## Search

@@ -83,6 +83,30 @@ async def test_the_report_times_pages_and_stores_nothing(household, seed):
     assert await seed.fetchval("SELECT count(*) FROM file_pages") == 0
 
 
+async def test_timing_skips_a_file_it_cannot_read_and_counts_it(household):
+    """A broken file is counted and passed over; the next file is still timed."""
+    me = caller_for(household["wouter"])
+    await store_as(
+        me,
+        "personal",
+        "foto.png",
+        scan_image(["Polisnummer 4711"], "PNG"),
+        "image/png",
+        DESCRIPTION,
+    )
+    # Stored last, so it is the first the report tries.
+    await store_as(
+        me, "personal", FILENAME, b"%PDF-1.7 garbage", "application/pdf", DESCRIPTION
+    )
+    out = await file_report.run(
+        ["--email", household["wouter"].email, "--time", "1"], store=MemoryStore()
+    )
+    report = json.loads(out)
+    assert report["unreadable"] == 1
+    assert report["timed_pages"] == 1
+    assert "ZEBRAQUILT" not in out
+
+
 async def test_queueing_adds_the_jobs_it_made(household, monkeypatch):
     me = caller_for(household["wouter"])
     monkeypatch.setattr(get_settings().reading, "enabled", False)

@@ -39,7 +39,7 @@ from reef.jobs import (
 )
 from reef.links import backfill_links
 from reef.models import TextStatus
-from reef.reading import TEXT_FORMATS
+from reef.reading import TEXT_FORMATS, sandbox
 from reef.usage import refresh_activation
 
 log = logging.getLogger("reef.worker")
@@ -161,12 +161,40 @@ async def _read_file(principal: Principal, job: ClaimedJob) -> None:
     format, the outcome and the time. Never a name, a description, a text,
     a space or the person.
 
+    Before and after the job, however it ends, every process of the
+    ``reader`` user is killed: see
+    :func:`reef.reading.sandbox.kill_reader_processes`. This worker runs one
+    job at a time, so no read is in flight then.
+
     :param principal: the person the job runs as
     :param job: the claimed job
     """
     settings = get_settings().reading
     if not settings.enabled:
         return
+    _sweep_reader()
+    try:
+        await _read_files(principal, job, settings.retry_seconds)
+    finally:
+        _sweep_reader()
+
+
+def _sweep_reader() -> None:
+    """Kill what earlier reads left running as ``reader``, and log how many."""
+    left = sandbox.kill_reader_processes()
+    if left:
+        log.warning("read_file: killed %d processes left by earlier reads", left)
+
+
+async def _read_files(
+    principal: Principal, job: ClaimedJob, retry_seconds: float
+) -> None:
+    """Read the job's files, one after the other. See :func:`_read_file`.
+
+    :param principal: the person the job runs as
+    :param job: the claimed job
+    :param retry_seconds: how long a file waits when the day's pages are spent
+    """
     for attachment_id in job.subject_ids:
         started = time.monotonic()
         counts: Counter[str] = Counter()
@@ -174,9 +202,7 @@ async def _read_file(principal: Principal, job: ClaimedJob) -> None:
             status = await filetext.read_file(principal, attachment_id, counts=counts)
         except filetext.AllowanceSpent:
             await filetext.request_read(
-                principal,
-                attachment_id,
-                delay=timedelta(seconds=settings.retry_seconds),
+                principal, attachment_id, delay=timedelta(seconds=retry_seconds)
             )
             outcome = "allowance spent"
         else:

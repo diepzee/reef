@@ -650,3 +650,245 @@ def test_the_png_bound_holds_for_the_worst_image():
         assert len(output) <= sandbox.png_answer_bytes(pixels)
         assert len(output) > pixels
     assert sandbox.png_answer_bytes(pages.MAX_PIXELS) < 41_000_000
+
+
+# --- what the worker parses -----------------------------------------------------
+
+
+def _padded(header: dict, chars: int) -> dict:
+    """Make an answer's JSON longer than it needs to be.
+
+    :param header: the answer
+    :param chars: how many characters of padding to add
+    :returns: the answer with a ``pad`` key
+    """
+    return {**header, "pad": "x" * chars}
+
+
+@pytest.mark.parametrize(
+    ("args", "output"),
+    [
+        # Text past one page's bound, though within the bound for a PNG.
+        (_PAGE, json.dumps({"text": "x" * 70_000}).encode()),
+        # A header line far longer than any header, before a PNG.
+        (_PAGE, _with_png(_padded({"dpi": 200}, 70_000))),
+        (_FRAME, _with_png(_padded({}, 70_000))),
+        # A frame answers with a PNG; JSON alone can only be short.
+        (_FRAME, json.dumps(_padded({"error": "Unreadable"}, 70_000)).encode()),
+    ],
+    ids=["page-text", "page-header", "frame-header", "frame-json"],
+)
+async def test_json_past_its_bound_is_not_parsed(monkeypatch, args, output):
+    """The worker parses JSON only up to what an answer of that kind can be.
+
+    Parsing takes many times its input in memory, so the JSON is bounded on
+    its own, not only by everything the child may print.
+
+    :param args: the operation and its operands
+    :param output: what the child prints
+    """
+    parsed: list[int] = []
+    loads = json.loads
+
+    def counting(text, *more, **options):
+        """Note how much is parsed, and parse it.
+
+        :param text: the JSON
+        :returns: what it holds
+        """
+        parsed.append(len(text))
+        return loads(text, *more, **options)
+
+    _child_writes(monkeypatch, output)
+    monkeypatch.setattr(sandbox.json, "loads", counting)
+    with pytest.raises(ChildCrashed):
+        await sandbox.run_child(args, b"x", seconds=10)
+    assert parsed == []
+
+
+@pytest.mark.parametrize(
+    ("args", "pages", "fits"),
+    [
+        # Word, Excel and PowerPoint stop counting at one past the limit.
+        (["parts", "docx", "20000", "200"], 201, True),
+        (["parts", "docx", "20000", "200"], 202, False),
+        (["parts", "pptx", "20000", "200"], 10**12, False),
+        # A text format counts every part; the count must fit the column.
+        (["parts", "plain", "20000", "200"], 5_000, True),
+        (["parts", "plain", "20000", "200"], 2**31 - 1, True),
+        (["parts", "plain", "20000", "200"], 2**31, False),
+        # A PDF says how many pages it has; an image counts to one past.
+        (_SURVEY, 2**31 - 1, True),
+        (_SURVEY, 2**31, False),
+        (_SURVEY_IMAGE, 10**12, False),
+    ],
+)
+async def test_a_page_count_is_bounded(monkeypatch, args, pages, fits):
+    """No child can make the worker store a page count it could not hold.
+
+    :param args: the operation and its operands
+    :param pages: the count the child gives
+    :param fits: whether the answer is taken
+    """
+    answer = {"pages": pages} if args[0] == "survey" else {"parts": [], "pages": pages}
+    _child_writes(monkeypatch, json.dumps(answer).encode())
+    if fits:
+        assert await sandbox.run_child(args, b"x", seconds=10) == answer
+    else:
+        with pytest.raises(ChildCrashed):
+            await sandbox.run_child(args, b"x", seconds=10)
+
+
+# --- what a child leaves behind -------------------------------------------------
+
+_FORKS_AND_ANSWERS = """
+import json, os, sys, time
+pid = os.fork()
+if pid == 0:
+    {escape}
+    devnull = os.open(os.devnull, os.O_RDWR)
+    for fd in (0, 1, 2):
+        os.dup2(devnull, fd)
+    time.sleep(30)
+    os._exit(0)
+print(json.dumps({{"parts": [str(pid)], "pages": 1}}))
+"""
+"""A child that starts a process, lets go of its pipes and answers at once."""
+
+
+async def test_a_child_that_answers_leaves_no_process_in_its_group(monkeypatch):
+    """The group is killed after every read, not only one that went wrong."""
+    _child_runs(monkeypatch, _FORKS_AND_ANSWERS.format(escape="pass"))
+    answer = await sandbox.run_child(
+        ["parts", "plain", "20000", "200"], b"x", seconds=10
+    )
+    left = int(answer["parts"][0])
+    deadline = time.monotonic() + 2
+    while _running(left) and time.monotonic() < deadline:
+        await asyncio.sleep(0.05)
+    assert not _running(left)
+
+
+def _proc(root: Path, pid: str, uids: tuple[int, ...], state: str = "S") -> None:
+    """Write a process's status as Linux shows it under ``/proc``.
+
+    :param root: the stand-in for ``/proc``
+    :param pid: the process id
+    :param uids: real, effective, saved and file system user ids
+    :param state: its state letter
+    """
+    (root / pid).mkdir()
+    (root / pid / "status").write_text(
+        f"Name:\tsleep\nState:\t{state} (x)\nPid:\t{pid}\n"
+        f"Uid:\t{chr(9).join(str(uid) for uid in uids)}\nGid:\t0\t0\t0\t0\n"
+    )
+
+
+@pytest.fixture
+def proc(tmp_path, monkeypatch) -> tuple[Path, list[int]]:
+    """Stand in for ``/proc`` and ``os.kill``, on any platform.
+
+    Holds a process of ``reader`` (999), one of root, a zombie of
+    ``reader``, a setuid program ``reader`` started, an entry that is not a
+    process and a process that ended while the sweep looked.
+
+    :returns: the stand-in directory, and the ids killed, in order
+    """
+    _proc(tmp_path, "101", (999, 999, 999, 999))
+    _proc(tmp_path, "102", (0, 0, 0, 0))
+    _proc(tmp_path, "103", (999, 999, 999, 999), state="Z")
+    _proc(tmp_path, "104", (999, 0, 0, 0))
+    (tmp_path / "self").mkdir()
+    (tmp_path / "105").mkdir()
+    killed: list[int] = []
+
+    def kill(pid: int, signal_number: int) -> None:
+        """Note the process, and that it was to be killed outright.
+
+        :param pid: the process
+        :param signal_number: the signal
+        """
+        assert signal_number == sandbox.signal.SIGKILL
+        killed.append(pid)
+
+    monkeypatch.setattr(sandbox.os, "kill", kill)
+    return tmp_path, killed
+
+
+def test_every_live_process_of_the_reader_is_killed(proc):
+    """Not root's, not a zombie, but a setuid program reader started, yes."""
+    root, killed = proc
+    assert sandbox.kill_owned_by(999, root) == 2
+    assert killed == [101, 104]
+
+
+def test_a_process_started_during_the_sweep_is_killed_too(proc, monkeypatch):
+    """A process may fork while it is being looked for; the sweep looks again."""
+    root, killed = proc
+
+    def kill(pid: int, signal_number: int) -> None:
+        """Note the process; the first one forks as it dies.
+
+        :param pid: the process
+        :param signal_number: the signal
+        """
+        killed.append(pid)
+        if pid == 101:
+            _proc(root, "106", (999, 999, 999, 999))
+
+    monkeypatch.setattr(sandbox.os, "kill", kill)
+    assert sandbox.kill_owned_by(999, root) == 3
+    assert killed == [101, 104, 106]
+
+
+def test_the_reader_is_swept_only_by_a_root_worker_on_linux(proc, monkeypatch):
+    """Elsewhere the child runs as the worker itself, which must live on."""
+    root, killed = proc
+    monkeypatch.setattr(sandbox, "PROC", root)
+    monkeypatch.setattr(
+        sandbox.pwd,
+        "getpwnam",
+        lambda name: pwd.struct_passwd((name, "x", 999, 999, "", "/", "/bin/false")),
+    )
+    monkeypatch.setattr(sandbox.sys, "platform", "darwin")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    assert sandbox.kill_reader_processes() == 0
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 1000)
+    assert sandbox.kill_reader_processes() == 0
+    assert killed == []
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    assert sandbox.kill_reader_processes() == 2
+    assert killed == [101, 104]
+
+
+def test_a_root_worker_without_the_reader_sweeps_nothing(proc, monkeypatch):
+    """No such user: no uid to look for, and nothing is killed."""
+    root, killed = proc
+    monkeypatch.setattr(sandbox, "PROC", root)
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+
+    def missing(name: str):
+        """Know no user.
+
+        :param name: the user asked for
+        :raises KeyError: always
+        """
+        raise KeyError(name)
+
+    monkeypatch.setattr(sandbox.pwd, "getpwnam", missing)
+    assert sandbox.kill_reader_processes() == 0
+    assert killed == []
+
+
+async def test_a_long_answer_may_end_with_a_line_break(monkeypatch):
+    """JSON alone is bounded as JSON alone, whatever ends it."""
+    parts = ["x" * 20_000] * 5
+    _child_writes(
+        monkeypatch, json.dumps({"parts": parts, "pages": 5}).encode() + b"\n"
+    )
+    answer = await sandbox.run_child(
+        ["parts", "plain", "20000", "200"], b"x", seconds=10
+    )
+    assert answer == {"parts": parts, "pages": 5}

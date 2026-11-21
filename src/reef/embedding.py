@@ -66,6 +66,11 @@ MAX_DIMS = 4096
 #: The largest number a stored vector can hold: pgvector keeps 32-bit floats.
 _FLOAT32_MAX = 3.4028234e38
 
+#: The most page chunks of one file that are embedded: those of its first
+#: pages. A long file has more than a day's cap; the rest of it is still
+#: found by its words. 500 chunks are about 250 pages of a text document.
+FILE_PAGE_VECTORS = 500
+
 #: After a rest, how long the one search that tries again has before the
 #: others may try too, in seconds. Longer than any sensible time limit.
 PROBE_SECONDS = 10.0
@@ -489,14 +494,18 @@ async def embed_file(
     pages read so far: see :mod:`reef.filechunks`. A file without text has
     the whole-file chunk, so it is found by meaning all the same.
 
+    Only the whole-file chunk and the first :data:`FILE_PAGE_VECTORS` page
+    chunks are embedded, and no more than the daily cap holds: a file must
+    fit in one day's cap, or it would never get a vector. The pages after
+    them are found by their words only.
+
     Nothing is logged: not the name, not the description, not the text.
 
     :param principal: the person the work is for
     :param attachment_id: the file
     :param embedder: the embedding service
     :returns: how many chunks were embedded. Zero also for a file the person
-        cannot write to, and for one with more changed chunks than the whole
-        daily cap.
+        cannot write to, and with a daily cap of zero.
     :raises CapReached: if the file does not fit in what is left of today's
         cap. Its old vectors are kept.
     :raises ServiceFailed: if the service failed or answered badly. The
@@ -519,8 +528,11 @@ async def embed_file(
         rows[0]["description"] or "",
         [(page["number"], page["text"]) for page in pages],
     )
+    # The whole-file chunk first, then as many page chunks as fit beside it
+    # in a day's cap. A file that could never fit would never get a vector.
+    most = min(1 + FILE_PAGE_VECTORS, max(1, get_settings().embedding.daily_cap))
     return await _bring_up_to_date(
-        principal, _FILE_VECTORS, attachment_id, chunks, embedder
+        principal, _FILE_VECTORS, attachment_id, chunks[:most], embedder
     )
 
 

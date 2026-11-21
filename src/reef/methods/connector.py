@@ -168,7 +168,7 @@ async def _file(principal: Principal, id: str, space: str, key: str) -> dict | N
     would spend its context on. That is the description and, with reading of
     files switched on, a blank line and the text Reef read from the file,
     every page marked, cut at a page so the whole stays within the engram
-    size cap.
+    size cap. A cut text says so in its last line: see :func:`_within`.
 
     :param principal: the caller
     :param id: the id asked for
@@ -185,7 +185,7 @@ async def _file(principal: Principal, id: str, space: str, key: str) -> dict | N
         pages = (await filetext.stored_pages([attachment.id]))[attachment.id]
         # Two characters for the blank line between description and text.
         room = max(0, get_settings().engrams.max_chars - len(text) - 2)
-        read, _, _ = filetext.render_text(pages, cap=room)
+        read = _within(pages, room, f"{space}/file/{key}")
         if read:
             text = f"{text}\n\n{read}"
     return {
@@ -195,6 +195,61 @@ async def _file(principal: Principal, id: str, space: str, key: str) -> dict | N
         "url": _app_url(space, ""),
         "metadata": {"cove": space, "kind": "file", "mime": attachment.mime},
     }
+
+
+def _within(pages: list[filetext.StoredPage], room: int, ref: str) -> str:
+    """Write a file's pages in at most ``room`` characters, saying where they stop.
+
+    A text that does not fit is cut at a page, and its last line names the
+    last page it holds and the ref ``open`` reads on from. Should the first
+    page not fit whole, the line names that page instead. Room for the line
+    is kept, so the whole stays within ``room``.
+
+    :param pages: the file's pages, in page order
+    :param room: the most characters
+    :param ref: the file's ref, as ``open`` takes it
+    :returns: the text; empty when there is none, or no room for any
+    """
+    text, after, inside = filetext.render_text(pages, cap=room)
+    if after is None and inside is None:
+        return text
+    # No line names a page past the last, so these are the longest lines.
+    last = pages[-1].number
+    line = max(len(_stops_after(ref, last)), len(_stops_inside(ref, last)))
+    text, after, inside = filetext.render_text(pages, cap=max(0, room - line - 2))
+    if not text:
+        return ""
+    if after is not None:
+        return f"{text}\n\n{_stops_after(ref, after)}"
+    if inside is not None:
+        return f"{text}\n\n{_stops_inside(ref, inside)}"
+    return text
+
+
+def _stops_after(ref: str, page: int) -> str:
+    """Say that a text stops after a page, and how to read on.
+
+    :param ref: the file's ref
+    :param page: the last page the text holds
+    :returns: the line
+    """
+    return (
+        f"The text stops after page {page}. "
+        f"To read on, use open with {ref}#page={page + 1}."
+    )
+
+
+def _stops_inside(ref: str, page: int) -> str:
+    """Say that a text stops inside a page, and how to read it whole.
+
+    :param ref: the file's ref
+    :param page: the page the text stops in
+    :returns: the line
+    """
+    return (
+        f"The text stops partway through page {page}. "
+        f"To read the whole page, use open with {ref}#page={page}."
+    )
 
 
 async def _engram(principal: Principal, id: str, space: str, path: str) -> dict | None:

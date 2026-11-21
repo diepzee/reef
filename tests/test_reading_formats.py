@@ -241,6 +241,61 @@ def test_powerpoint_gives_one_page_per_slide():
     assert third == "Einde"
 
 
+def _bare_shape_pptx() -> bytes:
+    """Build a PowerPoint file with a shape that has no geometry.
+
+    Its first slide holds a shape that is neither a text box nor a drawn
+    shape: no ``txBox`` mark, no geometry. Other tools write such shapes.
+    python-pptx cannot name its type and raises ``NotImplementedError``
+    when asked for it. A grouped copy of it follows on a second slide.
+
+    :returns: the ``.pptx`` file
+    """
+    from pptx import Presentation
+    from pptx.oxml.ns import qn
+    from pptx.util import Inches
+
+    presentation = Presentation()
+    blank = presentation.slide_layouts[6]
+    for grouped in (False, True):
+        slide = presentation.slides.add_slide(blank)
+        shapes = slide.shapes.add_group_shape().shapes if grouped else slide.shapes
+        box = shapes.add_textbox(Inches(1), Inches(1), Inches(5), 1)
+        box.text_frame.text = "Bare shape"
+        element = box._element
+        element.spPr.remove(element.spPr.find(qn("a:prstGeom")))
+        del element.nvSpPr.cNvSpPr.attrib["txBox"]
+        with pytest.raises(NotImplementedError):
+            _ = box.shape_type
+    buffer = io.BytesIO()
+    presentation.save(buffer)
+    return buffer.getvalue()
+
+
+def test_a_shape_without_geometry_is_read():
+    """A shape python-pptx cannot name makes no slide unreadable."""
+    first, second = text_parts(_bare_shape_pptx(), FileKind.PPTX, PAGE_CHARS)
+    assert (first, second) == ("Bare shape", "Bare shape")
+
+
+def test_reading_a_text_format_imports_no_office_library():
+    """Only a PowerPoint file pays for loading python-pptx."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys\n"
+        "from reef.reading import FileKind\n"
+        "from reef.reading.formats import text_parts\n"
+        "text_parts(b'# Notes', FileKind.MARKDOWN, 20000)\n"
+        "print(sorted(m for m in ('pptx', 'docx', 'openpyxl') if m in sys.modules))\n"
+    )
+    run = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    assert run.stdout.strip() == "[]"
+
+
 def test_a_zip_bomb_is_refused_before_parsing():
     """What an archive unpacks to is checked from its directory alone."""
     data = zip_bytes({"word/document.xml": b"\x00" * 2_000_000})

@@ -12,7 +12,8 @@ one without text, so a photo or a plan is still found by meaning.
 ``p<N>~2`` and so on. A page shorter than ``REEF_EMBEDDING_PIECE_MIN_CHARS``
 says too little alone and joins the chunk before it. A page with no words is
 no chunk. A file of more than one page names the page in each chunk's
-context, as ``page 2``.
+context, as ``page 2``. A file of one short page has the whole-file chunk
+alone: its page chunk would repeat it word for word.
 
 This module is pure. It reads no table and logs nothing.
 """
@@ -104,10 +105,15 @@ def split(
     :param description: the file's description
     :param pages: the page number and text of each page, in order
     :returns: the whole-file chunk first, then a chunk for each page that has
-        words. A file without text gives the whole-file chunk alone.
+        words. A file without text gives the whole-file chunk alone, and so
+        does a file of one short page: its page chunk would repeat the
+        whole-file chunk word for word.
     """
     texts = [text.strip() for _, text in pages]
     start = "\n\n".join(text for text in texts if text)
-    return [whole(filename, description, start)] + page_chunks(
-        filename, description, pages
-    )
+    first = whole(filename, description, start)
+    return [first] + [
+        chunk
+        for chunk in page_chunks(filename, description, pages)
+        if chunk.text != first.text
+    ]

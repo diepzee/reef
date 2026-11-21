@@ -1385,10 +1385,10 @@ worker: a worker that can write can also delete.
 **Settings.** They have the prefix `REEF_FILE_TEXT_`; the table under
 "Reference" lists each one. Three things to know:
 
-- A deployment that sets `REEF_ENGRAM_MAX_CHARS` (or the old
-  `REEF_PAGE_MAX_CHARS`) below 20,000 refuses to start until
+- With `REEF_FILE_TEXT` on, a deployment that sets `REEF_ENGRAM_MAX_CHARS`
+  (or the old `REEF_PAGE_MAX_CHARS`) below 20,000 refuses to start until
   `REEF_FILE_TEXT_PAGE_CHARS` is lowered to match. A page may not be longer
-  than an engram may be.
+  than an engram may be. With it off, this is not checked.
 - Text formats are read whole, so a day can go over `daily_pages` by up to
   one file's parts (at most `pages_per_file`).
 - The reading job holds its database transaction while it reads. This is on
@@ -1408,6 +1408,13 @@ runs as the worker and can read its secrets. The child makes no network calls
 itself, but it is not cut off from the network. Closing that needs Linux
 namespaces or seccomp, which phase 1 does not do.
 
+When a read ends, its child and every process the child started are killed.
+A hostile file could still start a process that leaves the child's process
+group. So the worker kills every `reader` process when a reading job starts
+and when it ends. If it finds one, it logs `read_file: killed N processes
+left by earlier reads`. That line means a file ran code it should not have:
+look at which files were read just before it.
+
 **What is logged.** Counts, page numbers, durations, the kind of file (PDF or
 image) and the class of an error. Never a text, a passage, a filename, a
 description, a space name or a person. `filename`, `description` and `text`
@@ -1423,9 +1430,12 @@ passage or an address.
 - `scripts/file_report.py --email PERSON [--time N] [--queue]`, run in
   `reef-worker`. It prints how many ready files and pages the person has,
   per kind. `--time N` reads up to N scan pages through the real sandbox,
-  stores nothing, and adds the seconds a page took (median and longest) and
-  the median word confidence. `--queue` queues reading for every file that
-  needs it and adds how many jobs it queued. It needs `REEF_FILE_TEXT`.
+  stores nothing, and adds the seconds a page took (median and longest), the
+  median word confidence, and `unreadable`: how many files it could not read
+  and skipped. The worker stops every `reader` process when a reading job
+  starts and ends, so a timing run beside a busy worker can lose a file to
+  `unreadable`. `--queue` queues reading for every file that needs it and
+  adds how many jobs it queued. It needs `REEF_FILE_TEXT`.
   In production:
   `railway ssh -s reef-worker -- uv run --frozen --no-dev python scripts/file_report.py --email PERSON --time 10`
 - `scripts/measure_recall.py --email PERSON --file-text on|off`, run in

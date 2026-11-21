@@ -36,6 +36,7 @@ from reef.reading import (
     TooLarge,
     Unreadable,
     local,
+    sandbox,
 )
 from reef.worker import HANDLERS, drain
 
@@ -384,6 +385,36 @@ async def test_a_broken_file_does_not_stop_the_next_job(household):
     assert await drain("test") == 2
     assert (await _status(me.principal, hostile.id))[0] == "unreadable"
     assert await _status(me.principal, good.id) == ("read", 1, None)
+
+
+async def test_the_reader_is_swept_before_and_after_each_reading_job(
+    household, monkeypatch
+):
+    """However the job ends, no process of ``reader`` outlives it."""
+    me = caller_for(household["wouter"])
+    await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+    happened: list[str] = []
+
+    def sweep() -> int:
+        """Note a sweep that finds nothing.
+
+        :returns: how many processes it killed
+        """
+        happened.append("sweep")
+        return 0
+
+    async def read_file(*args, **kwargs):
+        """Note the read, and fail it.
+
+        :raises SandboxUnavailable: always
+        """
+        happened.append("read")
+        raise SandboxUnavailable
+
+    monkeypatch.setattr(sandbox, "kill_reader_processes", sweep)
+    monkeypatch.setattr(filetext, "read_file", read_file)
+    assert await drain("test") == 1
+    assert happened == ["sweep", "read", "sweep"]
 
 
 async def test_a_missing_sandbox_fails_the_job_so_the_queue_retries(

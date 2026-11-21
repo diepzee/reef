@@ -277,6 +277,25 @@ async def test_a_photo_is_found_by_the_meaning_of_its_description(
     )
 
 
+async def test_a_search_of_engrams_alone_finds_no_file(tx, household, service):
+    """Neither by words nor by meaning: the file matches both ways, and better."""
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage visit is in May.")
+    photo = await _file(
+        me,
+        household["w_personal"],
+        "house.jpg",
+        "Our house, seen from the street.",
+        ["The house in May."],
+    )
+    await embedding.embed_file(me, photo, service)
+    assert _files(await search_engrams(me, "house"))
+    assert _files(await search_engrams(me, "garage house"))
+    for query in ("house", "garage house"):
+        results = await search_engrams(me, query, files=False)
+        assert [(r["kind"], r["path"]) for r in results] == [("page", "auto.md")]
+
+
 async def test_a_file_hit_carries_the_passage_closest_to_the_question(
     tx, household, service
 ):
@@ -432,6 +451,29 @@ async def test_every_chunk_is_rebuilt_from_the_pages_read_as_it_was_cut(tx, hous
             {ledger: {filechunks.page_of(chunk.anchor)}}, limit
         )
         rebuilt = search._file_chunks(row, read[ledger], [chunk.anchor])
+        assert rebuilt == [chunk.text], chunk.anchor
+
+
+async def test_a_page_short_once_stripped_is_short_to_the_pages_statement(
+    tx, household
+):
+    """Line breaks around a page's text count no more in SQL than in Python.
+
+    A text format's page is stored as cut, white space and all. This one
+    strips to a few characters, so it joins the chunk before it.
+    """
+    me = principal_for(household["wouter"])
+    pages = ["b " * 150, "\n" * 250 + "Signed.\n\t", "c " * 150]
+    file = await _file(me, household["w_personal"], "letter.txt", "A letter.", pages)
+    row = {"id": file, "filename": "letter.txt", "description": "A letter."}
+    every = filechunks.split("letter.txt", "A letter.", list(enumerate(pages, 1)))
+    assert [chunk.anchor for chunk in every] == [None, "p1", "p3"]
+    limit = get_settings().embedding.engram_chars
+    for chunk in every:
+        read = await search._read_pages(
+            {file: {filechunks.page_of(chunk.anchor)}}, limit
+        )
+        rebuilt = search._file_chunks(row, read[file], [chunk.anchor])
         assert rebuilt == [chunk.text], chunk.anchor
 
 

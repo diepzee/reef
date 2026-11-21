@@ -41,9 +41,20 @@ def test_a_short_page_joins_the_one_before():
 
 
 def test_a_one_page_file_has_no_page_label():
-    chunks = filechunks.split("a.pdf", "A report", [(1, PAGE)])
-    assert [chunk.anchor for chunk in chunks] == [None, "p1"]
+    long = "\n\n".join([PAGE] * 5)
+    chunks = filechunks.split("a.pdf", "A report", [(1, long)])
+    assert [chunk.anchor for chunk in chunks][:2] == [None, "p1"]
     assert all("page 1" not in chunk.text for chunk in chunks)
+
+
+def test_a_short_one_page_file_is_the_whole_file_chunk_alone():
+    """Its page chunk would be the whole-file chunk again, word for word."""
+    chunks = filechunks.split("a.pdf", "A report", [(1, PAGE)])
+    assert [chunk.anchor for chunk in chunks] == [None]
+    assert chunks[0].body == PAGE.strip()
+    # The page cut alone still gives it, as search rebuilds it.
+    [page] = filechunks.page_chunks("a.pdf", "A report", [(1, PAGE)])
+    assert page.text == chunks[0].text
 
 
 def test_an_empty_page_is_no_chunk():

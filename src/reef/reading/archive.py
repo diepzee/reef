@@ -3,14 +3,13 @@
 An Office file is a ZIP archive, and an upload is untrusted: a few kilobytes
 can unpack to gigabytes. This module reads the archive's central directory
 with :mod:`struct` and nothing else, so it is cheap and safe to run before
-any library opens the bytes, and in the worker itself, which uses it to
-bound the child's answer (:func:`reef.reading.sandbox.office_answer_bytes`).
+any library opens the bytes. It runs in the child process, before
+python-docx, openpyxl or python-pptx (see :mod:`reef.reading.formats`).
 
 The walk must agree with how :mod:`zipfile` reads the same bytes, since
 the libraries use it: it ends exactly at the end record, and a ZIP64
 locator is refused. Every limit sits below the point where ZIP64 starts, so
-ZIP64 archives are
-refused as too large.
+ZIP64 archives are refused as too large.
 """
 
 import struct

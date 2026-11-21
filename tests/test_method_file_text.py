@@ -247,12 +247,48 @@ async def test_fetch_cuts_at_the_cap_minus_the_description(
 ):
     monkeypatch.setattr(get_settings().engrams, "max_chars", 1_000)
     me = caller_for(household["wouter"])
-    ref = await _file(me, ["a" * 400, "b" * 400, "c" * 400], description="D" * 100)
+    ref = await _file(me, ["a" * 300, "b" * 300, "c" * 300], description="D" * 100)
     key = ref.removeprefix("personal/file/")
     fetched = await connector.fetch(me, "", f"file:personal/{key}")
     assert len(fetched["text"]) <= 1_000
     assert "--- page 2 ---" in fetched["text"]
     assert "--- page 3 ---" not in fetched["text"]
+
+
+async def test_fetch_says_where_it_cut_and_how_to_read_on(
+    household, store, reading, monkeypatch
+):
+    """A cut text ends with a line that names its last page and the next ref."""
+    monkeypatch.setattr(get_settings().engrams, "max_chars", 1_000)
+    me = caller_for(household["wouter"])
+    ref = await _file(me, ["a" * 300, "b" * 300, "c" * 300], description="D" * 100)
+    key = ref.removeprefix("personal/file/")
+    text = (await connector.fetch(me, "", f"file:personal/{key}"))["text"]
+    assert len(text) <= 1_000
+    assert text.endswith(
+        "\n\n--- page 2 ---\n" + "b" * 300 + "\n\nThe text stops after page 2. "
+        f"To read on, use open with {ref}#page=3."
+    )
+    # The ref it names is one open takes, and it gives page 3.
+    [opened] = await find.open(me, "", [f"{ref}#page=3"])
+    assert "--- page 3 ---\n" + "c" * 300 in opened["text"]
+
+
+async def test_fetch_says_when_it_cut_inside_a_page(
+    household, store, reading, monkeypatch
+):
+    """A description that leaves no room for the first page whole says so."""
+    monkeypatch.setattr(get_settings().engrams, "max_chars", 1_000)
+    me = caller_for(household["wouter"])
+    ref = await _file(me, ["a" * 900], description="D" * 100)
+    key = ref.removeprefix("personal/file/")
+    text = (await connector.fetch(me, "", f"file:personal/{key}"))["text"]
+    assert len(text) <= 1_000
+    assert text.startswith("D" * 100 + "\n\n--- page 1 ---\naaa")
+    assert text.endswith(
+        "a\n\nThe text stops partway through page 1. "
+        f"To read the whole page, use open with {ref}#page=1."
+    )
 
 
 async def test_fetch_is_as_today_with_the_switch_off(household, store):

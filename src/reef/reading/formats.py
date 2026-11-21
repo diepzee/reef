@@ -6,7 +6,7 @@ cut between paragraphs into parts, and each part becomes a page.
 
 Word, Excel and PowerPoint files are read with python-docx, openpyxl and
 python-pptx. Their archives are checked first (:func:`check_archive`), their
-XML is checked for entities, and the text they give is held to what the
+XML is parsed without entities, and the text they give is held to what the
 archive unpacks to, so no file multiplies itself. A Word file is cut like
 the text formats; an Excel sheet and a PowerPoint slide are a page each, and
 a longer one goes on over more pages.
@@ -25,7 +25,6 @@ from typing import Any
 from xml.sax.handler import ContentHandler
 
 import defusedxml.expatreader
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from reef.reading import FileKind, TooLarge, Unreadable
 from reef.reading.archive import (
@@ -240,9 +239,6 @@ def html_text(data: bytes) -> str:
     return parser.text()
 
 
-_GROUP = MSO_SHAPE_TYPE.GROUP
-"""A shape that holds other shapes."""
-
 _CELL_JOIN = " | "
 """Between the cells of a row."""
 
@@ -291,10 +287,13 @@ class _StopAtRoot(ContentHandler):
 
 
 def _refuse_dtds(archive: zipfile.ZipFile) -> None:
-    """Refuse any XML part that declares a DTD, and so any entity.
+    """Refuse an archive whose ``.xml`` or ``.rels`` parts declare a DTD.
 
-    Reads each part up to its first element, where a DOCTYPE would have to
-    be. Libraries parse without entities too; this does not rely on that.
+    Reads each such part up to its first element, where a DOCTYPE would have
+    to be. This is an extra layer, not the guard itself: python-docx and
+    python-pptx parse with ``resolve_entities=False``, and openpyxl parses
+    through defusedxml. A part the libraries read as XML under another name
+    is not checked here; their parsers cover it.
 
     :param archive: the opened archive
     :raises Exception: when a part has a DTD or is malformed before its first
@@ -488,11 +487,18 @@ def _read_xlsx(
 def _shape_lines(shapes: Iterable[Any]) -> Iterator[str]:
     """List the text of a slide's shapes in shape order.
 
+    A group is told by its class, not by ``shape_type``: python-pptx raises
+    for a shape whose type it cannot name, such as one without geometry
+    that is not a text box, and one such shape would make the whole file
+    unreadable.
+
     :param shapes: shapes, from a slide or a group
     :returns: one text per text frame, one per table row, groups entered
     """
+    from pptx.shapes.group import GroupShape
+
     for shape in shapes:
-        if shape.shape_type == _GROUP:
+        if isinstance(shape, GroupShape):
             yield from _shape_lines(shape.shapes)
         elif shape.has_table:
             for row in shape.table.rows:

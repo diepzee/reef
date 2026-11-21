@@ -267,12 +267,20 @@ def test_a_value_that_would_break_search_is_refused(monkeypatch, variable):
 
 def test_a_page_longer_than_an_engram_is_refused(monkeypatch):
     """``open`` cuts at a page, so a page must fit the engram cap."""
+    monkeypatch.setenv("REEF_FILE_TEXT", "true")
     monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "10000")
     monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "10001")
     with pytest.raises(ValueError, match="PAGE_CHARS"):
         config.Settings()
     monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "10000")
     assert config.Settings().reading.page_chars == 10_000
+
+
+def test_the_page_size_is_not_checked_with_reading_off(monkeypatch):
+    """Off, no page is read: a small engram cap must not stop the app."""
+    monkeypatch.setenv("REEF_FILE_TEXT", "false")
+    monkeypatch.setenv("REEF_ENGRAM_MAX_CHARS", "10000")
+    assert config.Settings().reading.page_chars == 20_000
 
 
 def test_a_page_may_not_pass_200000_characters(monkeypatch):

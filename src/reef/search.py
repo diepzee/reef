@@ -443,9 +443,16 @@ _FILE_PASSAGES_SQL = """
 #: the text is bounded by its stored bytes alone: ``octet_length`` reads the
 #: stored size without unpacking the text, and a character takes at most four
 #: bytes, so a quarter of the bytes never places a page later than it is. A
-#: few pages too many may come; no page the start needs is left out. Whether
-#: a page is short shows in its first characters, because readers store
-#: pages stripped.
+#: few pages too many may come; no page the start needs is left out.
+#:
+#: Whether a page is short shows in its first ``2 * piece_min`` characters,
+#: trimmed of white space at both ends as ``str.strip`` trims a page. A text
+#: format's pages are stored as cut, white space and all, so a trim of spaces
+#: alone would count a line break and miss a short page. A page whose first
+#: characters are mostly white space can count as short when it is not: the
+#: statement then returns a page too many, never one too few. Only a page
+#: that opens with long runs of a space Postgres does not class as white
+#: space, such as the no-break space, is judged as Python would not.
 _FILE_PAGES_SQL = """
     WITH sizes AS (SELECT {}::int AS start, {}::int AS piece_min),
     wanted AS (
@@ -467,7 +474,9 @@ _FILE_PAGES_SQL = """
         SELECT w.attachment_id, w.number AS first, (
             SELECT q.number FROM file_pages q
             WHERE q.attachment_id = w.attachment_id AND q.number > w.number
-              AND length(btrim(left(q.text, 2 * sizes.piece_min))) >= sizes.piece_min
+              AND length(regexp_replace(
+                    left(q.text, 2 * sizes.piece_min), '^\\s+|\\s+$', '', 'g'
+                  )) >= sizes.piece_min
             ORDER BY q.number
             LIMIT 1
         ) AS stop
@@ -554,6 +563,9 @@ _EXACT = re.compile(r'"|(?<!\w)-')
 
 _SPACE_FILTER = " AND space_id = {}"
 _SPACE_FILTER_WHERE = " WHERE space_id = {}"
+
+#: Leaves every file out of a search by words, for a search of engrams alone.
+_NO_FILES = " AND false"
 
 #: How many engrams the caller can see; see :func:`_large_enough`.
 _COUNT_SQL = "SELECT count(*) AS n FROM engrams"
@@ -1289,6 +1301,7 @@ async def search_engrams(
     semantic: bool = True,
     rerank: bool = True,
     passages: bool = False,
+    files: bool = True,
 ) -> list[dict]:
     """Search every engram and described file the caller can see, best match first.
 
@@ -1350,6 +1363,9 @@ async def search_engrams(
         the page of its closest chunk, None when that is the whole-file
         chunk, and for a file without vectors its best page by words, else
         None. A file's snippet comes from that page.
+    :param files: False searches engrams alone, so no file takes the place
+        of an engram. True, the default, runs the statements search has
+        always run.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -1374,11 +1390,14 @@ async def search_engrams(
             space_filter = _SPACE_FILTER
             space_ids = [target.id]
         hits_sql = _QUERY_SQL + (_PAGE_HITS_SQL if file_text else _HITS_SQL).format(
-            engram_filter=space_filter, file_filter=space_filter
+            engram_filter=space_filter,
+            file_filter=space_filter if files else space_filter + _NO_FILES,
         )
         if reread:
             reread = await _large_enough(space_ids)
-        closest = await _closest(embedded, space_ids, file_text) if embedded else []
+        closest = (
+            await _closest(embedded, space_ids, file_text and files) if embedded else []
+        )
         if not closest and not reread:
             # Keyword search, in one statement, as it always was.
             rows = await Engram.raw(

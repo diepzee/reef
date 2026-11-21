@@ -566,14 +566,15 @@ async def brief(
 ) -> dict:
     """Return the engrams that bear on a topic, ready to advise or prepare on.
 
-    Ranked by :func:`reef.search.search_engrams`, engrams only. A log, an
-    engram tagged ``log``, gives its last ``entries`` entries across all its
-    parts (see :mod:`reef.methods.logs`); several hits in one log make one
-    item, at the best hit's place. Any other engram gives its body, cut to
-    :data:`BRIEF_BODY_CHARS`. In all the text is cut to
-    :data:`BRIEF_BUDGET` characters: items fill in rank order, the one that
-    would pass the budget is cut to what remains, and later ones are left
-    out. A log drops its oldest entries first, a body is cut at its end.
+    Ranked by :func:`reef.search.search_engrams`, engrams only. With reading
+    of files switched on, files are not searched, so none takes the place of
+    an engram. A log, an engram tagged ``log``, gives its last ``entries``
+    entries across all its parts (see :mod:`reef.methods.logs`); several
+    hits in one log make one item, at the best hit's place. Any other engram
+    gives its body, cut to :data:`BRIEF_BODY_CHARS`. In all the text is cut
+    to :data:`BRIEF_BUDGET` characters: items fill in rank order, the one
+    that would pass the budget is cut to what remains, and later ones are
+    left out. A log drops its oldest entries first, a body is cut at its end.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -590,7 +591,16 @@ async def brief(
     principal = caller.principal
     wanted = max(BRIEF_ENTRIES[0], min(entries, BRIEF_ENTRIES[1]))
     try:
-        hits = await search_engrams(principal, topic, space, BRIEF_ENGRAMS, log=False)
+        # With reading on, files match on their pages too and would take the
+        # places of engrams. With it off, the search is the one it always was.
+        hits = await search_engrams(
+            principal,
+            topic,
+            space,
+            BRIEF_ENGRAMS,
+            log=False,
+            files=not get_settings().reading.enabled,
+        )
     except AccessDenied:
         raise MethodError("unknown_space") from None
     items: list[dict] = []

@@ -573,8 +573,9 @@ async def store_file(
 
     Use it when the person gives you a file to keep. Write the description
     yourself, concretely: later conversations find and understand the file
-    through it. Reef also reads the text inside the file; the answer's text
-    says waiting while it does, or not_read for a kind Reef does not read.
+    through it. When this Reef reads the text inside files, the answer's
+    text says waiting while it reads this one, or not_read for a kind it
+    does not read.
 
     :param space: the space's name from load_index
     :param filename: the file's own name, with its extension

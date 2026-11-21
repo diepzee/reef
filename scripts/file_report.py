@@ -11,10 +11,10 @@ The report counts the person's ready files and the pages read so far, per
 kind. A file's kind comes from its stored type and name, without fetching it.
 
 ``--time N`` reads up to N scan pages through the real sandbox and Tesseract,
-stores nothing, and adds the seconds one page took (median and longest) and
-the median word confidence. ``--queue`` queues reading for every file that
-needs it, as the backfill does, and adds how many jobs it queued; that needs
-``REEF_FILE_TEXT`` set.
+stores nothing, and adds the seconds one page took (median and longest), the
+median word confidence, and how many files it could not read and skipped.
+``--queue`` queues reading for every file that needs it, as the backfill
+does, and adds how many jobs it queued; that needs ``REEF_FILE_TEXT`` set.
 """
 
 import argparse
@@ -32,7 +32,7 @@ from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.identity import person_by_email
 from reef.models import Attachment
-from reef.reading import FileKind, ScanPage, local
+from reef.reading import FileKind, ReadFailed, ScanPage, local
 from reef.reading.kinds import likely_kind
 
 PROBE_LIMIT_PER_PAGE = 20
@@ -83,11 +83,15 @@ async def time_scans(
 ) -> dict[str, object]:
     """Read up to ``limit`` scan pages and time each one. Nothing is stored.
 
+    A file that cannot be read is skipped and counted, and the next one is
+    tried: one broken file must not end the report.
+
     :param principal: the person
     :param limit: how many scan pages to read
     :param store: where the files' bytes are
-    :returns: ``timed_pages``, and, if any was read, ``seconds_per_page``
-        (median and max) and ``median_confidence``
+    :returns: ``timed_pages``; ``unreadable``, the files skipped because a
+        read failed; and, if any page was read, ``seconds_per_page`` (median
+        and max) and ``median_confidence``
     """
     await arm(principal)
     rows = await Attachment.raw(
@@ -99,27 +103,31 @@ async def time_scans(
     seconds: list[float] = []
     confidences: list[float] = []
     probes = limit * PROBE_LIMIT_PER_PAGE
+    unreadable = 0
     for row in rows:
         kind = kind_of(row["mime"], row["filename"])
         if kind not in (FileKind.PDF, FileKind.IMAGE):
             continue
         data = await store.get(row["object_key"])
-        total = min(await local.survey(data, kind), settings.pages_per_file)
-        for number in range(1, total + 1):
-            if len(seconds) >= limit or probes <= 0:
-                break
-            probes -= 1
-            started = time.monotonic()
-            opened = await local.open_page(data, kind, number, dpi=settings.dpi)
-            if not isinstance(opened, ScanPage):
-                continue
-            reading = await reader.read(opened)
-            seconds.append(time.monotonic() - started)
-            if reading.confidence is not None:
-                confidences.append(reading.confidence * 100)
+        try:
+            total = min(await local.survey(data, kind), settings.pages_per_file)
+            for number in range(1, total + 1):
+                if len(seconds) >= limit or probes <= 0:
+                    break
+                probes -= 1
+                started = time.monotonic()
+                opened = await local.open_page(data, kind, number, dpi=settings.dpi)
+                if not isinstance(opened, ScanPage):
+                    continue
+                reading = await reader.read(opened)
+                seconds.append(time.monotonic() - started)
+                if reading.confidence is not None:
+                    confidences.append(reading.confidence * 100)
+        except ReadFailed:
+            unreadable += 1
         if len(seconds) >= limit or probes <= 0:
             break
-    result: dict[str, object] = {"timed_pages": len(seconds)}
+    result: dict[str, object] = {"timed_pages": len(seconds), "unreadable": unreadable}
     if seconds:
         result["seconds_per_page"] = {
             "median": round(statistics.median(seconds), 2),

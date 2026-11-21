@@ -222,3 +222,70 @@ async def test_files_lacking_lists_final_files_without_a_whole_file_vector(
         assert await embedding.files_lacking(me) == [done]
         await embedding.embed_file(me, done, service)
         assert await embedding.files_lacking(me) == []
+
+
+async def test_a_file_with_more_chunks_than_the_cap_still_gets_vectors(
+    household, service, monkeypatch, seed
+):
+    """The whole-file chunk and the first pages are embedded; the rest is not.
+
+    Before, a file of more chunks than the daily cap got no vector at all,
+    so it was reported as lacking one on every index load.
+    """
+    me = principal_for(household["wouter"])
+    file = await _file(me)
+    pages = embedding.FILE_PAGE_VECTORS + 20
+    async with transaction_scope():
+        await arm(me)
+        await Job.raw(
+            "INSERT INTO file_pages (id, attachment_id, number, text, reader) "
+            "SELECT gen_random_uuid(), {}, n, {}, 'tesseract' "
+            "FROM generate_series(1, {}) AS n",
+            file,
+            PAGE,
+            pages,
+        )
+        await Job.raw("UPDATE attachments SET text_status = 'read' WHERE id = {}", file)
+    monkeypatch.setattr(get_settings().embedding, "daily_cap", pages)
+    async with transaction_scope():
+        assert await embedding.embed_file(me, file, service) == 501
+        anchors = await _anchors(me)
+        assert await embedding.files_lacking(me) == []
+    assert embedding.FILE_PAGE_VECTORS == 500
+    assert anchors[0] is None
+    assert sorted(anchors[1:], key=lambda anchor: int(anchor[1:])) == [
+        f"p{number}" for number in range(1, 501)
+    ]
+
+
+async def test_a_file_fits_a_small_daily_cap(household, service, monkeypatch):
+    """A cap below the page vectors still lets the whole-file vector in."""
+    me = principal_for(household["wouter"])
+    file = await _file(me)
+    await _pages(me, file, [PAGE] * 6)
+    monkeypatch.setattr(get_settings().embedding, "daily_cap", 4)
+    async with transaction_scope():
+        assert await embedding.embed_file(me, file, service) == 4
+        assert await _anchors(me) == [None, "p1", "p2", "p3"]
+
+
+async def test_a_short_one_page_file_gets_one_vector(household, service):
+    """Its one page chunk would repeat the whole-file chunk word for word."""
+    me = principal_for(household["wouter"])
+    file = await _file(me)
+    await _pages(me, file, [PAGE])
+    async with transaction_scope():
+        assert await embedding.embed_file(me, file, service) == 1
+        assert await _anchors(me) == [None]
+    assert PAGE.strip() in service.sent[0]
+
+
+async def test_a_long_one_page_file_keeps_its_page_chunks(household, service):
+    """A page cut into several chunks says more than the whole-file chunk."""
+    me = principal_for(household["wouter"])
+    file = await _file(me)
+    long = "\n\n".join([PAGE] * 5)
+    await _pages(me, file, [long])
+    async with transaction_scope():
+        assert await embedding.embed_file(me, file, service) > 2
+        assert (await _anchors(me))[:2] == [None, "p1"]

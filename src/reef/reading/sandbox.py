@@ -13,11 +13,15 @@ when the answer holds one. The child:
   worker runs as root;
 - caps its own memory, CPU time, open files and core dumps before it reads
   a byte (:func:`reef.reading.child.apply_limits`);
-- runs in a session of its own, so the whole process group can be killed
-  when it takes too long;
+- runs in a session of its own, so its whole process group can be killed
+  once the read ends, however it ended;
 - has its stderr thrown away, and is heard on stdout only up to a bound
   derived from its operation and the limits, never from what the file
   declares (see :func:`run_child`).
+
+A process that left the group still runs as ``reader``. A root worker on
+Linux kills every process of ``reader`` before and after each reading job
+(:func:`kill_reader_processes`).
 
 A failure comes back as a :class:`~reef.reading.ReadFailed` class and
 nothing else. Whatever the child printed stays out of every exception, log
@@ -34,12 +38,14 @@ import signal
 import subprocess
 import sys
 from collections.abc import Callable
-from typing import Any
+from pathlib import Path
+from typing import Any, NamedTuple
 
 from reef.config import get_settings
 from reef.reading import (
     ChildCrashed,
     Encrypted,
+    FileKind,
     NoMainPart,
     ReadFailed,
     ReadTimedOut,
@@ -59,7 +65,21 @@ takes many times its size in memory, so an operation that answers with
 more must declare a bound derived from its input."""
 
 ANSWER_SLACK = 64 * 1024
-"""Room for the JSON around an answer, and for an error."""
+"""Room for the JSON around an answer, and for an error. Also the most the
+JSON line before a PNG may take."""
+
+MOST_PAGES = 2**31 - 1
+"""The most pages a child may say a file has: what the ``pages`` column
+holds."""
+
+_COUNTS_TO_ONE_MORE = frozenset({FileKind.DOCX, FileKind.XLSX, FileKind.PPTX})
+"""The text formats whose count of parts stops at one past the most read."""
+
+PROC = Path("/proc")
+"""Where Linux lists its processes."""
+
+_SWEEPS = 100
+"""How many times a sweep looks again for processes started while it looked."""
 
 _CHUNK_BYTES = 64 * 1024
 
@@ -99,18 +119,22 @@ def _is_parts(answer: dict, args: list[str]) -> bool:
     :param answer: the child's answer
     :param args: ``parts``, the kind, the part size and the most parts
     :returns: True for ``{"parts": [str, ...], "pages": int}`` with no more
-        than the most parts, and ``pages`` at least as many as are given
+        than the most parts, and ``pages`` at least as many as are given and
+        at most :data:`MOST_PAGES`; for Word, Excel and PowerPoint, at most
+        one more than the most parts
     """
     parts = answer.get("parts")
     pages = answer.get("pages")
+    most = MOST_PAGES
+    if args[1] in _COUNTS_TO_ONE_MORE:
+        most = min(most, int(args[3]) + 1)
     return (
         answer.keys() == {"parts", "pages"}
         and isinstance(parts, list)
         and len(parts) <= int(args[3])
         and all(isinstance(part, str) for part in parts)
-        and isinstance(pages, int)
-        and not isinstance(pages, bool)
-        and pages >= len(parts)
+        and _is_count(pages)
+        and len(parts) <= pages <= most
     )
 
 
@@ -167,13 +191,15 @@ def _is_survey(answer: dict, args: list[str]) -> bool:
 
     :param answer: the child's answer
     :param args: ``survey``, the kind and the most pages that will be read
-    :returns: True for ``{"pages": int}``, at least one page; for an image,
-        at most one more than will be read
+    :returns: True for ``{"pages": int}``, from one page to
+        :data:`MOST_PAGES`; for an image, at most one more than will be read
     """
     if answer.keys() != {"pages"} or not _is_count(answer["pages"]):
         return False
-    most = int(args[2]) + 1 if args[1] == "image" else None
-    return answer["pages"] >= 1 and (most is None or answer["pages"] <= most)
+    most = MOST_PAGES
+    if args[1] == FileKind.IMAGE:
+        most = min(most, int(args[2]) + 1)
+    return 1 <= answer["pages"] <= most
 
 
 def _is_png(value: object) -> bool:
@@ -244,26 +270,37 @@ def _is_ocr(answer: dict, args: list[str]) -> bool:
     )
 
 
-_OPERATIONS: dict[
-    str,
-    tuple[Callable[[list[str], bytes], int], Callable[[dict, list[str]], bool]],
-] = {
-    "parts": (
-        lambda args, data: parts_answer_bytes(int(args[2]), int(args[3])),
-        _is_parts,
+class _Operation(NamedTuple):
+    """What one operation may print, and what its answer looks like."""
+
+    answer_bytes: Callable[[list[str]], int]
+    """The most it may print in all, from its arguments and the limits."""
+    shaped: Callable[[dict, list[str]], bool]
+    """The check of its answer's shape."""
+    json_bytes: Callable[[list[str]], int] | None = None
+    """The most its JSON may take when no PNG follows it; None when the
+    answer is JSON alone, bounded by :attr:`answer_bytes`. Parsing takes many
+    times its input in memory, so an answer that may hold a PNG bounds its
+    JSON on its own."""
+
+
+_OPERATIONS: dict[str, _Operation] = {
+    "parts": _Operation(
+        lambda args: parts_answer_bytes(int(args[2]), int(args[3])), _is_parts
     ),
-    "survey": (lambda args, data: ANSWER_SLACK, _is_survey),
-    "page": (
-        lambda args, data: max(
-            text_answer_bytes(int(args[3])), png_answer_bytes(MAX_PIXELS)
-        ),
+    "survey": _Operation(lambda args: ANSWER_SLACK, _is_survey),
+    "page": _Operation(
+        lambda args: max(text_answer_bytes(int(args[3])), png_answer_bytes(MAX_PIXELS)),
         _is_page,
+        lambda args: text_answer_bytes(int(args[3])),
     ),
-    "frame": (lambda args, data: png_answer_bytes(MAX_PIXELS), _is_frame),
-    "ocr": (lambda args, data: text_answer_bytes(int(args[4])), _is_ocr),
+    "frame": _Operation(
+        lambda args: png_answer_bytes(MAX_PIXELS), _is_frame, lambda args: ANSWER_SLACK
+    ),
+    "ocr": _Operation(lambda args: text_answer_bytes(int(args[4])), _is_ocr),
 }
-"""Each operation's bound on its answer, derived from its arguments and the
-limits, and the check of its answer's shape. An operation not here gets
+"""Each operation's bounds, derived from its arguments and the limits, and
+the check of its answer's shape. An operation not here gets
 :data:`DEFAULT_ANSWER_BYTES` and no check: every operation a later reader
 adds belongs here."""
 
@@ -321,7 +358,7 @@ def _identity() -> dict[str, Any]:
 
 
 def _kill_group(process: asyncio.subprocess.Process) -> None:
-    """Kill the child and every process it started.
+    """Kill the child and every process it started that stayed in its group.
 
     :param process: the child, leader of its own process group
     """
@@ -329,6 +366,88 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
     # macOS answers with a refusal.
     with contextlib.suppress(ProcessLookupError, PermissionError):
         os.killpg(process.pid, signal.SIGKILL)
+
+
+def kill_reader_processes() -> int:
+    """Kill every process of the ``reader`` user.
+
+    A child that runs code from a hostile file can start a process that
+    outlives its read. One that stays in the child's process group dies with
+    it; one that left the group (``setsid``) does not. It would run as
+    ``reader``, like every later child, so it could read the files they are
+    given through their ``/proc/<pid>/fd``.
+
+    The worker calls this at the start and at the end of each reading job.
+    It runs one job at a time, so no read is in flight then, and every
+    process of ``reader`` is one left behind. Nothing else in the worker's
+    container may run as ``reader`` meanwhile: a timing run of
+    ``scripts/file_report.py`` beside a reading job loses its read.
+
+    Linux only, and only when the worker runs as root: elsewhere the child
+    runs as the worker's own user, and nothing tells its processes from the
+    worker's. It reads ``/proc`` and signals with the standard library.
+
+    :returns: how many processes were killed
+    """
+    if not sys.platform.startswith("linux") or os.geteuid() != 0:
+        return 0
+    try:
+        uid = pwd.getpwnam(READER_USER).pw_uid
+    except KeyError:
+        return 0
+    return kill_owned_by(uid, PROC)
+
+
+def kill_owned_by(uid: int, proc: Path) -> int:
+    """Kill every live process of one user, then look again until none is left.
+
+    A process is the user's when any of its user ids is: real, effective,
+    saved or file system. So a setuid program the user started counts too. A
+    zombie has ended already and is passed over. After each round of kills
+    the sweep looks again, for processes forked while it looked, at most
+    :data:`_SWEEPS` times.
+
+    :param uid: the user
+    :param proc: where the processes are listed, ``/proc`` on Linux
+    :returns: how many processes were killed
+    """
+    killed: set[int] = set()
+    for _ in range(_SWEEPS):
+        found = [pid for pid in _owned_by(uid, proc) if pid not in killed]
+        if not found:
+            break
+        for pid in found:
+            # It may have ended since it was listed.
+            with contextlib.suppress(ProcessLookupError):
+                os.kill(pid, signal.SIGKILL)
+        killed.update(found)
+    return len(killed)
+
+
+def _owned_by(uid: int, proc: Path) -> list[int]:
+    """List the live processes of one user.
+
+    The kernel escapes a line break in a process's name, so no process can
+    write a line of its status that reads as another field.
+
+    :param uid: the user
+    :param proc: where the processes are listed
+    :returns: their ids, lowest first
+    """
+    owned: list[int] = []
+    for entry in proc.iterdir():
+        if not entry.name.isdecimal():
+            continue
+        try:
+            status = (entry / "status").read_text(errors="replace")
+        except OSError:
+            # It ended while the sweep looked.
+            continue
+        fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
+        state = fields.get("State", "").strip()[:1]
+        if state not in ("Z", "X") and str(uid) in fields.get("Uid", "").split():
+            owned.append(int(entry.name))
+    return sorted(owned)
 
 
 async def run_child(
@@ -346,8 +465,11 @@ async def run_child(
     limits, declared in ``_OPERATIONS`` or passed as ``answer_bytes``, with
     its answer's shape: ``parts`` (:func:`parts_answer_bytes`), ``survey``,
     ``page``, ``frame`` (:func:`png_answer_bytes`) and ``ocr``
-    (:func:`text_answer_bytes`). A PNG that follows the JSON is checked
-    against the length the JSON gives, and handed back as ``bytes``.
+    (:func:`text_answer_bytes`). The JSON is bounded on its own: the line
+    before a PNG to :data:`ANSWER_SLACK`, a page's text to its text's bound.
+    A PNG that follows the JSON is checked against the length the JSON
+    gives, and handed back as ``bytes``. When the read ends, however it
+    ends, the child's process group is killed.
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits
@@ -364,9 +486,14 @@ async def run_child(
         ends without an answer of the right shape
     :raises SandboxUnavailable: when the child cannot be started safely
     """
-    bound, shaped = _OPERATIONS.get(args[0], (None, None))
+    operation = _OPERATIONS.get(args[0])
     if answer_bytes is None:
-        answer_bytes = DEFAULT_ANSWER_BYTES if bound is None else bound(args, data)
+        answer_bytes = (
+            DEFAULT_ANSWER_BYTES if operation is None else operation.answer_bytes(args)
+        )
+    json_bytes = answer_bytes
+    if operation is not None and operation.json_bytes is not None:
+        json_bytes = min(json_bytes, operation.json_bytes(args))
     command = [
         *child_command(),
         "--memory-mb",
@@ -389,22 +516,20 @@ async def run_child(
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise SandboxUnavailable from error
-    finished = False
     try:
         async with asyncio.timeout(seconds):
             stdout = await _exchange(process, data, answer_bytes)
-        finished = True
     except TimeoutError:
         raise ReadTimedOut from None
     finally:
-        if not finished:
-            # Timed out, cancelled or talking too much. The child may be gone
-            # already while a process it started holds the pipe open, so the
-            # group goes, whatever the child's own state.
-            _kill_group(process)
-            await process.wait()
-    answer = _answer(process.returncode, stdout)
-    if shaped is not None and not shaped(answer, args):
+        # However the read ended. A child that timed out, was cancelled or
+        # talked too much may be gone already while a process it started
+        # holds the pipe open; one that answered may have left a process
+        # running. The group goes, whatever the child's own state.
+        _kill_group(process)
+        await process.wait()
+    answer = _answer(process.returncode, stdout, json_bytes)
+    if operation is not None and not operation.shaped(answer, args):
         raise ChildCrashed
     return answer
 
@@ -454,18 +579,22 @@ async def _exchange(
     return printed
 
 
-def _answer(returncode: int | None, stdout: bytearray) -> dict:
+def _answer(returncode: int | None, stdout: bytearray, json_bytes: int) -> dict:
     """Turn what the child left behind into its answer or a failure.
 
     The answer is one line of JSON. When it holds a ``png``, that is the
     length of the raw bytes after the line, which must be exactly that long;
-    they replace it. Anything else after the line is a crash.
+    they replace it. Anything else after the line is a crash. JSON longer
+    than it can be is a crash too, and is never parsed: the line before
+    raw bytes may take :data:`ANSWER_SLACK`, an answer of JSON alone, with
+    or without a line break at its end, ``json_bytes``.
 
     Raised outside any ``except`` block, so no failure carries the parse
     error, and with it the child's output, as its context.
 
     :param returncode: how the child ended
     :param stdout: everything it printed
+    :param json_bytes: the most an answer without raw bytes may take
     :returns: its answer
     :raises ReadTimedOut: when it ran out of CPU time
     :raises ReadFailed: the class it named
@@ -476,6 +605,11 @@ def _answer(returncode: int | None, stdout: bytearray) -> dict:
     if returncode != 0:
         raise ChildCrashed
     end = stdout.find(b"\n")
+    rest = 0 if end < 0 else len(stdout) - end - 1
+    json_end = len(stdout) if end < 0 else end
+    # Only a PNG's header has bytes after it, and a header is short.
+    if json_end > (ANSWER_SLACK if rest else json_bytes):
+        raise ChildCrashed
     # A long JSON answer, such as ``parts``, has no newline: parsed in place.
     head = stdout if end < 0 else stdout[:end]
     try:
@@ -487,7 +621,6 @@ def _answer(returncode: int | None, stdout: bytearray) -> dict:
         raise ChildCrashed
     if "error" in answer:
         raise _FAILURES.get(str(answer["error"]), ChildCrashed)
-    rest = 0 if end < 0 else len(stdout) - end - 1
     if "png" in answer:
         if end < 0 or not _is_count(answer["png"]) or answer["png"] != rest:
             raise ChildCrashed
