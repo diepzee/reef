@@ -1,12 +1,24 @@
 """Markdown, plain text and HTML, read by Reef's own code."""
 
+import io
 import json
+import zipfile
 
 import pytest
-from filefixtures import html_page, long_text, paragraphs
+from filefixtures import (
+    ZIP_HEAD,
+    docx_bytes,
+    html_page,
+    long_text,
+    paragraphs,
+    pptx_bytes,
+    replace_part,
+    xlsx_bytes,
+    zip_bytes,
+)
 
-from reef.reading import FileKind, sandbox
-from reef.reading.formats import decode_text, html_text, text_parts
+from reef.reading import FileKind, TooLarge, Unreadable, sandbox
+from reef.reading.formats import check_archive, decode_text, html_text, text_parts
 from reef.sections import cut
 
 PAGE_CHARS = 20_000
@@ -167,3 +179,256 @@ def test_an_answer_stays_within_its_files_bound(data: bytes, kind: FileKind):
     envelope = len(b'{"parts": []}')
     bound = sandbox.parts_answer_bytes(data, part_chars) - sandbox.ANSWER_SLACK
     assert len(answer) <= bound + envelope
+
+
+def test_word_keeps_paragraphs_and_table_cells_in_order():
+    """Body order holds, and a row's cells are joined by a bar."""
+    data = docx_bytes(
+        ["Before the table", [["Ketel", "Vaillant"], ["Jaar", "2019"]], "After it"]
+    )
+    (part,) = text_parts(data, FileKind.DOCX, PAGE_CHARS)
+    assert _lines(part) == [
+        "Before the table",
+        "Ketel | Vaillant",
+        "Jaar | 2019",
+        "After it",
+    ]
+
+
+def test_word_is_cut_at_the_part_size():
+    """A long Word file becomes several parts."""
+    data = docx_bytes(paragraphs(10, 100))
+    parts = text_parts(data, FileKind.DOCX, 450)
+    assert len(parts) > 1
+    assert all(len(part) <= 450 for part in parts)
+    assert "".join(_lines("\n".join(parts))) == "".join(paragraphs(10, 100))
+
+
+def test_excel_gives_one_page_per_sheet_with_its_name_first():
+    """Each sheet is a page: its title, then its rows without empty cells."""
+    data = xlsx_bytes(
+        {
+            "Budget": [["Ketel", 1250.5, None, ""], [], ["=A1*2", "x"]],
+            "Leningen": [["Polis 4711"]],
+        }
+    )
+    budget, loans = text_parts(data, FileKind.XLSX, PAGE_CHARS)
+    assert _lines(budget)[:2] == ["Budget", "Ketel | 1250.5"]
+    assert loans.splitlines()[0] == "Leningen"
+    assert "Polis 4711" in loans
+    assert "=A1*2" not in budget
+
+
+def test_a_long_sheet_goes_on_over_the_next_pages():
+    """A sheet past the part size continues on the next page, cut between rows."""
+    rows = [[f"row{number:04d}", number] for number in range(200)]
+    data = xlsx_bytes({"Big": rows})
+    parts = text_parts(data, FileKind.XLSX, 500)
+    assert len(parts) > 1
+    assert all(len(part) <= 500 for part in parts)
+    assert parts[0].startswith("Big\n")
+    assert [line for part in parts for line in part.splitlines()][1:] == [
+        f"row{number:04d} | {number}" for number in range(200)
+    ]
+
+
+def test_powerpoint_gives_one_page_per_slide():
+    """Each slide is a page, an empty one included."""
+    data = pptx_bytes([["Welkom", "Agenda"], [], ["Einde"]])
+    first, second, third = text_parts(data, FileKind.PPTX, PAGE_CHARS)
+    assert _lines(first) == ["Welkom", "Agenda"]
+    assert second == ""
+    assert third == "Einde"
+
+
+def test_a_zip_bomb_is_refused_before_parsing():
+    """What an archive unpacks to is checked from its directory alone."""
+    data = zip_bytes({"word/document.xml": b"\x00" * 2_000_000})
+    assert len(data) < 10_000
+    with pytest.raises(TooLarge):
+        check_archive(data, FileKind.DOCX, max_bytes=1_000_000)
+
+
+def test_too_many_entries_are_refused():
+    """A directory with more entries than the cap is refused."""
+    data = zip_bytes({f"word/part{n}.xml": b"x" for n in range(30)})
+    with pytest.raises(TooLarge):
+        check_archive(data, FileKind.DOCX, max_entries=20)
+
+
+def test_a_renamed_zip_is_unreadable():
+    """A ZIP without the format's main part is not an Office file."""
+    data = zip_bytes({"hello.txt": b"hi"})
+    for kind in (FileKind.DOCX, FileKind.XLSX, FileKind.PPTX):
+        with pytest.raises(Unreadable):
+            text_parts(data, kind, PAGE_CHARS)
+    with pytest.raises(Unreadable):
+        text_parts(b"not a zip at all", FileKind.DOCX, PAGE_CHARS)
+    with pytest.raises(Unreadable):
+        text_parts(ZIP_HEAD + b"junk", FileKind.XLSX, PAGE_CHARS)
+
+
+def test_a_broken_office_file_is_unreadable_without_the_librarys_message():
+    """A library's error becomes ``Unreadable`` and says nothing."""
+    data = replace_part(docx_bytes(["a"]), "word/document.xml", b"<w:document")
+    with pytest.raises(Unreadable) as failure:
+        text_parts(data, FileKind.DOCX, PAGE_CHARS)
+    assert not failure.value.args
+
+
+_SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+
+
+def _with_shared_strings(sheet_xml: bytes, strings_xml: bytes) -> bytes:
+    """Build an Excel file whose cells point into a shared strings part.
+
+    :param sheet_xml: the first sheet's XML
+    :param strings_xml: the shared strings part
+    :returns: the ``.xlsx`` file, with the part listed so readers find it
+    """
+    data = xlsx_bytes({"S": [["seed"]]})
+    with zipfile.ZipFile(io.BytesIO(data)) as archive:
+        rels = archive.read("xl/_rels/workbook.xml.rels")
+        types = archive.read("[Content_Types].xml")
+    rels = rels.replace(
+        b"</Relationships>",
+        b'<Relationship Id="rId9" Target="sharedStrings.xml" Type="http://schemas'
+        b'.openxmlformats.org/officeDocument/2006/relationships/sharedStrings"/>'
+        b"</Relationships>",
+    )
+    types = types.replace(
+        b"</Types>",
+        b'<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.'
+        b'openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>',
+    )
+    for name, content in (
+        ("xl/_rels/workbook.xml.rels", rels),
+        ("[Content_Types].xml", types),
+        ("xl/sharedStrings.xml", strings_xml),
+        ("xl/worksheets/sheet1.xml", sheet_xml),
+    ):
+        data = replace_part(data, name, content)
+    return data
+
+
+def _sheet(rows: bytes) -> bytes:
+    """Wrap rows in a worksheet.
+
+    :param rows: ``row`` elements
+    :returns: the worksheet's XML
+    """
+    return (
+        f'<worksheet xmlns="{_SHEET_NS}"><sheetData>'.encode()
+        + rows
+        + b"</sheetData></worksheet>"
+    )
+
+
+def test_shared_strings_are_read():
+    """The helper's file reads, so the two tests below test what they say."""
+    data = _with_shared_strings(
+        _sheet(b'<row><c t="s"><v>0</v></c></row>'),
+        f'<sst xmlns="{_SHEET_NS}"><si><t>gedeeld</t></si></sst>'.encode(),
+    )
+    assert "gedeeld" in text_parts(data, FileKind.XLSX, PAGE_CHARS)[0]
+
+
+def test_xml_entities_are_refused():
+    """A declared entity is never expanded; the file is unreadable."""
+    data = _with_shared_strings(
+        _sheet(b'<row><c t="s"><v>0</v></c></row>'),
+        b'<?xml version="1.0"?><!DOCTYPE sst [<!ENTITY boom "EXPANDED">]>'
+        + f'<sst xmlns="{_SHEET_NS}"><si><t>&boom;</t></si></sst>'.encode(),
+    )
+    with pytest.raises(Unreadable):
+        text_parts(data, FileKind.XLSX, PAGE_CHARS)
+
+
+def test_a_library_alone_would_not_expand_entities_either():
+    """Defence in depth: openpyxl reads the same file without expanding."""
+    from openpyxl import load_workbook
+
+    data = _with_shared_strings(
+        _sheet(b'<row><c t="s"><v>0</v></c></row>'),
+        b'<?xml version="1.0"?><!DOCTYPE sst [<!ENTITY boom "EXPANDED">]>'
+        + f'<sst xmlns="{_SHEET_NS}"><si><t>&boom;</t></si></sst>'.encode(),
+    )
+    with pytest.raises(Exception):  # noqa: B017 - whatever it refuses with
+        workbook = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+        list(workbook.worksheets[0].iter_rows(values_only=True))
+
+
+def test_entities_are_refused_in_word_and_powerpoint_too():
+    """The same holds for the main part of Word and PowerPoint files."""
+    doctype = b'<!DOCTYPE x [<!ENTITY boom "EXPANDED">]>'
+    word = replace_part(docx_bytes(["a"]), "word/styles.xml", doctype + b"<x/>")
+    slides = replace_part(pptx_bytes([["a"]]), "ppt/presProps.xml", doctype + b"<x/>")
+    with pytest.raises(Unreadable):
+        text_parts(word, FileKind.DOCX, PAGE_CHARS)
+    with pytest.raises(Unreadable):
+        text_parts(slides, FileKind.PPTX, PAGE_CHARS)
+
+
+def test_shared_strings_cannot_multiply_the_text_past_the_archive():
+    """A cell that points at one big string again and again is cut off."""
+    data = _with_shared_strings(
+        _sheet(b'<row><c t="s"><v>0</v></c></row>' * 2_000),
+        f'<sst xmlns="{_SHEET_NS}"><si><t>'.encode()
+        + b"x" * 100_000
+        + b"</t></si></sst>",
+    )
+    assert len(data) < 10_000
+    with pytest.raises(TooLarge):
+        text_parts(data, FileKind.XLSX, PAGE_CHARS)
+
+
+@pytest.mark.parametrize(
+    ("data", "kind", "expected"),
+    [
+        (docx_bytes(["Dak", [["a", "b"]]]), FileKind.DOCX, "a | b"),
+        (xlsx_bytes({"Budget": [["Polis 4711", 2]]}), FileKind.XLSX, "Polis 4711 | 2"),
+        (pptx_bytes([["Welkom"]]), FileKind.PPTX, "Welkom"),
+    ],
+    ids=["docx", "xlsx", "pptx"],
+)
+async def test_each_office_format_round_trips_through_the_child(
+    data: bytes, kind: FileKind, expected: str
+):
+    """The real child reads each format, within the worker's bound.
+
+    :param data: the Office file
+    :param kind: its kind
+    :param expected: a line its text must hold
+    """
+    answer = await sandbox.run_child(
+        ["parts", kind.value, str(PAGE_CHARS)], data, seconds=60
+    )
+    assert expected in "\n".join(answer["parts"])
+
+
+async def test_a_bad_office_file_fails_through_the_child_as_unreadable():
+    """The child names ``Unreadable`` and the worker raises it."""
+    with pytest.raises(Unreadable):
+        await sandbox.run_child(
+            ["parts", "docx", str(PAGE_CHARS)], b"PK\x03\x04junk", seconds=60
+        )
+
+
+async def test_the_answer_bound_fits_an_office_file_that_unpacks_big():
+    """Text far larger than the compressed bytes still fits the bound."""
+    data = docx_bytes(paragraphs(2_000, 1_000))
+    assert len(data) * 3 < 2_000 * 1_000
+    answer = await sandbox.run_child(
+        ["parts", "docx", str(PAGE_CHARS)], data, seconds=60
+    )
+    assert len(answer["parts"]) > 1
+
+
+def test_the_office_bound_follows_the_unpacked_size_and_falls_back_on_junk():
+    """The bound grows with what the archive unpacks to, not its own size."""
+    data = docx_bytes(paragraphs(2_000, 1_000))
+    assert sandbox.office_answer_bytes(data, PAGE_CHARS) > 4 * 2_000 * 1_000
+    junk = b"not a zip"
+    assert sandbox.office_answer_bytes(junk, PAGE_CHARS) == (
+        sandbox.parts_answer_bytes(junk, PAGE_CHARS)
+    )

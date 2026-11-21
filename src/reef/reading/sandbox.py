@@ -38,12 +38,14 @@ from reef.config import get_settings
 from reef.reading import (
     ChildCrashed,
     Encrypted,
+    FileKind,
     ReadFailed,
     ReadTimedOut,
     SandboxUnavailable,
     TooLarge,
     Unreadable,
 )
+from reef.reading.archive import ZIP_MAX_ENTRIES, unpacked_size
 
 READER_USER = "reader"
 """The unprivileged user a root worker runs the child as. The Docker image
@@ -83,6 +85,52 @@ def parts_answer_bytes(data: bytes, part_chars: int) -> int:
     return 3 * len(data) + 4 * (len(data) // part_chars + 1) + ANSWER_SLACK
 
 
+def office_answer_bytes(data: bytes, part_chars: int) -> int:
+    """Return the most the ``parts`` operation can print for an Office file.
+
+    An Office file's text can be far larger than its compressed bytes, so
+    :func:`parts_answer_bytes` is too small for it. The text cannot be more
+    than the archive unpacks to: the child counts every character it reads
+    against the unpacked size its directory declares, and gives up past it
+    (:class:`~reef.reading.formats._Budget`). One character is at most four
+    bytes in UTF-8 and JSON escaping at most doubles one that stays a byte,
+    so the bound is four times that size, plus a quote pair and a separator
+    for each part: a page per entry at most, and one more per
+    ``part_chars`` characters.
+
+    The directory is read here with :mod:`struct` only, never with a
+    library: see :mod:`reef.reading.archive`.
+
+    :param data: the file's bytes
+    :param part_chars: the most characters in one part
+    :returns: the bound, in bytes. When the directory is unreadable or too
+        large the child will refuse the file; the bound is then the general
+        one.
+    """
+    try:
+        unpacked = unpacked_size(data)
+    except ReadFailed:
+        return parts_answer_bytes(data, part_chars)
+    parts = ZIP_MAX_ENTRIES + unpacked // part_chars + 1
+    return 4 * unpacked + 4 * parts + ANSWER_SLACK
+
+
+_OFFICE = frozenset({FileKind.DOCX, FileKind.XLSX, FileKind.PPTX})
+
+
+def _parts_bound(args: list[str], data: bytes) -> int:
+    """Pick the bound for a ``parts`` answer by the file's kind.
+
+    :param args: ``parts``, the kind and the most characters in one part
+    :param data: the file's bytes
+    :returns: the bound, in bytes
+    """
+    part_chars = int(args[2])
+    if args[1] in _OFFICE:
+        return office_answer_bytes(data, part_chars)
+    return parts_answer_bytes(data, part_chars)
+
+
 def _is_parts(answer: dict) -> bool:
     """Tell whether an answer is what ``parts`` gives: a list of strings.
 
@@ -100,7 +148,7 @@ def _is_parts(answer: dict) -> bool:
 _OPERATIONS: dict[
     str, tuple[Callable[[list[str], bytes], int], Callable[[dict], bool]]
 ] = {
-    "parts": (lambda args, data: parts_answer_bytes(data, int(args[2])), _is_parts),
+    "parts": (_parts_bound, _is_parts),
 }
 """Each operation's bound on its answer, derived from its arguments and
 input, and the check of its answer's shape. An operation not here gets
@@ -184,7 +232,8 @@ async def run_child(
     child that gets code from a hostile file must not cost the worker its
     memory. Each operation needs a bound derived from its input, declared in
     ``_OPERATIONS`` or passed as ``answer_bytes``. ``parts`` declares
-    :func:`parts_answer_bytes` and its answer's shape.
+    :func:`parts_answer_bytes`, or :func:`office_answer_bytes` for Word,
+    Excel and PowerPoint, and its answer's shape.
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits

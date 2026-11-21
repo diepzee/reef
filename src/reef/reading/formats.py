@@ -4,16 +4,47 @@ Markdown and plain text are kept as written. HTML keeps its visible text:
 no scripts, styles or markup. Neither has pages of its own, so the text is
 cut between paragraphs into parts, and each part becomes a page.
 
+Word, Excel and PowerPoint files are read with python-docx, openpyxl and
+python-pptx. Their archives are checked first (:func:`check_archive`), their
+XML is checked for entities, and the text they give is held to what the
+archive unpacks to, so no file multiplies itself. A Word file is cut like
+the text formats; an Excel sheet and a PowerPoint slide are a page each, and
+a longer one goes on over more pages.
+
 These run in the child process (:mod:`reef.reading.child`), never in the
 worker itself: the bytes are untrusted.
 """
 
 import codecs
+import io
 import re
+import zipfile
+from collections.abc import Callable, Iterable, Iterator
 from html.parser import HTMLParser
+from typing import Any
+from xml.sax.handler import ContentHandler
 
-from reef.reading import FileKind
+import defusedxml.expatreader
+from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+from reef.reading import FileKind, TooLarge, Unreadable
+from reef.reading.archive import (
+    MAIN_PARTS,
+    ZIP_MAX_BYTES,
+    ZIP_MAX_ENTRIES,
+    check_archive,
+)
 from reef.sections import cut
+
+__all__ = [
+    "MAIN_PARTS",
+    "ZIP_MAX_BYTES",
+    "ZIP_MAX_ENTRIES",
+    "check_archive",
+    "decode_text",
+    "html_text",
+    "text_parts",
+]
 
 _LINE_END = re.compile(r"\r\n?")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0e-\x1f\x7f]")
@@ -209,14 +240,265 @@ def html_text(data: bytes) -> str:
     return parser.text()
 
 
+_GROUP = MSO_SHAPE_TYPE.GROUP
+"""A shape that holds other shapes."""
+
+_CELL_JOIN = " | "
+"""Between the cells of a row."""
+
+_XML_PARTS = (b".xml", b".rels")
+_XML_CHUNK = 64 * 1024
+
+
+class _Budget:
+    """Holds the text read from one file to what its archive unpacks to.
+
+    Text comes from XML, so it cannot honestly be longer than the XML, but a
+    shared string used by a million cells can. The budget is in characters.
+    """
+
+    def __init__(self, chars: int) -> None:
+        """Start with the whole allowance.
+
+        :param chars: the most characters the file may give
+        """
+        self._left = chars
+
+    def spend(self, text: str) -> str:
+        """Charge some text.
+
+        :param text: text just read
+        :returns: the same text
+        :raises TooLarge: when the allowance is used up
+        """
+        self._left -= len(text)
+        if self._left < 0:
+            raise TooLarge
+        return text
+
+
+class _StopAtRoot(ContentHandler):
+    """Ends a parse when the first element starts."""
+
+    def startElement(self, name: str, attrs: Any) -> None:
+        """Stop: the prolog, where a DTD would be, is behind us.
+
+        :param name: the element's name
+        :param attrs: its attributes
+        :raises StopIteration: always
+        """
+        raise StopIteration
+
+
+def _refuse_dtds(archive: zipfile.ZipFile) -> None:
+    """Refuse any XML part that declares a DTD, and so any entity.
+
+    Reads each part up to its first element, where a DOCTYPE would have to
+    be. Libraries parse without entities too; this does not rely on that.
+
+    :param archive: the opened archive
+    :raises Exception: when a part has a DTD or is malformed before its first
+        element; :func:`_office` turns it into ``Unreadable``
+    """
+    for info in archive.infolist():
+        if not info.filename.encode().endswith(_XML_PARTS):
+            continue
+        parser = defusedxml.expatreader.create_parser(forbid_dtd=True)
+        parser.setContentHandler(_StopAtRoot())
+        with archive.open(info) as part:
+            try:
+                while chunk := part.read(_XML_CHUNK):
+                    parser.feed(chunk)
+            except StopIteration:
+                continue
+
+
+def _office(
+    data: bytes,
+    kind: FileKind,
+    read: Callable[[io.BytesIO, _Budget], list[str]],
+) -> list[str]:
+    """Check an Office file, run its reader and turn every failure plain.
+
+    :param data: the file's bytes
+    :param kind: its kind
+    :param read: reads the opened file into parts, within the budget
+    :returns: the parts
+    :raises TooLarge: when the archive or its text is too large
+    :raises Unreadable: for anything else that goes wrong, whatever the
+        library says: its message is never kept
+    """
+    total = check_archive(data, kind)
+    failed = False
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            _refuse_dtds(archive)
+        return read(io.BytesIO(data), _Budget(total))
+    except (TooLarge, Unreadable):
+        raise
+    except MemoryError:
+        raise TooLarge from None
+    except Exception:  # noqa: BLE001 - a library's error is never kept
+        failed = True
+    assert failed
+    raise Unreadable
+
+
+def _plain(text: str) -> str:
+    """Make a text from an Office file fit for storing.
+
+    :param text: the text
+    :returns: the text with line breaks plain and control characters gone
+    """
+    return _CONTROL.sub("", text.replace("\x0b", "\n"))
+
+
+def _docx_blocks(blocks: Iterable[Any]) -> Iterator[str]:
+    """List a Word body's paragraphs and table rows in order.
+
+    :param blocks: paragraphs and tables, from ``iter_inner_content``
+    :returns: one text per non-empty paragraph, and one per table row
+    """
+    for block in blocks:
+        if hasattr(block, "rows"):
+            for row in block.rows:
+                cells: list[str] = []
+                seen: set[int] = set()
+                for cell in row.cells:
+                    # A merged cell is listed once per column it spans.
+                    if id(cell._tc) in seen:
+                        continue
+                    seen.add(id(cell._tc))
+                    text = " ".join(_docx_blocks(cell.iter_inner_content()))
+                    if text:
+                        cells.append(text)
+                if cells:
+                    yield _CELL_JOIN.join(cells)
+        elif text := _plain(block.text).strip():
+            yield text
+
+
+def _read_docx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+    """Read a Word file: paragraphs and table cells, in body order.
+
+    :param file: the opened file
+    :param budget: the text allowance
+    :param part_chars: the most characters in one part
+    :returns: the text cut between paragraphs
+    """
+    from docx import Document
+
+    document = Document(file)
+    lines = (budget.spend(line) for line in _docx_blocks(document.iter_inner_content()))
+    return cut("\n\n".join(lines), part_chars)
+
+
+def _pages(title: str, rows: Iterable[str], part_chars: int) -> list[str]:
+    """Cut a sheet into pages between its rows.
+
+    :param title: the sheet's name, the first line of the first page
+    :param rows: the sheet's rows, one text each
+    :param part_chars: the most characters in one page
+    :returns: the pages, each of whole rows unless a row is longer than a page
+    """
+    pages: list[str] = []
+    current = title[:part_chars]
+    for row in rows:
+        while len(row) > part_chars:
+            if current:
+                pages.append(current)
+                current = ""
+            pages.append(row[:part_chars])
+            row = row[part_chars:]
+        if current and len(current) + 1 + len(row) > part_chars:
+            pages.append(current)
+            current = ""
+        current = f"{current}\n{row}" if current else row
+    pages.append(current)
+    return pages
+
+
+def _read_xlsx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+    """Read an Excel file: each sheet's name, then its rows.
+
+    Cached values are read, never formulas: a formula without a cached value
+    gives nothing.
+
+    :param file: the opened file
+    :param budget: the text allowance
+    :param part_chars: the most characters in one page
+    :returns: the pages, a sheet after a sheet
+    """
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(file, read_only=True, data_only=True)
+    pages: list[str] = []
+    for sheet in workbook.worksheets:
+        # A sheet's declared size would have rows of empty cells padded to it.
+        sheet.reset_dimensions()
+        rows = (
+            _CELL_JOIN.join(
+                _plain(str(value)) for value in values if value not in (None, "")
+            )
+            for values in sheet.iter_rows(values_only=True)
+        )
+        pages += _pages(
+            budget.spend(_plain(sheet.title)),
+            (budget.spend(row) for row in rows if row),
+            part_chars,
+        )
+    workbook.close()
+    return pages
+
+
+def _shape_lines(shapes: Iterable[Any]) -> Iterator[str]:
+    """List the text of a slide's shapes in shape order.
+
+    :param shapes: shapes, from a slide or a group
+    :returns: one text per text frame, one per table row, groups entered
+    """
+    for shape in shapes:
+        if shape.shape_type == _GROUP:
+            yield from _shape_lines(shape.shapes)
+        elif shape.has_table:
+            for row in shape.table.rows:
+                cells = [_plain(cell.text).strip() for cell in row.cells]
+                if line := _CELL_JOIN.join(cell for cell in cells if cell):
+                    yield line
+        elif shape.has_text_frame and (text := _plain(shape.text_frame.text).strip()):
+            yield text
+
+
+def _read_pptx(file: io.BytesIO, budget: _Budget, part_chars: int) -> list[str]:
+    """Read a PowerPoint file: a page per slide, empty ones included.
+
+    :param file: the opened file
+    :param budget: the text allowance
+    :param part_chars: the most characters in one page
+    :returns: the pages, a slide after a slide; a slide longer than a page
+        goes on over more
+    """
+    from pptx import Presentation
+
+    pages: list[str] = []
+    for slide in Presentation(file).slides:
+        lines = (budget.spend(line) for line in _shape_lines(slide.shapes))
+        pages += cut("\n\n".join(lines), part_chars) or [""]
+    return pages
+
+
 def text_parts(data: bytes, kind: FileKind, part_chars: int) -> list[str]:
-    """Read a Markdown, plain text or HTML file into parts.
+    """Read a Markdown, plain text, HTML, Word, Excel or PowerPoint file.
 
     :param data: the file's bytes
     :param kind: the file's kind
     :param part_chars: the most characters in one part
-    :returns: the text cut between paragraphs, each part at most
-        ``part_chars`` long. An empty file gives none.
+    :returns: the parts, each at most ``part_chars`` long. Text formats and
+        Word are cut between paragraphs, and an empty file gives none. Excel
+        gives a page per sheet and PowerPoint a page per slide, a longer one
+        going on over more.
+    :raises Unreadable: for an Office file that is not one, or is damaged
+    :raises TooLarge: for an Office file that unpacks to too much
     :raises ValueError: for a kind this module does not read
     """
     match kind:
@@ -224,6 +506,12 @@ def text_parts(data: bytes, kind: FileKind, part_chars: int) -> list[str]:
             text = decode_text(data)
         case FileKind.HTML:
             text = html_text(data)
+        case FileKind.DOCX:
+            return _office(data, kind, lambda f, b: _read_docx(f, b, part_chars))
+        case FileKind.XLSX:
+            return _office(data, kind, lambda f, b: _read_xlsx(f, b, part_chars))
+        case FileKind.PPTX:
+            return _office(data, kind, lambda f, b: _read_pptx(f, b, part_chars))
         case _:
             raise ValueError(f"not read as text here: {kind}")
     return cut(text, part_chars)
