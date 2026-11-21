@@ -249,3 +249,113 @@ async def test_vectors_stay_out_of_the_dump(tx, household):
         for name in archive.namelist():
             body = archive.read(name).decode(errors="ignore")
             assert "[1,2,3]" not in body and "fake-1" not in body
+
+
+async def _extra_file(household, key: str, space, texts: list[str]) -> Attachment:
+    """Store a read file with the given pages in a space.
+
+    :param household: the household fixture
+    :param key: the object key
+    :param space: the file's space
+    :param texts: the text of each page
+    :returns: the file
+    """
+    file = Attachment(
+        space_id=space.id,
+        object_key=key,
+        filename=f"{key.rsplit('/', 1)[-1]}.pdf",
+        mime="application/pdf",
+        byte_size=3,
+        description="d",
+        status=AttachmentStatus.READY.value,
+        text_status="read",
+        pages=len(texts),
+    )
+    await file.save()
+    for number, text in enumerate(texts, 1):
+        await Attachment.raw(
+            "INSERT INTO file_pages (id, attachment_id, number, text, reader) "
+            "VALUES (gen_random_uuid(), {}, {}, {}, 'tesseract')",
+            file.id,
+            number,
+            text,
+        )
+    return file
+
+
+class AnyStore:
+    """Object reader that returns the same bytes for any key."""
+
+    async def get(self, key: str) -> bytes:
+        """Return bytes."""
+        return b"%PDF"
+
+
+async def test_the_full_dump_writes_every_files_own_text(tx, household):
+    """Many files, each with its own pages, each get exactly their own text."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "household", "r.md", "x", message="x")
+    for n in range(25):
+        await _extra_file(
+            household,
+            f"attachments/k{n}",
+            household["shared"],
+            [f"alpha {n}", f"beta {n}"],
+        )
+
+    with ZipFile(BytesIO(await build_full_dump(me, store=AnyStore()))) as archive:
+        entries = json.loads(archive.read("data/files.json"))
+        assert len(entries) == 25
+        for entry in entries:
+            n = entry["key"].removeprefix("attachments/k")
+            assert archive.read(entry["text_path"]).decode() == (
+                f"--- page 1 ---\nalpha {n}\n\n--- page 2 ---\nbeta {n}"
+            )
+
+
+async def test_another_member_exports_the_same_text(tx, household):
+    """A shared file's text reaches every member who can read the file."""
+    await save_engram(
+        principal_for(household["wouter"]), "household", "r.md", "x", message="x"
+    )
+    await _extra_file(
+        household, "attachments/shared", household["shared"], ["common words"]
+    )
+
+    with ZipFile(
+        BytesIO(
+            await build_full_dump(principal_for(household["partner"]), store=AnyStore())
+        )
+    ) as archive:
+        [entry] = json.loads(archive.read("data/files.json"))
+        assert (
+            archive.read(entry["text_path"]).decode() == "--- page 1 ---\ncommon words"
+        )
+
+
+async def test_another_persons_private_file_adds_no_text(tx, household, seed):
+    """A file in someone else's personal space leaves no .txt or text_path."""
+    await save_engram(
+        principal_for(household["wouter"]), "household", "r.md", "x", message="x"
+    )
+    hers = await seed.fetchval(
+        "INSERT INTO attachments (id, space_id, object_key, filename, mime, "
+        "byte_size, description, status, text_status, pages) VALUES "
+        "(gen_random_uuid(), $1, 'attachments/hers', 'h.pdf', 'application/pdf', "
+        "3, 'd', 'ready', 'read', 1) RETURNING id",
+        household["p_personal"].id,
+    )
+    await seed.execute(
+        "INSERT INTO file_pages (id, attachment_id, number, text, reader) "
+        "VALUES (gen_random_uuid(), $1, 1, 'secret words', 'tesseract')",
+        hers,
+    )
+
+    with ZipFile(
+        BytesIO(
+            await build_full_dump(principal_for(household["wouter"]), store=AnyStore())
+        )
+    ) as archive:
+        assert json.loads(archive.read("data/files.json")) == []
+        assert not any(n.endswith(".txt") for n in archive.namelist())
+        assert all(b"secret words" not in archive.read(n) for n in archive.namelist())

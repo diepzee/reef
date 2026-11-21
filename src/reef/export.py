@@ -40,6 +40,9 @@ from reef.models import (
 )
 from reef.spaces import display_names, member_names
 
+_HAS_TEXT = ("read", "partly_read")
+"""The ``text_status`` values of a file that may hold pages."""
+
 
 class FileReader(Protocol):
     """The object-store capability a full dump needs."""
@@ -401,14 +404,19 @@ async def build_full_dump(
                 render_engram(engram),
             )
 
-        # The principal is armed by now, so only pages of readable files come back.
-        pages_of = await stored_pages([file.id for file in files])
         for file in files:
             metadata = {
                 "space": alias_by_space[file.space_id],
                 **_file_metadata(file, engram_paths),
             }
-            pages = pages_of[file.id]
+            # One file's pages at a time, so the text of every file is never
+            # held at once. The principal is armed, so only pages of a
+            # readable file come back.
+            pages = (
+                (await stored_pages([file.id]))[file.id]
+                if file.pages or file.text_status in _HAS_TEXT
+                else []
+            )
             metadata["pages"] = file.pages
             metadata["readers"] = read_by(pages)
             metadata["text_path"] = None
@@ -426,6 +434,7 @@ async def build_full_dump(
                 text_path = f"{archive_path}.txt"
                 archive.writestr(text_path, render_text(pages)[0])
                 metadata["text_path"] = text_path
+            del pages
             try:
                 archive.writestr(archive_path, await store.get(file.object_key))
                 metadata["included"] = True
