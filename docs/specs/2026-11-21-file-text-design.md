@@ -1,15 +1,22 @@
 # Reading the text inside files (RUG-37)
 
-Date: 21 November 2026. Status: draft for Wouter's approval.
+Date: 21 November 2026. Status: approved by Wouter on 21 November 2026,
+including the five calls under "Approved calls".
 
 ## Why
 
-Reef finds a file only by its filename and the description an assistant
-wrote for it (`search.py`). What a letter, a policy or a plan says is
-invisible to `recall`. Wouter's memory holds 32 engrams and about 445 files,
-so most of what he keeps is out of reach of search. He wants to store a PDF
-or a photo of a letter and find passages inside it as he finds them inside
-engrams: medical letters, insurance policies, house plans.
+Reef finds a file only by the words of its filename and of the description
+an assistant wrote for it (`search.py`). What a letter, a policy or a plan
+says is invisible to `recall`. Production holds 638 stored files: 264 PDFs,
+187 Markdown or HTML files, 39 Office files, and images and other formats.
+Wouter's memory holds 32 engrams and about 445 of those files, so most of
+what he keeps is out of reach of search. He wants to store a PDF or a photo
+of a letter and find passages inside it as he finds them inside engrams:
+medical letters, insurance policies, house plans.
+
+Every stored file already has a description, written when it was stored (60
+to 270 characters on average). Search matches only its words, not its
+meaning.
 
 ## Decided
 
@@ -37,14 +44,32 @@ By Wouter, on 20 and 21 November 2026. Binding.
 7. **The privacy page** names Google, the Gemini API, processing outside the
    EU, the 55 days, and that it applies only where an owner switched it on.
 8. **A scan test first:** 3 to 5 of Wouter's scans, local first, Gemini only
-   with his OK.
+   with his OK. Its phase 1 part is waived: see 12.
 9. **Rollout:** local reading first; the Gemini layer second, after Wouter
    creates the Google account and key himself. Reef's maintainers never
    handle the key's value.
+10. **Every file's description is embedded locally in phase 1.** Each file
+    gets a vector from the local embedding model, so every file, photos and
+    plans included, is found by meaning. No new model. Image vectors (as
+    CLIP makes them) stay out of scope. In phase 2, Gemini may write a
+    better description for an image page, only in a switched-on space.
+11. **Phase 1 also reads text formats locally:** Markdown, plain text, HTML
+    (text only, no scripts or styles), Word (`.docx`), Excel (`.xlsx`, cell
+    text per sheet) and PowerPoint (`.pptx`, slide text), next to text PDFs
+    and scans. Most of Wouter's file text is in these formats. Reef uses
+    standard, permissively licensed Python libraries and no model (see "How
+    a file is read"). Other formats get their description embedded and
+    nothing more in phase 1.
+12. **The scan test's phase 1 part is waived** (Wouter, 21 November 2026:
+    "let's skip that, I trust it"). The first local measurement below is
+    phase 1's evidence of quality. The 10-seconds-per-page check on the
+    Railway worker stays, before switch-on. The Gemini part of the test
+    stays a condition for phase 2 unless Wouter waives it too.
 
-## For your approval
+## Approved calls
 
-My calls with the most weight, each argued below:
+Approved by Wouter on 21 November 2026 with the rest of this spec. My calls
+with the most weight, each argued below:
 
 1. **One text per page.** Gemini's reading replaces the local one when it
    answers cleanly; otherwise the local one stays. Not both.
@@ -64,19 +89,27 @@ My calls with the most weight, each argued below:
 
 ## Goals
 
-1. Search inside every PDF and image a person stores, by words and by
-   meaning, ranked with engram sections.
+1. Search inside every PDF, image and text document (decision 11) a person
+   stores, by words and by meaning, ranked with engram sections.
 2. A `recall` hit on a file carries a passage from inside it, and its page.
-3. The ~445 existing files are read locally without anyone asking.
-4. Scans leave Reef through one checked gate, only where both switches allow.
+3. Every file is found by meaning, through its description at least, also
+   when Reef cannot read it.
+4. The 638 existing files are read locally and their descriptions embedded,
+   without anyone asking.
+5. Scans leave Reef through one checked gate, only where both switches allow.
 
 ## Non-goals
 
 - Quality guarantees for handwriting or drawings. Tesseract reads the labels
   on a plan, not the plan (research 4.1).
 - Tables rebuilt as tables; editing a file's text; showing it on the website.
-- Describing what a photo shows. Reef reads writing.
-- Word, Excel, e-mail, audio; images in engrams that are not stored files.
+- Describing what a photo shows, and image vectors. Reef reads writing; a
+  photo is found by its description.
+- Formats outside decision 11 in phase 1: PostScript, Photoshop, SVG, XML,
+  SQL and unknown binaries get their description embedded and nothing more.
+  The `<text>` of an SVG and the text of XML are candidates for later.
+- E-mail, audio, speaker notes in slides; images in engrams that are not
+  stored files.
 - French stemming. Search indexes English and Dutch (`SEARCH_CONFIGS`);
   French text is found by exact words and by meaning.
 - Files in `brief`, and a second outside provider.
@@ -85,8 +118,8 @@ My calls with the most weight, each argued below:
 
 This fails, even if it works, when:
 
-- a page from a switched-off space, or any page with a text layer, reaches
-  Google;
+- a page from a switched-off space, any page with a text layer, or any text
+  of a text format reaches Google;
 - file text, a filename, a description or a passage reaches Logfire or the
   app log;
 - someone reads text from a file they could not open;
@@ -106,14 +139,22 @@ My call: B. Files are not engrams (glossary: "file", "chunk").
 
 | New table | Holds | Visible to |
 |---|---|---|
-| `file_pages` | Per page: file, number, text, reader (`pdf-text`, `tesseract`, `gemini`), model, when read, and a generated English and Dutch search vector | Exactly who can see the file. Written with write access to its space |
+| `file_pages` | Per page: file, number, text, reader (`pdf-text`, `tesseract`, one per text format: `markdown`, `plain`, `html`, `docx`, `xlsx`, `pptx`; `gemini` in phase 2), model, when read, and a generated English and Dutch search vector | Exactly who can see the file. Written with write access to its space |
 | `file_embeddings` | One vector per chunk and model, with a digest, as `engram_embeddings` | As above |
 | `space_scan_readers` | Per space: the reader switched on, by whom, when | Every member reads. Only the owner writes, enforced by row security |
 | `reading_spend` | Per person, day and reader: pages, input and output tokens | The person, as `embedding_spend` |
 
 `attachments` gains `text_status` (`waiting`, `read`, `partly_read`,
 `unreadable`, `not_read`; NULL means never looked at), `pages`, `text_error`
-(an error class) and `outside_read_at`.
+(an error class) and, in phase 2, `outside_read_at`. Phase 1 creates
+`file_pages`, `file_embeddings` and `reading_spend`; phase 2 creates
+`space_scan_readers`.
+
+**What a page is.** A PDF page, an image or one frame of a TIFF, a slide or
+a sheet. Markdown, plain text, HTML and Word have no pages of their own:
+their text is cut between paragraphs into parts of at most 20,000
+characters, and each part is a page. A sheet longer than that goes on over
+the next pages. Tools say "page" for all of them.
 
 The switch is not a column on `spaces`: that table's update policy admits
 every member, narrowed to the `version` column by a grant (`rls.py`,
@@ -127,26 +168,54 @@ Each chunk starts with filename, description and "page N", as an engram's
 sections start with title and headings. Embedding reuses the engram path:
 same service, digests, daily cap, spend table and retries.
 
+**Every file has a vector** (decision 10). A file without text, because it
+is a photo without writing, a format Reef does not read, or a file it could
+not read, has the whole-file chunk only: its filename and description. So
+all 638 files are found by meaning from phase 1 on.
+
 ## How a file is read
 
 - **The type** comes from the bytes, not from the MIME type the caller gave.
+  Text formats carry no signature in their bytes: Reef checks that the bytes
+  are text, and the filename's extension then says which format.
 - **PDF:** a page with almost no text in its layer is a **scan page**,
-  rendered at about 300 dpi. Any other page is a **text page**. Mixed PDFs
-  are handled page by page. An encrypted PDF is `unreadable`.
+  rendered at 200 dpi (see "First local measurement"). Any other page is a
+  **text page**. Mixed PDFs are handled page by page. An encrypted PDF is
+  `unreadable`.
 - **JPEG, PNG, WebP, TIFF:** each image or frame is a scan page, turned
   upright from its EXIF data.
-- **Anything else** is `not_read`, and found by name and description as
-  today.
+- **Text formats** (decision 11), each by its reader:
+
+  | Format | What Reef keeps | Read with |
+  |---|---|---|
+  | Markdown, plain text | The text as written: UTF-8, else Windows-1252 | Python itself |
+  | HTML | The visible text; no scripts, styles or markup | Python's `html.parser` |
+  | Word (`.docx`) | Paragraphs and table cells, in order | `python-docx` |
+  | Excel (`.xlsx`) | Cell values per sheet, the sheet's name first; stored values, not formulas | `openpyxl`, read-only, with `defusedxml` |
+  | PowerPoint (`.pptx`) | The text on each slide | `python-pptx` |
+
+- **Anything else** (PostScript, Photoshop, SVG, XML, SQL, unknown binaries)
+  is `not_read`. It is found by name and description, by words and, from
+  phase 1, by meaning.
 - **Local OCR:** Tesseract 5, `nld+fra+eng`. A page with no words, or only
   low-confidence noise, is stored with empty text: not read again, no junk
   in search.
 
+**Licences.** Every library is permissive and compatible with Reef's
+AGPL-3.0-or-later: `pypdfium2` (Apache-2.0 or BSD-3-Clause; PDFium itself
+BSD-3-Clause), `Pillow` (MIT-CMU), `python-docx`, `openpyxl` and
+`python-pptx` (MIT), `lxml` (BSD-3-Clause, needed by `python-docx` and
+`python-pptx`), `defusedxml` (PSF-2.0), and Tesseract with its language
+data (Apache-2.0). None is a model.
+
 ### Readers and the gate
 
-`reef/reading.py` holds one small interface. A reader takes one page, as a
-PDF page or an image, and returns its text, a confidence if it has one, and
-its token use. It declares whether the page leaves Reef. Three ship:
-`pdf-text`, `tesseract`, `gemini`.
+`reef/reading/` holds one small interface. A reader takes one scan page, as
+an image, and returns its text, a confidence if it has one, and its token
+use. It declares whether the page leaves Reef. `tesseract` ships in phase 1
+and `gemini` in phase 2. Text pages and text formats are read by Reef's own
+code (`pdf-text` and one reader per text format); they never go out, so
+they need no gate.
 
 **The gate** is one function in front of every outside reader. At the moment
 of sending it checks: layer 1 is set up; the space's switch is on for this
@@ -166,6 +235,8 @@ gate. Mistral or dreaming plug in behind it.
   Flash model. Thinking off; an output cap per page.
 - **Once:** `outside_read_at` marks the file. Deleting Google's text clears
   the mark.
+- **Image descriptions:** in a switched-on space, Gemini may also write a
+  better description of an image page (decision 10). Phase 2 designs this.
 
 ### Which text Reef keeps
 
@@ -218,7 +289,9 @@ and `scans_read_by`.
   counts once, by its best match. Its snippet comes from the best page.
 - **By meaning:** file chunks join the ranking by meaning. A file counts by
   its closest chunk, as an engram by its closest section. `fuse` takes kind
-  and id from both rankings; fusion is otherwise unchanged.
+  and id from both rankings; fusion is otherwise unchanged. Every file has
+  at least its whole-file chunk (decision 10), so a photo or a plan is found
+  by the meaning of its description.
 - **Sureness stays as measured:** a file is sure only in a short query.
   Credit for files in whole questions dropped engram finding from 95.0% to
   82.5% on 19 November 2026 (`search.py`). Text inside files makes the rule
@@ -232,14 +305,16 @@ and `scans_read_by`.
 ## Worker jobs
 
 A job names things, never carries them (`jobs.py`). Progress is read from
-`file_pages`, so no job stores a page offset.
+`file_pages`, so no job stores a page offset. No job kind contains `text`,
+`filename` or `description`: Logfire redacts any value that contains a
+scrubbed word (see "Logging").
 
 | Kind | Subject | What it does |
 |---|---|---|
-| `read_file` | file ids | Reads up to 10 pages locally, then queues itself for the rest. When done: sets `text_status`, queues `embed_file`, and `read_file_outside` if the gate could pass |
-| `read_file_outside` | file ids | Sends up to 10 scan pages through the gate, keeps the better text, records spend, queues `embed_file` |
-| `embed_file` | file ids | Embeds changed chunks, as for engrams |
-| `backfill_file_text` | whole person | Queues `read_file` for never-read files in the person's writable spaces. Asked for on index load, as the embedding backfill is |
+| `read_file` | file ids | Reads up to 10 pages locally, then queues itself for the rest. A text format is read whole in one job. A file Reef does not read is marked `not_read`. When done: sets `text_status`, queues `embed_file`, and in phase 2 `read_file_outside` if the gate could pass |
+| `read_file_outside` | file ids | Phase 2. Sends up to 10 scan pages through the gate, keeps the better text, records spend, queues `embed_file` |
+| `embed_file` | file ids | Embeds changed chunks, as for engrams. A file without text gets its whole-file chunk: filename and description |
+| `backfill_files` | whole person | Queues `read_file` for never-read files and `embed_file` for files without a current whole-file vector, in the person's writable spaces. Asked for on index load, as the embedding backfill is |
 
 A job runs as the person whose act queued it (uploader, index loader, or the
 owner who accepted the switch-on offer) and touches only files that person
@@ -248,9 +323,9 @@ may write.
 | Limit | Default |
 |---|---|
 | Pages read per file | 200; the rest is not read (`partly_read`) |
-| Pages per job | 10, so transactions stay short and other jobs interleave |
-| Time per page | 60 s local, 120 s outside |
-| Text per page | 20,000 characters |
+| Pages per job | 10, so transactions stay short and other jobs interleave; a text format whole |
+| Time per page | 60 s local, 120 s outside; a text format 60 s in all |
+| Text per page | 20,000 characters; also the size of a text format's parts |
 | Pages per person per day | 2,000 local; 300 outside, about $1 (research 1.3) |
 | Bytes | the existing 25 MB file cap |
 
@@ -265,11 +340,14 @@ may write.
   403 count; a refusal (400, 413, 422) or a blocked answer counts against the
   page only.
 - **Costs.** `reading_spend` per person; the same counts per job to Logfire,
-  without the person. The operator sets a budget alert and a daily quota on
-  the Google project.
-- **Backfill.** The ~445 files are read locally only. Old scans go out only
-  through the switch-on offer. Before switch-on, a script prints counts by
-  type and pages for Wouter's account, no names.
+  without the person. File chunks, description chunks included, count
+  against the embedding cap (`REEF_EMBEDDING_DAILY_CAP`, 2,000 pieces per
+  person per day), so a large account is embedded over a few days. In phase
+  2 the operator sets a budget alert and a daily quota on the Google project.
+- **Backfill.** The 638 files are read locally only, and each gets its
+  description vector. Old scans go out only through the switch-on offer.
+  Before switch-on, a script prints counts by type and pages for Wouter's
+  account, no names.
 
 ## The space switch
 
@@ -297,7 +375,9 @@ page numbers, durations, PDF or image, error class and HTTP status
 (`breaker.describe`), token counts, breaker state. Never: text, passages,
 filenames, descriptions, space names, the person, the prompt, Google's
 answer or error body, the key. `filename`, `description` and `text` join
-`SCRUB_PATTERNS`. The key goes in the `x-goog-api-key` header, never a URL,
+`SCRUB_PATTERNS`. Logfire redacts every value that contains one of these
+words, not only keys, so log lines, job kinds and span values avoid them.
+The key goes in the `x-goog-api-key` header, never a URL,
 because httpx logs URLs; proxies are ignored (`trust_env=False`), as for the
 embedder. A test reads a file with a marker word through every reader and
 finds the marker in no log record or span.
@@ -306,8 +386,10 @@ finds the marker in no log record or span.
 in a child process with an empty environment, an unprivileged user, and CPU,
 memory and time limits: bytes in on stdin, text out on stdout. A hostile file
 costs one job and cannot read the worker's credentials. Image size is capped
-before decoding. `OMP_THREAD_LIMIT=1`, because OpenMP threads can stall each
-other on Railway's 96-core hosts, as llama.cpp's did (runbook).
+before decoding. An Office file is a ZIP archive: its unpacked size and
+number of entries are capped before parsing, and its XML is read without
+entities or network access. `OMP_THREAD_LIMIT=1`, because OpenMP threads can
+stall each other on Railway's 96-core hosts, as llama.cpp's did (runbook).
 
 **Deletion.** `forget` deletes the row with its pages and vectors, then the
 bytes, as today. Space and account deletion take pages and vectors by
@@ -334,28 +416,33 @@ Vectors stay out, as today. Smaller exports carry the status only.
 - The worker gets a read-only R2 token, never the app's read-write keys.
 
 **Docker image and CPU.** Debian's `tesseract-ocr` (with English and
-orientation data), `tesseract-ocr-nld`, `tesseract-ocr-fra`; Python
-`pypdfium2` (text layers, rendering) and `Pillow`, both permissively
-licensed. About 60 to 100 MB more (my estimate). App and worker share the
-image; only the worker runs it. Tesseract takes 0.5 to 2 seconds per page
-for one language (research 4.1); three languages may take two to three
-times that. The scan test measures it on the Railway worker.
+orientation data), `tesseract-ocr-nld`, `tesseract-ocr-fra`; the Python
+libraries under "Licences"; an unprivileged `reader` user for the child
+process. About 60 to 100 MB more (my estimate). App and worker share the
+image; only the worker runs it. On Wouter's laptop, Tesseract took 6 seconds
+per page at 200 dpi in three languages (see "First local measurement"). The
+10-second bar is checked on the Railway worker before switch-on.
 
 ## Privacy page
 
 - **Phase 1:** "Where it lives" adds that text read from files is kept in
   the database with the engrams (Railway, United States). The files stay in
-  Cloudflare R2, in the EU.
+  Cloudflare R2, in the EU. "Search vectors" adds that the same two models
+  on Reef's own servers also read file descriptions and the text read from
+  files.
 - **Phase 2:** a section on scans, per decision 7. "Neither sends your text
   to another company" gains its one exception.
 
 ## Rollout
 
-1. **Phase 1, local reading,** ships dark behind `REEF_FILE_TEXT`. Its
-   switch-on ticket: the phase 1 privacy line, the backfill on Wouter's
-   account first, the measures below, then everyone.
-2. **The scan test.** Local part during phase 1; Gemini part only with
-   Wouter's OK, with his key, on his machine.
+1. **Phase 1, local reading and description vectors,** ships dark behind
+   `REEF_FILE_TEXT`. Its switch-on ticket: the read-only storage key on the
+   worker, the 10-second check on the Railway worker, the phase 1 privacy
+   line, the backfill on Wouter's account first, the measures below, then
+   everyone.
+2. **The scan test.** The local part is waived (decision 12). The Gemini
+   part runs before phase 2 is built, only with Wouter's OK, with his key,
+   on his machine.
 3. **Phase 2, the Gemini layer,** is built once the test passes. Its
    switch-on ticket: the privacy section live, layer 1 on, Wouter's spaces
    on, a shared space only after its owner has told its members. Reef sends
@@ -373,30 +460,37 @@ ticket or a pull request. Reports carry numbers only.
   he would ask about: a date, an amount, a name, a number, a room size.
 - **Found** means the fact is in the text, ignoring case, spaces and line
   breaks; numbers match exactly.
-- **Local is good enough for phase 1** at 80% of the facts in the letter and
-  the policy, and under 10 seconds per page on the Railway worker. The plan
-  is reported, not judged.
+- **Local, for phase 1: waived** by Wouter on 21 November 2026 (decision
+  12). It would have asked for 80% of the facts in the letter and the
+  policy. The first local measurement stands as the evidence instead. What
+  remains is speed: under 10 seconds per page on the Railway worker,
+  measured before switch-on.
 - **Gemini is good enough for phase 2** at 95% of all facts, plan labels
   included, with **nothing invented**: no name, number or date that is on no
   page. One invention fails the model; the next try uses a Flash model or a
   stricter instruction. Cost per page stays within twice research 1.3's
-  estimate.
-- If local already meets the Gemini bar, the report says so and Wouter
-  decides whether phase 2 is still worth it.
+  estimate. This part stays a condition for phase 2 unless Wouter waives it.
+- The Gemini run also reports how many of the facts the local reading
+  found, so Wouter can decide whether phase 2 is still worth it.
 
 **Search inside files.** 20 questions over Wouter's files whose answer is
 only in the text, not in the filename or description; today none is found.
-After phase 1, the file is in `recall`'s first five for at least 80%, and
-the passage shows the answer for at least 60%.
+Scans, text PDFs and text formats all count. After phase 1, the file is in
+`recall`'s first five for at least 80%, and the passage shows the answer for
+at least 60%.
 
 **Guards.**
 
-- Engram questions in the private set stay at 95% or more in the first five.
+- Engram questions in the private set stay at 95% or more in the first five,
+  measured on production after Wouter's backfill, when his file chunks
+  compete with his engrams.
 - The benchmark slice test passes.
 - Median `recall` time on production rises by at most 100 ms after the
   backfill.
-- Every switched-off and text-page case runs against a fake outside reader
-  that fails the test when called.
+- Phase 1 sends nothing out: a test fails if reading a file calls anything
+  but the object store, and embedding anything but the embedding service.
+- Phase 2: every switched-off and text-page case runs against a fake outside
+  reader that fails the test when called.
 
 ## First local measurement (21 November 2026)
 
@@ -428,3 +522,5 @@ Tesseract 5.5.4 on Wouter's laptop (14 cores), on his three insurance scans: 35 
 - The child process mechanics; job kind names; batch size.
 - The switch's copy and layout in the members sheet.
 - HEIC, if Pillow reads it cheaply.
+- Which parts of a Word file count beyond paragraphs and tables (headers,
+  footers, footnotes), and the caps on an Office file's unpacked size.
