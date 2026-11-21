@@ -656,8 +656,9 @@ rebuild the service, these are its settings:
 - **Variables:** `DATABASE_URL` for the app role and `LOGFIRE_TOKEN`. Both
   are references to `reef-app`'s values (`${{reef-app.DATABASE_URL}}`), so a
   rotation there reaches the worker too. **Not** the
-  migration or backup credentials, the session secret, the signing key or
-  the storage keys. It needs none of them.
+  migration or backup credentials, the session secret or the signing key.
+  Once file reading is on (see "Reading files (RUG-37)"), it also needs the
+  four storage variables, with a **read-only** token. Never the app's keys.
 - **No public domain and no volume.** It listens on nothing.
 - **One replica is enough.** More than one is safe: two workers never take
   the same job.
@@ -1361,6 +1362,77 @@ nobody reads another person's calls.
 `reef-app`. **Before you set it**, update the privacy page and tell the
 people who use Reef. The privacy page promises that people hear about this
 first. Setting the variable is a separate decision from the RUG-40 deploy.
+
+## Reading files (RUG-37)
+
+**What it does.** Reef reads the text inside stored files, on its own
+servers, and makes that text searchable. It reads PDFs and images (scans go
+through Tesseract, in Dutch, French and English), Markdown, plain text, HTML,
+Word, Excel and PowerPoint. Nothing leaves Reef: no other company sees a
+file or its text. A file that cannot be read stays findable by its name and
+description.
+
+**Off by default.** Set `REEF_FILE_TEXT=1` on both `reef-app` and
+`reef-worker`. The app queues files and searches their text. The worker reads
+them. With the variable unset, Reef behaves as before.
+
+**The worker's storage token.** The worker fetches each file from R2, so it
+needs `REEF_S3_ENDPOINT`, `REEF_S3_BUCKET`, `REEF_S3_ACCESS_KEY` and
+`REEF_S3_SECRET_KEY`. Make a Cloudflare API token with "Object Read only" on
+the bucket, and use its keys here. Never copy the app's read-write keys to the
+worker: a worker that can write can also delete.
+
+**Settings.** They have the prefix `REEF_FILE_TEXT_`; the table under
+"Reference" lists each one. Three things to know:
+
+- A deployment that sets `REEF_ENGRAM_MAX_CHARS` (or the old
+  `REEF_PAGE_MAX_CHARS`) below 20,000 refuses to start until
+  `REEF_FILE_TEXT_PAGE_CHARS` is lowered to match. A page may not be longer
+  than an engram may be.
+- Text formats are read whole, so a day can go over `daily_pages` by up to
+  one file's parts (at most `pages_per_file`).
+- The reading job holds its database transaction while it reads. This is on
+  purpose. The job row's lock is the queue's lease, and the worker runs one
+  job at a time.
+
+**What it costs.** Each person may have 2,000 pages read and 2,000 pieces
+embedded per day. A large account therefore takes days to finish. When the
+day's pages are spent, the job ends normally and the file waits six hours
+(`REEF_FILE_TEXT_RETRY_SECONDS`). Pages already read are kept.
+
+**The sandbox.** The worker never parses a file itself. Each file is read in
+a child process that has an empty environment, runs as the `reader` user when
+the worker runs as root, and has limits on CPU, memory and time. The
+Dockerfile has no `USER` line for this reason: do not add one, or the child
+runs as the worker and can read its secrets. The child makes no network calls
+itself, but it is not cut off from the network. Closing that needs Linux
+namespaces or seccomp, which phase 1 does not do.
+
+**What is logged.** Counts, page numbers, durations, the kind of file (PDF or
+image) and the class of an error. Never a text, a passage, a filename, a
+description, a space name or a person. `filename`, `description` and `text`
+are scrubbed from Logfire.
+
+**Switching it off.** Unset `REEF_FILE_TEXT` on both services. Reading and
+file search stop at once. The text already stored stays, and is used again
+when it is switched back on.
+
+**Scripts.** Both print numbers only. Neither prints a name, a question, a
+passage or an address.
+
+- `scripts/file_report.py --email PERSON [--time N] [--queue]`, run in
+  `reef-worker`. It prints how many ready files and pages the person has,
+  per kind. `--time N` reads up to N scan pages through the real sandbox,
+  stores nothing, and adds the seconds a page took (median and longest) and
+  the median word confidence. `--queue` queues reading for every file that
+  needs it and adds how many jobs it queued. It needs `REEF_FILE_TEXT`.
+- `scripts/measure_recall.py --email PERSON --file-text on|off`, run in
+  `reef-app`. It reads questions as JSON on stdin (`id`, `text`, `expected`
+  as `<space>/<path>` or `<space>/file/<key>`, and optionally `answer`),
+  searches each with five results, and logs no search. It prints how many
+  engram and file questions were found in the first five, how many answers
+  were in the passage, and the median time. Run it with `off`, then `on`,
+  and compare. Keep the questions in `~/.reef-eval-private`, never in git.
 
 ## Deploying the rename (RUG-40)
 
