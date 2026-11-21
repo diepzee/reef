@@ -15,6 +15,7 @@ This module holds the shared names only, so a child process importing it
 pulls in nothing heavy. See ``docs/specs/2026-11-21-file-text-design.md``.
 """
 
+import errno
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Protocol
@@ -148,3 +149,32 @@ class SandboxUnavailable(Exception):
     Not a :class:`ReadFailed`: the file is not at fault. The job fails, and
     the queue tries it again.
     """
+
+
+class OutOfProcesses(SandboxUnavailable):
+    """The child could not start a process or a thread.
+
+    Linux refused it (``EAGAIN``): ``reader`` has as many processes as the
+    child's cap allows (see :func:`reef.reading.child.apply_limits`), or the
+    container as many as it may. The worker is short of room, and the file
+    is not at fault: like any :class:`SandboxUnavailable`, the job fails
+    and is tried again, and the file gets no failure of its own. The child
+    names it in its answer; the worker raises it.
+    """
+
+
+def out_of_processes(error: BaseException) -> bool:
+    """Tell whether an error says a process or a thread could not start.
+
+    ``fork`` fails with ``EAGAIN`` (``BlockingIOError``) when the user has
+    as many processes as it may; a thread that cannot start raises
+    ``RuntimeError("can't start new thread")``.
+
+    :param error: what was raised
+    :returns: True for either, and for :class:`OutOfProcesses` itself
+    """
+    if isinstance(error, OutOfProcesses):
+        return True
+    if isinstance(error, OSError):
+        return error.errno == errno.EAGAIN
+    return isinstance(error, RuntimeError) and "can't start new thread" in str(error)

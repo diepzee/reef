@@ -10,13 +10,20 @@ root worker hands each file to it, that the child gets none of the worker's
 variables and cannot read the worker's environment, and that Tesseract reads
 Dutch, French and English there. It reads a Markdown file and a scan
 through :mod:`reef.reading`, as the worker will, and as many scans at once
-as the worker reads pages, under the child's cap on processes. It checks
-that the cap stops a fork chain. And it checks that no thread of ``reader``
+as the worker reads pages, under the child's cap on processes. Like the
+worker, it adopts its children's orphans first.
+
+It checks that the cap comes back: after a burst of reads that time out,
+each leaving a Tesseract without a parent, and after a fork chain that
+fills the cap, Tesseract and a Markdown read still work, with no sweep in
+between, as within one job. It checks that no thread of ``reader``
 outlives a read: neither one a normal read leaves, nor one a hostile child
 starts, in its group or out of it, nor one whose process shows as a zombie
-because its main thread alone has ended. The files are made here; nothing
-is fetched. It prints counts and names only, and exits non-zero on the
-first thing that is wrong.
+because its main thread alone has ended. Last, it checks that a sweep
+leaves no zombie of ``reader`` at all, whatever its parent: one that went
+to PID 1 would never be collected. The files are made here; nothing is
+fetched. It prints counts and names only, and exits non-zero on the first
+thing that is wrong.
 """
 
 import asyncio
@@ -28,7 +35,15 @@ import time
 from pathlib import Path
 
 from reef.config import get_settings
-from reef.reading import FileKind, ScanPage, local, sandbox
+from reef.reading import (
+    FileKind,
+    ReadFailed,
+    ReadTimedOut,
+    SandboxUnavailable,
+    ScanPage,
+    local,
+    sandbox,
+)
 
 LINES = (
     "Verzekering van de woning en de inboedel",
@@ -205,6 +220,76 @@ def _reader_threads() -> list[int]:
     return found
 
 
+def _reader_zombies() -> int:
+    """Count the zombies of ``reader``, whatever their parent.
+
+    :returns: how many there are
+    """
+    uid = str(pwd.getpwnam(sandbox.READER_USER).pw_uid)
+    found = 0
+    for status in Path("/proc").glob("[0-9]*/status"):
+        try:
+            lines = status.read_text().splitlines()
+        except OSError:
+            continue
+        fields = dict(line.split(":", 1) for line in lines if ":" in line)
+        zombie = fields.get("State", "").strip()[:1] == "Z"
+        found += zombie and fields.get("Uid", "").split()[:1] == [uid]
+    return found
+
+
+async def _still_reads(page: ScanPage, after: str) -> None:
+    """Check that Tesseract and a Markdown read still work.
+
+    :param page: a scan page Tesseract can read
+    :param after: what came before, for the report
+    """
+    try:
+        reading = await local.TesseractReader().read(page)
+        outcome = "reads" if LINES[0].split()[0] in reading.text else "misreads"
+    except (ReadFailed, SandboxUnavailable) as error:
+        outcome = type(error).__name__
+    _check(outcome == "reads", f"after {after}, Tesseract still {outcome} a page")
+    try:
+        parts, _ = await local.read_parts(b"# Notes", FileKind.MARKDOWN)
+        outcome = "reads" if parts == ["# Notes"] else "misreads"
+    except (ReadFailed, SandboxUnavailable) as error:
+        outcome = type(error).__name__
+    _check(outcome == "reads", f"and the child still {outcome} a Markdown file")
+
+
+async def _time_out(page: ScanPage, wanted: int) -> tuple[int, str | None]:
+    """Read a scan with too little time, until enough reads have timed out.
+
+    Each read gets 70% of what one took, so it is killed while Tesseract
+    runs, and Tesseract loses its parent.
+
+    :param page: the scan page
+    :param wanted: how many reads should time out
+    :returns: how many did, out of at most three times as many tries; and
+        the class of any other failure, which ends the burst
+    """
+    settings = get_settings().reading
+    given = settings.page_seconds
+    started = time.monotonic()
+    await local.TesseractReader().read(page)
+    settings.page_seconds = (time.monotonic() - started) * 0.7
+    timed_out = 0
+    try:
+        for _ in range(wanted * 3):
+            try:
+                await local.TesseractReader().read(page)
+            except ReadTimedOut:
+                timed_out += 1
+            except (ReadFailed, SandboxUnavailable) as error:
+                return timed_out, type(error).__name__
+            if timed_out == wanted:
+                break
+    finally:
+        settings.page_seconds = given
+    return timed_out, None
+
+
 def _settled(count: int) -> int:
     """Wait up to two seconds for ``reader`` to have this many live threads.
 
@@ -234,6 +319,7 @@ async def main() -> None:
     """Run every check, in order."""
     _check(os.geteuid() == 0, "the worker runs as root")
     _check(sandbox.child_user() == "reader", "a root worker reads as reader")
+    _check(sandbox.adopt_orphans(), "it adopts its children's orphans, as the worker")
 
     os.environ[CANARY] = "canary"
     user, readable, names = await _probe()
@@ -270,9 +356,18 @@ async def main() -> None:
     )
 
     _check(_settled(0) == 0, "no thread of reader outlives a read")
+
+    timed_out, failed = await _time_out(page, cap + 4)
+    burst = "short OCR reads only time out" + (f", not {failed}" if failed else "")
+    _check(failed is None, burst)
+    _check(timed_out > cap, f"{timed_out} OCR reads time out, more than the cap")
+    _check(_settled(0) == 0, "and no thread of reader outlives them")
+    await _still_reads(page, "they timed out")
+
     started = int(await _in_child(FORK_CHAIN))
     _check(0 < started < cap, f"a fork chain in the child is refused after {started}")
     _check(_settled(0) == 0, "and they die with the child")
+    await _still_reads(page, "the fork chain")
 
     await _forks(leave=False)
     _check(_settled(0) == 0, "a process left in the child's group dies with it")
@@ -290,6 +385,10 @@ async def main() -> None:
     killed = sandbox.kill_reader_processes()
     _check(killed == 1, f"the sweep kills that process too: {killed}")
     _check(_settled(0) == 0, "and then no thread of reader is left")
+
+    sandbox.kill_reader_processes()
+    zombies = _reader_zombies()
+    _check(zombies == 0, f"a sweep between jobs leaves {zombies} zombies of reader")
 
 
 if __name__ == "__main__":

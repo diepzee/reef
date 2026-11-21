@@ -18,8 +18,14 @@ from filefixtures import (
     zip_bytes,
 )
 
-from reef.reading import FileKind, TooLarge, Unreadable, sandbox
-from reef.reading.formats import check_archive, decode_text, html_text, text_parts
+from reef.reading import FileKind, OutOfProcesses, TooLarge, Unreadable, sandbox
+from reef.reading.formats import (
+    _office,
+    check_archive,
+    decode_text,
+    html_text,
+    text_parts,
+)
 from reef.sections import cut
 
 PAGE_CHARS = 20_000
@@ -329,6 +335,22 @@ def test_a_broken_office_file_is_unreadable_without_the_librarys_message():
     with pytest.raises(Unreadable) as failure:
         text_parts(data, FileKind.DOCX, PAGE_CHARS)
     assert not failure.value.args
+
+
+def test_an_office_reader_that_cannot_start_a_thread_is_out_of_processes():
+    """A full process count is the worker's trouble, not the file's."""
+
+    def read(file, budget) -> list[str]:
+        """Fail as a thread that cannot start does.
+
+        :param file: the opened file
+        :param budget: the characters left
+        :raises RuntimeError: always
+        """
+        raise RuntimeError("can't start new thread")
+
+    with pytest.raises(OutOfProcesses):
+        _office(docx_bytes(["a"]), FileKind.DOCX, read, None)
 
 
 _SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"

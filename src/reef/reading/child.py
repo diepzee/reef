@@ -10,8 +10,12 @@ one operation and prints one JSON object on one line. An answer that holds a
 PNG gives its length as ``"png"``, and the PNG's raw bytes follow a newline:
 no base64, so the worker holds the image once. A read that fails prints
 ``{"error": "<class>"}``, the class of a :class:`~reef.reading.ReadFailed`,
-and nothing else. Anything unexpected ends the child without an answer; its
-traceback goes to stderr, which the worker throws away.
+and nothing else. A process or thread that cannot start, because the
+child's user has as many processes as it may, prints
+``{"error": "OutOfProcesses"}``: not the file's fault, and the worker
+treats it as its own (:class:`~reef.reading.OutOfProcesses`). Anything
+unexpected ends the child without an answer; its traceback goes to stderr,
+which the worker throws away.
 
 Operations:
 
@@ -44,7 +48,13 @@ import resource
 import sys
 from collections.abc import Callable
 
-from reef.reading import FileKind, ReadFailed, TooLarge
+from reef.reading import (
+    FileKind,
+    OutOfProcesses,
+    ReadFailed,
+    TooLarge,
+    out_of_processes,
+)
 
 _OPEN_FILES = 64
 """Enough for a parser and the programs it runs, not for much else."""
@@ -197,6 +207,8 @@ def main(argv: list[str]) -> int:
 
     :param argv: ``--memory-mb N --cpu-seconds S [--processes P] <op> ...``
     :returns: 0 once an answer is printed, a failure's class included
+    :raises Exception: anything unexpected, so the child ends without an
+        answer
     """
     arguments = _arguments(argv)
     apply_limits(arguments.memory_mb, arguments.cpu_seconds, arguments.processes)
@@ -207,6 +219,11 @@ def main(argv: list[str]) -> int:
         answer = {"error": type(failure).__name__}
     except MemoryError:
         answer = {"error": TooLarge.__name__}
+    except Exception as error:
+        # Such as a thread an import starts, or Tesseract's fork.
+        if not out_of_processes(error):
+            raise
+        answer = {"error": OutOfProcesses.__name__}
     png = answer.get("png")
     if isinstance(png, bytes):
         answer["png"] = len(png)

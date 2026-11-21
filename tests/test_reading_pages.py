@@ -1,5 +1,6 @@
 """PDF pages and images, read in the child, and scans read by Tesseract."""
 
+import errno
 import io
 import json
 import math
@@ -28,6 +29,7 @@ from reef.config import get_settings
 from reef.reading import (
     Encrypted,
     FileKind,
+    OutOfProcesses,
     Reading,
     SandboxUnavailable,
     ScanPage,
@@ -537,3 +539,49 @@ def test_noise_is_stored_as_empty_text(scores: list[int], expected: tuple):
     tsv = _tsv(*(_word((1, 1, 1), s, names[n]) for n, s in enumerate(scores)))
     assert pages.tsv_reading(tsv, 20_000) == expected
     assert (pages.NOISE_WORDS, pages.NOISE_CONFIDENCE) == (3, 40.0)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable"),
+        OSError(errno.EAGAIN, "Resource temporarily unavailable"),
+        RuntimeError("can't start new thread"),
+    ],
+)
+def test_a_process_that_cannot_start_is_not_an_unreadable_file(error: Exception):
+    """A full process count is the worker's trouble, not the scan's.
+
+    :param error: what starting a process or thread raised
+    """
+    with pytest.raises(OutOfProcesses) as raised, pages._plain_failures():
+        raise error
+    assert raised.value.__context__ is None or raised.value.__suppress_context__
+
+
+@pytest.mark.parametrize(
+    "error", [OSError(errno.ENOENT, "No such file"), RuntimeError("something else")]
+)
+def test_any_other_library_error_is_still_unreadable(error: Exception):
+    """Only a process or thread that cannot start is set apart.
+
+    :param error: what the library raised
+    """
+    with pytest.raises(Unreadable), pages._plain_failures():
+        raise error
+
+
+def test_tesseract_that_cannot_start_is_out_of_processes(monkeypatch):
+    """``fork`` fails inside ``subprocess.run`` when the cap is reached."""
+
+    def run(*args, **kwargs):
+        """Fail as ``fork`` does at the cap.
+
+        :raises BlockingIOError: always
+        """
+        raise BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable")
+
+    monkeypatch.setattr(pages.subprocess, "run", run)
+    png = scan_image(["Polis"], "PNG")
+    with pytest.raises(OutOfProcesses):
+        pages.ocr(png, "/usr/bin/tesseract", "eng", 200, 1000)

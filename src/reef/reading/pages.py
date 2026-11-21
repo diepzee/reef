@@ -38,7 +38,15 @@ import subprocess
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from reef.reading import Encrypted, FileKind, ReadFailed, TooLarge, Unreadable
+from reef.reading import (
+    Encrypted,
+    FileKind,
+    OutOfProcesses,
+    ReadFailed,
+    TooLarge,
+    Unreadable,
+    out_of_processes,
+)
 
 if TYPE_CHECKING:
     import pypdfium2 as pdfium
@@ -94,6 +102,8 @@ def _plain_failures() -> Iterator[None]:
 
     :raises ReadFailed: as raised
     :raises TooLarge: for a lack of memory
+    :raises OutOfProcesses: when a process or thread could not start, such
+        as Tesseract: the worker is short of room, the file is not at fault
     :raises Unreadable: for anything else
     """
     try:
@@ -102,7 +112,9 @@ def _plain_failures() -> Iterator[None]:
         raise
     except MemoryError:
         raise TooLarge from None
-    except Exception:  # noqa: BLE001 - a library's error is never kept
+    except Exception as error:  # noqa: BLE001 - a library's error is never kept
+        if out_of_processes(error):
+            raise OutOfProcesses from None
         raise Unreadable from None
 
 
@@ -434,6 +446,8 @@ def ocr(png: bytes, tesseract: str, languages: str, dpi: int, page_chars: int) -
     :param page_chars: the most characters of text to give
     :returns: ``{"text": ..., "confidence": ...}``, as :func:`tsv_reading`
     :raises TooLarge: for a PNG with more than :data:`MAX_PIXELS`
+    :raises OutOfProcesses: when Tesseract cannot be started for lack of
+        processes
     :raises Unreadable: when the bytes are not a PNG, or Tesseract fails
     """
     with _plain_failures():

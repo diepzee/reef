@@ -8,6 +8,8 @@ which stands in for the object store the job reads from.
 import asyncio
 import logging
 import re
+import signal
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -21,7 +23,7 @@ from filefixtures import (
     zip_bytes,
 )
 
-from reef import filetext
+from reef import filetext, worker
 from reef.access import Principal, arm
 from reef.attachments import delete_attachment
 from reef.config import get_settings
@@ -30,6 +32,7 @@ from reef.db import transaction_scope
 from reef.jobs import BACKFILL_FILES, EMBED_FILE, READ_FILE, enqueue
 from reef.models import FilePage, Job, TextStatus
 from reef.reading import (
+    OutOfProcesses,
     Reading,
     SandboxUnavailable,
     ScanPage,
@@ -515,6 +518,73 @@ async def test_a_missing_sandbox_fails_the_job_so_the_queue_retries(
         ("queued", "SandboxUnavailable")
     ]
     assert await _status(me.principal, file.id) == ("waiting", None, None)
+
+
+async def test_a_full_process_count_is_retried_and_the_file_keeps_no_failure(
+    household, monkeypatch
+):
+    """The worker is short of processes; the file is not at fault."""
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "polis.pdf", _pdf(1), PDF, DESCRIPTION)
+
+    async def survey(data, kind):
+        """Fail as a child that could not start a process does.
+
+        :raises OutOfProcesses: always
+        """
+        raise OutOfProcesses
+
+    monkeypatch.setattr(local, "survey", survey)
+    assert await drain("test") == 1
+    jobs = await _jobs(me.principal, READ_FILE)
+    assert [(job["status"], job["error"]) for job in jobs] == [
+        ("queued", "OutOfProcesses")
+    ]
+    assert await _status(me.principal, file.id) == ("waiting", None, None)
+
+
+async def test_the_worker_adopts_orphans_before_it_serves(monkeypatch, caplog):
+    """Its children's orphans come to it, so the sweep can collect them; a
+    refusal is logged by class and the worker serves anyway."""
+    happened: list[str] = []
+
+    def adopt() -> bool:
+        """Note the adoption, and fail it.
+
+        :raises OSError: always
+        """
+        happened.append("adopt")
+        raise OSError(22, "Invalid argument")
+
+    async def nothing() -> None:
+        """Stand in for the connection pool."""
+
+    async def serve(name: str, stop: asyncio.Event, poll_seconds: float) -> None:
+        """Note that the worker serves.
+
+        :param name: the worker's name
+        :param stop: when to stop
+        :param poll_seconds: how long to wait for jobs
+        """
+        happened.append("serve")
+
+    monkeypatch.setattr(sandbox, "adopt_orphans", adopt)
+    monkeypatch.setattr(worker, "serve", serve)
+    monkeypatch.setattr(
+        worker,
+        "DB",
+        SimpleNamespace(start_connection_pool=nothing, close_connection_pool=nothing),
+    )
+    loop = asyncio.get_running_loop()
+    try:
+        with caplog.at_level(logging.INFO, logger="reef.worker"):
+            await worker._main()
+    finally:
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            loop.remove_signal_handler(signum)
+    assert happened == ["adopt", "serve"]
+    lines = [record.getMessage() for record in caplog.records]
+    assert "worker: orphaned processes are not adopted (OSError)" in lines
 
 
 async def test_a_missing_sandbox_while_reading_pages_fails_the_job(

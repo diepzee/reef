@@ -24,6 +24,13 @@ A process that left the group still runs as ``reader``. A root worker on
 Linux kills every process of ``reader`` before and after each reading job
 (:func:`kill_reader_processes`).
 
+A killed process stays a zombie until its parent collects it, and Linux
+counts a zombie against the child's cap on processes. A process whose
+parent was killed goes to the nearest ancestor that adopts orphans, else to
+PID 1, which under ``uv run`` collects nothing. So a root worker on Linux
+adopts its descendants' orphans (:func:`adopt_orphans`) and collects those
+of ``reader``: around each child, and in each sweep (:func:`reap_orphans`).
+
 A failure comes back as a :class:`~reef.reading.ReadFailed` class and
 nothing else. Whatever the child printed stays out of every exception, log
 line and span: it may be the file's own text.
@@ -31,6 +38,7 @@ line and span: it may be the file's own text.
 
 import asyncio
 import contextlib
+import ctypes
 import json
 import math
 import os
@@ -38,7 +46,7 @@ import pwd
 import signal
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -48,6 +56,7 @@ from reef.reading import (
     Encrypted,
     FileKind,
     NoMainPart,
+    OutOfProcesses,
     ReadFailed,
     ReadTimedOut,
     SandboxUnavailable,
@@ -78,6 +87,9 @@ _COUNTS_TO_ONE_MORE = frozenset({FileKind.DOCX, FileKind.XLSX, FileKind.PPTX})
 
 PROC = Path("/proc")
 """Where Linux lists its processes."""
+
+PR_SET_CHILD_SUBREAPER = 36
+"""The ``prctl`` option that makes a process adopt its descendants' orphans."""
 
 _SWEEPS = 100
 """How many times a sweep looks again for processes started while it looked."""
@@ -377,8 +389,61 @@ def _kill_group(process: asyncio.subprocess.Process) -> None:
         os.killpg(process.pid, signal.SIGKILL)
 
 
+def _sweeps_reader() -> bool:
+    """Tell whether this process sweeps ``reader``: a root process on Linux.
+
+    Elsewhere the child runs as the process's own user, and nothing tells
+    the child's processes from the process's own.
+
+    :returns: True on Linux as root
+    """
+    return sys.platform.startswith("linux") and os.geteuid() == 0
+
+
+def _reader_uid() -> int | None:
+    """Return the user id of ``reader`` when this process sweeps it.
+
+    :returns: the id; None when this process does not sweep, or there is
+        no such user
+    """
+    if not _sweeps_reader():
+        return None
+    try:
+        return pwd.getpwnam(READER_USER).pw_uid
+    except KeyError:
+        return None
+
+
+def adopt_orphans() -> bool:
+    """Make this process adopt the orphans of its descendants.
+
+    When the read's process group is killed, a Tesseract the child started
+    loses its parent. Linux hands it to the nearest ancestor that adopts
+    orphans (``PR_SET_CHILD_SUBREAPER``), else to PID 1. The worker runs
+    under ``uv run``, which as PID 1 never collects them, and each zombie
+    counts against the child's cap on processes until it is collected. With
+    this, the orphans come to this process, and :func:`reap_orphans`
+    collects them.
+
+    The worker calls it once at start-up, and so does every script that
+    reads through the sandbox as root. Linux only, and only as root, like
+    the sweep: elsewhere nothing here collects orphans, so they are better
+    left to PID 1.
+
+    :returns: whether this process now adopts orphans
+    :raises OSError: when Linux refuses
+    """
+    if not _sweeps_reader():
+        return False
+    libc = ctypes.CDLL(None, use_errno=True)
+    if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:
+        number = ctypes.get_errno()
+        raise OSError(number, os.strerror(number))
+    return True
+
+
 def kill_reader_processes() -> int:
-    """Kill every process of the ``reader`` user.
+    """Kill every process of the ``reader`` user, and collect its zombies.
 
     A child that runs code from a hostile file can start a process that
     outlives its read. One that stays in the child's process group dies with
@@ -392,19 +457,79 @@ def kill_reader_processes() -> int:
     container may run as ``reader`` meanwhile: a timing run of
     ``scripts/file_report.py`` beside a reading job loses its read.
 
+    Before and after the kills it collects every zombie of ``reader`` this
+    process adopted, session leaders too (:func:`reap_orphans`): with no
+    read in flight, none of them is a child asyncio waits for. A process
+    killed here may end only after the second look; the next sweep, or the
+    next read, collects it.
+
     Linux only, and only when the worker runs as root: elsewhere the child
     runs as the worker's own user, and nothing tells its processes from the
     worker's. It reads ``/proc`` and signals with the standard library.
 
     :returns: how many processes were killed
+    :raises OSError: when ``/proc`` cannot be read
     """
-    if not sys.platform.startswith("linux") or os.geteuid() != 0:
+    uid = _reader_uid()
+    if uid is None:
         return 0
-    try:
-        uid = pwd.getpwnam(READER_USER).pw_uid
-    except KeyError:
-        return 0
-    return kill_owned_by(uid, PROC)
+    reap_orphans(uid, PROC, leaders=True)
+    killed = kill_owned_by(uid, PROC)
+    reap_orphans(uid, PROC, leaders=True)
+    return killed
+
+
+def reap_orphans(uid: int, proc: Path, *, leaders: bool) -> int:
+    """Collect the zombies of one user that this process adopted.
+
+    Only a zombie whose parent is this process, and whose every thread has
+    ended, is waited on, and never with a wait that blocks. Nothing else is
+    waited on: not another user's process, not another parent's.
+
+    Each child :func:`run_child` starts leads its own session, and asyncio
+    collects it. While reads run, a session leader is left alone
+    (``leaders=False``): what is collected then is a process a child
+    started, such as its Tesseract. Between reads, when no child runs,
+    session leaders are collected too: processes that hostile code moved to
+    a session of their own.
+
+    :param uid: the user
+    :param proc: where the processes are listed, ``/proc`` on Linux
+    :param leaders: whether to collect a process that leads its session
+    :returns: how many were collected
+    :raises OSError: when ``proc`` cannot be listed
+    """
+    me = str(os.getpid())
+    collected = 0
+    for pid, fields in _statuses(proc):
+        if (
+            not _ended(fields)
+            or fields.get("PPid", "").strip() != me
+            or str(uid) not in fields.get("Uid", "").split()
+        ):
+            continue
+        # Ours until we collect it, so the id cannot be given to another.
+        try:
+            if not leaders and os.getsid(pid) == pid:
+                continue
+            collected += os.waitpid(pid, os.WNOHANG)[0] == pid
+        except (ChildProcessError, ProcessLookupError):
+            continue
+    return collected
+
+
+def collect_orphans() -> None:
+    """Collect the zombies of ``reader`` a child left, around a read.
+
+    Session leaders are left to the sweep: see :func:`reap_orphans`. Never
+    raises: a ``/proc`` that cannot be read fails the next sweep, which
+    reports it, and must not take the place of the read's own outcome.
+    Linux only, and only as root; elsewhere it does nothing.
+    """
+    uid = _reader_uid()
+    if uid is not None:
+        with contextlib.suppress(OSError):
+            reap_orphans(uid, PROC, leaders=False)
 
 
 def kill_owned_by(uid: int, proc: Path) -> int:
@@ -450,7 +575,22 @@ def _owned_by(uid: int, proc: Path) -> list[int]:
     :param proc: where the processes are listed
     :returns: their ids, lowest first
     """
-    owned: list[int] = []
+    owned = [
+        pid
+        for pid, fields in _statuses(proc)
+        if not _ended(fields) and str(uid) in fields.get("Uid", "").split()
+    ]
+    return sorted(owned)
+
+
+def _statuses(proc: Path) -> Iterator[tuple[int, dict[str, str]]]:
+    """Read the status of every process listed.
+
+    :param proc: where the processes are listed
+    :returns: each process's id and the fields of its status, in the order
+        listed; a process that ended while it was read is left out
+    :raises OSError: when ``proc`` cannot be listed
+    """
     for entry in proc.iterdir():
         if not entry.name.isdecimal():
             continue
@@ -459,13 +599,20 @@ def _owned_by(uid: int, proc: Path) -> list[int]:
         except OSError:
             # It ended while the sweep looked.
             continue
-        fields = dict(line.split(":", 1) for line in status.splitlines() if ":" in line)
-        state = fields.get("State", "").strip()[:1]
-        threads = fields.get("Threads", "").strip()
-        ended = state in ("Z", "X") and threads in ("0", "1")
-        if not ended and str(uid) in fields.get("Uid", "").split():
-            owned.append(int(entry.name))
-    return sorted(owned)
+        lines = status.splitlines()
+        yield int(entry.name), dict(line.split(":", 1) for line in lines if ":" in line)
+
+
+def _ended(fields: dict[str, str]) -> bool:
+    """Tell whether a process has ended: a zombie, or being removed, with no
+    thread left running.
+
+    :param fields: the fields of its status
+    :returns: True once its last thread has ended; False when its thread
+        count cannot be read
+    """
+    state = fields.get("State", "").strip()[:1]
+    return state in ("Z", "X") and fields.get("Threads", "").strip() in ("0", "1")
 
 
 async def run_child(
@@ -492,7 +639,9 @@ async def run_child(
     A child that runs as ``reader`` is also given a cap on its processes:
     :data:`PROCESSES_PER_PAGE` for each page read at once. One that runs as
     the worker's own user is not: Linux would count the worker's processes
-    against it.
+    against it. Before the child starts and after it ends, the zombies
+    earlier children left are collected, so they do not fill the cap within
+    a job (:func:`reap_orphans`).
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits
@@ -507,6 +656,8 @@ async def run_child(
     :raises ReadFailed: the class the child named, when it named one
     :raises ChildCrashed: when the child prints more than its bound, or
         ends without an answer of the right shape
+    :raises OutOfProcesses: when the child could not start a process or a
+        thread: the worker is short of room, the file is not at fault
     :raises SandboxUnavailable: when the child cannot be started safely
     """
     operation = _OPERATIONS.get(args[0])
@@ -529,6 +680,7 @@ async def run_child(
         *(["--processes", str(cap)] if identity else []),
         *args,
     ]
+    collect_orphans()
     try:
         process = await asyncio.create_subprocess_exec(
             *command,
@@ -554,6 +706,7 @@ async def run_child(
         # running. The group goes, whatever the child's own state.
         _kill_group(process)
         await process.wait()
+        collect_orphans()
     answer = _answer(process.returncode, stdout, json_bytes)
     if operation is not None and not operation.shaped(answer, args):
         raise ChildCrashed
@@ -623,6 +776,8 @@ def _answer(returncode: int | None, stdout: bytearray, json_bytes: int) -> dict:
     :param json_bytes: the most an answer without raw bytes may take
     :returns: its answer
     :raises ReadTimedOut: when it ran out of CPU time
+    :raises OutOfProcesses: when it named that class: not a
+        :class:`~reef.reading.ReadFailed`, so the file keeps no failure
     :raises ReadFailed: the class it named
     :raises ChildCrashed: for anything else that is not an answer
     """
@@ -646,7 +801,10 @@ def _answer(returncode: int | None, stdout: bytearray, json_bytes: int) -> dict:
     if not isinstance(answer, dict):
         raise ChildCrashed
     if "error" in answer:
-        raise _FAILURES.get(str(answer["error"]), ChildCrashed)
+        named = str(answer["error"])
+        if named == OutOfProcesses.__name__:
+            raise OutOfProcesses
+        raise _FAILURES.get(named, ChildCrashed)
     if "png" in answer:
         if end < 0 or not _is_count(answer["png"]) or answer["png"] != rest:
             raise ChildCrashed

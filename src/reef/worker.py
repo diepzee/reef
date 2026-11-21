@@ -436,7 +436,21 @@ async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:
 
 
 async def _main() -> None:
-    """Start the pool, serve until SIGTERM or SIGINT, and close the pool."""
+    """Adopt orphans, start the pool, serve until SIGTERM or SIGINT, and close the pool.
+
+    A root worker on Linux adopts the orphans of the processes it starts, so
+    it can collect their zombies: under ``uv run``, PID 1 never does, and
+    each one counts against the reading child's cap on processes (see
+    :func:`reef.reading.sandbox.adopt_orphans`). A refusal is logged by its
+    class, and the worker serves anyway: reads then run out of processes
+    and are retried, which the log shows.
+    """
+    try:
+        sandbox.adopt_orphans()
+    except OSError as error:
+        log.error(
+            "worker: orphaned processes are not adopted (%s)", type(error).__name__
+        )
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGTERM, signal.SIGINT):

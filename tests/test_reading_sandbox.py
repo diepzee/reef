@@ -1,6 +1,7 @@
 """Every file is parsed in a child process that cannot reach the worker's secrets."""
 
 import asyncio
+import errno
 import json
 import os
 import pwd
@@ -15,6 +16,7 @@ from reef.config import get_settings
 from reef.reading import (
     ChildCrashed,
     Encrypted,
+    OutOfProcesses,
     ReadFailed,
     ReadTimedOut,
     SandboxUnavailable,
@@ -563,6 +565,77 @@ def test_the_child_caps_cpu_files_and_core_dumps():
     assert core == [0, 0]
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        BlockingIOError(errno.EAGAIN, "Resource temporarily unavailable"),
+        OSError(errno.EAGAIN, "Resource temporarily unavailable"),
+        RuntimeError("can't start new thread"),
+        OutOfProcesses(),
+    ],
+)
+def test_a_child_that_cannot_start_a_process_says_so(
+    monkeypatch, capsysbinary, error: Exception
+):
+    """Not the file's fault: the worker must not mark the file unreadable.
+
+    :param error: what starting a process or thread raised
+    """
+
+    def fails(data: bytes, operands: list[str]) -> dict:
+        """Fail as a full process count does.
+
+        :param data: the file's bytes
+        :param operands: the operands
+        :raises Exception: the error
+        """
+        raise error
+
+    monkeypatch.setattr(child, "apply_limits", lambda memory, cpu, processes: None)
+    monkeypatch.setattr(child.sys, "stdin", _Stdin([], b"x"))
+    monkeypatch.setitem(child._OPERATIONS, "parts", fails)
+    assert child.main(ARGV) == 0
+    assert json.loads(capsysbinary.readouterr().out) == {"error": "OutOfProcesses"}
+
+
+@pytest.mark.parametrize(
+    "error", [OSError(errno.ENOENT, "No such file"), RuntimeError("something else")]
+)
+def test_any_other_error_still_ends_the_child_without_an_answer(
+    monkeypatch, capsysbinary, error: Exception
+):
+    """The worker hears no answer, and calls it a crash.
+
+    :param error: what the operation raised
+    """
+
+    def fails(data: bytes, operands: list[str]) -> dict:
+        """Fail.
+
+        :param data: the file's bytes
+        :param operands: the operands
+        :raises Exception: the error
+        """
+        raise error
+
+    monkeypatch.setattr(child, "apply_limits", lambda memory, cpu, processes: None)
+    monkeypatch.setattr(child.sys, "stdin", _Stdin([], b"x"))
+    monkeypatch.setitem(child._OPERATIONS, "parts", fails)
+    with pytest.raises(type(error)):
+        child.main(ARGV)
+    assert capsysbinary.readouterr().out == b""
+
+
+async def test_a_child_out_of_processes_is_a_worker_error(monkeypatch):
+    """The job is retried and the file keeps no failure: it was not at fault."""
+    _child_writes(monkeypatch, b'{"error": "OutOfProcesses"}')
+    with pytest.raises(OutOfProcesses) as raised:
+        await sandbox.run_child(["parts", "plain", "20000", "200"], b"x", seconds=10)
+    assert isinstance(raised.value, SandboxUnavailable)
+    assert not isinstance(raised.value, ReadFailed)
+    assert raised.value.__context__ is None
+
+
 @pytest.mark.skipif(not ON_LINUX, reason="RLIMIT_NPROC is set on Linux only")
 def test_the_child_caps_its_processes():
     """A fork chain stops at the cap: the soft and the hard limit are both set."""
@@ -882,6 +955,7 @@ def _proc(
     uids: tuple[int, ...],
     state: str = "S",
     threads: int | None = 1,
+    ppid: int = 1,
 ) -> None:
     """Write a process's status as Linux shows it under ``/proc``.
 
@@ -890,11 +964,12 @@ def _proc(
     :param uids: real, effective, saved and file system user ids
     :param state: its state letter
     :param threads: how many threads it has; None leaves the line out
+    :param ppid: its parent's id
     """
     (root / pid).mkdir()
     count = "" if threads is None else f"Threads:\t{threads}\n"
     (root / pid / "status").write_text(
-        f"Name:\tsleep\nState:\t{state} (x)\nPid:\t{pid}\n"
+        f"Name:\tsleep\nState:\t{state} (x)\nPid:\t{pid}\nPPid:\t{ppid}\n"
         f"Uid:\t{chr(9).join(str(uid) for uid in uids)}\nGid:\t0\t0\t0\t0\n"
         f"{count}"
     )
@@ -950,6 +1025,220 @@ def test_a_zombie_whose_threads_run_on_is_killed(proc):
     _proc(root, "107", (999, 999, 999, 999), state="Z", threads=None)
     assert sandbox.kill_owned_by(999, root) == 4
     assert killed == [101, 104, 106, 107]
+
+
+WORKER = 4242
+"""The worker's process id in the stand-in ``/proc``."""
+
+
+@pytest.fixture
+def orphans(tmp_path, monkeypatch) -> tuple[Path, list[int]]:
+    """Stand in for a ``/proc`` with ended processes, and for ``waitpid``.
+
+    The worker (4242) has adopted zombies of ``reader`` (999): 201 is in
+    its child's session, 202 leads a session of its own. The rest must
+    never be waited on: 203 is ``reader``'s but another process's child,
+    204 is root's, 205 still runs, and 206 is a leader whose main thread
+    alone has ended while another runs on.
+
+    :returns: the stand-in directory, and the ids waited on, in order
+    """
+    reader = (999, 999, 999, 999)
+    _proc(tmp_path, "201", reader, state="Z", ppid=WORKER)
+    _proc(tmp_path, "202", reader, state="Z", ppid=WORKER)
+    _proc(tmp_path, "203", reader, state="Z", ppid=1)
+    _proc(tmp_path, "204", (0, 0, 0, 0), state="Z", ppid=WORKER)
+    _proc(tmp_path, "205", reader, ppid=WORKER)
+    _proc(tmp_path, "206", reader, state="Z", threads=2, ppid=WORKER)
+    (tmp_path / "self").mkdir()
+    sessions = {201: 101, 202: 202, 203: 203, 204: 204, 205: 205, 206: 206}
+    waited: list[int] = []
+
+    def waitpid(pid: int, options: int) -> tuple[int, int]:
+        """Collect the process without blocking.
+
+        :param pid: the process
+        :param options: must be ``WNOHANG``
+        :returns: its id and status
+        """
+        assert options == os.WNOHANG
+        waited.append(pid)
+        return pid, 9
+
+    monkeypatch.setattr(sandbox.os, "getpid", lambda: WORKER)
+    monkeypatch.setattr(sandbox.os, "getsid", lambda pid: sessions[pid])
+    monkeypatch.setattr(sandbox.os, "waitpid", waitpid)
+    monkeypatch.setattr(sandbox.os, "kill", lambda pid, signal_number: None)
+    return tmp_path, waited
+
+
+def test_during_reads_only_orphans_that_lead_no_session_are_collected(orphans):
+    """A child ``run_child`` started leads its own session, and asyncio waits
+    for it: while reads run, no session leader is waited on here."""
+    root, waited = orphans
+    assert sandbox.reap_orphans(999, root, leaders=False) == 1
+    assert waited == [201]
+
+
+def test_between_reads_every_ended_orphan_of_reader_is_collected(orphans):
+    """Between jobs no child runs, so a session leader is collected too."""
+    root, waited = orphans
+    assert sandbox.reap_orphans(999, root, leaders=True) == 2
+    assert sorted(waited) == [201, 202]
+
+
+def test_an_orphan_collected_meanwhile_is_passed_over(orphans, monkeypatch):
+    """Gone by the time it is waited on: nothing to count, nothing raised."""
+    root, _ = orphans
+
+    def gone(pid: int, options: int) -> tuple[int, int]:
+        """Find no such child.
+
+        :param pid: the process
+        :param options: the options
+        :raises ChildProcessError: always
+        """
+        raise ChildProcessError(errno.ECHILD, "No child processes")
+
+    monkeypatch.setattr(sandbox.os, "waitpid", gone)
+    assert sandbox.reap_orphans(999, root, leaders=True) == 0
+
+
+def test_the_sweep_collects_the_zombies_it_finds(orphans, monkeypatch):
+    """A killed process stays a zombie, and counts against the process cap,
+    until it is collected; the sweep runs between reads."""
+    root, waited = orphans
+    monkeypatch.setattr(sandbox, "PROC", root)
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(
+        sandbox.pwd,
+        "getpwnam",
+        lambda name: pwd.struct_passwd((name, "x", 999, 999, "", "/", "/bin/false")),
+    )
+    assert sandbox.kill_reader_processes() == 2
+    assert set(waited) == {201, 202}
+
+
+class _Libc:
+    """Stands in for the C library: records each ``prctl`` call."""
+
+    def __init__(self, answer: int) -> None:
+        """Answer every call with this.
+
+        :param answer: 0 for success, -1 for a refusal
+        """
+        self.answer = answer
+        self.calls: list[tuple[int, ...]] = []
+
+    def prctl(self, *args: int) -> int:
+        """Record the call.
+
+        :param args: the option and its arguments
+        :returns: the answer
+        """
+        self.calls.append(args)
+        return self.answer
+
+
+@pytest.mark.parametrize(
+    ("platform", "euid", "adopts"),
+    [("linux", 0, True), ("linux", 1000, False), ("darwin", 0, False)],
+)
+def test_a_root_worker_on_linux_adopts_orphans(
+    monkeypatch, platform: str, euid: int, adopts: bool
+):
+    """Without it a killed child's Tesseract goes to PID 1, which under
+    ``uv run`` never collects it, and its zombie counts against the cap.
+
+    :param platform: the platform the worker runs on
+    :param euid: the worker's effective user id
+    :param adopts: whether it becomes the subreaper
+    """
+    libc = _Libc(0)
+    monkeypatch.setattr(sandbox.sys, "platform", platform)
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: euid)
+    monkeypatch.setattr(sandbox.ctypes, "CDLL", lambda name, use_errno: libc)
+    assert sandbox.adopt_orphans() is adopts
+    assert libc.calls == ([(36, 1, 0, 0, 0)] if adopts else [])
+
+
+def test_a_refused_adoption_is_an_os_error(monkeypatch):
+    """The worker logs its class; a quiet failure would only show up later."""
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(sandbox.ctypes, "CDLL", lambda name, use_errno: _Libc(-1))
+    monkeypatch.setattr(sandbox.ctypes, "get_errno", lambda: errno.EINVAL)
+    with pytest.raises(OSError) as raised:
+        sandbox.adopt_orphans()
+    assert raised.value.errno == errno.EINVAL
+
+
+async def test_each_read_collects_orphans_before_and_after_its_child(monkeypatch):
+    """Within a job, so a burst of reads that time out cannot fill the cap."""
+    events: list[str] = []
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(sandbox, "_identity", dict)
+    monkeypatch.setattr(
+        sandbox.pwd,
+        "getpwnam",
+        lambda name: pwd.struct_passwd((name, "x", 999, 999, "", "/", "/bin/false")),
+    )
+
+    def reap(uid: int, proc: Path, *, leaders: bool) -> int:
+        """Note the reap.
+
+        :param uid: the user
+        :param proc: where the processes are listed
+        :param leaders: whether session leaders are collected
+        :returns: how many were collected
+        """
+        events.append(f"reap {uid} leaders={leaders}")
+        return 0
+
+    async def spawn(*command: str, **options) -> asyncio.subprocess.Process:
+        """Note the spawn and start the child.
+
+        :param command: the program and its arguments
+        :param options: the keyword arguments
+        :returns: the started process
+        """
+        events.append("spawn")
+        return await _real_spawn(*command, **options)
+
+    monkeypatch.setattr(sandbox, "reap_orphans", reap)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    await sandbox.run_child(["parts", "plain", "20000", "200"], b"hello", seconds=30)
+    assert events == ["reap 999 leaders=False", "spawn", "reap 999 leaders=False"]
+
+
+async def test_a_reap_that_fails_does_not_replace_the_reads_outcome(monkeypatch):
+    """The sweep reads the same ``/proc``, and reports a failure there."""
+    monkeypatch.setattr(sandbox.sys, "platform", "linux")
+    monkeypatch.setattr(sandbox.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(sandbox, "_identity", dict)
+    monkeypatch.setattr(
+        sandbox.pwd,
+        "getpwnam",
+        lambda name: pwd.struct_passwd((name, "x", 999, 999, "", "/", "/bin/false")),
+    )
+
+    def reap(uid: int, proc: Path, *, leaders: bool) -> int:
+        """Fail as an unreadable ``/proc`` would.
+
+        :param uid: the user
+        :param proc: where the processes are listed
+        :param leaders: whether session leaders are collected
+        :raises PermissionError: always
+        """
+        raise PermissionError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr(sandbox, "reap_orphans", reap)
+    answer = await sandbox.run_child(
+        ["parts", "plain", "20000", "200"], b"hello", seconds=30
+    )
+    assert answer == {"parts": ["hello"], "pages": 1}
 
 
 def test_a_process_started_during_the_sweep_is_killed_too(proc, monkeypatch):

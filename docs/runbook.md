@@ -660,8 +660,9 @@ rebuild the service, these are its settings:
   Once file reading is on (see "Reading files (RUG-37)"), it also needs the
   four storage variables, with a **read-only** token. Never the app's keys.
 - **No public domain and no volume.** It listens on nothing.
-- **One replica is enough.** More than one is safe: two workers never take
-  the same job.
+- **Run one replica.** Two workers never take the same job, but replicas
+  on one machine share the reading child's process count. See "The process
+  cap" under "Reading files (RUG-37)".
 
 **What it reports.** With `LOGFIRE_TOKEN` set, each job is one span in
 Logfire named `job <kind>`, with the job's id, the attempt number, the
@@ -1404,16 +1405,29 @@ day's pages are spent, the job ends normally and the file waits six hours
 a child process that has an empty environment, runs as the `reader` user when
 the worker runs as root, and has limits on CPU, memory and time. The
 Dockerfile has no `USER` line for this reason: do not add one, or the child
-runs as the worker and can read its secrets.
-
-As `reader`, the child may also have only so many processes: 4 for each page
-read at once (`REEF_FILE_TEXT_PARALLEL_PAGES`), so 16 by default. Linux
-counts every process of the user id, across every container on the same
-machine. So `reader` has a fixed id, 48271, that no common image uses. Do
-not change it to 999: Postgres and Redis containers run as 999, and their
-processes would leave Tesseract no room to start. The child makes no network calls
+runs as the worker and can read its secrets. The child makes no network calls
 itself, but it is not cut off from the network. Closing that needs Linux
 namespaces or seccomp, which phase 1 does not do.
+
+**The process cap.** As `reader`, the child may have only so many processes
+and threads: 4 for each page read at once (`REEF_FILE_TEXT_PARALLEL_PAGES`),
+so 16 by default. Linux counts them by user id, across every container on
+the same machine. So `reader` has a fixed user and group id, 48271, that no
+common image uses. Do not change it to 999: Postgres and Redis containers
+run as 999, and their processes would leave Tesseract no room to start.
+
+- **Run one replica of `reef-worker`.** Replicas on one machine share one
+  count for id 48271. So do the old and the new container while a deploy
+  overlaps. Two workers reading at once can fill the cap.
+- **A killed process counts until it is collected.** The worker adopts the
+  orphans of the processes it starts. It collects their zombies before and
+  after each child, and in each sweep. Without that, they would go to PID 1
+  (`uv`), which never collects them, and the cap would stay full.
+- **What a full cap looks like.** Reading jobs fail with the error
+  `OutOfProcesses` and are retried. The file gets no error of its own and
+  stays `waiting`. If many jobs show this error, restart `reef-worker`: that
+  empties its container. If the errors come back at once, something else on
+  the machine runs as id 48271.
 
 When a read ends, its child and every process the child started are killed.
 A hostile file could still start a process that leaves the child's process

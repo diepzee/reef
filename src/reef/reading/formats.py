@@ -26,7 +26,13 @@ from xml.sax.handler import ContentHandler
 
 import defusedxml.expatreader
 
-from reef.reading import FileKind, TooLarge, Unreadable
+from reef.reading import (
+    FileKind,
+    OutOfProcesses,
+    TooLarge,
+    Unreadable,
+    out_of_processes,
+)
 from reef.reading.archive import (
     MAIN_PARTS,
     ZIP_MAX_BYTES,
@@ -327,11 +333,13 @@ def _office(
         than this, and the parts returned are cut to ``max_parts + 1``
     :returns: the parts
     :raises TooLarge: when the archive or its text is too large
+    :raises OutOfProcesses: when a thread or process could not start: the
+        worker is short of room, the file is not at fault
     :raises Unreadable: for anything else that goes wrong, whatever the
         library says: its message is never kept
     """
     total = check_archive(data, kind)
-    failed = False
+    failure: type[Exception] | None = None
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
             # The libraries see the archive as ``zipfile`` does, so the caps
@@ -349,10 +357,10 @@ def _office(
         raise
     except MemoryError:
         raise TooLarge from None
-    except Exception:  # noqa: BLE001 - a library's error is never kept
-        failed = True
-    assert failed
-    raise Unreadable
+    except Exception as error:  # noqa: BLE001 - a library's error is never kept
+        failure = OutOfProcesses if out_of_processes(error) else Unreadable
+    assert failure is not None
+    raise failure
 
 
 def _plain(text: str) -> str:
