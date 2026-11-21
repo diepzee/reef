@@ -11,6 +11,7 @@ from reef.export import (
     export_space,
     render_engram,
 )
+from reef.filetext import StoredPage, read_by
 from reef.models import Attachment, AttachmentStatus, Engram
 
 
@@ -135,3 +136,116 @@ async def test_full_dump_contains_history_files_and_access_context(tx, household
         }
         assert archive.read(files[0]["archive_path"]) == b"quarterly report bytes"
         assert "spaces/household/engrams/report.md" in archive.namelist()
+
+
+async def _file_with_text(household, filename: str = "scan.pdf") -> Attachment:
+    """Store a file read in two pages, the first by Tesseract.
+
+    :param household: the household fixture
+    :param filename: the stored filename
+    :returns: the file
+    """
+    me = principal_for(household["wouter"])
+    engram = await save_engram(me, "household", "r.md", "x", message="x")
+    file = Attachment(
+        space_id=household["shared"].id,
+        engram_id=engram.id,
+        object_key="attachments/scan-key",
+        filename=filename,
+        mime="application/pdf",
+        byte_size=3,
+        description="A scan.",
+        status=AttachmentStatus.READY.value,
+        text_status="read",
+        pages=2,
+    )
+    await file.save()
+    for number, text in ((1, "First page words."), (2, "Second page words.")):
+        await Attachment.raw(
+            "INSERT INTO file_pages (id, attachment_id, number, text, reader) "
+            "VALUES (gen_random_uuid(), {}, {}, {}, 'tesseract')",
+            file.id,
+            number,
+            text,
+        )
+    return file
+
+
+class ScanStore:
+    """Object reader for the scan."""
+
+    async def get(self, key: str) -> bytes:
+        """Return the scan's bytes."""
+        return b"%PDF"
+
+
+async def test_the_full_dump_puts_each_files_text_beside_it(tx, household):
+    """The text is whole, its pages marked, and the entry names it."""
+    me = principal_for(household["wouter"])
+    await _file_with_text(household, filename="../we/ird\\name.pdf")
+    plain = await Attachment(
+        space_id=household["shared"].id,
+        object_key="attachments/plain-key",
+        filename="plain.pdf",
+        mime="application/pdf",
+        byte_size=3,
+        description="No text.",
+        status=AttachmentStatus.READY.value,
+    ).save()
+    del plain
+
+    with ZipFile(BytesIO(await build_full_dump(me, store=ScanStore()))) as archive:
+        entries = {e["key"]: e for e in json.loads(archive.read("data/files.json"))}
+        scan = entries["attachments/scan-key"]
+        assert scan["text_status"] == "read"
+        assert scan["pages"] == 2
+        assert scan["readers"] == read_by([StoredPage(1, "x", "tesseract")])
+        assert scan["text_path"] == f"{scan['archive_path']}.txt"
+        assert scan["text_path"].startswith("spaces/household/files/scan-key/")
+        assert scan["text_path"].count("/") == 4
+        assert archive.read(scan["text_path"]).decode() == (
+            "--- page 1 ---\nFirst page words.\n\n--- page 2 ---\nSecond page words."
+        )
+        none = entries["attachments/plain-key"]
+        assert none["text_path"] is None and none["readers"] == []
+        assert none["text_status"] is None
+        assert not any(
+            name.endswith(".txt") and "plain-key" in name for name in archive.namelist()
+        )
+
+
+async def test_smaller_exports_carry_the_status_only(tx, household):
+    """The JSON export and the Markdown archive name the status, not the text."""
+    me = principal_for(household["wouter"])
+    await _file_with_text(household)
+
+    payload = json.loads(await build_json_export(me, "household"))
+    [entry] = payload["spaces"][0]["files"]
+    assert entry["text_status"] == "read"
+    assert not {"pages", "readers", "text_path"} & set(entry)
+
+    with ZipFile(BytesIO(await build_markdown_archive(me, "household"))) as archive:
+        [listed] = json.loads(archive.read("files.json"))
+        assert listed["text_status"] == "read"
+        assert not {"pages", "readers", "text_path"} & set(listed)
+        assert not any(
+            "page words" in archive.read(n).decode(errors="ignore")
+            for n in archive.namelist()
+        )
+
+
+async def test_vectors_stay_out_of_the_dump(tx, household):
+    """A file's vector is derived data: no part of the dump carries it."""
+    me = principal_for(household["wouter"])
+    file = await _file_with_text(household)
+    await Attachment.raw(
+        "INSERT INTO file_embeddings "
+        "(id, attachment_id, model_id, dims, content_hash, embedding) "
+        "VALUES (gen_random_uuid(), {}, 'fake-1', 3, 'x', '[1,2,3]'::vector)",
+        file.id,
+    )
+
+    with ZipFile(BytesIO(await build_full_dump(me, store=ScanStore()))) as archive:
+        for name in archive.namelist():
+            body = archive.read(name).decode(errors="ignore")
+            assert "[1,2,3]" not in body and "fake-1" not in body

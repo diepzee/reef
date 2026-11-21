@@ -23,6 +23,7 @@ from reef.attachments import S3ObjectStore
 from reef.config import get_settings
 from reef.context import build_index
 from reef.engrams import list_engrams
+from reef.filetext import read_by, render_text, stored_pages
 from reef.models import (
     Attachment,
     AttachmentStatus,
@@ -130,6 +131,7 @@ def _file_metadata(file: Attachment, engram_paths: dict[object, str]) -> dict:
         "description": file.description,
         "engram_path": engram_paths.get(file.engram_id),
         "status": file.status,
+        "text_status": file.text_status,
         "created": file.created_at.isoformat(),
     }
 
@@ -286,7 +288,9 @@ async def build_full_dump(
     read, and their own usage log, activation and search log. Other members' usage
     and searches are never part of it: row security does not return them. Missing object-store bytes are
     recorded explicitly in ``data/file-errors.json`` rather than omitted
-    silently.
+    silently. Each file with text read from it also gets that text, whole and
+    with its pages marked, as ``<filename>.txt`` beside it. Vectors are
+    derived data and stay out.
 
     :param principal: authenticated person
     :param store: injectable object reader; defaults to R2 when files exist
@@ -397,11 +401,17 @@ async def build_full_dump(
                 render_engram(engram),
             )
 
+        # The principal is armed by now, so only pages of readable files come back.
+        pages_of = await stored_pages([file.id for file in files])
         for file in files:
             metadata = {
                 "space": alias_by_space[file.space_id],
                 **_file_metadata(file, engram_paths),
             }
+            pages = pages_of[file.id]
+            metadata["pages"] = file.pages
+            metadata["readers"] = read_by(pages)
+            metadata["text_path"] = None
             token = _safe_archive_path(
                 file.object_key.rsplit("/", 1)[-1], fallback="stored-file"
             )
@@ -410,6 +420,12 @@ async def build_full_dump(
             ).replace("/", "-")
             archive_path = f"spaces/{metadata['space']}/files/{token}/{filename}"
             metadata["archive_path"] = archive_path
+            if pages:
+                # The whole text, no cap: it is the person's own data. The
+                # name is the file's already-sanitised one plus a suffix.
+                text_path = f"{archive_path}.txt"
+                archive.writestr(text_path, render_text(pages)[0])
+                metadata["text_path"] = text_path
             try:
                 archive.writestr(archive_path, await store.get(file.object_key))
                 metadata["included"] = True
