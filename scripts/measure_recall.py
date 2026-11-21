@@ -21,9 +21,12 @@ in lower case and without white space, and without the ``**`` that marks matches
 ``--file-text on|off`` switches reading on or off for this process only, so
 the two runs compare. Run it as that person, in ``reef-app``::
 
-    railway ssh -s reef-app -- sh -c 'uv run --frozen --no-dev \\
+    railway ssh -s reef-app -- uv run --frozen --no-dev \\
       python scripts/measure_recall.py --email PERSON --file-text on \\
-      < questions.json'
+      < questions.json
+
+Your own shell reads ``questions.json`` and sends it on stdin, so the
+questions are never written to the container's disk.
 """
 
 import argparse

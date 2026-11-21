@@ -1414,7 +1414,7 @@ description, a space name or a person. `filename`, `description` and `text`
 are scrubbed from Logfire.
 
 **Switching it off.** Unset `REEF_FILE_TEXT` on both services. Reading and
-file search stop at once. The text already stored stays, and is used again
+file search stop once both services have restarted. The text already stored stays, and is used again
 when it is switched back on.
 
 **Scripts.** Both print numbers only. Neither prints a name, a question, a
@@ -1426,6 +1426,8 @@ passage or an address.
   stores nothing, and adds the seconds a page took (median and longest) and
   the median word confidence. `--queue` queues reading for every file that
   needs it and adds how many jobs it queued. It needs `REEF_FILE_TEXT`.
+  In production:
+  `railway ssh -s reef-worker -- uv run --frozen --no-dev python scripts/file_report.py --email PERSON --time 10`
 - `scripts/measure_recall.py --email PERSON --file-text on|off`, run in
   `reef-app`. It reads questions as JSON on stdin (`id`, `text`, `expected`
   as `<space>/<path>` or `<space>/file/<key>`, and optionally `answer`),
@@ -1433,6 +1435,10 @@ passage or an address.
   engram and file questions were found in the first five, how many answers
   were in the passage, and the median time. Run it with `off`, then `on`,
   and compare. Keep the questions in `~/.reef-eval-private`, never in git.
+  In production, pipe the questions from your own machine into
+  `railway ssh`, so they are never written to the container's disk:
+  `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/measure_recall.py --email PERSON --file-text on < ~/.reef-eval-private/file-questions.json`
+  The `<` is read by your shell, which sends the file on stdin.
 
 ## Deploying the rename (RUG-40)
 

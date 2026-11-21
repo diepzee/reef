@@ -181,7 +181,7 @@ footer a { color: var(--muted); }
   <h2>Where it lives</h2>
   <ul>
     <li><strong>Engrams, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
-    <li><strong>Search vectors</strong> — in the same database as your engrams. The two models that read your engrams, your file descriptions and the text read from your files for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network.</li>
+    <li><strong>Search vectors</strong> — in the same database as your engrams. The two models that read your engrams for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network. They will also read your file descriptions and the text read from your files. Not switched on yet.</li>
     <li><strong>Text read from your files</strong> — in the same database as your engrams. The files stay in Cloudflare R2, in the European Union. Not switched on yet.</li>
     <li><strong>Images and backups</strong> — Cloudflare R2, in the European Union.</li>
     <li><strong>Sign-in</strong> — handled by WorkOS, either with a Google account or with a six-digit code sent to your address. <span class="reef-name">reef</span> never sees a password; it only learns your verified email address.</li>
