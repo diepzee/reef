@@ -2,6 +2,8 @@ import json
 from io import BytesIO
 from zipfile import ZipFile
 
+import pytest
+
 from reef.access import Principal
 from reef.engrams import get_engram, save_engram
 from reef.export import (
@@ -359,3 +361,36 @@ async def test_another_persons_private_file_adds_no_text(tx, household, seed):
         assert json.loads(archive.read("data/files.json")) == []
         assert not any(n.endswith(".txt") for n in archive.namelist())
         assert all(b"secret words" not in archive.read(n) for n in archive.namelist())
+
+
+@pytest.mark.parametrize(
+    ("status", "texts", "kept"),
+    [
+        ("unreadable", ["one", "two"], True),
+        ("waiting", ["one"], True),
+        ("not_read", [], False),
+        (None, [], False),
+    ],
+)
+async def test_the_dump_keeps_text_of_files_read_only_in_part(
+    tx, household, status, texts, kept
+):
+    """Pages kept by a read that stopped are exported; files without any are not."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "household", "r.md", "x", message="x")
+    file = await _extra_file(household, "attachments/part", household["shared"], texts)
+    await Attachment.raw(
+        "UPDATE attachments SET text_status = {}, pages = NULL WHERE id = {}",
+        status,
+        file.id,
+    )
+
+    with ZipFile(BytesIO(await build_full_dump(me, store=AnyStore()))) as archive:
+        [entry] = json.loads(archive.read("data/files.json"))
+        if kept:
+            assert archive.read(entry["text_path"]).decode() == "\n\n".join(
+                f"--- page {n} ---\n{t}" for n, t in enumerate(texts, 1)
+            )
+        else:
+            assert entry["text_path"] is None
+            assert not any(n.endswith(".txt") for n in archive.namelist())

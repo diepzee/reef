@@ -40,8 +40,10 @@ from reef.models import (
 )
 from reef.spaces import display_names, member_names
 
-_HAS_TEXT = ("read", "partly_read")
-"""The ``text_status`` values of a file that may hold pages."""
+_NO_TEXT = (None, "not_read")
+"""The ``text_status`` values of a file that holds no pages: never looked at,
+or not read. Any other status may keep pages, even ``waiting`` and
+``unreadable``, which keep what a paged read stored before it stopped."""
 
 
 class FileReader(Protocol):
@@ -414,7 +416,7 @@ async def build_full_dump(
             # readable file come back.
             pages = (
                 (await stored_pages([file.id]))[file.id]
-                if file.pages or file.text_status in _HAS_TEXT
+                if file.pages or file.text_status not in _NO_TEXT
                 else []
             )
             metadata["pages"] = file.pages
