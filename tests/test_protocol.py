@@ -205,9 +205,17 @@ def test_protocol_sends_personal_inbox_entries_through_share():
 
 
 def test_protocol_uses_the_new_words():
-    """People and assistants say space and engram, never cove and page."""
-    text = (ROOT / "src/reef/protocol.md").read_text().lower()
+    """People and assistants say space and engram, never cove and page.
+
+    The one paragraph about reading inside files is left out of the check: a
+    page there is a page of a file, which is its own word.
+    """
+    paragraphs = (ROOT / "src/reef/protocol.md").read_text().split("\n\n")
+    text = "\n\n".join(
+        p for p in paragraphs if not p.startswith("Reef can read the text inside")
+    ).lower()
     assert not re.search(r"\bcoves?\b|\bpages?\b", text)
+    assert "#page=" in (ROOT / "src/reef/protocol.md").read_text()
 
 
 def test_protocol_teaches_the_workflow_rules():

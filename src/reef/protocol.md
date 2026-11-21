@@ -20,6 +20,13 @@ To open an engram from the index, put its space before its path:
 Files are not listed. Find them with `recall`, which returns file hits with a
 ref, and read them with `open`. `open` also gives an engram's full details.
 
+Reef can read the text inside stored files. `recall` then finds a file by its
+contents and returns a passage from it, with the page it came from. That
+ref ends in `#page=3`, for page 3. `open` on a file gives its text, each page
+marked with its number. A long file is cut at a page: open the ref with
+`#page=N` at the end to read on from page N. A page is a PDF page, an image, a
+slide or a sheet. In a text document it is about 20,000 characters.
+
 Read the index to learn what exists. Never answer from a description alone.
 
 ## Pick the tool for the request

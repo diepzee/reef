@@ -47,6 +47,7 @@ from reef.config import ReadingSettings, get_settings
 from reef.jobs import BACKFILL_FILES, READ_FILE, enqueue
 from reef.models import Attachment, FilePage, Job, ReadingSpend, TextStatus
 from reef.reading import (
+    READER_NAMES,
     TEXT_FORMATS,
     FileKind,
     NoMainPart,
@@ -617,3 +618,85 @@ async def stored_pages(attachment_ids: list[UUID]) -> dict[UUID, list[StoredPage
             StoredPage(row["number"], row["text"], row["reader"])
         )
     return found
+
+
+async def has_pages(attachment_id: UUID) -> bool:
+    """Report whether Reef holds pages read from a file.
+
+    The caller arms the principal first, so a file the principal may not see
+    has none.
+
+    :param attachment_id: the file
+    :returns: True when at least one page is stored
+    """
+    rows = await FilePage.raw(
+        "SELECT 1 AS found FROM file_pages WHERE attachment_id = {} LIMIT 1",
+        attachment_id,
+    )
+    return bool(rows)
+
+
+def _marked(page: StoredPage) -> str:
+    """Write one page as it is shown: its number on a line, then its text.
+
+    :param page: the page
+    :returns: the marked page
+    """
+    return f"--- page {page.number} ---\n{page.text}"
+
+
+def render_text(
+    pages: list[StoredPage], *, start: int | None = None, cap: int | None = None
+) -> tuple[str, int | None]:
+    """Write pages as one text, each page marked with its number.
+
+    The marked pages are joined by a blank line. When the whole text does not
+    fit ``cap``, whole pages are kept up to it, from page ``min(start, last)``
+    when ``start`` is given, else from the first. A first page that alone
+    passes ``cap`` is cut at ``cap``, so a text is never empty for want of
+    room.
+
+    :param pages: the pages, in page order
+    :param start: the page to read from when the text must be cut
+    :param cap: the most characters to return; no limit when None
+    :returns: the text, and the number of the last page included when pages
+        were left out after it, else None
+    """
+    if not pages:
+        return "", None
+    whole = "\n\n".join(_marked(page) for page in pages)
+    if cap is None or len(whole) <= cap:
+        return whole, None
+    first = min(start, pages[-1].number) if start is not None else pages[0].number
+    kept: list[str] = []
+    used = 0
+    last = None
+    for page in pages:
+        if page.number < first:
+            continue
+        marked = _marked(page)
+        cost = len(marked) + (2 if kept else 0)
+        if used + cost > cap:
+            if not kept:
+                kept.append(marked[:cap])
+                last = page.number
+            return "\n\n".join(kept), last
+        kept.append(marked)
+        used += cost
+        last = page.number
+    return "\n\n".join(kept), None
+
+
+def read_by(pages: list[StoredPage]) -> list[str]:
+    """Name who read a file's pages, as a person is told.
+
+    :param pages: the pages, in page order
+    :returns: the distinct names of the readers of pages that hold text, in
+        the order they first appear
+    """
+    names: list[str] = []
+    for page in pages:
+        name = READER_NAMES[page.reader]
+        if page.text and name not in names:
+            names.append(name)
+    return names

@@ -13,7 +13,9 @@
 **References.** A reference names an engram or a file through the caller's
 own name for its space: ``<space>/<path>`` for an engram,
 ``<space>/file/<key>`` for a file. Engram paths end in ``.md`` and file keys
-never do, which is how the two are told apart. See :func:`_parse_ref`.
+never do, which is how the two are told apart. A file reference may end in
+``#page=N`` (N from 1): where a passage came from, and where :func:`open`
+starts reading a long file. See :func:`_parse_ref`.
 
 **Unreadable is not found.** :func:`open` answers a reference the caller may
 not read exactly as it answers one to nothing at all. Row security hides the
@@ -25,11 +27,12 @@ Each method opens the short transactions it needs, armed for the caller.
 embedding service or the reranker.
 """
 
+import re
 from collections import Counter
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 
-from reef import usage
+from reef import filetext, usage
 from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
 from reef.activity import whats_new
 from reef.attachments import S3ObjectStore, get_attachment
@@ -62,6 +65,9 @@ BRIEF_ENGRAMS = 5
 
 #: The fewest and most entries :func:`brief` returns from one log.
 BRIEF_ENTRIES = (1, 100)
+
+_PAGE_ANCHOR = re.compile(r"page=([0-9]+)")
+"""The one anchor a file reference may carry."""
 
 NOT_FOUND = "not_found"
 """The answer for a reference to nothing, or to something the caller may not read."""
@@ -183,7 +189,11 @@ async def recall(
     :returns: one dict per hit: ``kind`` (``engram`` or ``file``), ``space``,
         ``engram`` (its path; None for a file), ``title``, ``passage``,
         ``author`` (who changed it last; None for a file), ``updated_at`` and
-        ``ref``, the reference :func:`open` takes
+        ``ref``, the reference :func:`open` takes. With reading of files
+        switched on, a file passage comes from inside the file when its
+        text matches, and a file item adds ``page`` (the page the passage
+        is from, or None) and ends its ``ref`` in ``#page=N`` when there is
+        one.
     :raises MethodError: ``unknown_space`` when ``space`` names no space of
         the caller's
     """
@@ -254,14 +264,14 @@ async def _sources(
 def _passage(hit: dict, author: str | None, updated_at: str) -> dict:
     """Shape one search hit as a passage :func:`recall` returns.
 
-    :param hit: the hit, with its ``passage`` when it is an engram
+    :param hit: the hit, with its ``passage``
     :param author: who changed it last
     :param updated_at: when, as ISO 8601
     :returns: the passage
     """
     space = hit["cove"]
     if hit["kind"] == "file":
-        return {
+        item = {
             "kind": "file",
             "space": space,
             "engram": None,
@@ -271,6 +281,13 @@ def _passage(hit: dict, author: str | None, updated_at: str) -> dict:
             "updated_at": updated_at,
             "ref": f"{space}/{FILE_PREFIX}{hit['key']}",
         }
+        if get_settings().reading.enabled:
+            page = hit.get("page")
+            item["passage"] = hit["passage"]
+            item["page"] = page
+            if page is not None:
+                item["ref"] += f"#page={page}"
+        return item
     return {
         "kind": "engram",
         "space": space,
@@ -292,16 +309,25 @@ async def open(
     An engram comes whole, with its links. With ``as_of`` it comes as it
     stood at that moment, from its history, without a version or links:
     the past cannot be edited. A file comes as its description and a
-    short-lived URL to its bytes; ``as_of`` does not apply to files.
+    short-lived URL to its bytes; ``as_of`` does not apply to files. With
+    reading of files switched on, a file also comes with the text Reef read
+    from it, every page marked with its number, cut at a page when it
+    passes the engram size cap (``REEF_ENGRAM_MAX_CHARS``).
 
     :param caller: who is calling
     :param reason: why, in the caller's words
     :param refs: references as :func:`recall` gives them:
-        ``<space>/<path>`` or ``<space>/file/<key>``
+        ``<space>/<path>`` or ``<space>/file/<key>``, the latter possibly
+        ending in ``#page=N`` to read a long file from page N (the last
+        page when N is past it; a file that fits comes whole). Any other
+        anchor on a file makes the reference malformed.
     :param as_of: a moment in ISO 8601, to read engrams as they stood then
     :returns: one dict per reference, carrying the ``ref``. A reference to
         nothing, or to something the caller may not read, gives
-        ``{"ref", "error": "not_found"}``.
+        ``{"ref", "error": "not_found"}``. A file adds, with reading
+        switched on: ``text_status``, ``pages``, ``read_by``, ``text`` and
+        ``text_cut_after_page`` (the last page of ``text`` when the file was
+        cut, else None).
     :raises MethodError: ``invalid_as_of`` when ``as_of`` is not a moment
     """
     moment = _moment(as_of, "invalid_as_of")
@@ -323,14 +349,17 @@ async def _open_one(
     found = None
     parsed = _parse_ref(ref)
     if parsed is not None:
-        space, kind, locator = parsed
         try:
-            if kind == "file":
-                found = await _read_file(principal, space, locator)
+            if parsed.kind == "file":
+                found = await _read_file(
+                    principal, parsed.space, parsed.locator, parsed.page
+                )
             elif moment is not None:
-                found = await _read_past(principal, space, locator, moment, as_of)
+                found = await _read_past(
+                    principal, parsed.space, parsed.locator, moment, as_of
+                )
             else:
-                found = await _read_engram(principal, space, locator)
+                found = await _read_engram(principal, parsed.space, parsed.locator)
         # A space the caller has no name for: as good as an engram not there.
         except AccessDenied:
             found = None
@@ -339,25 +368,47 @@ async def _open_one(
     return {"ref": ref, **found}
 
 
-def _parse_ref(ref: str) -> tuple[str, str, str] | None:
+@dataclass(frozen=True)
+class Ref:
+    """A reference taken apart.
+
+    ``kind`` is ``engram`` or ``file``; ``locator`` is the engram's path or
+    the file's key; ``page`` is the page a file reference ends in, if any.
+    """
+
+    space: str
+    kind: str
+    locator: str
+    page: int | None = None
+
+
+def _parse_ref(ref: str) -> Ref | None:
     """Take a reference apart at its first ``/``.
 
     What follows the space is a file key when it starts with ``file/`` and
-    does not end in ``.md``; otherwise it is an engram path. A reference with
-    an empty part, or a NUL character, which Postgres text cannot hold, is
-    malformed.
+    does not end in ``.md``; otherwise it is an engram path. A file
+    reference may end in ``#page=N``, N an integer from 1; any other anchor
+    on a file makes it malformed. A reference with an empty part, or a NUL
+    character, which Postgres text cannot hold, is malformed.
 
     :param ref: the reference
-    :returns: space, kind (``engram`` or ``file``) and path or key; None
-        for a malformed reference
+    :returns: the reference taken apart; None when it is malformed
     """
     space, _, rest = ref.partition("/")
     if not space or not rest or "\x00" in ref:
         return None
-    if rest.startswith(FILE_PREFIX) and not rest.endswith(".md"):
-        key = rest.removeprefix(FILE_PREFIX)
-        return (space, "file", key) if key else None
-    return space, "engram", rest
+    named, hash_, anchor = rest.partition("#")
+    if named.startswith(FILE_PREFIX) and not named.endswith(".md"):
+        key = named.removeprefix(FILE_PREFIX)
+        if not key:
+            return None
+        if not hash_:
+            return Ref(space, "file", key)
+        match = _PAGE_ANCHOR.fullmatch(anchor)
+        if match is None or int(match.group(1)) < 1:
+            return None
+        return Ref(space, "file", key, int(match.group(1)))
+    return Ref(space, "engram", rest)
 
 
 async def _read_engram(principal: Principal, space: str, path: str) -> dict | None:
@@ -414,12 +465,19 @@ async def _read_past(
     }
 
 
-async def _read_file(principal: Principal, space: str, key: str) -> dict | None:
-    """Read one stored file's description and a short-lived URL to its bytes.
+async def _read_file(
+    principal: Principal, space: str, key: str, page: int | None = None
+) -> dict | None:
+    """Read one stored file's description, a short-lived URL to its bytes and,
+    with reading switched on, the text Reef read from it.
+
+    The text is read only once the file itself has been opened, so a file the
+    caller may not open gives no text, and the same answer as no file.
 
     :param principal: the caller
     :param space: the caller's name for its space
     :param key: the file's key
+    :param page: the page to read from, when the text must be cut
     :returns: the file, or None
     :raises AccessDenied: when the caller has no space of that name
     """
@@ -431,7 +489,7 @@ async def _read_file(principal: Principal, space: str, key: str) -> dict | None:
     url = await S3ObjectStore().signed_url(
         key, ttl, mime=attachment.mime, filename=filename
     )
-    return {
+    file = {
         "kind": "file",
         "space": space,
         "key": key,
@@ -442,6 +500,19 @@ async def _read_file(principal: Principal, space: str, key: str) -> dict | None:
         "url": url,
         "expires_in": ttl,
     }
+    if get_settings().reading.enabled:
+        pages = (await filetext.stored_pages([attachment.id]))[attachment.id]
+        text, cut = filetext.render_text(
+            pages, start=page, cap=get_settings().engrams.max_chars
+        )
+        file |= {
+            "text_status": attachment.text_status,
+            "pages": attachment.pages,
+            "read_by": filetext.read_by(pages),
+            "text": text,
+            "text_cut_after_page": cut,
+        }
+    return file
 
 
 @method("catch_up")

@@ -18,7 +18,7 @@ resolves it again under the caller, so an id for something the caller may
 not read gets the same ``not_found`` as one for nothing at all.
 """
 
-from reef import usage
+from reef import filetext, usage
 from reef.access import AccessDenied, Principal
 from reef.attachments import get_attachment
 from reef.config import get_settings
@@ -162,10 +162,13 @@ async def fetch(caller: Caller, reason: str, id: str) -> dict:
 
 
 async def _file(principal: Principal, id: str, space: str, key: str) -> dict | None:
-    """Fetch a file as its description: ``fetch`` is a text contract.
+    """Fetch a file as text: ``fetch`` is a text contract.
 
     A connector asking for a PDF wants something it can read, not base64 it
-    would spend its context on.
+    would spend its context on. That is the description and, with reading of
+    files switched on, a blank line and the text Reef read from the file,
+    every page marked, cut at a page so the whole stays within the engram
+    size cap.
 
     :param principal: the caller
     :param id: the id asked for
@@ -177,10 +180,17 @@ async def _file(principal: Principal, id: str, space: str, key: str) -> dict | N
     attachment = await get_attachment(principal, space, key)
     if attachment is None:
         return None
+    text = attachment.description or ""
+    if get_settings().reading.enabled:
+        pages = (await filetext.stored_pages([attachment.id]))[attachment.id]
+        room = max(0, get_settings().engrams.max_chars - len(text))
+        read, _ = filetext.render_text(pages, cap=room)
+        if read:
+            text = f"{text}\n\n{read}"
     return {
         "id": id,
         "title": attachment.filename or key,
-        "text": attachment.description or "",
+        "text": text,
         "url": _app_url(space, ""),
         "metadata": {"cove": space, "kind": "file", "mime": attachment.mime},
     }
