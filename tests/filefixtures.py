@@ -435,3 +435,31 @@ def encrypted_pdf() -> bytes:
     buffer = io.BytesIO()
     writer.write(buffer)
     return buffer.getvalue()
+
+
+A0_POINTS = (2384, 3370)
+"""An A0 sheet, as house plans are drawn on, in PDF points."""
+
+
+def tiff_frames(sizes: list[tuple[int, int]]) -> bytes:
+    """Make a TIFF of white frames, each of its own size, compressed.
+
+    A large frame stays a small file: deflate packs white well.
+
+    :param sizes: each frame's width and height, in pixels
+    :returns: the TIFF
+    """
+    import io
+
+    from PIL import Image
+
+    frames = [Image.new("L", size, 255) for size in sizes]
+    buffer = io.BytesIO()
+    frames[0].save(
+        buffer,
+        "TIFF",
+        save_all=True,
+        append_images=frames[1:],
+        compression="tiff_deflate",
+    )
+    return buffer.getvalue()

@@ -54,14 +54,17 @@ own: their text is cut between paragraphs into pages."""
 class ScanPage:
     """One scanned page, ready for a :class:`ScanReader`.
 
-    ``number`` counts from 1 within its file. ``image`` is a PNG, turned
-    upright, without metadata. ``source`` says whether it came from a PDF page
-    or from an image file.
+    ``number`` counts from 1 within its file. ``image`` is a greyscale PNG,
+    turned upright, without metadata. ``source`` says whether it came from a
+    PDF page or from an image file. ``dpi`` is the resolution a PDF page was
+    rendered at, which is lower than configured for a page too large to fit;
+    None for an image, whose resolution is not known.
     """
 
     number: int
     image: bytes
     source: Literal["pdf", "image"]
+    dpi: int | None = None
 
 
 @dataclass(frozen=True)

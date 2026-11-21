@@ -13,7 +13,7 @@ adding LICENSE to a COPY line broke four consecutive deploys, because the
 laptop had the file and the image did not.
 """
 
-import re
+import shlex
 import tomllib
 from pathlib import Path
 
@@ -66,23 +66,49 @@ def test_declared_license_files_reach_the_image():
             )
 
 
-def _instructions() -> str:
-    """The Dockerfile with its continued lines joined.
+def _instructions() -> list[str]:
+    """The Dockerfile's instructions, as Docker reads them.
 
-    :returns: the text, one instruction per line
+    Comment lines go first, as Docker drops them even inside a continued
+    instruction; then continued lines are joined.
+
+    :returns: one instruction per item
     """
-    return DOCKERFILE.read_text(encoding="utf-8").replace("\\\n", " ")
+    lines = DOCKERFILE.read_text(encoding="utf-8").splitlines()
+    kept = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+    return [line.strip() for line in kept.replace("\\\n", " ").splitlines()]
+
+
+def _commands() -> list[list[str]]:
+    """Every shell command the ``RUN`` instructions run, split into words.
+
+    :returns: one list of words per command between ``&&``
+    """
+    return [
+        shlex.split(command)
+        for instruction in _instructions()
+        if instruction.startswith("RUN ")
+        for command in instruction.removeprefix("RUN ").split("&&")
+    ]
 
 
 def test_the_image_installs_tesseract_and_the_reader_user():
-    """Scans are read by Tesseract in Dutch, French and English, as ``reader``."""
-    text = _instructions()
-    words = set(text.split())
-    for package in ("tesseract-ocr", "tesseract-ocr-nld", "tesseract-ocr-fra"):
-        assert package in words
-    assert re.search(
-        r"useradd --system --no-create-home --shell /usr/sbin/nologin reader\b", text
-    )
+    """Scans are read by Tesseract in Dutch, French and English, as ``reader``.
+
+    The packages must be in an ``apt-get install`` command itself: a comment
+    that names them installs nothing.
+    """
+    installed = {
+        word
+        for command in _commands()
+        if command[:2] == ["apt-get", "install"]
+        and "--no-install-recommends" in command
+        for word in command[2:]
+        if not word.startswith("-")
+    }
+    assert {"tesseract-ocr", "tesseract-ocr-nld", "tesseract-ocr-fra"} <= installed
+    reader = "useradd --system --no-create-home --shell /usr/sbin/nologin reader"
+    assert reader.split() in _commands()
 
 
 def test_the_image_runs_as_root():
@@ -93,9 +119,5 @@ def test_the_image_runs_as_root():
     taken over could then read ``/proc/<worker>/environ``, and with it the
     storage key and the database URL. A ``USER`` line would do exactly that.
     """
-    users = [
-        line
-        for line in _instructions().splitlines()
-        if line.strip().upper().startswith("USER ")
-    ]
+    users = [line for line in _instructions() if line.upper().startswith("USER ")]
     assert users == []

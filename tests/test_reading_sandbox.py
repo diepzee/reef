@@ -501,71 +501,114 @@ def test_the_child_caps_cpu_files_and_core_dumps():
     assert core == [0, 0]
 
 
-_SURVEY = ["survey", "pdf"]
+_SURVEY = ["survey", "pdf", "200"]
+_SURVEY_IMAGE = ["survey", "image", "200"]
 _PAGE = ["page", "1", "200", "1000"]
 _FRAME = ["frame", "1"]
 _OCR = ["ocr", "/usr/bin/tesseract", "nld+fra+eng", "200", "1000"]
+_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+"""Enough of a PNG for the worker, which never decodes one."""
+
+
+def _child_writes(monkeypatch, output: bytes) -> None:
+    """Make the sandbox start a child that writes these bytes and ends.
+
+    :param monkeypatch: pytest's patcher
+    :param output: everything the child prints
+    """
+    _child_runs(monkeypatch, f"import sys; sys.stdout.buffer.write({output!r})")
+
+
+def _with_png(header: dict, png: bytes = _PNG) -> bytes:
+    """Frame a PNG as the child does: a JSON line, then the raw bytes.
+
+    :param header: the JSON, its ``png`` the PNG's length unless given
+    :param png: the bytes that follow
+    :returns: the output
+    """
+    return json.dumps({"png": len(png), **header}).encode() + b"\n" + png
 
 
 @pytest.mark.parametrize(
-    ("args", "answer"),
+    ("args", "output"),
     [
-        (_SURVEY, {"pages": 0}),
-        (_SURVEY, {"pages": True}),
-        (_SURVEY, {"pages": "1"}),
-        (_SURVEY, {"pages": 1.0}),
-        (_SURVEY, {"pages": 1, "more": 1}),
-        (_SURVEY, {}),
-        (_PAGE, {"text": "x" * 1_001}),
-        (_PAGE, {"text": 1}),
-        (_PAGE, {"png": 1}),
-        (_PAGE, {"text": "a", "png": "b"}),
-        (_PAGE, {}),
-        (_FRAME, {"text": "a"}),
-        (_FRAME, {"png": None}),
-        (_FRAME, {"png": "a", "more": 1}),
-        (_OCR, {"text": "a"}),
-        (_OCR, {"text": "x" * 1_001, "confidence": 0.9, "model": "t"}),
-        (_OCR, {"text": "a", "confidence": 1.5, "model": "t"}),
-        (_OCR, {"text": "a", "confidence": -0.1, "model": "t"}),
-        (_OCR, {"text": "a", "confidence": True, "model": "t"}),
-        (_OCR, {"text": "a", "confidence": "0.9", "model": "t"}),
-        (_OCR, {"text": "a", "confidence": float("nan"), "model": "t"}),
-        (_OCR, {"text": "a", "confidence": 0.9, "model": ""}),
-        (_OCR, {"text": "a", "confidence": 0.9, "model": "t" * 201}),
-        (_OCR, {"text": "a", "confidence": 0.9, "model": 1}),
+        (_SURVEY, b'{"pages": 0}'),
+        (_SURVEY, b'{"pages": true}'),
+        (_SURVEY, b'{"pages": "1"}'),
+        (_SURVEY, b'{"pages": 1.0}'),
+        (_SURVEY, b'{"pages": 1, "more": 1}'),
+        (_SURVEY, b"{}"),
+        (_SURVEY, b'{"pages": 1}\nmore'),
+        (_SURVEY_IMAGE, b'{"pages": 202}'),
+        (_PAGE, json.dumps({"text": "x" * 1_001}).encode()),
+        (_PAGE, b'{"text": 1}'),
+        (_PAGE, b'{"text": "a"}\n\x89PNG'),
+        (_PAGE, _with_png({})),
+        (_PAGE, _with_png({"dpi": 99})),
+        (_PAGE, _with_png({"dpi": 201})),
+        (_PAGE, _with_png({"dpi": True})),
+        (_PAGE, _with_png({"dpi": 200.0})),
+        (_PAGE, _with_png({"dpi": 200, "text": "a"})),
+        (_PAGE, _with_png({"dpi": 200}, b"GIF89a" + b"\x00" * 26)),
+        (_PAGE, _with_png({"dpi": 200, "png": len(_PNG) + 1})),
+        (_PAGE, _with_png({"dpi": 200, "png": len(_PNG) - 1})),
+        (_PAGE, _with_png({"dpi": 200, "png": True})),
+        (_PAGE, _with_png({"dpi": 200, "png": "32"})),
+        (_PAGE, b'{"png": 0, "dpi": 200}'),
+        (_PAGE, b'{"png": "iVBORw0KGgo=", "dpi": 200}'),
+        (_FRAME, _with_png({"dpi": 200})),
+        (_FRAME, _with_png({}, b"")),
+        (_FRAME, _with_png({"png": -1})),
+        (_FRAME, b'{"text": "a"}'),
+        (_OCR, b'{"text": "a"}'),
+        (_OCR, json.dumps({"text": "x" * 1_001, "confidence": 0.9}).encode()),
+        (_OCR, b'{"text": "a", "confidence": 1.5}'),
+        (_OCR, b'{"text": "a", "confidence": -0.1}'),
+        (_OCR, b'{"text": "a", "confidence": true}'),
+        (_OCR, b'{"text": "a", "confidence": "0.9"}'),
+        (_OCR, b'{"text": "a", "confidence": NaN}'),
+        (_OCR, b'{"text": "a", "confidence": 0.9, "model": "t"}'),
     ],
 )
-async def test_a_page_answer_of_the_wrong_shape_is_a_crash(monkeypatch, args, answer):
+async def test_a_page_answer_of_the_wrong_shape_is_a_crash(monkeypatch, args, output):
     """Each page operation has one shape of answer; anything else is a crash.
 
+    A PNG must be exactly as long as its header says, with nothing after it,
+    and start like a PNG.
+
     :param args: the operation and its operands
-    :param answer: what the child prints
+    :param output: what the child prints
     """
-    _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
+    _child_writes(monkeypatch, output)
     with pytest.raises(ChildCrashed):
         await sandbox.run_child(args, b"x", seconds=10)
 
 
 @pytest.mark.parametrize(
-    ("args", "answer"),
+    ("args", "output", "answer"),
     [
-        (_SURVEY, {"pages": 3}),
-        (_PAGE, {"text": "x" * 1_000}),
-        (_PAGE, {"png": "iVBORw0KGgo="}),
-        (_FRAME, {"png": "iVBORw0KGgo="}),
-        (_OCR, {"text": "", "confidence": None, "model": "tesseract 5.5.4 nld"}),
-        (_OCR, {"text": "a", "confidence": 0.96, "model": "t"}),
-        (_OCR, {"text": "a", "confidence": 1, "model": "t"}),
+        (_SURVEY, b'{"pages": 3}', {"pages": 3}),
+        (_SURVEY, b'{"pages": 500}', {"pages": 500}),
+        (_SURVEY_IMAGE, b'{"pages": 201}', {"pages": 201}),
+        (_PAGE, b'{"text": "abc"}', {"text": "abc"}),
+        (_PAGE, _with_png({"dpi": 200}), {"png": _PNG, "dpi": 200}),
+        (_PAGE, _with_png({"dpi": 100}), {"png": _PNG, "dpi": 100}),
+        (_FRAME, _with_png({}), {"png": _PNG}),
+        (_FRAME, _with_png({}, _PNG + b"\n\n"), {"png": _PNG + b"\n\n"}),
+        (_OCR, b'{"text": "", "confidence": null}', {"text": "", "confidence": None}),
+        (_OCR, b'{"text": "a", "confidence": 1}', {"text": "a", "confidence": 1}),
     ],
 )
-async def test_a_page_answer_of_the_right_shape_is_returned(monkeypatch, args, answer):
-    """An answer in its operation's shape comes back as it was given.
+async def test_a_page_answer_of_the_right_shape_is_returned(
+    monkeypatch, args, output, answer
+):
+    """An answer in its operation's shape comes back; a PNG as its raw bytes.
 
     :param args: the operation and its operands
-    :param answer: what the child prints
+    :param output: what the child prints
+    :param answer: what the worker gets
     """
-    _child_runs(monkeypatch, f"print({json.dumps(json.dumps(answer))})")
+    _child_writes(monkeypatch, output)
     assert await sandbox.run_child(args, b"x", seconds=10) == answer
 
 
@@ -574,33 +617,36 @@ async def test_a_page_answer_of_the_right_shape_is_returned(monkeypatch, args, a
     [
         (_SURVEY, sandbox.ANSWER_SLACK),
         (_OCR, sandbox.text_answer_bytes(1_000)),
+        (_FRAME, sandbox.png_answer_bytes(40_000_000)),
     ],
 )
 async def test_a_page_answer_is_bounded_by_the_limits(monkeypatch, args, bound):
-    """A survey says one number; a reading says at most one page of text.
+    """A survey says one number, a reading one page of text, a frame one PNG.
 
     :param args: the operation and its operands
     :param bound: the most it may print
     """
     _child_runs(monkeypatch, f"import sys; sys.stdout.write('x' * {bound + 1})")
     with pytest.raises(ChildCrashed):
-        await sandbox.run_child(args, b"x" * 50_000_000, seconds=10)
+        await sandbox.run_child(args, b"x" * 50_000_000, seconds=20)
     assert sandbox.text_answer_bytes(1_000) == 4 * 1_000 + 4 + sandbox.ANSWER_SLACK
 
 
 def test_the_png_bound_holds_for_the_worst_image():
-    """A page one pixel wide, of pure noise, still fits its bound.
+    """A page 64 pixels wide, of pure noise, still fits its bound.
 
-    The bound follows from the pixel cap alone: no file can make the worker
-    hold more than it allows.
+    The bound follows from the pixel cap alone, about 41 MB: no file can make
+    the worker hold more.
     """
     from PIL import Image
 
     from reef.reading import pages
 
-    for size in [(1, 2_000_000), (2_000, 1_000)]:
+    for size in [(64, 31_250), (2_000, 1_000)]:
         pixels = size[0] * size[1]
         image = Image.frombytes("L", size, os.urandom(pixels))
-        answer = json.dumps({"png": pages._png(image)}, ensure_ascii=False)
-        assert len(answer.encode()) <= sandbox.png_answer_bytes(pixels)
-    assert sandbox.png_answer_bytes(pages.MAX_PIXELS) < 110_000_000
+        png = pages._png(image)
+        output = json.dumps({"png": len(png), "dpi": 200}).encode() + b"\n" + png
+        assert len(output) <= sandbox.png_answer_bytes(pixels)
+        assert len(output) > pixels
+    assert sandbox.png_answer_bytes(pages.MAX_PIXELS) < 41_000_000

@@ -2,7 +2,8 @@
 
 Uploaded files are untrusted, and parsers have bugs. So the worker never
 parses a file itself. It starts :mod:`reef.reading.child`, writes the bytes
-to its stdin and reads JSON from its stdout. The child:
+to its stdin and reads JSON from its stdout, and a PNG's raw bytes after it
+when the answer holds one. The child:
 
 - gets an environment of three variables, so no storage key, database URL
   or API key of the worker reaches it;
@@ -45,7 +46,7 @@ from reef.reading import (
     TooLarge,
     Unreadable,
 )
-from reef.reading.pages import MAX_PIXELS, MODEL_CHARS
+from reef.reading.pages import MAX_PIXELS, MIN_SCAN_DPI, MIN_SIDE, PNG_SIGNATURE
 
 READER_USER = "reader"
 """The unprivileged user a root worker runs the child as. The Docker image
@@ -109,7 +110,7 @@ def text_answer_bytes(chars: int) -> int:
     """Return the most an answer holding one page of text can print.
 
     The same reckoning as :func:`parts_answer_bytes`, for one part. Room for
-    a confidence and a model's name is in the slack.
+    a confidence or a resolution is in the slack.
 
     :param chars: the most characters in the text
     :returns: the bound, in bytes
@@ -121,16 +122,17 @@ def png_answer_bytes(pixels: int) -> int:
     """Return the most an answer holding one page's PNG can print.
 
     The PNG is greyscale, a byte a pixel, and each row adds a filter byte:
-    at worst, a row one pixel wide, twice the pixels. Deflate and the PNG's
-    chunks add well under 1% to that, and base64 makes four bytes of three.
-    So the bound follows from the pixel cap, never from the file.
+    at worst, with rows :data:`~reef.reading.pages.MIN_SIDE` pixels wide,
+    1/64 more. Deflate and the PNG's chunks add well under 0.1%; 0.2% is
+    allowed. The PNG travels as raw bytes after a one-line JSON header, which
+    the slack holds. So the bound follows from the pixel cap, never from the
+    file: about 41 MB for a page of 40 million pixels.
 
     :param pixels: the most pixels in the page
     :returns: the bound, in bytes
     """
-    raw = 2 * pixels
-    png = raw + raw // 100 + ANSWER_SLACK
-    return 4 * math.ceil(png / 3) + ANSWER_SLACK
+    png = pixels + pixels // MIN_SIDE + pixels // 500 + ANSWER_SLACK
+    return png + ANSWER_SLACK
 
 
 def _is_count(value: object) -> bool:
@@ -156,23 +158,24 @@ def _is_survey(answer: dict, args: list[str]) -> bool:
     """Tell whether an answer is what ``survey`` gives.
 
     :param answer: the child's answer
-    :param args: ``survey`` and the kind
-    :returns: True for ``{"pages": int}``, at least one page
+    :param args: ``survey``, the kind and the most pages that will be read
+    :returns: True for ``{"pages": int}``, at least one page; for an image,
+        at most one more than will be read
     """
-    return (
-        answer.keys() == {"pages"}
-        and _is_count(answer["pages"])
-        and answer["pages"] >= 1
-    )
+    if answer.keys() != {"pages"} or not _is_count(answer["pages"]):
+        return False
+    most = int(args[2]) + 1 if args[1] == "image" else None
+    return answer["pages"] >= 1 and (most is None or answer["pages"] <= most)
 
 
-def _is_png(answer: dict) -> bool:
-    """Tell whether an answer is one page's PNG.
+def _is_png(value: object) -> bool:
+    """Tell whether a value is a PNG's bytes.
 
-    :param answer: the child's answer
-    :returns: True for ``{"png": str}``; the worker decodes and checks it
+    :param value: from the child's answer, after :func:`_answer` has taken
+        the bytes that followed it
+    :returns: True for ``bytes`` that start with the PNG signature
     """
-    return answer.keys() == {"png"} and isinstance(answer["png"], str)
+    return isinstance(value, bytes) and value.startswith(PNG_SIGNATURE)
 
 
 def _is_page(answer: dict, args: list[str]) -> bool:
@@ -180,11 +183,26 @@ def _is_page(answer: dict, args: list[str]) -> bool:
 
     :param answer: the child's answer
     :param args: ``page``, the number, the resolution and the most characters
-    :returns: True for ``{"text": str}`` within the most characters, or a PNG
+    :returns: True for ``{"text": str}`` within the most characters, or for
+        a PNG with the resolution it was rendered at: the one asked for, or
+        a lower one down to :data:`~reef.reading.pages.MIN_SCAN_DPI`
     """
     if answer.keys() == {"text"}:
         return _is_text(answer["text"], int(args[3]))
-    return _is_png(answer)
+    if answer.keys() != {"png", "dpi"} or not _is_count(answer["dpi"]):
+        return False
+    asked = int(args[2])
+    return _is_png(answer["png"]) and min(MIN_SCAN_DPI, asked) <= answer["dpi"] <= asked
+
+
+def _is_frame(answer: dict, args: list[str]) -> bool:
+    """Tell whether an answer is what ``frame`` gives.
+
+    :param answer: the child's answer
+    :param args: ``frame`` and the number
+    :returns: True for ``{"png": bytes}``
+    """
+    return answer.keys() == {"png"} and _is_png(answer["png"])
 
 
 def _is_confidence(value: object) -> bool:
@@ -209,15 +227,12 @@ def _is_ocr(answer: dict, args: list[str]) -> bool:
     :param answer: the child's answer
     :param args: ``ocr``, the program, the languages, the resolution and the
         most characters
-    :returns: True for a text within the most characters, a confidence and a
-        model's name
+    :returns: True for a text within the most characters and a confidence
     """
     return (
-        answer.keys() == {"text", "confidence", "model"}
+        answer.keys() == {"text", "confidence"}
         and _is_text(answer["text"], int(args[4]))
         and _is_confidence(answer["confidence"])
-        and _is_text(answer["model"], MODEL_CHARS)
-        and bool(answer["model"])
     )
 
 
@@ -236,10 +251,7 @@ _OPERATIONS: dict[
         ),
         _is_page,
     ),
-    "frame": (
-        lambda args, data: png_answer_bytes(MAX_PIXELS),
-        lambda answer, args: _is_png(answer),
-    ),
+    "frame": (lambda args, data: png_answer_bytes(MAX_PIXELS), _is_frame),
     "ocr": (lambda args, data: text_answer_bytes(int(args[4])), _is_ocr),
 }
 """Each operation's bound on its answer, derived from its arguments and the
@@ -326,7 +338,8 @@ async def run_child(
     limits, declared in ``_OPERATIONS`` or passed as ``answer_bytes``, with
     its answer's shape: ``parts`` (:func:`parts_answer_bytes`), ``survey``,
     ``page``, ``frame`` (:func:`png_answer_bytes`) and ``ocr``
-    (:func:`text_answer_bytes`).
+    (:func:`text_answer_bytes`). A PNG that follows the JSON is checked
+    against the length the JSON gives, and handed back as ``bytes``.
 
     :param args: the operation and its operands, as
         :func:`reef.reading.child.main` takes them after the limits
@@ -336,7 +349,7 @@ async def run_child(
     :param answer_bytes: the most the child may print; by default the
         operation's own bound, else :data:`DEFAULT_ANSWER_BYTES`
     :returns: the child's answer, a JSON object without an ``error`` key,
-        in the operation's shape
+        in the operation's shape; its ``png``, if any, is the PNG's bytes
     :raises ReadTimedOut: when the child runs out of time
     :raises ReadFailed: the class the child named, when it named one
     :raises ChildCrashed: when the child prints more than its bound, or
@@ -433,8 +446,12 @@ async def _exchange(
     return printed
 
 
-def _answer(returncode: int | None, stdout: bytes | bytearray) -> dict:
+def _answer(returncode: int | None, stdout: bytearray) -> dict:
     """Turn what the child left behind into its answer or a failure.
+
+    The answer is one line of JSON. When it holds a ``png``, that is the
+    length of the raw bytes after the line, which must be exactly that long;
+    they replace it. Anything else after the line is a crash.
 
     Raised outside any ``except`` block, so no failure carries the parse
     error, and with it the child's output, as its context.
@@ -450,12 +467,24 @@ def _answer(returncode: int | None, stdout: bytes | bytearray) -> dict:
         raise ReadTimedOut
     if returncode != 0:
         raise ChildCrashed
+    end = stdout.find(b"\n")
+    # A long JSON answer, such as ``parts``, has no newline: parsed in place.
+    head = stdout if end < 0 else stdout[:end]
     try:
-        answer = json.loads(stdout)
+        answer = json.loads(head)
     except (ValueError, RecursionError):
         answer = None
+    del head
     if not isinstance(answer, dict):
         raise ChildCrashed
     if "error" in answer:
         raise _FAILURES.get(str(answer["error"]), ChildCrashed)
+    rest = 0 if end < 0 else len(stdout) - end - 1
+    if "png" in answer:
+        if end < 0 or not _is_count(answer["png"]) or answer["png"] != rest:
+            raise ChildCrashed
+        with memoryview(stdout) as view:
+            answer["png"] = bytes(view[end + 1 :])
+    elif rest:
+        raise ChildCrashed
     return answer

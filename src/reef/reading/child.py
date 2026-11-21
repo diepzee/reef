@@ -5,7 +5,9 @@ Started by :func:`reef.reading.sandbox.run_child`, never by hand::
     python -I -B -m reef.reading.child --memory-mb N --cpu-seconds S <op> ...
 
 It caps itself before it reads a byte, reads the whole file from stdin, runs
-one operation and prints one JSON object. A read that fails prints
+one operation and prints one JSON object on one line. An answer that holds a
+PNG gives its length as ``"png"``, and the PNG's raw bytes follow a newline:
+no base64, so the worker holds the image once. A read that fails prints
 ``{"error": "<class>"}``, the class of a :class:`~reef.reading.ReadFailed`,
 and nothing else. Anything unexpected ends the child without an answer; its
 traceback goes to stderr, which the worker throws away.
@@ -18,16 +20,18 @@ Operations:
     ``pages`` is the true number of parts for a text format. For Word, Excel
     and PowerPoint extraction stops once there are more than ``max_parts``,
     so ``pages`` is then ``max_parts + 1``: "more than ``max_parts``".
-``survey <kind>``
-    Count a PDF's pages or an image's frames: ``{"pages": N}``.
+``survey <kind> <max_pages>``
+    Count a PDF's pages or an image's frames: ``{"pages": N}``. A TIFF's
+    count stops at ``max_pages + 1``, which means "more".
 ``page <number> <dpi> <page_chars>``
     One PDF page: ``{"text": ...}`` from its text layer, at most
-    ``page_chars`` characters, or ``{"png": ...}``, rendered at ``dpi``.
+    ``page_chars`` characters, or ``{"png": <length>, "dpi": N}`` and the
+    PNG, rendered at ``dpi`` or at the lower resolution that fits.
 ``frame <number>``
-    One image, or one frame of a TIFF, upright: ``{"png": ...}``.
+    One image, or one frame of a TIFF, upright: ``{"png": <length>}`` and
+    the PNG.
 ``ocr <tesseract> <languages> <dpi> <page_chars>``
-    Read the PNG on stdin with Tesseract:
-    ``{"text": ..., "confidence": ..., "model": ...}``.
+    Read the PNG on stdin with Tesseract: ``{"text": ..., "confidence": ...}``.
 
 Each operation imports only the libraries it needs. This process reads no
 setting and no environment variable: it gets none.
@@ -98,13 +102,13 @@ def _survey(data: bytes, operands: list[str]) -> dict:
     """Count a PDF's pages or an image's frames.
 
     :param data: the file's bytes
-    :param operands: the kind
+    :param operands: the kind and the most pages that will be read
     :returns: ``{"pages": N}``
     """
     from reef.reading.pages import survey
 
-    (kind,) = operands
-    return {"pages": survey(data, FileKind(kind))}
+    kind, max_pages = operands
+    return {"pages": survey(data, FileKind(kind), int(max_pages))}
 
 
 def _page(data: bytes, operands: list[str]) -> dict:
@@ -112,7 +116,8 @@ def _page(data: bytes, operands: list[str]) -> dict:
 
     :param data: the file's bytes
     :param operands: the page number, the resolution and the most characters
-    :returns: ``{"text": ...}`` or ``{"png": ...}``
+    :returns: ``{"text": ...}``, or ``{"png": ..., "dpi": ...}`` with the
+        PNG's bytes
     """
     from reef.reading.pages import pdf_page
 
@@ -125,7 +130,7 @@ def _frame(data: bytes, operands: list[str]) -> dict:
 
     :param data: the file's bytes
     :param operands: the frame number
-    :returns: ``{"png": ...}``
+    :returns: ``{"png": ...}``, the PNG's bytes
     """
     from reef.reading.pages import image_frame
 
@@ -139,7 +144,7 @@ def _ocr(data: bytes, operands: list[str]) -> dict:
     :param data: the page, a PNG
     :param operands: Tesseract's path, the languages, the resolution and the
         most characters
-    :returns: ``{"text": ..., "confidence": ..., "model": ...}``
+    :returns: ``{"text": ..., "confidence": ...}``
     """
     from reef.reading.pages import ocr
 
@@ -185,8 +190,14 @@ def main(argv: list[str]) -> int:
         answer = {"error": type(failure).__name__}
     except MemoryError:
         answer = {"error": TooLarge.__name__}
+    png = answer.get("png")
+    if isinstance(png, bytes):
+        answer["png"] = len(png)
     output = json.dumps(answer, ensure_ascii=False).encode("utf-8", "replace")
     sys.stdout.buffer.write(output)
+    if isinstance(png, bytes):
+        sys.stdout.buffer.write(b"\n")
+        sys.stdout.buffer.write(png)
     sys.stdout.buffer.flush()
     return 0
 
