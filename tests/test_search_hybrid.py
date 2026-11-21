@@ -464,28 +464,31 @@ async def test_the_search_log_gets_the_merged_engrams(
 
 def test_fusion_puts_a_row_in_both_rankings_first():
     a, b, c = uuid4(), uuid4(), uuid4()
-    merged = fuse([("page", a, False), ("page", b, False)], [c, b])
+    merged = fuse([("page", a, False), ("page", b, False)], [("page", c), ("page", b)])
     assert merged[0] == ("page", b)
     assert set(merged) == {("page", a), ("page", b), ("page", c)}
 
 
 def test_fusion_keeps_a_sure_keyword_hit_above_fifty_close_engrams():
-    file, engrams = uuid4(), [uuid4() for _ in range(FUSION_DEPTH)]
+    file, engrams = uuid4(), [("page", uuid4()) for _ in range(FUSION_DEPTH)]
     assert fuse([("file", file, True)], engrams)[0] == ("file", file)
 
 
 def test_fusion_lets_meaning_outrank_an_unsure_keyword_hit():
     loose, close = uuid4(), uuid4()
-    assert fuse([("page", loose, False)], [close])[0] == ("page", close)
+    assert fuse([("page", loose, False)], [("page", close)])[0] == ("page", close)
 
 
 def test_fusion_judges_a_sure_hit_by_its_real_place_when_it_has_one():
     first, second = uuid4(), uuid4()
-    merged = fuse([("page", first, True), ("page", second, True)], [second, first])
+    merged = fuse(
+        [("page", first, True), ("page", second, True)],
+        [("page", second), ("page", first)],
+    )
     # Closest in meaning wins: a place by words counts for less.
     assert merged == [("page", second), ("page", first)]
 
 
 def test_fusion_reads_no_deeper_than_it_is_given():
-    engrams = [uuid4() for _ in range(FUSION_DEPTH)]
+    engrams = [("page", uuid4()) for _ in range(FUSION_DEPTH)]
     assert len(fuse([], engrams)) == FUSION_DEPTH
