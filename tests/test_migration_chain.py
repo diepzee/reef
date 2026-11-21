@@ -295,6 +295,7 @@ def _declared(pattern: str) -> set[str]:
         appearance_statements,
         call_log_statements,
         enable_statements,
+        file_text_statements,
         job_statements,
         link_statements,
         open_door_statements,
@@ -314,6 +315,7 @@ def _declared(pattern: str) -> set[str]:
         + open_door_statements()
         + person_column_grant_statements()
         + call_log_statements()
+        + file_text_statements()
     )
     return set(re.findall(pattern, everything))
 

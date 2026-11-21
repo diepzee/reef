@@ -100,7 +100,9 @@ def search_statements() -> list[str]:
     anyway.
 
     Titles and filenames are the heading; bodies and descriptions the
-    content. Changing the expression means dropping and re-adding the
+    content. A file's page has no heading of its own, so its text is all
+    content (weight B): a word in a page counts as a word in a body, not as
+    one in a title. Changing the expression means dropping and re-adding the
     column in a new migration -- ``IF NOT EXISTS`` here will not notice.
 
     :returns: SQL statements to execute in order
@@ -109,6 +111,7 @@ def search_statements() -> list[str]:
     for table, heading, content in (
         ("engrams", "title", "body"),
         ("attachments", "filename", "description"),
+        ("file_pages", "NULL", "text"),
     ):
         statements.append(
             f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS search_vector "

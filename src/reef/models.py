@@ -73,6 +73,21 @@ class AttachmentStatus(StrEnum):
     FAILED = "failed"
 
 
+class TextStatus(StrEnum):
+    """How far Reef got reading the text inside a file.
+
+    Null on the row, not a member here, means the file was never looked at.
+    The database holds the same list: ``attachments_text_status_known`` in
+    :func:`reef.rls.file_text_statements`.
+    """
+
+    WAITING = "waiting"
+    READ = "read"
+    PARTLY_READ = "partly_read"
+    UNREADABLE = "unreadable"
+    NOT_READ = "not_read"
+
+
 class Person(Table, tablename="persons", db=DB):
     """A human principal. Provider subject is durable identity; email binds it.
 
@@ -209,7 +224,13 @@ class Revision(Table, tablename="revisions", db=DB):
 
 
 class Attachment(Table, tablename="attachments", db=DB):
-    """A file in object storage, described in text for context loading."""
+    """A file in object storage, described in text for context loading.
+
+    ``text_status``, ``pages`` and ``text_error`` say how reading its text
+    went: see :class:`TextStatus` and :class:`FilePage`. ``text_error`` is
+    the name of an error class and nothing an error said, as on
+    :class:`Job`.
+    """
 
     id = UUID(primary_key=True, default=uuid4)
     space_id = ForeignKey(Space, index=True)
@@ -221,6 +242,9 @@ class Attachment(Table, tablename="attachments", db=DB):
     description = Varchar(length=None)
     status = Varchar(choices=AttachmentStatus, default=AttachmentStatus.PENDING)
     created_at = Timestamp(default=TimestampNow())
+    text_status = Varchar(choices=TextStatus, null=True, default=None)
+    pages = Integer(null=True, default=None)
+    text_error = Varchar(length=255, null=True, default=None)
 
 
 class Promotion(Table, tablename="promotions", db=DB):
@@ -537,6 +561,78 @@ class EmbeddingSpend(Table, tablename="embedding_spend", db=DB):
     pieces = Integer(default=0)
 
 
+class FilePage(Table, tablename="file_pages", db=DB):
+    """The text of one page of one stored file.
+
+    A page is a PDF page, an image or one frame of a TIFF, a slide or a
+    sheet. A text format has no pages of its own: its text is cut between
+    paragraphs into parts, and each part is a page. ``number`` counts from 1,
+    and ``(attachment_id, number)`` is unique, by a raw constraint.
+
+    ``reader`` names what read it, one of :data:`reef.rls.READERS`.
+    ``model`` names the reader's model, where it has one, and ``confidence``
+    is the reader's own, 0 to 100, where it gives one. A page with no words
+    keeps empty ``text``: it was read and will not be read again.
+
+    A generated ``search_vector`` column, which Piccolo cannot declare, is
+    added by :func:`reef.search.search_statements`. A page is visible exactly
+    when its file is: see :func:`reef.rls.file_text_statements`.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    attachment_id = ForeignKey(Attachment, null=False)
+    number = Integer()
+    text = Varchar(length=None, default="")
+    reader = Varchar()
+    model = Varchar(null=True, default=None)
+    confidence = Real(null=True, default=None)
+    read_at = Timestamp(default=TimestampNow())
+
+
+class FileEmbedding(Table, tablename="file_embeddings", db=DB):
+    """The vector of one chunk of one stored file, from one model.
+
+    Built as :class:`EngramEmbedding` is. ``chunk_anchor`` is null for the
+    whole-file chunk: filename, description and the start of the text. Every
+    file has that one, so a file without text is still found by meaning.
+
+    Derived data, rebuilt from the file and never restored. A vector is
+    visible exactly when its file is: see
+    :func:`reef.rls.file_text_statements`.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    attachment_id = ForeignKey(Attachment, null=False)
+    chunk_anchor = Varchar(length=None, null=True, default=None)
+    model_id = Varchar()
+    dims = Integer()
+    content_hash = Varchar()
+    embedding = Vector()
+    created_at = Timestamp(default=TimestampNow())
+
+
+class ReadingSpend(Table, tablename="reading_spend", db=DB):
+    """How much one reader read for one person on one day.
+
+    What the daily page allowance counts. Token counts are for readers that
+    charge by the token; a local reader leaves them at 0.
+
+    ``(person_id, day, reader)`` is unique, by a raw constraint. Private to
+    the person, like :class:`EmbeddingSpend`.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    # NOT NULL in the migrated schema; see Space.owner_person_id.
+    person_id = ForeignKey(Person, null=False)
+    day = Date()
+    reader = Varchar()
+    pages = Integer(default=0)
+    input_tokens = Integer(default=0)
+    output_tokens = Integer(default=0)
+
+
 class EngramHeat(Table, tablename="engram_heat", db=DB):
     """How readily one engram comes to mind for one person: its activation.
 
@@ -574,4 +670,7 @@ TABLES = [
     CallLog,
     EngramEmbedding,
     EmbeddingSpend,
+    FilePage,
+    FileEmbedding,
+    ReadingSpend,
 ]

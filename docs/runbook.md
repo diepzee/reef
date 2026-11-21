@@ -1513,6 +1513,17 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | usage | `REEF_USAGE_MIN_AGE_HOURS` | `0.01667` | The youngest a use is treated as, so none dominates. |
 | usage | `REEF_USAGE_REFRESH_DELAY_SECONDS` | `300` | How long after a use the refresh runs, once per busy session. |
 | calls | `REEF_CALL_LOG` | `0` | Log each call and the reason the assistant gave, for 90 days. Off unless switched on: the privacy page promises that people are told first. |
+| reading | `REEF_FILE_TEXT` | `0` | Read the text inside stored files and search it. Off unless switched on: with it off, files are found by name and description only. Same value on app and worker. |
+| reading | `REEF_FILE_TEXT_DPI` | `200` | How finely a scanned page is rendered before it is read. |
+| reading | `REEF_FILE_TEXT_LANGUAGES` | `nld+fra+eng` | The languages Tesseract reads a scan in, joined by +. |
+| reading | `REEF_FILE_TEXT_PARALLEL_PAGES` | `4` | How many pages the worker reads at the same time. |
+| reading | `REEF_FILE_TEXT_PAGES_PER_FILE` | `200` | The most pages read of one file. The rest is not read. |
+| reading | `REEF_FILE_TEXT_PAGES_PER_JOB` | `10` | How many pages one job reads. A text format is read whole. |
+| reading | `REEF_FILE_TEXT_PAGE_SECONDS` | `60` | The longest one page may take to read. A text format gets this time for the whole file. |
+| reading | `REEF_FILE_TEXT_PAGE_CHARS` | `20000` | The most text kept of one page, in characters. A text format is cut into pages no longer than this. |
+| reading | `REEF_FILE_TEXT_DAILY_PAGES` | `2000` | The most pages read for one person in one day. |
+| reading | `REEF_FILE_TEXT_RETRY_SECONDS` | `21600` | How long a file waits when its person's daily pages are spent. |
+| reading | `REEF_FILE_TEXT_MEMORY_MB` | `1024` | The most memory the process reading one file may use, in MB. |
 <!-- settings:end -->
 
 **Escape hatches, in order of severity:**

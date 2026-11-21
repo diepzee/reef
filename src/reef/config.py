@@ -496,6 +496,78 @@ class CallSettings(BaseSettings):
     )
 
 
+class ReadingSettings(BaseSettings):
+    """Reading the text inside stored files, on Reef's own servers.
+
+    Off until switched on. See ``docs/specs/2026-11-21-file-text-design.md``.
+    Only the worker reads files; the app queues them and searches the text.
+    """
+
+    model_config = _group(f"{PREFIX}FILE_TEXT_")
+
+    enabled: bool = Field(
+        False,
+        validation_alias=f"{PREFIX}FILE_TEXT",
+        description=(
+            "Read the text inside stored files and search it. Off unless "
+            "switched on: with it off, files are found by name and "
+            "description only. Same value on app and worker."
+        ),
+    )
+    dpi: int = Field(
+        200,
+        ge=72,
+        le=600,
+        description="How finely a scanned page is rendered before it is read.",
+    )
+    languages: str = Field(
+        "nld+fra+eng",
+        description="The languages Tesseract reads a scan in, joined by +.",
+    )
+    parallel_pages: int = Field(
+        4, ge=1, description="How many pages the worker reads at the same time."
+    )
+    pages_per_file: int = Field(
+        200,
+        ge=1,
+        description="The most pages read of one file. The rest is not read.",
+    )
+    pages_per_job: int = Field(
+        10,
+        ge=1,
+        description="How many pages one job reads. A text format is read whole.",
+    )
+    page_seconds: float = Field(
+        60.0,
+        gt=0,
+        description=(
+            "The longest one page may take to read. A text format gets this "
+            "time for the whole file."
+        ),
+    )
+    page_chars: int = Field(
+        20_000,
+        ge=1_000,
+        description=(
+            "The most text kept of one page, in characters. A text format is "
+            "cut into pages no longer than this."
+        ),
+    )
+    daily_pages: int = Field(
+        2_000, ge=0, description="The most pages read for one person in one day."
+    )
+    retry_seconds: float = Field(
+        21_600.0,
+        gt=0,
+        description="How long a file waits when its person's daily pages are spent.",
+    )
+    memory_mb: int = Field(
+        1_024,
+        ge=64,
+        description="The most memory the process reading one file may use, in MB.",
+    )
+
+
 class Settings(BaseModel):
     """Every setting of reef, grouped by what it is for.
 
@@ -523,6 +595,7 @@ class Settings(BaseModel):
     rerank: RerankSettings = Field(default_factory=RerankSettings)
     usage: UsageSettings = Field(default_factory=UsageSettings)
     calls: CallSettings = Field(default_factory=CallSettings)
+    reading: ReadingSettings = Field(default_factory=ReadingSettings)
 
     @property
     def dsn(self) -> str:

@@ -158,11 +158,19 @@ def test_every_setting_says_what_it_does():
             "60",
             lambda s: s.embedding.cap_retry_seconds == 60,
         ),
+        ("REEF_FILE_TEXT", "1", lambda s: s.reading.enabled is True),
     ],
 )
 def test_a_variable_reaches_its_setting(monkeypatch, variable, value, read):
     monkeypatch.setenv(variable, value)
     assert read(config.get_settings())
+
+
+def test_file_text_is_off_by_default(monkeypatch):
+    """Reef reads no file's text until the operator switches it on."""
+    monkeypatch.delenv("REEF_FILE_TEXT", raising=False)
+    monkeypatch.delenv("RIF_FILE_TEXT", raising=False)
+    assert config.get_settings().reading.enabled is False
 
 
 def test_a_name_inside_a_group_is_not_a_second_spelling(monkeypatch):
