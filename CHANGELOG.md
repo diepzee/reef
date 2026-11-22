@@ -1,3 +1,10 @@
+## [2.1.0](https://github.com/diepzee/reef/compare/v2.0.0...v2.1.0) (2026-11-21)
+
+### Features
+
+* **calls:** ready the call log for switch-on (RUG-45) ([#151](https://github.com/diepzee/reef/issues/151)) ([2228bad](https://github.com/diepzee/reef/commit/2228bad71b7d0c53b93d2113c4f77fcde723cd11))
+* **files:** read the text inside stored files, switched off for now (RUG-37) ([#153](https://github.com/diepzee/reef/issues/153)) ([340c878](https://github.com/diepzee/reef/commit/340c878494dd97beff072c19c8903ea4c3bf109c))
+
 ## [2.0.0](https://github.com/diepzee/reef/compare/v1.0.1...v2.0.0) (2026-11-20)
 
 ### ⚠ BREAKING CHANGES
