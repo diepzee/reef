@@ -11,7 +11,7 @@ tags = ["household", "family"]
 - Nieuwe bril sinds 30 september 2026, sterkte +1,25.
 
 ## Arne (4)
-- Geboren 11 oktober 2022. Zit in de derde kleuterklas bij Basisschool De Kleine Wolk, juf Hanne.
+- Geboren 11 oktober 2022. Zit in de tweede kleuterklas bij Basisschool De Kleine Wolk, juf Hanne.
 - Houdt van dinosaurussen. Lievelingsboek: *Rex en de Regen*.
 - Rust op school niet meer nodig sinds september.
 

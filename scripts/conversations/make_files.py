@@ -18,8 +18,8 @@ FILES = REPO / "src" / "reef" / "testaccount" / "person" / "files"
 
 QUOTE_PAGES = [
     (
-        "Offerte Fleetboard\nKuipke Logistics NV, Noorderlaan 118, Antwerpen\n"
-        "Klant: Transport Van den Abeele\nOpgemaakt door: Anouk Verbeke\n"
+        "Offerte Fleetboard\nKuipke Logistics NV, Denkbeeldkaai 1, Antwerpen\n"
+        "Klant: Transport Schildpadsnel\nOpgemaakt door: Anouk Verbeke\n"
         "Datum: 5 november 2026\nGeldig tot: 5 januari 2027"
     ),
     (
@@ -32,13 +32,13 @@ QUOTE_PAGES = [
     ),
     (
         "3. Planning\nStart: 1 december 2026\nEerste oplevering: 18 januari 2027\n"
-        "Contactpersoon bij Van den Abeele:\nSabine Leemans"
+        "Contactpersoon bij Schildpadsnel:\nSabine Leemans"
     ),
 ]
 
 SCAN_LINES = [
     "Tandartspraktijk Bogaert",
-    "Stationsstraat 41, Mechelen",
+    "Verzinselstraat 2, Mechelen",
     "",
     "Beste Lode Vanhecke,",
     "Uw afspraak is verplaatst naar",

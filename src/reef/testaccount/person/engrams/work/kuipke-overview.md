@@ -5,7 +5,7 @@ tags = ["work"]
 
 # Kuipke Logistics NV
 
-- Kantoor: Noorderlaan 118, Antwerpen. Ik werk er sinds 1 september 2023 als data engineer.
+- Kantoor: Denkbeeldkaai 1, Antwerpen. Ik werk er sinds 1 september 2023 als data engineer.
 - Manager: Greet Maes. Team: zie [[work/team.md]].
 - Loon: bruto 4.650 euro per maand, plus maaltijdcheques 8 euro per dag. Jaarlijks gesprek in januari.
 - Thuiswerk: dinsdag, woensdag en donderdag. Kantoor op maandag en vrijdag.

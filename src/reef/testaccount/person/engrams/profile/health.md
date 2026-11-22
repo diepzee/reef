@@ -6,7 +6,7 @@ tags = ["profile", "health"]
 # Gezondheid
 
 ## Tandarts
-- Tandartspraktijk Bogaert, dr. Kristof Bogaert, Stationsstraat 41, Mechelen. Tel. 015 55 01 23.
+- Tandartspraktijk Bogaert, dr. Kristof Bogaert, Verzinselstraat 2, Mechelen. Tel. 000 00 00 03.
 - Controle stond op dinsdag 24 november 2026 om 14:30.
 - **Update 2026-11-10:** verplaatst naar donderdag 3 december 2026 om 09:15 omdat dinsdag botst met het werkoverleg.
 - Laatste detartrage: 12 mei 2026. Geen gaatjes.

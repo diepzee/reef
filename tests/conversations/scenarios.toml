@@ -163,7 +163,7 @@ facts = ["1-ABC-123"]
 id = "quote-price"
 kind = "read"
 needs = ["files", "file_text"]
-messages = ["Wat kost de inrichting in de offerte van Fleetboard voor Van den Abeele?"]
+messages = ["Wat kost de inrichting in de offerte van Fleetboard voor Schildpadsnel?"]
 tools_required = ["load_index", "recall"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = ["18.500"]
@@ -316,7 +316,7 @@ id = "store-file-text"
 kind = "write"
 needs = ["files"]
 messages = [
-  "Bewaar deze tekst als bestand tegel-offerte.txt bij mijn badkamerverbouwing: \"Tegelhuis Mechelen, offerte 2026-117: 42 m2 witte wandtegels, 1.260 euro inclusief btw.\"",
+  "Bewaar deze tekst als bestand tegel-offerte.txt bij mijn badkamerverbouwing: \"Tegelhuis Tierelantijn, offerte 2026-117: 42 m2 witte wandtegels, 1.260 euro inclusief btw.\"",
 ]
 tools_required = ["load_index", "store_file"]
 tools_forbidden = ["forget"]

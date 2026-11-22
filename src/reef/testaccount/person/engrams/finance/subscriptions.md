@@ -5,7 +5,7 @@ tags = ["finance"]
 
 # Abonnementen
 
-- Streamingdienst Kijkwijzer (verzonnen): 13,99 euro per maand, opzeggen niet nodig.
+- Streamingdienst Flimmerdoos: 13,99 euro per maand, opzeggen niet nodig.
 - Sportapp Reps: 4,99 euro per maand.
-- Krant De Dijlepost (verzonnen): digitaal, 9 euro per maand, **opgezegd op 1 oktober 2026**.
+- Krant De Mosselkoerier: digitaal, 9 euro per maand, **opgezegd op 1 oktober 2026**.
 - Internet: zie [[household/utilities.md]].
