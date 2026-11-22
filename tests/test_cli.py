@@ -1,8 +1,10 @@
 import base64
 import json
 import os
+from collections.abc import Callable
 from typing import Any, ClassVar
 
+import httpx
 from reef_cli.cli import JsonTokenStore, build_parser, run
 
 from reef.server import mcp
@@ -46,7 +48,13 @@ def _parser_commands(parser):
 async def test_named_commands_match_every_mcp_tool():
     commands = _parser_commands(build_parser())
     server_tools = {tool.name.replace("_", "-") for tool in await mcp.list_tools()}
-    assert commands == server_tools | {"login", "logout", "tools", "call"}
+    assert commands == server_tools | {
+        "login",
+        "logout",
+        "tools",
+        "call",
+        "reset-test-account",
+    }
 
 
 async def test_named_command_calls_exact_mcp_tool(monkeypatch, tmp_path, capsys):
@@ -346,3 +354,136 @@ async def test_json_token_store_persists_and_expires(tmp_path, monkeypatch):
         assert path.stat().st_mode & 0o777 == 0o600
     clock[0] = 1011.0
     assert await store.get("token", collection="oauth") is None
+
+
+RESET_BODY = {
+    "fixture_version": "v1",
+    "engrams": 12,
+    "files": 3,
+    "services": ["search"],
+    "reef_version": "1.2.3",
+}
+
+
+async def _reset(
+    monkeypatch: Any,
+    tmp_path: Any,
+    handler: Callable[[httpx.Request], httpx.Response],
+    argv: list[str],
+) -> int:
+    """Run ``reset-test-account`` against a mocked server.
+
+    :param monkeypatch: pytest's monkeypatch
+    :param tmp_path: a scratch directory for the CLI's config
+    :param handler: answers every request the command makes
+    :param argv: the command line after ``reef``
+    :returns: the exit status
+    """
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "secret-token")
+    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path))
+    args = build_parser().parse_args(argv)
+    return await run(args, transport=httpx.MockTransport(handler), poll_interval=0.01)
+
+
+async def test_reset_polls_until_ready(monkeypatch, tmp_path, capsys):
+    """The command resets, polls until ready and reports how long it took."""
+    requests: list[httpx.Request] = []
+    ready = iter([False, False, True])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Answer the reset and then three readiness checks."""
+        requests.append(request)
+        if request.method == "POST":
+            return httpx.Response(200, json=RESET_BODY)
+        return httpx.Response(
+            200,
+            json={
+                "ready": next(ready),
+                "vectors_missing": 0,
+                "files_unread": 0,
+                "jobs_waiting": 0,
+            },
+        )
+
+    status = await _reset(
+        monkeypatch,
+        tmp_path,
+        handler,
+        ["--url", "https://example.test/mcp", "reset-test-account"],
+    )
+
+    out = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert out["reset"] is True
+    assert out["engrams"] == 12
+    assert out["reef_version"] == "1.2.3"
+    assert isinstance(out["seconds"], (int, float))
+    assert [r.method for r in requests] == ["POST", "GET", "GET", "GET"]
+    assert all(r.headers["authorization"] == "Bearer secret-token" for r in requests)
+
+
+async def test_reset_refused(monkeypatch, tmp_path, capsys):
+    """A refusal prints the server's code and fails."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Refuse the reset."""
+        return httpx.Response(403, json={"error": "not_a_test_account"})
+
+    status = await _reset(
+        monkeypatch, tmp_path, handler, ["--compact", "reset-test-account"]
+    )
+
+    assert status == 1
+    assert json.loads(capsys.readouterr().out) == {"error": "not_a_test_account"}
+
+
+async def test_reset_server_error(monkeypatch, tmp_path, capsys):
+    """A 5xx answer prints ``server_error`` and fails."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Fail the reset."""
+        return httpx.Response(502, text="bad gateway")
+
+    status = await _reset(monkeypatch, tmp_path, handler, ["reset-test-account"])
+
+    assert status == 1
+    assert json.loads(capsys.readouterr().out) == {"error": "server_error"}
+
+
+async def test_reset_times_out(monkeypatch, tmp_path, capsys):
+    """When the account never becomes ready the command fails with not_ready."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Reset fine, never get ready."""
+        if request.method == "POST":
+            return httpx.Response(200, json=RESET_BODY)
+        return httpx.Response(200, json={"ready": False})
+
+    status = await _reset(
+        monkeypatch, tmp_path, handler, ["reset-test-account", "--timeout", "1"]
+    )
+
+    assert status == 1
+    assert json.loads(capsys.readouterr().out) == {"error": "not_ready"}
+
+
+async def test_base_url_strips_mcp(monkeypatch, tmp_path, capsys):
+    """The routes live beside ``/mcp``, not under it."""
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Record the URL and answer ready."""
+        urls.append(str(request.url))
+        if request.method == "POST":
+            return httpx.Response(200, json=RESET_BODY)
+        return httpx.Response(200, json={"ready": True})
+
+    await _reset(
+        monkeypatch,
+        tmp_path,
+        handler,
+        ["--url", "https://example.test/mcp", "reset-test-account"],
+    )
+
+    assert urls[0] == "https://example.test/api/test-account/reset"
+    assert urls[1] == "https://example.test/api/test-account/ready"
