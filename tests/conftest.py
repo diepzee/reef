@@ -49,6 +49,7 @@ from reef.rls import (
     person_column_grant_statements,
     search_log_statements,
     session_epoch_statements,
+    test_account_statements,
     usage_statements,
 )
 from reef.search import search_statements
@@ -290,6 +291,7 @@ async def schema():
         + usage_statements()
         + search_log_statements()
         + call_log_statements()
+        + test_account_statements()
         + embedding_statements()
         + file_text_statements()
         + session_epoch_statements()

@@ -1748,6 +1748,7 @@ BEGIN
     FROM call_log c
     WHERE c.called_at >= {_TODAY_UTC} - make_interval(days => p_days)
       AND c.called_at < {_TODAY_UTC}
+      AND NOT EXISTS (SELECT 1 FROM test_accounts t WHERE t.person_id = c.person_id)
     GROUP BY c.method, c.outcome
     ORDER BY c.method, c.outcome;
 END
@@ -1780,7 +1781,10 @@ def call_log_statements() -> list[str]:
     :data:`CALL_LOG_DAYS`. So no window can be aimed at one moment, and the
     totals do not change during a day. This is what the call log is for:
     learning which tools assistants use and what they ask for that no tool
-    serves, without reading anybody's calls.
+    serves, without reading anybody's calls. Statistics across people skip
+    flagged test accounts (see :func:`test_account_statements`), so scripted
+    conversations do not colour them. That needs the ``test_accounts`` table
+    and the grant on it that :func:`test_account_statements` makes.
 
     :returns: SQL statements to execute in order
     """
@@ -1827,7 +1831,98 @@ def call_log_statements() -> list[str]:
             "reef_call_log_totals(p_days integer)",
             _CALL_LOG_TOTALS,
             returns="TABLE(method text, outcome text, calls bigint, empty_reasons bigint)",
-            reads=("call_log",),
+            reads=("call_log", "test_accounts"),
+            language="plpgsql",
+        ),
+    ]
+
+
+_TEST_ACCOUNT_RESET = f"""
+DECLARE
+    me uuid := {PRINCIPAL};
+    stamp timestamptz;
+BEGIN
+    IF me IS NULL OR NOT EXISTS (SELECT 1 FROM test_accounts WHERE person_id = me) THEN
+        RAISE EXCEPTION 'not a test account'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    DELETE FROM jobs WHERE person_id = me AND status = 'queued';
+    DELETE FROM embedding_spend WHERE person_id = me;
+    DELETE FROM reading_spend WHERE person_id = me;
+    UPDATE test_accounts SET reset_at = now() WHERE person_id = me
+    RETURNING reset_at INTO stamp;
+    RETURN stamp;
+END
+"""
+
+_TEST_ACCOUNT_HURRY = f"""
+DECLARE
+    me uuid := {PRINCIPAL};
+    moved integer;
+BEGIN
+    IF me IS NULL OR NOT EXISTS (SELECT 1 FROM test_accounts WHERE person_id = me) THEN
+        RETURN 0;
+    END IF;
+    UPDATE jobs SET run_after = LOCALTIMESTAMP WHERE person_id = me AND status = 'queued';
+    GET DIAGNOSTICS moved = ROW_COUNT;
+    RETURN moved;
+END
+"""
+
+
+def test_account_statements() -> list[str]:
+    """Return idempotent DDL for test accounts: the flag and its two functions.
+
+    Not part of :func:`enable_statements`, for the reason
+    :func:`appearance_statements` gives.
+
+    **The flag.** ``test_accounts`` holds one row per made-up account. A
+    person may read their own row and nothing else. There is no ``INSERT``,
+    ``UPDATE`` or ``DELETE`` policy, so the application cannot flag anyone,
+    not even itself: the operator does, past row security.
+
+    **The functions.** Both act for the armed person only, so nobody can
+    reset or hurry another account.
+
+    * ``reef_test_account_reset()`` raises ``not a test account`` (SQLSTATE
+      ``insufficient_privilege``) for an unflagged caller. Otherwise it deletes
+      the caller's queued jobs and their embedding and reading spend, stamps
+      ``reset_at`` and returns it.
+    * ``reef_test_account_hurry()`` makes the caller's queued jobs due now (on the clock the worker claims by) and
+      returns how many; it returns 0 for an unflagged caller.
+
+    :returns: SQL statements to execute in order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    roles = [
+        f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = "
+        f"'{role}') THEN EXECUTE 'GRANT SELECT ON test_accounts TO {role}'; "
+        f"END IF; END $do$"
+        for role in _EXECUTOR_ROLES
+    ]
+    return [
+        "ALTER TABLE test_accounts ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE test_accounts FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS test_accounts_select ON test_accounts",
+        f"CREATE POLICY test_accounts_select ON test_accounts FOR SELECT USING ({own})",
+        *roles,
+        *_function_ddl(
+            "reef_test_account_reset()",
+            _TEST_ACCOUNT_RESET,
+            returns="timestamptz",
+            reads=("test_accounts",),
+            writes=("jobs", "embedding_spend", "reading_spend"),
+            volatility="VOLATILE",
+            language="plpgsql",
+        ),
+        _for_authz("GRANT UPDATE (reset_at) ON test_accounts TO %I"),
+        *_function_ddl(
+            "reef_test_account_hurry()",
+            _TEST_ACCOUNT_HURRY,
+            returns="integer",
+            reads=("test_accounts",),
+            writes=("jobs",),
+            volatility="VOLATILE",
             language="plpgsql",
         ),
     ]

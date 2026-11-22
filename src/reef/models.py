@@ -26,9 +26,11 @@ from piccolo.columns import (
     OnDelete,
     Real,
     Timestamp,
+    Timestamptz,
     Varchar,
 )
 from piccolo.columns.defaults.timestamp import TimestampNow
+from piccolo.columns.defaults.timestamptz import TimestamptzNow
 from piccolo.table import Table
 
 from reef.db import DB
@@ -653,6 +655,25 @@ class EngramHeat(Table, tablename="engram_heat", db=DB):
     updated_at = Timestamp(default=TimestampNow())
 
 
+class TestAccount(Table, tablename="test_accounts", db=DB):
+    """A made-up account the operator has flagged for scripted conversations.
+
+    A flagged person may reset their memory to a fixed state and hurry their
+    queued jobs, through two functions, and their calls are left out of the
+    call log's totals. Only the operator flags: a person reads their own row
+    and nothing else, and no policy lets anyone add, change or remove one. See
+    :func:`reef.rls.test_account_statements`.
+
+    ``reset_at`` is when the account was last reset, or ``None``.
+    """
+
+    __test__ = False  # Not a pytest class, whatever its name says.
+
+    person_id = ForeignKey(Person, primary_key=True, on_delete=OnDelete.cascade)
+    flagged_at = Timestamptz(default=TimestamptzNow())
+    reset_at = Timestamptz(null=True, default=None)
+
+
 TABLES = [
     Person,
     Space,
@@ -673,4 +694,5 @@ TABLES = [
     FilePage,
     FileEmbedding,
     ReadingSpend,
+    TestAccount,
 ]
