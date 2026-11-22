@@ -7,7 +7,9 @@ made up.
 
 import importlib.util
 import json
+import re
 import sys
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,8 @@ from score import Scored, coverage, load, score, write_report
 
 from reef.sealing import seal
 from reef.server import mcp
+from reef.testaccount import Readiness
+from reef.testaccount.fixture import read_fixture
 
 
 def _load_runner():
@@ -348,9 +352,11 @@ def test_report_drops_tokens(tmp_path):
 
 def test_codex_command_offers_only_reef(tmp_path):
     """Codex runs read-only, without its shell or the person's own settings."""
-    first = run.codex_command(run.LOCAL_SERVER, connector=False, session_id=None)
-    again = run.codex_command(run.LOCAL_SERVER, connector=True, session_id="t-1")
-    for command in (first, again):
+    server = run.local_server("ab" * 32)
+    first = run.codex_command(server, tools=None, session_id=None)
+    again = run.codex_command(server, tools=run.CONNECTOR_TOOLS, session_id="t-1")
+    probe = run.codex_command(server, tools=run.PROBE_TOOLS, session_id=None)
+    for command in (first, again, probe):
         assert "--json" in command and "--ignore-user-config" in command
         assert "shell_tool" in command and 'web_search="disabled"' in command
         assert any(
@@ -360,6 +366,8 @@ def test_codex_command_offers_only_reef(tmp_path):
     assert ["-s", "read-only"] == first[first.index("-s") : first.index("-s") + 2]
     assert again[again.index("resume") + 1 : again.index("resume") + 2] == ["t-1"]
     assert 'mcp_servers.reef_local.enabled_tools=["search", "fetch"]' in again
+    assert 'mcp_servers.reef_local.enabled_tools=["load_index"]' in probe
+    assert not any("enabled_tools" in part for part in first)
 
 
 def test_reads_cli_output():
@@ -441,48 +449,100 @@ def test_tyre_check_tells_old_from_new():
     assert _score(scenario, session, {ref: new}).verdict == "pass"
 
 
-def test_guard_sees_the_made_up_person():
-    """The sample's ``load_index`` shows Lode Vanhecke; one without it does not."""
-    session = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
-    assert run.shows_made_up_person(session)
-    other = Session(
-        "t", [ToolCall("reef_local", "load_index", {}, True, 0, "Jan")], [], ""
-    )
-    assert not run.shows_made_up_person(other)
-    failed = Session(
-        "t",
-        [ToolCall("reef_local", "load_index", {}, False, 0, "Lode Vanhecke")],
-        [],
-        "",
-    )
-    assert not run.shows_made_up_person(failed)
+def _index_call(persona: str, *, ok: bool = True, structured: bool = True) -> dict:
+    """Build the event of a completed ``load_index`` call, as Codex prints it.
+
+    Every engram line in the index names Lode Vanhecke, whatever the persona.
+
+    :param persona: the persona at the end of the operating protocol
+    :param ok: whether the call succeeded
+    :param structured: whether the result carries structured content; without
+        it the protocol is only in the text part
+    :returns: the ``item.completed`` event
+    """
+    payload = {
+        "operating_protocol": f"# Operating protocol\n\nRead it.\n\n---\n\n{persona}",
+        "spaces": [
+            {
+                "alias": "personal",
+                "engrams": [
+                    "profile/about-lode.md | Over Lode Vanhecke | Lode Vanhecke"
+                ],
+            }
+        ],
+    }
+    result: dict = {"content": [{"type": "text", "text": json.dumps(payload)}]}
+    if structured:
+        result["structured_content"] = payload
+    return {
+        "type": "item.completed",
+        "item": {
+            "id": "item_1",
+            "type": "mcp_tool_call",
+            "server": "reef_test",
+            "tool": "load_index",
+            "arguments": {},
+            "result": result,
+            "error": None if ok else {"message": "refused"},
+            "status": "completed" if ok else "failed",
+        },
+    }
 
 
-async def test_guard_stops_before_writing(monkeypatch):
-    """With no sign of the person the guard raises; with one it lets the run go on."""
+def _probe(*events: dict) -> Session:
+    """Parse an account check's events, as one finished turn.
+
+    :param events: the item events
+    :returns: the session
+    """
+    lines = [
+        {"type": "thread.started", "thread_id": "t"},
+        *events,
+        {"type": "turn.completed"},
+    ]
+    return parse_events(json.dumps(line) for line in lines)
+
+
+#: A persona that names the made-up person but belongs to someone else.
+OTHER_PERSONA = (
+    "# Persona\n\nJe werkt voor Jan Peeters. Zijn buurman heet Lode Vanhecke."
+)
+
+
+def test_account_check_reads_the_persona():
+    """Only the made-up person's persona, word for word, passes the check."""
+    persona = read_fixture().persona
     sample = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
-    stranger = Session(
-        "t", [ToolCall("reef_local", "load_index", {}, True, 0, "Jan")], [], ""
-    )
-    guard = run.Guard()
-    monkeypatch.setattr(run, "play", lambda scenario, server: stranger)
-    with pytest.raises(run.RunError):
-        await guard.check(run.LOCAL_SERVER)
-    monkeypatch.setattr(run, "play", lambda scenario, server: sample)
-    await guard.check(run.LOCAL_SERVER)
-    assert guard.verified
+    assert run.account_problem(sample, persona) is None
+    assert run.account_problem(_probe(_index_call(persona)), persona) is None
+    text_only = _probe(_index_call(persona, structured=False))
+    assert run.account_problem(text_only, persona) is None
+    named = run.account_problem(_probe(_index_call(OTHER_PERSONA)), persona)
+    assert named and "another account" in named
+    failed = run.account_problem(_probe(_index_call(persona, ok=False)), persona)
+    assert failed and "did not read the index" in failed
+    assert run.account_problem(_probe(), persona)
+    broken = Session("t", [], [], "", "quota")
+    assert "quota" in (run.account_problem(broken, persona) or "")
 
 
 class _FakeTarget:
     """A target that resets and reads nothing, to test the run's bookkeeping."""
 
-    server = run.LOCAL_SERVER
+    def __init__(
+        self,
+        server: run.Server | None = None,
+        services: run.Services | None = None,
+        fail_final_reset: bool = False,
+    ) -> None:
+        """Remember the server, the services and whether later resets fail.
 
-    def __init__(self, fail_final_reset: bool = False) -> None:
-        """Remember whether the second reset must fail.
-
+        :param server: the server Codex is offered; a local one by default
+        :param services: what each reset reports; everything on by default
         :param fail_final_reset: make every reset after the first fail
         """
+        self.server = server or run.local_server("ab" * 32)
+        self.services = services or run.Services(files=True, file_text=True)
         self.resets = 0
         self.fail_final_reset = fail_final_reset
 
@@ -495,23 +555,184 @@ class _FakeTarget:
     async def reset(self) -> run.Services:
         """Count the reset, and fail after the first when asked.
 
-        :returns: services with everything on
+        :returns: the services
         """
         self.resets += 1
         if self.fail_final_reset and self.resets > 1:
             raise run.RunError("reset broke")
-        return run.Services(files=True, file_text=True)
+        return self.services
+
+    async def read(self, refs: list[str]) -> dict[str, str | None]:
+        """Read nothing.
+
+        :param refs: ignored
+        :returns: no bodies
+        """
+        return {}
+
+
+class _Recorder:
+    """Stands in for :func:`run.play`: notes each conversation, answers with a session."""
+
+    def __init__(self, probe: Session) -> None:
+        """Answer the account check with ``probe``, and scenarios with the sample.
+
+        :param probe: what Codex does with the account check's question
+        """
+        self.probe = probe
+        self.played: list[tuple[str, tuple[str, ...] | None]] = []
+
+    def __call__(
+        self, scenario: dict, server: run.Server, tools: tuple[str, ...] | None = None
+    ) -> Session:
+        """Note the scenario and the tools offered, and answer.
+
+        :param scenario: the scenario played
+        :param server: ignored
+        :param tools: the only tools offered, if limited
+        :returns: the session
+        """
+        self.played.append((scenario["id"], tools))
+        if scenario["id"] == run.PROBE["id"]:
+            return self.probe
+        return parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
+
+
+def _report(directory: Path) -> dict:
+    """Read the one JSON report a run wrote.
+
+    :param directory: where the report went
+    :returns: the report
+    """
+    return json.loads(next(directory.glob("*.json")).read_text(encoding="utf-8"))
+
+
+async def test_account_check_runs_before_the_first_scenario(tmp_path, monkeypatch):
+    """The check, with ``load_index`` alone, comes before even a read scenario."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+    recorder = _Recorder(_probe(_index_call(read_fixture().persona)))
+    monkeypatch.setattr(run, "play", recorder)
+    await run.run(_FakeTarget(), ["dentist-moved"], None)
+    assert recorder.played == [
+        ("account-check", ("load_index",)),
+        ("dentist-moved", None),
+    ]
+    assert _report(tmp_path)["meta"]["account_check"] == "passed"
+
+
+async def test_refused_account_check_plays_no_scenario(tmp_path, monkeypatch):
+    """Another person's index stops the run before any scenario, and says what to do."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+    recorder = _Recorder(_probe(_index_call(OTHER_PERSONA)))
+    monkeypatch.setattr(run, "play", recorder)
+    target = _FakeTarget(server=run.PRODUCTION_SERVER)
+    with pytest.raises(run.AccountCheckFailed, match="another account"):
+        await run.run(target, ["dentist-moved", "forget-confirmed"], None)
+    assert recorder.played == [("account-check", ("load_index",))]
+    report = _report(tmp_path)
+    assert report["scenarios"] == []
+    assert "No scenario was played" in report["meta"]["stopped"]
+    assert (
+        "codex mcp logout reef_test -c "
+        "'mcp_servers.reef_test.url=\"https://reefwith.me/mcp\"'"
+    ) in report["meta"]["stopped"]
+    assert target.resets == 2
+
+
+async def test_local_servers_of_a_run_share_one_secret(tmp_path, monkeypatch):
+    """Every local server of a run, the account check's too, gets one session secret."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+    monkeypatch.delenv("REEF_SESSION_SECRET", raising=False)
+    sample = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
+    commands: list[list[str]] = []
+
+    def fake_codex(command: list[str], message: str, workdir: Path) -> Session:
+        """Note the command and answer with the sample.
+
+        :param command: the ``codex exec`` command
+        :param message: ignored
+        :param workdir: ignored
+        :returns: the sample session
+        """
+        commands.append(command)
+        return sample
+
+    monkeypatch.setattr(run, "_run_codex", fake_codex)
+    target = _FakeTarget(server=run.LocalTarget().server)
+    await run.run(target, ["dentist-moved", "forget-confirmed"], None)
+    prefix = "mcp_servers.reef_local.env.REEF_SESSION_SECRET="
+    found = {
+        json.loads(part.removeprefix(prefix))
+        for command in commands
+        for part in command
+        if part.startswith(prefix)
+    }
+    assert len(commands) == 4  # the check, one read, two messages of a write
+    assert all(any(p.startswith(prefix) for p in command) for command in commands)
+    assert len(found) == 1
+    assert re.fullmatch(r"[0-9a-f]{64}", found.pop())
+    assert run.LocalTarget().server != target.server
+    monkeypatch.setenv("REEF_SESSION_SECRET", "s" * 40)
+    assert f"{prefix}{json.dumps('s' * 40)}" in run.LocalTarget().server.settings
+    forwarded = next(
+        part for part in run.LocalTarget().server.settings if ".env_vars=" in part
+    )
+    assert "REEF_SESSION_SECRET" not in forwarded
+
+
+async def test_report_names_search_services(tmp_path, monkeypatch):
+    """The report says whether search has an embedder and reranks."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+    monkeypatch.setattr(
+        run, "play", _Recorder(_probe(_index_call(read_fixture().persona)))
+    )
+    services = run.Services(
+        files=False, file_text=False, embedding=True, rerank=False, reef_version="9.9"
+    )
+    await run.run(_FakeTarget(services=services), ["dentist-moved"], None)
+    meta = _report(tmp_path)["meta"]
+    assert (meta["embedding"], meta["rerank"], meta["reef_version"]) == (
+        True,
+        False,
+        "9.9",
+    )
+    markdown = next(tmp_path.glob("*.md")).read_text(encoding="utf-8")
+    assert "embedding: True" in markdown and "rerank: False" in markdown
+
+
+async def test_local_reset_names_its_services_and_version(seed, monkeypatch):
+    """A local reset gives the search services and the installed Reef version."""
+
+    async def ready(principal: object) -> Readiness:
+        """Say the memory is ready.
+
+        :param principal: ignored
+        :returns: ready, with nothing waiting
+        """
+        return Readiness(ready=True, vectors_missing=0, files_unread=0, jobs_waiting=0)
+
+    monkeypatch.setattr(run, "readiness", ready)
+    services = await run.LocalTarget().reset()
+    assert services.reef_version == version("reef")
+    assert isinstance(services.embedding, bool) and isinstance(services.rerank, bool)
+
+
+def test_production_cli_names_its_server():
+    """Every call of the Reef command line tool names production itself."""
+    assert run._CLI[-2:] == ["--url", run.PRODUCTION_URL]
 
 
 async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
     """An error mid-run leaves a report that says why, and still propagates."""
     monkeypatch.setattr(run, "REPORTS", tmp_path)
 
-    def boom(scenario, server):
+    def boom(scenario: dict, server: run.Server, tools: object = None) -> Session:
         """Fail as a broken Codex would.
 
         :param scenario: ignored
         :param server: ignored
+        :param tools: ignored
+        :raises RuntimeError: always
         """
         raise RuntimeError("boom")
 
@@ -519,6 +740,6 @@ async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
     target = _FakeTarget(fail_final_reset=True)
     with pytest.raises(RuntimeError, match="boom"):
         await run.run(target, ["dentist-moved"], None)
-    report = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    report = _report(tmp_path)
     assert "boom" in report["meta"]["stopped"]
     assert "reset broke" in report["meta"]["final_reset_failed"]

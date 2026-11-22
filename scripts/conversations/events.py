@@ -40,8 +40,9 @@ class ToolCall:
     :param arguments: the arguments the assistant sent
     :param ok: whether the call finished without an error
     :param turn: which message of the conversation the call answered, from 0
-    :param output: the text the call returned, kept for ``load_index`` only,
-        to see whose memory it is
+    :param protocol: the operating protocol a ``load_index`` call returned,
+        which ends with the persona; empty for every other tool, and when
+        the result could not be read
     """
 
     server: str
@@ -49,7 +50,7 @@ class ToolCall:
     arguments: dict
     ok: bool
     turn: int = 0
-    output: str = ""
+    protocol: str = ""
 
 
 @dataclass(frozen=True)
@@ -183,15 +184,34 @@ def _tool_call(item: dict) -> ToolCall:
     ok = item.get("status") == "completed" and not item.get("error") and not refused
     arguments = item.get("arguments")
     tool = str(item.get("tool", ""))
-    texts = [
-        str(part.get("text", ""))
-        for part in result.get("content") or []
-        if isinstance(part, dict)
-    ]
     return ToolCall(
         server=str(item.get("server", "")),
         tool=tool,
         arguments=arguments if isinstance(arguments, dict) else {},
         ok=ok,
-        output="\n".join(texts) if tool == "load_index" else "",
+        protocol=_protocol(result) if tool == "load_index" else "",
     )
+
+
+def _protocol(result: dict) -> str:
+    """Take the operating protocol out of a ``load_index`` result.
+
+    The result's structured content is read first. Without it, the first
+    text part is read as the JSON object the tool returned. Text anywhere
+    else in the result is never read, so a name in an engram line cannot
+    pass for the persona.
+
+    :param result: the call's ``result``
+    :returns: the ``operating_protocol`` field, or empty text when there is
+        none
+    """
+    structured = result.get("structured_content") or result.get("structuredContent")
+    if not isinstance(structured, dict):
+        texts = [
+            part.get("text")
+            for part in result.get("content") or []
+            if isinstance(part, dict) and isinstance(part.get("text"), str)
+        ]
+        structured = _decode(texts[0]) if texts else None
+    protocol = (structured or {}).get("operating_protocol")
+    return protocol if isinstance(protocol, str) else ""

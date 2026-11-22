@@ -10,6 +10,12 @@ Reef's tools and nothing else: its shell, web search and other tools are
 switched off, and a conversation that still used one is scored ``invalid``.
 Later messages of a scenario resume the same Codex session.
 
+Every tool is approved in advance, so the run must never reach anyone's
+memory but the made-up person's. Right after the first reset, before any
+scenario, the runner asks Codex one question with ``load_index`` as the only
+tool, and goes on only when the index Codex reads carries the made-up
+person's persona word for word.
+
 Read scenarios run first. Each write scenario starts from a reset, and the
 memory is read afterwards to check what the assistant changed. The account
 is reset once more at the end, also after a failure, so it rests as the
@@ -23,12 +29,15 @@ import argparse
 import asyncio
 import json
 import os
+import secrets
 import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from importlib.metadata import version
 from pathlib import Path
 
 import local_account
@@ -40,6 +49,7 @@ from reef.db import DB, transaction_scope
 from reef.engrams import get_engram
 from reef.identity import person_by_email
 from reef.testaccount import readiness
+from reef.testaccount.fixture import read_fixture
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = ROOT / "tests" / "conversations" / "scenarios.toml"
@@ -65,11 +75,32 @@ _DISABLED_FEATURES = (
     "view_image",
 )
 
-_CLI = ["uv", "run", "--project", str(ROOT / "clients" / "python"), "reef"]
+#: The Reef command line tool, pinned to production: ``REEF_MCP_URL`` in the
+#: shell must not send a reset to one server while Codex plays on another.
+_CLI = [
+    "uv",
+    "run",
+    "--project",
+    str(ROOT / "clients" / "python"),
+    "reef",
+    "--url",
+    PRODUCTION_URL,
+]
+
+#: The only tools a connector scenario is offered.
+CONNECTOR_TOOLS = ("search", "fetch")
+
+#: Variables the local server must not take from the shell: the runner sets
+#: them itself.
+_SET_BY_RUNNER = frozenset({"REEF_DEV_PRINCIPAL_EMAIL", "REEF_SESSION_SECRET"})
 
 
 class RunError(Exception):
     """The run cannot go on: a reset failed, or a sign-in is missing."""
+
+
+class AccountCheckFailed(RunError):
+    """Nothing showed that Codex reaches the made-up person's memory."""
 
 
 @dataclass(frozen=True)
@@ -79,27 +110,42 @@ class Server:
     :param name: the server's name in the Codex settings; the name the
         events carry back
     :param settings: its ``-c`` settings, as ``key=value`` text
+    :param advice: what to do when the account check fails, in plain words
     """
 
     name: str
     settings: tuple[str, ...]
+    advice: str
 
 
-def _local_server() -> Server:
+def run_secret() -> str:
+    """Pick the session secret every local server of one run shares.
+
+    :returns: the shell's ``REEF_SESSION_SECRET`` when it has one, otherwise
+        64 random hexadecimal characters
+    """
+    return os.environ.get("REEF_SESSION_SECRET") or secrets.token_hex(32)
+
+
+def local_server(secret: str) -> Server:
     """Describe the local server: ``python -m reef.server`` over stdio.
 
     It runs as the made-up person, from this worktree's Python, and sees
     the ``REEF_*`` and database settings of the shell that started the run.
+    Each message starts a server of its own, and a confirmation arrives in
+    another one than the call that staged it. So every server of a run gets
+    the same session secret, which signs the staged tokens.
 
+    :param secret: the session secret of this run
     :returns: the server
     """
     prefix = "mcp_servers.reef_local"
     forwarded = sorted(
         name
         for name in os.environ
-        if name.startswith("REEF_") or name == "DATABASE_URL"
+        if (name.startswith("REEF_") or name == "DATABASE_URL")
+        and name not in _SET_BY_RUNNER
     )
-    forwarded = [name for name in forwarded if name != "REEF_DEV_PRINCIPAL_EMAIL"]
     return Server(
         "reef_local",
         (
@@ -107,22 +153,34 @@ def _local_server() -> Server:
             f'{prefix}.args=["-m", "reef.server"]',
             f"{prefix}.cwd={json.dumps(str(ROOT))}",
             f"{prefix}.env.REEF_DEV_PRINCIPAL_EMAIL={json.dumps(LOCAL_EMAIL)}",
+            f"{prefix}.env.REEF_SESSION_SECRET={json.dumps(secret)}",
             f"{prefix}.env_vars={json.dumps(forwarded)}",
             f"{prefix}.startup_timeout_sec=60",
+        ),
+        (
+            f"The local server runs as {LOCAL_EMAIL}. Check that this shell "
+            "and the server use the same database, then run "
+            "`just conversations-account` and try again."
         ),
     )
 
 
-LOCAL_SERVER = _local_server()
 PRODUCTION_SERVER = Server(
-    "reef_test", (f"mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}",)
+    "reef_test",
+    (f"mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}",),
+    (
+        "Sign Codex out with `codex mcp logout reef_test -c "
+        f"'mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}'`. Then sign "
+        "it in again as the test account, as step 2 of the one-time "
+        "production setup in docs/runbook.md says."
+    ),
 )
 
 
 def codex_command(
     server: Server,
     *,
-    connector: bool,
+    tools: Sequence[str] | None,
     session_id: str | None,
     workdir: Path | None = None,
 ) -> list[str]:
@@ -133,7 +191,7 @@ def codex_command(
     reach beyond Reef switched off.
 
     :param server: the Reef server to offer
-    :param connector: True to offer only ``search`` and ``fetch``
+    :param tools: the only Reef tools to offer, or None for all of them
     :param session_id: the session to resume, or None for a new one
     :param workdir: the empty directory Codex works in; a new session only
     :returns: the command, ready for ``subprocess``
@@ -159,10 +217,10 @@ def codex_command(
         "-c",
         f'mcp_servers.{server.name}.default_tools_approval_mode="approve"',
     ]
-    if connector:
+    if tools is not None:
         command += [
             "-c",
-            f'mcp_servers.{server.name}.enabled_tools=["search", "fetch"]',
+            f"mcp_servers.{server.name}.enabled_tools={json.dumps(list(tools))}",
         ]
     return [*command, "-"]
 
@@ -196,23 +254,24 @@ def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
     return session
 
 
-def play(scenario: dict, server: Server) -> Session:
+def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> Session:
     """Play a scenario's messages, in one Codex session.
 
     :param scenario: the scenario
     :param server: the Reef server to offer
+    :param tools: the only Reef tools to offer; None offers all of them, or
+        only ``search`` and ``fetch`` to a connector scenario
     :returns: the conversation: every call in order, every answer
     """
+    if tools is None and scenario["connector"]:
+        tools = CONNECTOR_TOOLS
     turns: list[Session] = []
     with tempfile.TemporaryDirectory(prefix="reef-conversation-") as directory:
         workdir = Path(directory)
         session_id: str | None = None
         for message in scenario["messages"]:
             command = codex_command(
-                server,
-                connector=scenario["connector"],
-                session_id=session_id,
-                workdir=workdir,
+                server, tools=tools, session_id=session_id, workdir=workdir
             )
             turn = _run_codex(command, message, workdir)
             turns.append(turn)
@@ -243,12 +302,16 @@ class Services:
 
     :param files: whether it stores files
     :param file_text: whether it reads the text in files
+    :param embedding: whether search has an embedder, when the target says
+    :param rerank: whether search reranks, when the target says
     :param fixture_version: the made-up person's version
     :param reef_version: the server's version, when it says
     """
 
     files: bool
     file_text: bool
+    embedding: bool | None = None
+    rerank: bool | None = None
     fixture_version: str | None = None
     reef_version: str | None = None
 
@@ -256,11 +319,14 @@ class Services:
 class LocalTarget:
     """The development database, reached in this process."""
 
-    server = LOCAL_SERVER
-
     def __init__(self) -> None:
-        """Start with no person: the first reset finds them."""
+        """Start with no person: the first reset finds them.
+
+        The server description is made here, so every server of one run
+        shares one session secret.
+        """
         self._principal: Principal | None = None
+        self.server = local_server(run_secret())
 
     async def start(self) -> None:
         """Connect to the database."""
@@ -292,7 +358,10 @@ class LocalTarget:
         return Services(
             files=bool(result.services["files"]),
             file_text=bool(result.services["file_text"]),
+            embedding=bool(result.services["embedding"]),
+            rerank=bool(result.services["rerank"]),
             fixture_version=str(result.fixture_version),
+            reef_version=version("reef"),
         )
 
     async def read(self, refs: list[str]) -> dict[str, str | None]:
@@ -342,7 +411,8 @@ class ProductionTarget:
             raise RunError(
                 "The Reef command line tool did not finish. It may be waiting "
                 "for a sign-in. Sign in first with `uv run --project "
-                "clients/python reef login`, then run this again."
+                f"clients/python reef --url {PRODUCTION_URL} login`, then run "
+                "this again."
             ) from error
         return done.stdout
 
@@ -363,6 +433,8 @@ class ProductionTarget:
         return Services(
             files=bool(services["files"]),
             file_text=bool(services["file_text"]),
+            embedding=_maybe_bool(services.get("embedding")),
+            rerank=_maybe_bool(services.get("rerank")),
             fixture_version=str(result.get("fixture_version")),
             reef_version=str(result.get("reef_version")),
         )
@@ -381,62 +453,72 @@ class ProductionTarget:
             raise RunError("reef open printed something unreadable") from error
 
 
+def _maybe_bool(value: object) -> bool | None:
+    """Read a yes or no the target may leave out.
+
+    :param value: the value, or None when the target did not say
+    :returns: the value as a bool, or None
+    """
+    return None if value is None else bool(value)
+
+
 PERSON = "Lode Vanhecke"
 
-#: What the guard asks before a write scenario, when nothing has shown yet
-#: whose memory Codex reaches.
-PROBE = {"messages": ["Hoe heet ik?"], "connector": False}
+#: The account check's one question.
+PROBE = {"id": "account-check", "messages": ["Hoe heet ik?"], "connector": False}
+
+#: The only tool the account check offers: it reads, and cannot change
+#: anything in whatever memory Codex reaches.
+PROBE_TOOLS = ("load_index",)
 
 
-def shows_made_up_person(session: Session) -> bool:
-    """Say whether Codex reached the made-up person's memory.
+def account_problem(session: Session, persona: str) -> str | None:
+    """Say why a session does not show the made-up person's memory.
 
-    ``load_index`` returns the persona, which names the person.
+    Only the operating protocol of a successful ``load_index`` counts: it
+    ends with the persona of the account Codex is signed in to. The made-up
+    person's persona must be in it word for word. A name found anywhere
+    else proves nothing, as any memory can mention Lode Vanhecke.
 
-    :param session: what Codex did
-    :returns: True when a successful ``load_index`` returned the person's name
+    :param session: what Codex did with the account check's question
+    :param persona: the made-up person's persona, from the fixture
+    :returns: what is wrong, as a sentence; None when every index Codex read
+        carries the persona
     """
-    return any(
-        call.tool == "load_index" and call.ok and PERSON in call.output
+    if session.error:
+        return f"The account check failed, because Codex failed: {session.error}"
+    protocols = [
+        call.protocol
         for call in session.tool_calls
-    )
+        if call.tool == "load_index" and call.ok
+    ]
+    if not protocols:
+        return "The account check failed, because Codex did not read the index"
+    expected = persona.strip()
+    if not expected or not all(expected in protocol for protocol in protocols):
+        return (
+            "Codex is signed in to another account: the index it read does "
+            f"not carry the persona of the made-up person, {PERSON}"
+        )
+    return None
 
 
-class Guard:
-    """Keeps write scenarios away from anyone but the made-up person.
+async def check_account(server: Server, persona: str) -> None:
+    """Stop the run unless Codex reaches the made-up person's memory.
 
-    Codex is signed in to whatever account it is signed in to. A write
-    scenario replaces a persona, deletes a note and shares another. So no
-    write scenario runs until a session has shown the made-up person.
+    Codex is signed in to whatever account it is signed in to, and every
+    tool is approved in advance. So before any scenario, Codex gets one
+    question with ``load_index`` as its only tool.
+
+    :param server: the Reef server to check
+    :param persona: the made-up person's persona, from the fixture
+    :raises AccountCheckFailed: when the index does not carry the persona,
+        or Codex did not read it
     """
-
-    def __init__(self) -> None:
-        """Start with nothing shown."""
-        self.verified = False
-
-    def see(self, session: Session) -> None:
-        """Take note of a session that was played.
-
-        :param session: what Codex did
-        """
-        self.verified = self.verified or shows_made_up_person(session)
-
-    async def check(self, server: Server) -> None:
-        """Stop unless the made-up person's memory is what Codex reaches.
-
-        Asks one question when no scenario has shown it yet.
-
-        :param server: the Reef server to offer
-        :raises RunError: when the person does not show
-        """
-        if not self.verified:
-            self.see(await asyncio.to_thread(play, PROBE, server))
-        if not self.verified:
-            raise RunError(
-                f"Codex does not reach the made-up person ({PERSON}): stopping "
-                "before any scenario that writes. Check which account Codex "
-                "is signed in to for this server."
-            )
+    session = await asyncio.to_thread(play, PROBE, server, PROBE_TOOLS)
+    problem = account_problem(session, persona)
+    if problem is not None:
+        raise AccountCheckFailed(f"{problem}. No scenario was played. {server.advice}")
 
 
 async def run(
@@ -454,8 +536,9 @@ async def run(
     :param only: the ids to play, or None for all
     :param file_text: whether file text is on, or None to ask the target
     :returns: the Markdown report's path
-    :raises RunError: when an id is unknown, a reset fails, or Codex does not
-        reach the made-up person
+    :raises RunError: when an id is unknown or a reset fails
+    :raises AccountCheckFailed: when nothing shows that Codex reaches the
+        made-up person's memory; no scenario is played then
     """
     scenarios = load(SCENARIOS)
     known = {scenario["id"] for scenario in scenarios}
@@ -472,7 +555,7 @@ async def run(
         "started": started.isoformat(timespec="seconds"),
         "model": MODEL,
     }
-    guard = Guard()
+    persona = read_fixture().persona
     services: Services | None = None
     await target.start()
     try:
@@ -482,12 +565,16 @@ async def run(
             meta |= {
                 "files": services.files,
                 "file_text": text_on,
+                "embedding": services.embedding,
+                "rerank": services.rerank,
                 "fixture_version": services.fixture_version,
                 "reef_version": services.reef_version,
             }
+            await check_account(target.server, persona)
+            meta["account_check"] = "passed"
             for scenario in chosen:
                 item, answer = await _play_one(
-                    target, guard, scenario, services.files, text_on
+                    target, scenario, services.files, text_on
                 )
                 scored.append(item)
                 answers[item.id] = answer
@@ -516,7 +603,6 @@ async def run(
 
 async def _play_one(
     target: LocalTarget | ProductionTarget,
-    guard: Guard,
     scenario: dict,
     files: bool,
     file_text: bool,
@@ -527,7 +613,6 @@ async def _play_one(
     before anything else touches it.
 
     :param target: where to play
-    :param guard: the check that Codex reaches the made-up person
     :param scenario: the scenario
     :param files: whether the target stores files
     :param file_text: whether the target reads the text in files
@@ -537,12 +622,10 @@ async def _play_one(
     if skipped.verdict == "skipped":
         return skipped, ""
     if scenario["kind"] == "write":
-        await guard.check(target.server)
         await target.reset()
     began = time.monotonic()
     session = await asyncio.to_thread(play, scenario, target.server)
     seconds = time.monotonic() - began
-    guard.see(session)
     refs = [check["ref"] for check in scenario["after"]]
     after = await target.read(refs) if refs and not session.error else {}
     item = score(
