@@ -4,11 +4,12 @@ Creates ``test_accounts``: one row per person the operator has flagged, which
 a person may read for themselves and nothing more. No policy lets anyone add,
 change or remove a row, so only the operator, past row security, flags anyone.
 
-Adds ``reef_test_account_reset()``, which puts a flagged caller's own account
-back to a fixed state (their queued jobs and their embedding and reading spend
-are deleted) and returns when, and ``reef_test_account_hurry()``, which makes a
-flagged caller's queued jobs due now. Both act for the armed person only and
-are owned by the authz role.
+Adds ``reef_test_account_reset()``, which refuses a caller who shares a space
+with anyone and otherwise puts a flagged caller's own account back to a fixed
+state (their queued jobs and their embedding and reading spend are deleted)
+and returns when, and ``reef_test_account_hurry()``, which makes a flagged
+caller's queued jobs due now. Both act for the armed person only and are owned
+by the authz role.
 
 Replaces ``reef_call_log_totals`` so that it skips flagged accounts.
 
@@ -57,6 +58,17 @@ BEGIN
         RAISE EXCEPTION 'not a test account'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM memberships m JOIN spaces s ON s.id = m.space_id
+        WHERE m.person_id = me AND s.owner_person_id <> me
+    ) OR EXISTS (
+        SELECT 1 FROM memberships o JOIN spaces s ON s.id = o.space_id
+        WHERE o.person_id <> me AND (s.owner_person_id = me
+            OR s.id IN (SELECT space_id FROM memberships WHERE person_id = me))
+    ) THEN
+        RAISE EXCEPTION 'shares a space with others'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
     DELETE FROM jobs WHERE person_id = me AND status = 'queued';
     DELETE FROM embedding_spend WHERE person_id = me;
     DELETE FROM reading_spend WHERE person_id = me;
@@ -68,6 +80,8 @@ $reef$""",
     "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('ALTER FUNCTION reef_test_account_reset() OWNER TO %I', authz); END $authz$",
     "REVOKE ALL ON FUNCTION reef_test_account_reset() FROM PUBLIC",
     "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT ON test_accounts TO %I', authz); END $authz$",
+    "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT ON memberships TO %I', authz); END $authz$",
+    "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT ON spaces TO %I', authz); END $authz$",
     "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON jobs TO %I', authz); END $authz$",
     "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON embedding_spend TO %I', authz); END $authz$",
     "DO $authz$ DECLARE authz text := COALESCE((SELECT rolname FROM pg_roles WHERE rolname = 'reef_authz'), (SELECT rolname FROM pg_roles WHERE rolname = 'rif_authz'), 'reef_authz'); BEGIN EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON reading_spend TO %I', authz); END $authz$",

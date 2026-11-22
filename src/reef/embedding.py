@@ -549,12 +549,12 @@ async def backfill(principal: Principal) -> int:
     return sum(
         [
             await request(principal, engram_id, delay=timedelta(0))
-            for engram_id in await _lacking(principal)
+            for engram_id in await engrams_lacking(principal)
         ]
     )
 
 
-async def _lacking(principal: Principal, limit: int | None = None) -> list[UUID]:
+async def engrams_lacking(principal: Principal, limit: int | None = None) -> list[UUID]:
     """Find the person's writable engrams with no whole-engram vector of this model.
 
     An engram with only white space has no pieces and can have no vector, so
@@ -619,7 +619,7 @@ async def request_backfill(principal: Principal) -> bool:
     """
     if not get_settings().embedding.url:
         return False
-    if not await _lacking(principal, limit=1):
+    if not await engrams_lacking(principal, limit=1):
         return False
     return await enqueue(principal, BACKFILL_EMBEDDINGS)
 

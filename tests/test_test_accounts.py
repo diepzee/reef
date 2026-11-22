@@ -30,6 +30,18 @@ async def _flag(seed, person) -> None:
     await seed.execute("INSERT INTO test_accounts (person_id) VALUES ($1)", person.id)
 
 
+async def _solo(graph, email: str = "solo@example.test"):
+    """Create a person with a personal space and nobody to share it with.
+
+    :param graph: the topology builders
+    :param email: the person's address
+    :returns: the person
+    """
+    person = await graph.person(email, "Solo")
+    await graph.personal_space(person)
+    return person
+
+
 async def _job(seed, person, status: str, hours_ahead: int = 0) -> None:
     """Add one job for a person.
 
@@ -77,8 +89,8 @@ async def test_reset_function_refuses_unflagged(household, seed):
     assert await seed.fetchval("SELECT count(*) FROM jobs") == 1
 
 
-async def test_reset_function_clears_jobs_and_spend(household, seed):
-    person = household["wouter"]
+async def test_reset_function_clears_jobs_and_spend(graph, seed):
+    person = await _solo(graph)
     await _flag(seed, person)
     await _job(seed, person, "queued")
     await _job(seed, person, "running")
@@ -103,13 +115,38 @@ async def test_reset_function_clears_jobs_and_spend(household, seed):
     assert await seed.fetchval("SELECT reset_at FROM test_accounts") == row["stamp"]
 
 
-async def test_reset_function_leaves_other_people_alone(household, seed):
-    await _flag(seed, household["wouter"])
-    await _job(seed, household["partner"], "queued")
+async def test_reset_function_leaves_other_people_alone(graph, seed):
+    person = await _solo(graph)
+    other = await _solo(graph, "other@example.test")
+    await _flag(seed, person)
+    await _job(seed, other, "queued")
     async with transaction_scope():
-        await arm(principal_for(household["wouter"]))
+        await arm(principal_for(person))
         await Person.raw("SELECT reef_test_account_reset()")
     assert await seed.fetchval("SELECT count(*) FROM jobs") == 1
+
+
+async def test_reset_function_refuses_shared_spaces(household, graph, seed):
+    """Owner, member, or owner of a space they have left: each one is refused."""
+    loner = await _solo(graph)
+    left = await graph.shared_space("left", loner, household["partner"])
+    await graph.drop_membership(loner, left)
+    for person in (household["wouter"], household["partner"], loner):
+        await _flag(seed, person)
+        await _job(seed, person, "queued")
+        with pytest.raises(
+            asyncpg.InsufficientPrivilegeError, match="shares a space with others"
+        ):
+            async with transaction_scope():
+                await arm(principal_for(person))
+                await Person.raw("SELECT reef_test_account_reset()")
+    assert await seed.fetchval("SELECT count(*) FROM jobs") == 3
+    assert (
+        await seed.fetchval(
+            "SELECT count(*) FROM test_accounts WHERE reset_at IS NOT NULL"
+        )
+        == 0
+    )
 
 
 async def test_hurry_moves_queued_jobs(household, seed):

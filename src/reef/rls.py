@@ -1846,6 +1846,17 @@ BEGIN
         RAISE EXCEPTION 'not a test account'
             USING ERRCODE = 'insufficient_privilege';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM memberships m JOIN spaces s ON s.id = m.space_id
+        WHERE m.person_id = me AND s.owner_person_id <> me
+    ) OR EXISTS (
+        SELECT 1 FROM memberships o JOIN spaces s ON s.id = o.space_id
+        WHERE o.person_id <> me AND (s.owner_person_id = me
+            OR s.id IN (SELECT space_id FROM memberships WHERE person_id = me))
+    ) THEN
+        RAISE EXCEPTION 'shares a space with others'
+            USING ERRCODE = 'insufficient_privilege';
+    END IF;
     DELETE FROM jobs WHERE person_id = me AND status = 'queued';
     DELETE FROM embedding_spend WHERE person_id = me;
     DELETE FROM reading_spend WHERE person_id = me;
@@ -1885,9 +1896,14 @@ def test_account_statements() -> list[str]:
     reset or hurry another account.
 
     * ``reef_test_account_reset()`` raises ``not a test account`` (SQLSTATE
-      ``insufficient_privilege``) for an unflagged caller. Otherwise it deletes
-      the caller's queued jobs and their embedding and reading spend, stamps
-      ``reset_at`` and returns it.
+      ``insufficient_privilege``) for an unflagged caller, and ``shares a
+      space with others`` (same SQLSTATE) for a caller who is a member of a
+      space someone else owns, or who owns or is in a space with another
+      member. It checks past row security, so a membership hidden from the
+      caller still counts. Otherwise it deletes the caller's queued jobs and
+      their embedding and reading spend, stamps ``reset_at`` and returns it.
+      :func:`reef.testaccount.reset` calls it before deleting anything, in
+      the same transaction.
     * ``reef_test_account_hurry()`` makes the caller's queued jobs due now, on
       the clock the worker claims by, and returns how many. It returns 0 for
       an unflagged caller.
@@ -1911,7 +1927,7 @@ def test_account_statements() -> list[str]:
             "reef_test_account_reset()",
             _TEST_ACCOUNT_RESET,
             returns="timestamptz",
-            reads=("test_accounts",),
+            reads=("test_accounts", "memberships", "spaces"),
             writes=("jobs", "embedding_spend", "reading_spend"),
             volatility="VOLATILE",
             language="plpgsql",
