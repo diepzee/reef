@@ -5,6 +5,7 @@ import logging
 from uuid import UUID, uuid4
 
 import pytest
+from conftest import MemoryStore
 
 from reef.access import Principal
 from reef.attachments import S3ObjectStore, add_attachment
@@ -25,7 +26,6 @@ from reef.testaccount import (
 from reef.testaccount.fixture import read_fixture
 from reef.testaccount.lifecycle import _LOCK_CLASS, _start
 from reef.usage import refresh_activation
-from tests.conftest import MemoryStore
 
 
 class RecordingStore(MemoryStore):

@@ -2,12 +2,13 @@
 
 import importlib.resources
 
+from conftest import MemoryStore
+
 from reef.access import Principal
 from reef.db import transaction_scope
 from reef.engrams import PERSONA_PATH, list_engrams, normalize_path, validate_body
 from reef.models import Attachment, AttachmentStatus, EngramAccess
 from reef.testaccount.fixture import load_fixture, read_fixture
-from tests.conftest import MemoryStore
 
 
 def test_fixture_reads() -> None:
