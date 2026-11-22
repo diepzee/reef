@@ -1545,18 +1545,12 @@ Do these in order.
    yourself.
 
    Without a cached sign-in, `reef reset-test-account` starts a browser
-   sign-in. The runner closes its input, so the command cannot finish; the
-   runner stops after 360 seconds and tells you to sign in.
-
-   Afterwards, check with one read-only question: run
-   `uv run python scripts/conversations/run.py --target production --only <a read scenario id>`
-   and confirm in the report that the assistant sees the made-up person,
-   Lode Vanhecke. If it shows anyone else, stop and sign Codex out
-   (`codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`).
+   sign-in. The runner does not wait for it. After 360 seconds it stops and
+   tells you to sign the CLI in first.
 3. **Flag the account as a test account.** An operator does this, with your
-   say-so, as the database owner role. Run it the way the other owner-role
-   SQL in this runbook runs (see "Phase 4 — Storage and safety nets"). Use the
-   address from step 1:
+   say-so, as the database owner role. Connect with
+   `psql "$REEF_MIGRATION_DATABASE_URL"`, as "Phase 4 — Storage and safety
+   nets" shows for the other owner-role SQL. Use the address from step 1:
 
    ```sql
    INSERT INTO test_accounts (person_id)
@@ -1567,6 +1561,12 @@ Do these in order.
    It must return exactly one row. Zero rows means the address is wrong.
 4. **Reset it:** `uv run --project clients/python reef reset-test-account`.
    This loads Lode Vanhecke. The runner does the same before it starts.
+5. **Check who Codex is signed in as.** Run one read scenario:
+   `uv run python scripts/conversations/run.py --target production --only <a read scenario id>`.
+   Confirm in the report that the assistant sees the made-up person, Lode
+   Vanhecke. If it shows anyone else, stop and sign Codex out with
+   `codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
+   Then repeat step 2.
 
 **Why the Codex login uses `-c`.** The runner starts Codex with
 `--ignore-user-config`, so Codex does not read `~/.codex/config.toml`. The
