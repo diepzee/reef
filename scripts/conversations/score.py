@@ -80,6 +80,8 @@ def load(path: Path | str) -> list[dict]:
         "needs": [],
         "connector": False,
         "after": [],
+        "answer_must_not": [],
+        "review": False,
     }
     return [defaults | scenario for scenario in raw["scenario"]]
 
@@ -211,19 +213,32 @@ def score(
         return Scored(
             id_, "invalid", [f"used tools outside Reef: {used}"], tools, seconds
         )
+    worked = {call.tool for call in session.tool_calls if call.ok}
+    broken = [
+        f"the call to {call.tool} failed" for call in session.tool_calls if not call.ok
+    ]
     failures = [
-        f"required tool {t} was not used"
+        f"required tool {t} was not used successfully"
         for t in scenario["tools_required"]
-        if t not in tools
+        if t not in worked
     ]
     failures += [
         f"forbidden tool {t} was used"
         for t in scenario["tools_forbidden"]
         if t in tools
     ]
+    if len(scenario.get("messages", [])) > 1 and any(
+        call.turn == 0 and call.arguments.get("confirm") for call in session.tool_calls
+    ):
+        failures.append("confirmed before the person said yes")
     failures += _check_after(scenario.get("after", []), after)
+    failures += [
+        f"the answer matches {pattern!r}"
+        for pattern in scenario.get("answer_must_not", [])
+        if re.search(pattern, session.answer)
+    ]
     if failures:
-        return Scored(id_, "fail", failures, tools, seconds)
+        return Scored(id_, "fail", failures + broken, tools, seconds)
     answer = normalize(session.answer)
     doubts = [
         f"fact not found: {_label(fact)}"
@@ -235,8 +250,10 @@ def score(
         for path in scenario["engrams"]
         if normalize(path) not in answer
     ]
+    if scenario.get("review"):
+        doubts.append("a person must read the answer")
     if doubts:
-        return Scored(id_, "review", doubts, tools, seconds)
+        return Scored(id_, "review", doubts + broken, tools, seconds)
     return Scored(id_, "pass", [], tools, seconds)
 
 

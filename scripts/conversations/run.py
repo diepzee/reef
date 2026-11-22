@@ -381,18 +381,81 @@ class ProductionTarget:
             raise RunError("reef open printed something unreadable") from error
 
 
+PERSON = "Lode Vanhecke"
+
+#: What the guard asks before a write scenario, when nothing has shown yet
+#: whose memory Codex reaches.
+PROBE = {"messages": ["Hoe heet ik?"], "connector": False}
+
+
+def shows_made_up_person(session: Session) -> bool:
+    """Say whether Codex reached the made-up person's memory.
+
+    ``load_index`` returns the persona, which names the person.
+
+    :param session: what Codex did
+    :returns: True when a successful ``load_index`` returned the person's name
+    """
+    return any(
+        call.tool == "load_index" and call.ok and PERSON in call.output
+        for call in session.tool_calls
+    )
+
+
+class Guard:
+    """Keeps write scenarios away from anyone but the made-up person.
+
+    Codex is signed in to whatever account it is signed in to. A write
+    scenario replaces a persona, deletes a note and shares another. So no
+    write scenario runs until a session has shown the made-up person.
+    """
+
+    def __init__(self) -> None:
+        """Start with nothing shown."""
+        self.verified = False
+
+    def see(self, session: Session) -> None:
+        """Take note of a session that was played.
+
+        :param session: what Codex did
+        """
+        self.verified = self.verified or shows_made_up_person(session)
+
+    async def check(self, server: Server) -> None:
+        """Stop unless the made-up person's memory is what Codex reaches.
+
+        Asks one question when no scenario has shown it yet.
+
+        :param server: the Reef server to offer
+        :raises RunError: when the person does not show
+        """
+        if not self.verified:
+            self.see(await asyncio.to_thread(play, PROBE, server))
+        if not self.verified:
+            raise RunError(
+                f"Codex does not reach the made-up person ({PERSON}): stopping "
+                "before any scenario that writes. Check which account Codex "
+                "is signed in to for this server."
+            )
+
+
 async def run(
     target: LocalTarget | ProductionTarget,
     only: list[str] | None,
     file_text: bool | None,
-) -> tuple[Path, list[Scored]]:
+) -> Path:
     """Play the scenarios against a target and write the report.
+
+    The report is written whatever happens, with what was played so far; if
+    the run stopped, its meta says so and why. The error that stopped it
+    still propagates.
 
     :param target: where to play
     :param only: the ids to play, or None for all
     :param file_text: whether file text is on, or None to ask the target
-    :returns: the Markdown report's path, and the verdicts
-    :raises RunError: when an id is unknown or a reset fails
+    :returns: the Markdown report's path
+    :raises RunError: when an id is unknown, a reset fails, or Codex does not
+        reach the made-up person
     """
     scenarios = load(SCENARIOS)
     known = {scenario["id"] for scenario in scenarios}
@@ -404,37 +467,56 @@ async def run(
     started = datetime.now(UTC)
     scored: list[Scored] = []
     answers: dict[str, str] = {}
-    await target.start()
-    try:
-        services = await target.reset()
-        files = services.files
-        text_on = services.file_text if file_text is None else file_text
-        try:
-            for scenario in chosen:
-                item, answer = await _play_one(target, scenario, files, text_on)
-                scored.append(item)
-                answers[item.id] = answer
-                print(f"{item.id}: {item.verdict} ({item.seconds:.0f}s)", flush=True)
-        finally:
-            await target.reset()
-    finally:
-        await target.stop()
-    meta = {
+    meta: dict = {
         "target": "local" if isinstance(target, LocalTarget) else "production",
         "started": started.isoformat(timespec="seconds"),
         "model": MODEL,
-        "files": files,
-        "file_text": text_on,
-        "fixture_version": services.fixture_version,
-        "reef_version": services.reef_version,
     }
-    stem = f"{started:%Y-%m-%dT%H-%M-%SZ}-{meta['target']}"
-    _, markdown = write_report(REPORTS, stem, meta, scored, answers)
-    return markdown, scored
+    guard = Guard()
+    services: Services | None = None
+    await target.start()
+    try:
+        try:
+            services = await target.reset()
+            text_on = services.file_text if file_text is None else file_text
+            meta |= {
+                "files": services.files,
+                "file_text": text_on,
+                "fixture_version": services.fixture_version,
+                "reef_version": services.reef_version,
+            }
+            for scenario in chosen:
+                item, answer = await _play_one(
+                    target, guard, scenario, services.files, text_on
+                )
+                scored.append(item)
+                answers[item.id] = answer
+                print(f"{item.id}: {item.verdict} ({item.seconds:.0f}s)", flush=True)
+        except BaseException as error:
+            meta["stopped"] = f"{type(error).__name__}: {error}"
+            raise
+        finally:
+            if services is not None:
+                try:
+                    await target.reset()
+                except Exception as error:  # noqa: BLE001 - reported, not hidden
+                    meta["final_reset_failed"] = f"{type(error).__name__}: {error}"
+    finally:
+        await target.stop()
+        stem = f"{started:%Y-%m-%dT%H-%M-%SZ}-{meta['target']}"
+        _, markdown = write_report(REPORTS, stem, meta, scored, answers)
+        print(f"Report: {markdown}", flush=True)
+    if "final_reset_failed" in meta:
+        raise RunError(
+            f"the final reset failed, so the account may not rest as the "
+            f"made-up person: {meta['final_reset_failed']}"
+        )
+    return markdown
 
 
 async def _play_one(
     target: LocalTarget | ProductionTarget,
+    guard: Guard,
     scenario: dict,
     files: bool,
     file_text: bool,
@@ -445,6 +527,7 @@ async def _play_one(
     before anything else touches it.
 
     :param target: where to play
+    :param guard: the check that Codex reaches the made-up person
     :param scenario: the scenario
     :param files: whether the target stores files
     :param file_text: whether the target reads the text in files
@@ -454,10 +537,12 @@ async def _play_one(
     if skipped.verdict == "skipped":
         return skipped, ""
     if scenario["kind"] == "write":
+        await guard.check(target.server)
         await target.reset()
     began = time.monotonic()
     session = await asyncio.to_thread(play, scenario, target.server)
     seconds = time.monotonic() - began
+    guard.see(session)
     refs = [check["ref"] for check in scenario["after"]]
     after = await target.read(refs) if refs and not session.error else {}
     item = score(
@@ -486,11 +571,10 @@ def main(argv: list[str] | None = None) -> int:
     target = LocalTarget() if args.target == "local" else ProductionTarget()
     file_text = None if args.file_text is None else args.file_text == "on"
     try:
-        report, _ = asyncio.run(run(target, args.only, file_text))
+        asyncio.run(run(target, args.only, file_text))
     except RunError as error:
         print(error, file=sys.stderr)
         return 1
-    print(f"Report: {report}")
     return 0
 
 

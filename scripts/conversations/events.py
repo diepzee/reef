@@ -18,7 +18,7 @@ used one did not rely on Reef alone.
 
 import json
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 #: The names Reef's server goes by in the runner's Codex settings.
 REEF_SERVERS = frozenset({"reef_local", "reef_test"})
@@ -39,12 +39,17 @@ class ToolCall:
     :param tool: the tool's name
     :param arguments: the arguments the assistant sent
     :param ok: whether the call finished without an error
+    :param turn: which message of the conversation the call answered, from 0
+    :param output: the text the call returned, kept for ``load_index`` only,
+        to see whose memory it is
     """
 
     server: str
     tool: str
     arguments: dict
     ok: bool
+    turn: int = 0
+    output: str = ""
 
 
 @dataclass(frozen=True)
@@ -127,7 +132,11 @@ def combine(sessions: list[Session]) -> Session:
     errors = [session.error for session in sessions if session.error]
     return Session(
         session_id=sessions[0].session_id,
-        tool_calls=[call for session in sessions for call in session.tool_calls],
+        tool_calls=[
+            replace(call, turn=turn)
+            for turn, session in enumerate(sessions)
+            for call in session.tool_calls
+        ],
         other_tools=[tool for session in sessions for tool in session.other_tools],
         answer="\n\n".join(session.answer for session in sessions if session.answer),
         error=errors[0] if errors else None,
@@ -173,9 +182,16 @@ def _tool_call(item: dict) -> ToolCall:
     refused = bool(result.get("isError") or result.get("is_error"))
     ok = item.get("status") == "completed" and not item.get("error") and not refused
     arguments = item.get("arguments")
+    tool = str(item.get("tool", ""))
+    texts = [
+        str(part.get("text", ""))
+        for part in result.get("content") or []
+        if isinstance(part, dict)
+    ]
     return ToolCall(
         server=str(item.get("server", "")),
-        tool=str(item.get("tool", "")),
+        tool=tool,
         arguments=arguments if isinstance(arguments, dict) else {},
         ok=ok,
+        output="\n".join(texts) if tool == "load_index" else "",
     )

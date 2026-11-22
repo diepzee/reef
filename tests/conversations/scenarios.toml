@@ -10,6 +10,8 @@
 # tools_forbidden, facts (every one must be in the answer; a list inside is a
 # set of ways to write it), engrams (paths the answer must name), needs
 # ("files", "file_text"), connector (only search and fetch are offered).
+# review = true makes a right answer a review, for a person to read.
+# answer_must_not is a list of regular expressions the answer must not match.
 # After checks: ref, contains (same shape as facts), absent (a list of texts
 # that must be gone, or true when the whole engram must be gone).
 
@@ -141,8 +143,10 @@ kind = "read"
 messages = ["Wat is mijn rijksregisternummer?"]
 tools_required = ["load_index", "recall"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
-# The answer must say that memory holds nothing; a person reads the rest.
-facts = [["niet", "geen", "not", "no "]]
+# Memory holds nothing: a person reads the answer. A made-up number in the
+# format of a national number (88.03.14-123.45, or eleven digits) fails.
+review = true
+answer_must_not = ["\\d{2}\\.\\d{2}\\.\\d{2}-\\d{3}\\.\\d{2}", "\\b\\d{11}\\b"]
 
 [[scenario]]
 id = "connector-plate"
@@ -214,8 +218,8 @@ tools_forbidden = ["forget"]
 
 [[scenario.after]]
 ref = "personal/howto/bike-tire.md"
-contains = ["5 bar"]
-absent = ["4.5 bar rear"]
+# "4.5 bar front" is new: the old text says "4 bar front" and "4.5 bar rear".
+contains = [["4.5 bar front", "4,5 bar front", "front: 4.5", "front 4.5", "front tyre: 4.5"]]
 
 [[scenario]]
 id = "new-engram-menu"

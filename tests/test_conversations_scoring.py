@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
 from events import Session, ToolCall, combine, parse_events
 from score import Scored, coverage, load, score, write_report
 
@@ -375,3 +376,149 @@ def test_reads_cli_output():
         "personal/a.md": "# A",
         "personal/b.md": None,
     }
+
+
+def test_failed_required_call_does_not_count():
+    """A required tool whose calls all failed is missing, and the call is listed."""
+    session = Session(
+        "t",
+        [_call("load_index"), _call("recall", ok=False)],
+        [],
+        RIGHT_ANSWER,
+    )
+    scored = _score(_scenario(), session)
+    assert scored.verdict == "fail"
+    assert any("recall" in reason and "failed" in reason for reason in scored.reasons)
+    retried = Session(
+        "t",
+        [_call("load_index"), _call("recall", ok=False), _call("recall")],
+        [],
+        RIGHT_ANSWER,
+    )
+    assert _score(_scenario(), retried).verdict == "pass"
+
+
+def test_confirming_before_the_person_says_yes_fails():
+    """A ``confirm`` argument in the first turn of a two-message scenario fails."""
+    scenario = _scenario(
+        tools_required=["share"],
+        messages=["Deel dit.", "Ja, doe maar."],
+        facts=[],
+        engrams=[],
+    )
+    early = ToolCall("reef_local", "share", {"confirm": "tok"}, True, turn=0)
+    late = ToolCall("reef_local", "share", {"confirm": "tok"}, True, turn=1)
+    first = ToolCall("reef_local", "share", {}, True, turn=0)
+    bad = Session("t", [early], [], "ok")
+    good = Session("t", [first, late], [], "ok")
+    assert _score(scenario, bad).verdict == "fail"
+    assert _score(scenario, good).verdict == "pass"
+
+
+def test_combine_numbers_the_turns():
+    """Each call carries the number of the turn it was made in."""
+    both = combine([_session("load_index"), _session("share", "share")])
+    assert [call.turn for call in both.tool_calls] == [0, 1, 1]
+
+
+def test_not_in_memory_is_never_a_plain_pass():
+    """The scenario is a review at best, and an invented number fails it."""
+    scenario = next(s for s in load(SCENARIOS) if s["id"] == "not-in-memory")
+    plain = _session("load_index", "recall", answer="Daar heb ik niets over.")
+    invented = _session("load_index", "recall", answer="Het is 88.03.14-123.45.")
+    assert _score(scenario, plain).verdict == "review"
+    assert _score(scenario, invented).verdict == "fail"
+
+
+def test_tyre_check_tells_old_from_new():
+    """The unchanged engram does not pass; the edited one does, with a dated note."""
+    scenario = next(s for s in load(SCENARIOS) if s["id"] == "fix-tyre-pressure")
+    session = _session("load_index", "correct")
+    ref = "personal/howto/bike-tire.md"
+    old = "Tyre pressure of my city bike: 4.5 bar rear, 4 bar front."
+    new = "Tyre pressure: 5 bar rear, 4.5 bar front (changed 2026-11-22; was 4.5 rear)."
+    assert _score(scenario, session, {ref: old}).verdict == "fail"
+    assert _score(scenario, session, {ref: new}).verdict == "pass"
+
+
+def test_guard_sees_the_made_up_person():
+    """The sample's ``load_index`` shows Lode Vanhecke; one without it does not."""
+    session = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
+    assert run.shows_made_up_person(session)
+    other = Session(
+        "t", [ToolCall("reef_local", "load_index", {}, True, 0, "Jan")], [], ""
+    )
+    assert not run.shows_made_up_person(other)
+    failed = Session(
+        "t",
+        [ToolCall("reef_local", "load_index", {}, False, 0, "Lode Vanhecke")],
+        [],
+        "",
+    )
+    assert not run.shows_made_up_person(failed)
+
+
+async def test_guard_stops_before_writing(monkeypatch):
+    """With no sign of the person the guard raises; with one it lets the run go on."""
+    sample = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
+    stranger = Session(
+        "t", [ToolCall("reef_local", "load_index", {}, True, 0, "Jan")], [], ""
+    )
+    guard = run.Guard()
+    monkeypatch.setattr(run, "play", lambda scenario, server: stranger)
+    with pytest.raises(run.RunError):
+        await guard.check(run.LOCAL_SERVER)
+    monkeypatch.setattr(run, "play", lambda scenario, server: sample)
+    await guard.check(run.LOCAL_SERVER)
+    assert guard.verified
+
+
+class _FakeTarget:
+    """A target that resets and reads nothing, to test the run's bookkeeping."""
+
+    server = run.LOCAL_SERVER
+
+    def __init__(self, fail_final_reset: bool = False) -> None:
+        """Remember whether the second reset must fail.
+
+        :param fail_final_reset: make every reset after the first fail
+        """
+        self.resets = 0
+        self.fail_final_reset = fail_final_reset
+
+    async def start(self) -> None:
+        """Do nothing."""
+
+    async def stop(self) -> None:
+        """Do nothing."""
+
+    async def reset(self) -> run.Services:
+        """Count the reset, and fail after the first when asked.
+
+        :returns: services with everything on
+        """
+        self.resets += 1
+        if self.fail_final_reset and self.resets > 1:
+            raise run.RunError("reset broke")
+        return run.Services(files=True, file_text=True)
+
+
+async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
+    """An error mid-run leaves a report that says why, and still propagates."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+
+    def boom(scenario, server):
+        """Fail as a broken Codex would.
+
+        :param scenario: ignored
+        :param server: ignored
+        """
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run, "play", boom)
+    target = _FakeTarget(fail_final_reset=True)
+    with pytest.raises(RuntimeError, match="boom"):
+        await run.run(target, ["dentist-moved"], None)
+    report = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert "boom" in report["meta"]["stopped"]
+    assert "reset broke" in report["meta"]["final_reset_failed"]
