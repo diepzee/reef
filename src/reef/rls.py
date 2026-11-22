@@ -1783,8 +1783,8 @@ def call_log_statements() -> list[str]:
     learning which tools assistants use and what they ask for that no tool
     serves, without reading anybody's calls. Statistics across people skip
     flagged test accounts (see :func:`test_account_statements`), so scripted
-    conversations do not colour them. That needs the ``test_accounts`` table
-    and the grant on it that :func:`test_account_statements` makes.
+    conversations do not colour them. :func:`call_log_statements` therefore
+    needs ``test_accounts`` to exist.
 
     :returns: SQL statements to execute in order
     """
@@ -1888,8 +1888,9 @@ def test_account_statements() -> list[str]:
       ``insufficient_privilege``) for an unflagged caller. Otherwise it deletes
       the caller's queued jobs and their embedding and reading spend, stamps
       ``reset_at`` and returns it.
-    * ``reef_test_account_hurry()`` makes the caller's queued jobs due now (on the clock the worker claims by) and
-      returns how many; it returns 0 for an unflagged caller.
+      the clock the worker claims by, and returns how many. It returns 0 for
+      an unflagged caller.
+      returns how many. It returns 0 for an unflagged caller.
 
     :returns: SQL statements to execute in order
     """

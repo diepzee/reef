@@ -49,7 +49,7 @@ async def _job(seed, person, status: str, hours_ahead: int = 0) -> None:
 
 async def test_person_cannot_flag_themselves(household):
     me = principal_for(household["wouter"])
-    with pytest.raises(asyncpg.PostgresError, match="row-level security"):
+    with pytest.raises(asyncpg.InsufficientPrivilegeError, match="row-level security"):
         async with transaction_scope():
             await arm(me)
             await Person.raw(
@@ -145,3 +145,15 @@ async def test_totals_skip_test_accounts(household, seed):
     async with transaction_scope():
         rows = await Person.raw("SELECT * FROM reef_call_log_totals(7)")
     assert [row["calls"] for row in rows] == [1]
+
+
+async def test_hurry_leaves_running_jobs_and_other_people_alone(household, seed):
+    person = household["wouter"]
+    await _flag(seed, person)
+    await _job(seed, person, "running", hours_ahead=1)
+    await _job(seed, household["partner"], "queued", hours_ahead=1)
+    async with transaction_scope():
+        await arm(principal_for(person))
+        [row] = await Person.raw("SELECT reef_test_account_hurry() AS moved")
+    assert row["moved"] == 0
+    assert await seed.fetchval("SELECT bool_and(run_after > LOCALTIMESTAMP) FROM jobs")

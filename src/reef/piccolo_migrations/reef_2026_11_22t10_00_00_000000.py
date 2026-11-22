@@ -127,8 +127,9 @@ $reef$"""
 async def forwards() -> MigrationManager:
     """Create ``test_accounts`` with its policy and functions, and the new totals.
 
-    The totals come last, as the function they replace keeps its owner and
-    grants, and the table it now reads exists by then.
+    The totals come last: replacing the function keeps its owner and grants,
+    and the owner needs the ``SELECT`` on ``test_accounts`` that
+    :data:`STATEMENTS` gives it before the totals can read the table.
 
     :returns: configured migration manager
     """
