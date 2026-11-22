@@ -1489,8 +1489,10 @@ conversation gets a verdict. It shows whether an assistant that has Reef picks
 the right tools and gives right answers. Run it after a change to tools,
 search, the protocol or file reading. Every message uses your Codex quota.
 
-The runner is `scripts/conversations/run.py`. Its guard refuses every
-scenario that writes until Codex has shown it reaches Lode Vanhecke's memory.
+The runner is `scripts/conversations/run.py`. Every Reef tool is approved in
+advance during a run, so before any scenario the runner checks which account
+Codex reaches. It asks Codex one question with `load_index` as the only tool,
+and stops unless the index carries Lode Vanhecke's persona word for word.
 Reports go to `~/.reef-conversations/reports/`, outside git.
 
 ### Run it locally
@@ -1534,15 +1536,18 @@ Do these in order.
    and add no other member to it.
 2. **Sign in twice, as that account.** Do both sign-ins in a private browser
    window where nobody is signed in, and choose the test account's address.
-   If Codex were signed in as you, the read scenarios would send your real
-   memory to Codex before the write guard runs.
+   If Codex were signed in as you, the account check would stop the run
+   before any scenario. But Codex would already have read your index once.
    - For Codex: `codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`
-   - For the reset command: `uv run --project clients/python reef login`
+   - For the reset command: `uv run --project clients/python reef --url https://reefwith.me/mcp login`
+
+   The runner passes `--url https://reefwith.me/mcp` to every Reef command,
+   so `REEF_MCP_URL` in your shell cannot send a reset elsewhere.
 
    The Reef command keeps one sign-in per address. Signing it in as the test
    account replaces your own sign-in for reefwith.me. To switch back, run
-   `uv run --project clients/python reef logout`, then `reef login` as
-   yourself.
+   `uv run --project clients/python reef --url https://reefwith.me/mcp logout`,
+   then `login` as yourself.
 
    Without a cached sign-in, `reef reset-test-account` starts a browser
    sign-in. The runner does not wait for it. After 360 seconds it stops and
@@ -1559,14 +1564,25 @@ Do these in order.
    ```
 
    It must return exactly one row. Zero rows means the address is wrong.
-4. **Reset it:** `uv run --project clients/python reef reset-test-account`.
+4. **Reset it:** `uv run --project clients/python reef --url https://reefwith.me/mcp reset-test-account`.
    This loads Lode Vanhecke. The runner does the same before it starts.
-5. **Check who Codex is signed in as.** Run one read scenario:
-   `uv run python scripts/conversations/run.py --target production --only <a read scenario id>`.
-   Confirm in the report that the assistant sees the made-up person, Lode
-   Vanhecke. If it shows anyone else, stop and sign Codex out with
-   `codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
-   Then repeat step 2.
+5. **Run one read scenario:**
+   `uv run python scripts/conversations/run.py --target production --only dentist-moved`.
+   The runner checks the account itself, before every run. When the check
+   passes, the line under the report's title holds `account_check: passed`.
+
+   If Codex is signed in to another account, the run stops before any
+   scenario and prints:
+
+   > Codex is signed in to another account: the index it read does not carry
+   > the persona of the made-up person, Lode Vanhecke. No scenario was played.
+   > Sign Codex out with `codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
+   > Then sign it in again as the test account, as step 2 of the one-time
+   > production setup in docs/runbook.md says.
+
+   Sign Codex out with that command, then repeat step 2. If the run stops
+   with "The account check failed", Codex did not read the index at all:
+   see "Unproven" below.
 
 **Why the Codex login uses `-c`.** The runner starts Codex with
 `--ignore-user-config`, so Codex does not read `~/.codex/config.toml`. The
@@ -1581,9 +1597,9 @@ the `reef_test` row must say `OAuth`, not `Not logged in`.
 **Unproven.** `codex mcp list` showed that Codex knows `reef_test` from `-c`
 alone (`Not logged in` before the login). That is not the same as
 `codex exec --ignore-user-config` finding the login, and nobody has completed
-a real sign-in to test it. If the first production run stops with "Codex does
-not reach the made-up person", the login was not found. There are two
-options, and each needs a change to the runner:
+a real sign-in to test it. If the first production run stops with "The
+account check failed", the login was not found. There are two options, and
+each needs a change to the runner:
 
 - **A dedicated `CODEX_HOME` for the runs (recommended).** You sign in to
   Codex itself once more in that directory, and the test account's Reef login
@@ -1611,12 +1627,11 @@ reported too: reset the account by hand before the next run.
 
 ### When the sign-ins run out
 
-Both logins expire. Signs: Codex scenarios end `invalid` with an
-authentication error, or the run stops at "Codex does not reach the made-up
-person"; or `reef reset-test-account` fails, or the runner stops after 360 seconds
-with a message to sign in. Sign in
-again with the two commands of step 2, as the test account. Nothing else needs
-to change.
+Both logins expire. Signs: the run stops at "The account check failed", or
+Codex scenarios end `invalid` with an authentication error; or `reef
+reset-test-account` fails, or the runner stops after 360 seconds with a
+message to sign in. Sign in again with the two commands of step 2, as the
+test account. Nothing else needs to change.
 
 ## Deploying the rename (RUG-40)
 
