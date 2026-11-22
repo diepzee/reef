@@ -1,6 +1,6 @@
 """Test accounts: a made-up person for scripted conversations with Reef's tools."""
 
-from reef.testaccount.reset import (
+from reef.testaccount.lifecycle import (
     NotATestAccount,
     Readiness,
     ResetResult,

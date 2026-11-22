@@ -1,8 +1,8 @@
 """Put a test account back to the made-up person, and say when it is ready.
 
-A reset wipes everything in the person's spaces and loads the made-up person
-of :mod:`reef.testaccount.fixture`, so each scripted conversation starts from
-the same memory. It keeps the person, their sessions, their spaces and
+A reset wipes everything in the spaces the person owns and loads the made-up
+person of :mod:`reef.testaccount.fixture`, so each scripted conversation
+starts from the same memory. It keeps the person, their sessions, their spaces and
 memberships, and their search and call logs.
 
 Two rules guard it, and the database checks both, past row security, in
@@ -178,7 +178,13 @@ async def _start(principal: Principal) -> None:
 
 
 async def _wipe(principal: Principal) -> list[str]:
-    """Delete everything in the person's spaces, as account deletion orders it.
+    """Delete everything in the spaces the person owns, as account deletion orders it.
+
+    Only owned spaces, never every space the person can write to. The
+    sharing check ran in an earlier statement, and under ``READ COMMITTED``
+    a membership committed since then is visible here: another person may
+    have admitted the test account to their space in between, and a member
+    may delete every engram in a space.
 
     Revisions go before their engrams, and files are deleted explicitly, for
     the reason :func:`reef.account.delete_account_rows` gives. The person's
@@ -189,7 +195,11 @@ async def _wipe(principal: Principal) -> list[str]:
     :returns: the object keys of the deleted files, to erase after commit
     """
     await Promotion.delete().where(Promotion.person_id == principal.person_id)
-    space_ids = [space.id for space in await accessible_spaces(principal)]
+    space_ids = [
+        space.id
+        for space in await accessible_spaces(principal)
+        if space.owner_person_id == principal.person_id
+    ]
     if not space_ids:
         return []
     keys = (

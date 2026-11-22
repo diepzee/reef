@@ -23,7 +23,7 @@ from reef.testaccount import (
     reset,
 )
 from reef.testaccount.fixture import read_fixture
-from reef.testaccount.reset import _LOCK_CLASS
+from reef.testaccount.lifecycle import _LOCK_CLASS, _start
 from reef.usage import refresh_activation
 from tests.conftest import MemoryStore
 
@@ -114,6 +114,24 @@ async def _save(principal: Principal, space: str, path: str, body: str) -> None:
         await save_engram(principal, space, path, body, message="x")
 
 
+async def _store_file(principal: Principal, space: str, store: MemoryStore) -> None:
+    """Store one small file, as a tool call would.
+
+    :param principal: who stores it
+    :param space: the person's name for the space
+    :param store: where its bytes go
+    """
+    await add_attachment(
+        principal,
+        space,
+        b"bytes",
+        "text/plain",
+        filename="note.txt",
+        description="a note",
+        store=store,
+    )
+
+
 async def _engram_count(seed, space_ids: list[UUID]) -> int:
     """Count the engrams in some spaces, past row security.
 
@@ -132,11 +150,14 @@ async def test_reset_refuses_real_account(household, seed):
     me = principal_for(household["wouter"])
     await _save(me, "personal", "one.md", "one")
     await _save(me, "personal", "two.md", "two")
+    store = RecordingStore()
+    await _store_file(me, "personal", store)
 
     with pytest.raises(NotATestAccount):
-        await reset(me, RecordingStore())
+        await reset(me, store)
 
     assert await _engram_count(seed, [household["w_personal"].id]) == 2
+    assert store.deleted == []
 
 
 async def test_reset_refuses_shared_space(household, seed):
@@ -147,14 +168,40 @@ async def test_reset_refuses_shared_space(household, seed):
     await _save(owner, "household", "ours.md", "ours")
     await _save(member, "personal", "theirs.md", "theirs")
     spaces = [household[key].id for key in ("w_personal", "p_personal", "shared")]
+    store = RecordingStore()
+    await _store_file(owner, "household", store)
 
     for person in (household["wouter"], household["partner"]):
         await _flag(seed, person)
         with pytest.raises(SharedWithOthers):
-            await reset(principal_for(person), RecordingStore())
+            await reset(principal_for(person), store)
         await seed.execute("DELETE FROM test_accounts")
 
     assert await _engram_count(seed, spaces) == 3
+    assert store.deleted == []
+    assert await seed.fetchval("SELECT count(*) FROM attachments") == 1
+
+
+async def test_reset_spares_a_space_joined_during_it(graph, seed, monkeypatch):
+    """A space the account is admitted to after the check is not wiped."""
+    person, _ = await _test_person(graph, seed)
+    owner = await graph.person("owner@example.test", "Owner")
+    await graph.personal_space(owner)
+    theirs = await graph.shared_space("theirs", owner)
+    await _save(principal_for(owner), "theirs", "keep.md", "keep me")
+
+    async def start_then_admitted(principal: Principal) -> None:
+        """Pass the check, then be admitted to the owner's space at once.
+
+        :param principal: the person being reset
+        """
+        await _start(principal)
+        await graph.add_membership(person, theirs, "member")
+
+    monkeypatch.setattr("reef.testaccount.lifecycle._start", start_then_admitted)
+    await reset(principal_for(person), RecordingStore())
+
+    assert await _engram_count(seed, [theirs.id]) == 1
 
 
 async def test_reset_restores_fixture(graph, seed):
