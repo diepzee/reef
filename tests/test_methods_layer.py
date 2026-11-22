@@ -188,39 +188,41 @@ def test_writer_kinds_match_the_database():
         )
 
 
-def test_token_returns_its_subject(secret):
+async def test_token_returns_its_subject(secret):
     me = somebody()
     staging = staged.stage(me, "forget", {"space": "personal", "engram": "a.md"})
     assert staging["expires_in"] == 600
-    assert staged.take(me, "forget", staging["token"]) == {
+    assert await staged.take(me, "forget", staging["token"]) == {
         "space": "personal",
         "engram": "a.md",
     }
 
 
-def test_token_refused_for_other_person(secret):
+async def test_token_refused_for_other_person(secret):
     me = somebody()
     partner = somebody()
     token = staged.stage(me, "forget", {"engram": "a.md"})["token"]
     with pytest.raises(MethodError) as refused:
-        staged.take(partner, "forget", token)
+        await staged.take(partner, "forget", token)
     assert refused.value.code == "stale_token"
 
 
-def test_token_refused_for_other_action(secret):
+async def test_token_refused_for_other_action(secret):
     me = somebody()
     token = staged.stage(me, "forget", {"engram": "a.md"})["token"]
     with pytest.raises(MethodError) as refused:
-        staged.take(me, "instruct", token)
+        await staged.take(me, "instruct", token)
     assert refused.value.code == "stale_token"
 
 
-def test_token_refused_after_expiry(secret):
+async def test_token_refused_after_expiry(secret):
     me = somebody()
     token = staged.stage(me, "forget", {"engram": "a.md"}, now=1_000.0)["token"]
-    assert staged.take(me, "forget", token, now=1_000.0 + 599) == {"engram": "a.md"}
+    assert await staged.take(me, "forget", token, now=1_000.0 + 599) == {
+        "engram": "a.md"
+    }
     with pytest.raises(MethodError) as refused:
-        staged.take(me, "forget", token, now=1_000.0 + 601)
+        await staged.take(me, "forget", token, now=1_000.0 + 601)
     assert refused.value.code == "stale_token"
 
 
@@ -245,24 +247,24 @@ def test_token_refused_after_expiry(secret):
         "empty",
     ],
 )
-def test_token_refused_with_a_bad_signature(secret, tamper):
+async def test_token_refused_with_a_bad_signature(secret, tamper):
     me = somebody()
     token = staged.stage(me, "forget", {"engram": "a.md"})["token"]
     with pytest.raises(MethodError) as refused:
-        staged.take(me, "forget", tamper(token))
+        await staged.take(me, "forget", tamper(token))
     assert refused.value.code == "stale_token"
 
 
-def test_token_refused_under_another_secret(secret, monkeypatch):
+async def test_token_refused_under_another_secret(secret, monkeypatch):
     me = somebody()
     token = staged.stage(me, "forget", {"engram": "a.md"})["token"]
     monkeypatch.setattr(get_settings().web, "session_secret", "t" * 40)
     with pytest.raises(MethodError) as refused:
-        staged.take(me, "forget", token)
+        await staged.take(me, "forget", token)
     assert refused.value.code == "stale_token"
 
 
-def test_token_is_not_signed_with_the_cookie_key(secret):
+async def test_token_is_not_signed_with_the_cookie_key(secret):
     # The session cookie and staged tokens share one operator secret; a
     # token signed with it directly must not pass, nor a session cookie.
     me = somebody()
@@ -272,19 +274,19 @@ def test_token_is_not_signed_with_the_cookie_key(secret):
     cookie = session.seal(me.principal.person_id, "a@example.test", secret=SECRET)
     for token in (direct, cookie):
         with pytest.raises(MethodError) as refused:
-            staged.take(me, "forget", token)
+            await staged.take(me, "forget", token)
         assert refused.value.code == "stale_token"
 
 
 @pytest.mark.parametrize("weak", ["", "short"])
-def test_nothing_is_staged_without_a_strong_secret(monkeypatch, weak):
+async def test_nothing_is_staged_without_a_strong_secret(monkeypatch, weak):
     monkeypatch.setattr(get_settings().web, "session_secret", weak)
     me = somebody()
     with pytest.raises(MethodError) as refused:
         staged.stage(me, "forget", {"engram": "a.md"})
     assert refused.value.code == "not_configured"
     with pytest.raises(MethodError) as refused:
-        staged.take(me, "forget", "e30.AAAA")
+        await staged.take(me, "forget", "e30.AAAA")
     assert refused.value.code == "not_configured"
 
 

@@ -289,7 +289,7 @@ def _stage(caller: Caller, subject: dict) -> dict:
     return staged.stage(caller, FORGET, subject)
 
 
-def _take(caller: Caller, token: str, accepted: list[dict]) -> dict:
+async def _take(caller: Caller, token: str, accepted: list[dict]) -> dict:
     """Take a token, and require what it was staged for to be this call's target.
 
     :param caller: who is confirming
@@ -298,7 +298,7 @@ def _take(caller: Caller, token: str, accepted: list[dict]) -> dict:
     :returns: the subject staged
     :raises MethodError: ``stale_token`` when it is staged for another target
     """
-    subject = staged.take(caller, FORGET, token)
+    subject = await staged.take(caller, FORGET, token)
     own = {k: subject.get(k) for k in ("space", "engram", "file") if k in subject}
     if own not in accepted:
         raise MethodError("stale_token")
@@ -343,7 +343,9 @@ async def _forget_engram(
         names.add(normalize_path(path))
     except InvalidPath:
         pass
-    subject = _take(caller, confirm, [{"space": space, "engram": n} for n in names])
+    subject = await _take(
+        caller, confirm, [{"space": space, "engram": n} for n in names]
+    )
     try:
         with refusals():
             async with transaction_scope():
@@ -399,7 +401,7 @@ async def _forget_file(
             "effect": _shared(effect, space, resolved.kind),
             **_stage(caller, {**subject, "space_id": str(resolved.id)}),
         }
-    staged_for = _take(caller, confirm, [subject])
+    staged_for = await _take(caller, confirm, [subject])
     with refusals():
         async with transaction_scope():
             resolved = await resolve_writable_space(caller.principal, space)

@@ -205,6 +205,10 @@ eval questions="100":
 test-account:
     {{python}} scripts/eval/seed.py --test-account
 
+# Create or reset conversations@reef.local, the made-up person for test conversations.
+conversations-account:
+    {{python}} scripts/conversations/local_account.py
+
 # Load your own JSON export as the private eval person's pages.
 eval-private-seed:
     {{python}} scripts/eval/seed.py --private

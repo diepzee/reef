@@ -57,6 +57,7 @@ from reef.methods import share as sharing
 from reef.usage import current_session_id
 from reef.web.routes_api import register_api_routes
 from reef.web.routes_auth import register_auth_routes
+from reef.web.routes_test_account import register_test_account_routes
 from reef.web.static import register_static_routes
 
 logger = logging.getLogger("reef.server")
@@ -242,6 +243,7 @@ mcp = FastMCP(
 
 register_auth_routes(mcp)
 register_api_routes(mcp)
+register_test_account_routes(mcp)
 register_static_routes(mcp)
 
 

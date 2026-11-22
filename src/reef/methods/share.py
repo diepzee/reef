@@ -132,7 +132,7 @@ async def instruct(
         )
         subject = {"digest": digest, "version": version}
         return {"effect": effect, **staged.stage(caller, INSTRUCT, subject)}
-    subject = staged.take(caller, INSTRUCT, confirm)
+    subject = await staged.take(caller, INSTRUCT, confirm)
     if subject.get("digest") != digest:
         raise MethodError("stale_token")
     if current is not None and current.body == body:

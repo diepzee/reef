@@ -20,10 +20,13 @@ from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, SupportsFloat
 
+import httpx
 from fastmcp import Client
 from fastmcp.client.auth import OAuth
 
 DEFAULT_MCP_URL = "https://reefwith.me/mcp"
+DEFAULT_RESET_TIMEOUT = 300.0
+READY_POLL_SECONDS = 2.0
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "reef"
 
 
@@ -242,6 +245,17 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("login", help="sign in through MCP OAuth and cache the tokens")
     sub.add_parser("logout", help="remove cached OAuth tokens for this endpoint")
     sub.add_parser("tools", help="list the MCP server's current tool schemas")
+    reset = sub.add_parser(
+        "reset-test-account",
+        help="wipe a test account and reload its fixed memory (test accounts only)",
+    )
+    reset.add_argument(
+        "--timeout",
+        type=float,
+        default=DEFAULT_RESET_TIMEOUT,
+        metavar="SECONDS",
+        help="how long to wait for search and file reading (default: %(default)s)",
+    )
     call = sub.add_parser("call", help="call an exact MCP tool with a JSON object")
     call.add_argument("tool_name")
     call.add_argument(
@@ -501,8 +515,84 @@ def _print_json(value: Any, *, compact: bool) -> None:
     )
 
 
-async def run(args: argparse.Namespace, *, client_class: type[Client] = Client) -> int:
-    """Execute parsed arguments and return the intended process status."""
+def _error_code(response: httpx.Response) -> str:
+    """Read the error code of a refused request.
+
+    :param response: the non-200 response
+    :returns: the server's code, or ``server_error`` for a 5xx or an unreadable body
+    """
+    if response.status_code >= 500:
+        return "server_error"
+    try:
+        body = response.json()
+    except ValueError:
+        return "server_error"
+    code = body.get("error") if isinstance(body, dict) else None
+    return code if isinstance(code, str) else "server_error"
+
+
+async def reset_test_account(
+    args: argparse.Namespace,
+    auth: Any,
+    *,
+    transport: httpx.AsyncBaseTransport | None = None,
+    poll_interval: float = READY_POLL_SECONDS,
+) -> tuple[dict[str, Any], int]:
+    """Reset a test account, then wait until search and file reading work.
+
+    :param args: the parsed command, with ``url`` and ``timeout``
+    :param auth: a bearer token, or the OAuth object that signs requests
+    :param transport: replaces the network, for tests
+    :param poll_interval: seconds between readiness checks
+    :returns: what to print, and the exit status
+    """
+    base = args.url.removesuffix("/").removesuffix("/mcp")
+    headers = {"Authorization": f"Bearer {auth}"} if isinstance(auth, str) else {}
+    started = time.monotonic()
+    try:
+        async with httpx.AsyncClient(
+            base_url=base,
+            headers=headers,
+            auth=None if isinstance(auth, str) else auth,
+            transport=transport,
+            timeout=60.0,
+        ) as http:
+            response = await http.post("/api/test-account/reset")
+            if response.status_code != 200:
+                return {"error": _error_code(response)}, 1
+            report = response.json()
+            while True:
+                ready = await http.get("/api/test-account/ready")
+                if ready.status_code != 200:
+                    return {"error": _error_code(ready)}, 1
+                if ready.json().get("ready"):
+                    break
+                if time.monotonic() - started >= args.timeout:
+                    return {"error": "not_ready"}, 1
+                await asyncio.sleep(poll_interval)
+    except (httpx.HTTPError, ValueError):
+        return {"error": "server_error"}, 1
+    keys = ("fixture_version", "engrams", "files", "services", "reef_version")
+    result = {"reset": True, **{key: report.get(key) for key in keys}}
+    result["seconds"] = round(time.monotonic() - started, 1)
+    return result, 0
+
+
+async def run(
+    args: argparse.Namespace,
+    *,
+    client_class: type[Client] = Client,
+    transport: httpx.AsyncBaseTransport | None = None,
+    poll_interval: float = READY_POLL_SECONDS,
+) -> int:
+    """Execute parsed arguments and return the intended process status.
+
+    :param args: the parsed command
+    :param client_class: the MCP client, replaced in tests
+    :param transport: the HTTP transport of ``reset-test-account``, replaced in tests
+    :param poll_interval: seconds between ``reset-test-account`` readiness checks
+    :returns: the process status
+    """
     store = _token_store()
     if args.command == "logout":
         oauth = OAuth(mcp_url=args.url, client_name="Reef CLI", token_storage=store)
@@ -516,6 +606,13 @@ async def run(args: argparse.Namespace, *, client_class: type[Client] = Client) 
         auth = OAuth(mcp_url=args.url, client_name="Reef CLI", token_storage=store)
     else:
         auth = token
+
+    if args.command == "reset-test-account":
+        result, status = await reset_test_account(
+            args, auth, transport=transport, poll_interval=poll_interval
+        )
+        _print_json(result, compact=args.compact)
+        return status
 
     async with client_class(args.url, auth=auth) as client:
         if args.command == "login":

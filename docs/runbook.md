@@ -1481,6 +1481,158 @@ passage or an address.
   `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/measure_recall.py --email PERSON --file-text on < ~/.reef-eval-private/file-questions.json`
   The `<` is read by your shell, which sends the file on stdin.
 
+## Test conversations
+
+**What it is.** An assistant (Codex on the `gpt-6-astra` model) plays about 30
+scripted conversations against a made-up person, Lode Vanhecke, and each
+conversation gets a verdict. It shows whether an assistant that has Reef picks
+the right tools and gives right answers. Run it after a change to tools,
+search, the protocol or file reading. Every message uses your Codex quota.
+
+The runner is `scripts/conversations/run.py`. Every Reef tool is approved in
+advance during a run, so before any scenario the runner checks which account
+Codex reaches. It asks Codex one question with `load_index` as the only tool,
+and stops unless the index carries Lode Vanhecke's persona word for word.
+Reports go to `~/.reef-conversations/reports/`, outside git.
+
+### Run it locally
+
+1. `just conversations-account` makes `conversations@reef.local` in the
+   development database, or resets it.
+2. `uv run python scripts/conversations/run.py --target local`
+
+To play only some scenarios, add `--only <id> <id>`.
+
+### Run it in production
+
+Do the one-time setup below first. Then:
+
+1. `uv run python scripts/conversations/run.py --target production`
+
+File scenarios report `skipped` in production until file reading is on there
+(RUG-60).
+
+### Run it through Orca
+
+The controller fills in the target in `scripts/conversations/worker-task.md`
+and starts a Codex worker in a child worktree:
+
+```
+sed 's/{target}/local/g' scripts/conversations/worker-task.md > "$TMPDIR/task.md"
+orca orchestration worker-start --spec-file "$TMPDIR/task.md" \
+  --worktree new-child --name conversations-local --agent codex --model gpt-6-astra
+```
+
+For production, use `production` in both places.
+
+The worker reports the report paths and the count per verdict.
+
+### One-time production setup
+
+Do these in order.
+
+1. **Create the test account.** Sign up at reefwith.me with an address of your
+   choice, in a private browser window. On the website, create a shared space
+   and add no other member to it.
+2. **Sign in twice, as that account.** Do both sign-ins in a private browser
+   window where nobody is signed in, and choose the test account's address.
+   If Codex were signed in as you, the account check would stop the run
+   before any scenario. But Codex would already have read your index once.
+   - For Codex: `codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`
+   - For the reset command: `uv run --project clients/python reef --url https://reefwith.me/mcp login`
+
+   The runner passes `--url https://reefwith.me/mcp` to every Reef command,
+   so `REEF_MCP_URL` in your shell cannot send a reset elsewhere.
+
+   The Reef command keeps one sign-in per address. Signing it in as the test
+   account replaces your own sign-in for reefwith.me. To switch back, run
+   `uv run --project clients/python reef --url https://reefwith.me/mcp logout`,
+   then `login` as yourself.
+
+   Without a cached sign-in, `reef reset-test-account` starts a browser
+   sign-in. The runner does not wait for it. After 360 seconds it stops and
+   tells you to sign the CLI in first.
+3. **Flag the account as a test account.** An operator does this, with your
+   say-so, as the database owner role. Connect with
+   `psql "$REEF_MIGRATION_DATABASE_URL"`, as "Phase 4 — Storage and safety
+   nets" shows for the other owner-role SQL. Use the address from step 1:
+
+   ```sql
+   INSERT INTO test_accounts (person_id)
+   SELECT id FROM persons WHERE email = '<address>'
+   RETURNING person_id;
+   ```
+
+   It must return exactly one row. Zero rows means the address is wrong.
+4. **Reset it:** `uv run --project clients/python reef --url https://reefwith.me/mcp reset-test-account`.
+   This loads Lode Vanhecke. The runner does the same before it starts.
+5. **Run one read scenario:**
+   `uv run python scripts/conversations/run.py --target production --only dentist-moved`.
+   The runner checks the account itself, before every run. When the check
+   passes, the line under the report's title holds `account_check: passed`.
+
+   If Codex is signed in to another account, the run stops before any
+   scenario and prints:
+
+   > Codex is signed in to another account: the index it read does not carry
+   > the persona of the made-up person, Lode Vanhecke. No scenario was played.
+   > Sign Codex out with `codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
+   > Then sign it in again as the test account, as step 2 of the one-time
+   > production setup in docs/runbook.md says.
+
+   Sign Codex out with that command, then repeat step 2. If the run stops
+   with "The account check failed", Codex did not read the index at all:
+   see "Unproven" below.
+
+**Why the Codex login uses `-c`.** The runner starts Codex with
+`--ignore-user-config`, so Codex does not read `~/.codex/config.toml`. The
+server `reef_test` exists only through the `-c` settings the runner passes. A
+`[mcp_servers.reef_test]` entry in `config.toml` would not be seen. Codex
+stores the login by server name and URL (in the system keychain, or in a file
+under `CODEX_HOME`, per `mcp_oauth_credentials_store`; the default is `auto`).
+The login command above uses the same name and URL, so the runner should find
+it. Check with `codex mcp list -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`:
+the `reef_test` row must say `OAuth`, not `Not logged in`.
+
+**Unproven.** `codex mcp list` showed that Codex knows `reef_test` from `-c`
+alone (`Not logged in` before the login). That is not the same as
+`codex exec --ignore-user-config` finding the login, and nobody has completed
+a real sign-in to test it. If the first production run stops with "The
+account check failed", the login was not found. There are two options, and
+each needs a change to the runner:
+
+- **A dedicated `CODEX_HOME` for the runs (recommended).** You sign in to
+  Codex itself once more in that directory, and the test account's Reef login
+  lives there, apart from anything else. Isolation stays intact.
+- **Drop `--ignore-user-config`.** Codex then reads your own settings, so a
+  `[mcp_servers.reef_test]` entry in `~/.codex/config.toml` would work. It
+  also loads your other MCP servers, rules and settings, which weakens "Reef
+  tools and nothing else".
+
+Both change what the runner does, and the second changes your Codex settings.
+Decide before the first run that needs it.
+
+### What the verdicts mean
+
+| Verdict | Meaning | What to do |
+|---|---|---|
+| `pass` | Right tools, and every fact and engram is in the answer. | Nothing. |
+| `review` | Right tools, but a fact or engram is missing from the answer. The assistant may have used other words. | Read the answer in the report. |
+| `fail` | A required tool is missing, a forbidden one was used, or the memory afterwards is wrong. | Investigate: this is a finding about Reef. |
+| `skipped` | The target lacks something the scenario needs, such as file reading. | Nothing, unless you expected it to run. |
+| `invalid` | Codex failed, or used a tool outside Reef. The scenario says nothing about Reef. | Run that scenario again with `--only`. |
+
+If the run stops, the report says why (`stopped`). A failed final reset is
+reported too: reset the account by hand before the next run.
+
+### When the sign-ins run out
+
+Both logins expire. Signs: the run stops at "The account check failed", or
+Codex scenarios end `invalid` with an authentication error; or `reef
+reset-test-account` fails, or the runner stops after 360 seconds with a
+message to sign in. Sign in again with the two commands of step 2, as the
+test account. Nothing else needs to change.
+
 ## Deploying the rename (RUG-40)
 
 RUG-40 is one breaking release. It renames cove to space and page to engram
