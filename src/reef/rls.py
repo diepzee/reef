@@ -1888,9 +1888,9 @@ def test_account_statements() -> list[str]:
       ``insufficient_privilege``) for an unflagged caller. Otherwise it deletes
       the caller's queued jobs and their embedding and reading spend, stamps
       ``reset_at`` and returns it.
+    * ``reef_test_account_hurry()`` makes the caller's queued jobs due now, on
       the clock the worker claims by, and returns how many. It returns 0 for
       an unflagged caller.
-      returns how many. It returns 0 for an unflagged caller.
 
     :returns: SQL statements to execute in order
     """
