@@ -15,6 +15,10 @@ token for another person, another action, after expiry, or with a bad
 signature, and does nothing else. The subject travels in the token, so a
 method compares it with the second call's arguments.
 
+**Reset.** A token carries its issue time ``iat``. When the caller's test
+account was reset after that, the token is stale, so a confirmation can
+never act on freshly reloaded memory.
+
 **Single use.** Not enforced here: there is no token store. A second take of
 a token whose share or deletion was already applied finds nothing left to do,
 and the method says so.
@@ -24,10 +28,14 @@ read the subject. Stage paths and digests, never engram text.
 """
 
 import hmac
+import time
 from hashlib import sha256
 
+from reef.access import arm
 from reef.config import get_settings
+from reef.db import transaction_scope
 from reef.methods import Caller, MethodError
+from reef.models import Person
 from reef.sealing import seal, unseal
 
 TOKEN_TTL_SECONDS = 600
@@ -72,12 +80,38 @@ def stage(
     :returns: ``{"token", "expires_in"}``, the lifetime in seconds
     :raises MethodError: ``not_configured``, when the secret is too short
     """
-    doc = {"pid": str(caller.principal.person_id), "act": action, "sub": subject}
-    token = seal(doc, secret=_secret(), ttl_seconds=TOKEN_TTL_SECONDS, now=now)
+    issued = time.time() if now is None else now
+    doc = {
+        "pid": str(caller.principal.person_id),
+        "act": action,
+        "sub": subject,
+        "iat": issued,
+    }
+    token = seal(doc, secret=_secret(), ttl_seconds=TOKEN_TTL_SECONDS, now=issued)
     return {"token": token, "expires_in": TOKEN_TTL_SECONDS}
 
 
-def take(caller: Caller, action: str, token: str, *, now: float | None = None) -> dict:
+async def _reset_epoch(caller: Caller) -> float | None:
+    """Read when the caller's test account was last reset.
+
+    Row-level security shows a person only their own ``test_accounts`` row,
+    and there is none for people who are not test accounts.
+
+    :param caller: whose reset to read
+    :returns: the reset time in epoch seconds, or None when never reset or
+        not a test account
+    """
+    async with transaction_scope():
+        await arm(caller.principal)
+        rows = await Person.raw(
+            "SELECT extract(epoch FROM reset_at)::float8 AS reset FROM test_accounts"
+        )
+    return rows[0]["reset"] if rows else None
+
+
+async def take(
+    caller: Caller, action: str, token: str, *, now: float | None = None
+) -> dict:
     """Check a token and give back the subject it was staged with.
 
     :param caller: who is confirming; must be who staged
@@ -96,5 +130,9 @@ def take(caller: Caller, action: str, token: str, *, now: float | None = None) -
         or doc.get("act") != action
         or not isinstance(doc.get("sub"), dict)
     ):
+        raise MethodError("stale_token")
+    reset = await _reset_epoch(caller)
+    iat = doc.get("iat")
+    if reset is not None and (not isinstance(iat, int | float) or reset > iat):
         raise MethodError("stale_token")
     return doc["sub"]
