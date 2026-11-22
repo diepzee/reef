@@ -1,0 +1,17 @@
+[[file]]
+filename = "fleetboard-offerte.pdf"
+mime = "application/pdf"
+description = "Offerte van Kuipke Logistics voor Fleetboard bij Transport Van den Abeele, 4 pagina's, met prijzen en planning."
+engram = "work/project-fleetboard.md"
+
+[[file]]
+filename = "tandarts-brief.png"
+mime = "image/png"
+description = "Gescande bevestiging van de tandartsafspraak bij Tandartspraktijk Bogaert (afgedrukte brief, geen tekstlaag)."
+engram = "profile/health.md"
+
+[[file]]
+filename = "moestuin-oogst.jpg"
+mime = "image/jpeg"
+description = "Foto van de tomatenoogst uit de moestuin, augustus 2026."
+engram = "projects/vegetable-garden.md"
