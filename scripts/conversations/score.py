@@ -13,6 +13,9 @@ afterwards. :func:`score` turns what Codex did into one verdict:
 * ``review``: the tools are right but a fact or engram is not in the
   answer. The assistant may have put it in other words: a person reads it.
 
+Every failed call to a Reef tool is listed in the reasons, whatever the
+verdict, so a pass after a retry still shows the call that failed.
+
 Reports never hold a staged token, a share nonce or a signed link.
 """
 
@@ -254,7 +257,7 @@ def score(
         doubts.append("a person must read the answer")
     if doubts:
         return Scored(id_, "review", doubts + broken, tools, seconds)
-    return Scored(id_, "pass", [], tools, seconds)
+    return Scored(id_, "pass", broken, tools, seconds)
 
 
 def redact(text: str) -> str:
@@ -340,7 +343,7 @@ def _markdown(report: dict) -> str:
             f"| {item['id']} | {item['verdict']} | {item['seconds']:.0f} | {tools} |"
         )
     for item in report["scenarios"]:
-        if item["verdict"] in ("pass", "skipped"):
+        if item["verdict"] == "skipped" or not item["reasons"]:
             continue
         lines += ["", f"## {item['id']}: {item['verdict']}", ""]
         lines += [f"- {reason}" for reason in item["reasons"]]

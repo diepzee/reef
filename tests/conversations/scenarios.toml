@@ -84,7 +84,9 @@ tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 [[scenario]]
 id = "wifi-restart"
 kind = "read"
-messages = ["De wifi doet raar. Wat moet ik doen?"]
+# A plain question of fact: recall answers it. "Wat moet ik doen?" asks for
+# advice, which the protocol sends to brief.
+messages = ["Hoe lang moet ik de router uittrekken als de wifi hapert, en wie bel ik als dat niet helpt?"]
 tools_required = ["load_index", "recall"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = [["30 seconden", "30 sec"], "Nettie"]
@@ -274,7 +276,9 @@ absent = true
 id = "forget-declined"
 kind = "write"
 messages = ["Verwijder mijn notitie met cadeau-ideeën.", "Nee, laat maar."]
-tools_required = ["load_index"]
+# The assistant asks forget what deleting would do, shows the person, and
+# does not confirm when the person says no.
+tools_required = ["load_index", "forget"]
 
 [[scenario.after]]
 ref = "personal/notes/gift-ideas.md"

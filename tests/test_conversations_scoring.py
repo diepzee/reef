@@ -403,7 +403,31 @@ def test_failed_required_call_does_not_count():
         [],
         RIGHT_ANSWER,
     )
-    assert _score(_scenario(), retried).verdict == "pass"
+    passed = _score(_scenario(), retried)
+    assert passed.verdict == "pass"
+    assert passed.reasons == ["the call to recall failed"]
+
+
+def test_declined_forget_must_ask_forget():
+    """Declining a deletion passes only when ``forget`` showed the effect first."""
+    scenario = next(s for s in load(SCENARIOS) if s["id"] == "forget-declined")
+    kept = {"personal/notes/gift-ideas.md": "- Sofie (Kerstmis): loopjas."}
+    failed = Session(
+        "t",
+        [_call("load_index"), _call("open"), _call("forget", ok=False)],
+        [],
+        "Ik heb niets verwijderd.",
+    )
+    scored = _score(scenario, failed, kept)
+    assert scored.verdict == "fail"
+    assert "the call to forget failed" in scored.reasons
+    asked = Session(
+        "t",
+        [_call("load_index"), _call("forget")],
+        [],
+        "Zeker? Goed, ik laat ze staan.",
+    )
+    assert _score(scenario, asked, kept).verdict == "pass"
 
 
 def test_confirming_before_the_person_says_yes_fails():
