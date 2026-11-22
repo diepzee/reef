@@ -1,11 +1,11 @@
 +++
-title = "Een nieuwe collega inwerken"
+title = "Onboarding a new colleague"
 tags = ["work", "howto"]
 +++
 
-# Een nieuwe collega inwerken
+# Onboarding a new colleague
 
-- Dag 1: laptop ophalen bij de balie, toegang aanvragen via het formulier "Toegang IT".
-- Dag 2: de repo `fleetboard-pipelines` klonen, `make dev` draaien.
-- Week 1: één kleine bug oppakken uit het bord "Good first issue".
+- Day 1: collect the laptop at reception and request access with the "IT access" form.
+- Day 2: clone the repo `fleetboard-pipelines` and run `make dev`.
+- Week 1: pick up one small bug from the "Good first issue" board.
 - Buddy: Tibo ([[work/team.md]]).

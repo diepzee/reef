@@ -3,11 +3,11 @@ title = "Team"
 tags = ["work", "people"]
 +++
 
-# Het team
+# The team
 
 - **Greet Maes**: manager, data & platform.
-- **Tibo Lambrecht**: senior data engineer, mijn buddy, werkt aan de ingestie.
-- **Yasmine El Idrissi**: analist, bouwt de dashboards voor Fleetboard.
-- **Pieter Cools**: DevOps, beheert de Kubernetes-cluster. Hij is op vakantie van 14 tot 25 december 2026.
-- **Anouk Verbeke**: product owner van [[work/project-fleetboard.md]].
-- Standup elke dag om 9:30. Retro de tweede donderdag van de maand.
+- **Tibo Lambrecht**: senior data engineer, my buddy, works on ingestion.
+- **Yasmine El Idrissi**: analyst, builds the Fleetboard dashboards.
+- **Pieter Cools**: DevOps, runs the Kubernetes cluster. He is on leave from 14 to 25 December 2026.
+- **Anouk Verbeke**: product owner of [[work/project-fleetboard.md]].
+- Standup every day at 9:30. Retro on the second Thursday of the month.

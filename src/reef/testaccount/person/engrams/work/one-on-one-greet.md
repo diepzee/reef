@@ -1,14 +1,14 @@
 +++
-title = "1-op-1 met Greet"
+title = "1-on-1 with Greet"
 tags = ["work", "meetings"]
 +++
 
-# 1-op-1 met Greet
+# 1-on-1 with Greet
 
 ## 2026-10-15
-- Ik wil meer richting architectuur groeien.
-- Greet stelt een mentorschap voor met Tibo.
+- I want to grow towards architecture.
+- Greet suggests a mentorship with Tibo.
 
 ## 2026-11-12
-- Opleiding: cursus "Data contracts" bij Leerhuis (verzonnen), 2 dagen op 9 en 10 december 2026, 1.180 euro. Goedgekeurd.
-- Volgende 1-op-1: donderdag 14 januari 2027 om 11:00.
+- Training: the course "Data contracts" at Leerhuis (invented), 2 days on 9 and 10 December 2026, 1,180 euro. Approved.
+- Next 1-on-1: Thursday 14 January 2027 at 11:00.

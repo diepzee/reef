@@ -1,14 +1,14 @@
 +++
-title = "Ritten opnieuw opbouwen"
+title = "Rebuilding trips"
 tags = ["work", "howto"]
 +++
 
-# Ritten opnieuw opbouwen
+# Rebuilding trips
 
-1. Zet de Dagster-schedule `trips_hourly` op pauze.
-2. Verwijder de rijen in `trips` vanaf de gewenste datum: `DELETE FROM trips WHERE started_at >= '2026-11-01';`
-3. Start de job `rebuild_trips` met de partitie van de datum.
-4. Controleer het aantal ritten met de query in Metabase, kaart "Ritten per dag". Verwacht ongeveer 3.100 per dag.
-5. Zet de schedule weer aan.
+1. Pause the Dagster schedule `trips_hourly`.
+2. Delete the rows in `trips` from the date you need: `DELETE FROM trips WHERE started_at >= '2026-11-01';`
+3. Start the job `rebuild_trips` with the partition for that date.
+4. Check the trip count with the Metabase card "Trips per day". Expect about 3,100 per day.
+5. Switch the schedule back on.
 
-De drempel van 20 minuten staat in `config/trips.toml` ([[work/decisions-2026.md]]).
+The 20-minute threshold lives in `config/trips.toml` ([[work/decisions-2026.md]]).

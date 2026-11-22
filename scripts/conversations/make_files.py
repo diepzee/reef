@@ -20,7 +20,7 @@ QUOTE_PAGES = [
     (
         "Offerte Fleetboard\nKuipke Logistics NV, Noorderlaan 118, Antwerpen\n"
         "Klant: Transport Van den Abeele\nOpgemaakt door: Anouk Verbeke\n"
-        "Datum: 20 oktober 2026\nGeldig tot: 20 december 2026"
+        "Datum: 5 november 2026\nGeldig tot: 5 januari 2027"
     ),
     (
         "1. Wat u krijgt\nEen dashboard met de positie en vertraging\nvan 85 vrachtwagens.\n"

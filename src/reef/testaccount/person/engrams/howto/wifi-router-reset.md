@@ -1,13 +1,13 @@
 +++
-title = "Wifi herstarten"
+title = "Restarting the wifi"
 tags = ["howto", "home"]
 +++
 
-# Wifi herstarten
+# Restarting the wifi
 
-1. Router (Nettie Box, onder de trap) 30 seconden uit het stopcontact.
-2. Terug insteken en wachten tot het lampje groen blijft, ongeveer 3 minuten.
-3. Lukt dat niet: Nettie helpdesk 078 00 00 00 (verzonnen), klantnummer N-5521097.
-4. Wifi-naam: `Zwaluwhof`. Het wachtwoord staat op de sticker onderaan de router, niet hier.
+1. Unplug the router (Nettie Box, under the stairs) for 30 seconds.
+2. Plug it back in and wait until the light stays green, about 3 minutes.
+3. If that fails: Nettie helpdesk 078 00 00 00 (invented), customer number N-5521097.
+4. Wifi name: `Zwaluwhof`. The password is on the sticker under the router, not here.
 
-Zie ook [[household/utilities.md]].
+See also [[household/utilities.md]].
