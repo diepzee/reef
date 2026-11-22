@@ -94,8 +94,9 @@ def stage(
 async def _reset_epoch(caller: Caller) -> float | None:
     """Read when the caller's test account was last reset.
 
-    Row-level security shows a person only their own ``test_accounts`` row,
-    and there is none for people who are not test accounts.
+    The query names the caller's row itself. Row-level security also shows a
+    person only their own ``test_accounts`` row, and there is none for people
+    who are not test accounts.
 
     :param caller: whose reset to read
     :returns: the reset time in epoch seconds, or None when never reset or
@@ -104,7 +105,9 @@ async def _reset_epoch(caller: Caller) -> float | None:
     async with transaction_scope():
         await arm(caller.principal)
         rows = await Person.raw(
-            "SELECT extract(epoch FROM reset_at)::float8 AS reset FROM test_accounts"
+            "SELECT extract(epoch FROM reset_at)::float8 AS reset "
+            "FROM test_accounts WHERE person_id = {}",
+            caller.principal.person_id,
         )
     return rows[0]["reset"] if rows else None
 

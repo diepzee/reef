@@ -160,6 +160,20 @@ async def test_reset_refuses_real_account(household, seed):
     assert store.deleted == []
 
 
+async def test_refused_reset_does_not_read_the_fixture(household, monkeypatch):
+    """The flag is checked before the made-up person is read from the package."""
+    reads: list[bool] = []
+
+    def recording_read() -> None:
+        """Note the read; a refused reset must never get here."""
+        reads.append(True)
+
+    monkeypatch.setattr("reef.testaccount.lifecycle.read_fixture", recording_read)
+    with pytest.raises(NotATestAccount):
+        await reset(principal_for(household["wouter"]), None)
+    assert reads == []
+
+
 async def test_reset_refuses_shared_space(household, seed):
     """A flagged account that shares a space is refused, owner or member."""
     owner = principal_for(household["wouter"])

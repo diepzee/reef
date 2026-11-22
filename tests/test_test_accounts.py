@@ -2,6 +2,7 @@
 
 import asyncpg
 import pytest
+from conftest import Graph
 
 from reef.access import Principal, arm
 from reef.db import transaction_scope
@@ -12,7 +13,7 @@ YESTERDAY = (
 )
 
 
-def principal_for(person) -> Principal:
+def principal_for(person: Person) -> Principal:
     """Return the principal a signed-in person acts as.
 
     :param person: a seeded person
@@ -21,7 +22,7 @@ def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
 
 
-async def _flag(seed, person) -> None:
+async def _flag(seed: asyncpg.Connection, person: Person) -> None:
     """Flag a person as a test account, as the operator would.
 
     :param seed: the connection that is not bound by row security
@@ -30,7 +31,7 @@ async def _flag(seed, person) -> None:
     await seed.execute("INSERT INTO test_accounts (person_id) VALUES ($1)", person.id)
 
 
-async def _solo(graph, email: str = "solo@example.test"):
+async def _solo(graph: Graph, email: str = "solo@example.test") -> Person:
     """Create a person with a personal space and nobody to share it with.
 
     :param graph: the topology builders
@@ -42,7 +43,9 @@ async def _solo(graph, email: str = "solo@example.test"):
     return person
 
 
-async def _job(seed, person, status: str, hours_ahead: int = 0) -> None:
+async def _job(
+    seed: asyncpg.Connection, person: Person, status: str, hours_ahead: int = 0
+) -> None:
     """Add one job for a person.
 
     :param seed: the connection that is not bound by row security
@@ -60,6 +63,7 @@ async def _job(seed, person, status: str, hours_ahead: int = 0) -> None:
 
 
 async def test_person_cannot_flag_themselves(household):
+    """A person cannot flag themselves: row security refuses the insert."""
     me = principal_for(household["wouter"])
     with pytest.raises(asyncpg.InsufficientPrivilegeError, match="row-level security"):
         async with transaction_scope():
@@ -70,6 +74,7 @@ async def test_person_cannot_flag_themselves(household):
 
 
 async def test_person_sees_only_own_flag(household, seed):
+    """Each flagged person sees their own ``test_accounts`` row and no other."""
     await _flag(seed, household["wouter"])
     await _flag(seed, household["partner"])
     for person in (household["wouter"], household["partner"]):
@@ -80,6 +85,7 @@ async def test_person_sees_only_own_flag(household, seed):
 
 
 async def test_reset_function_refuses_unflagged(household, seed):
+    """The reset function refuses a person who is not flagged, and keeps their jobs."""
     person = household["wouter"]
     await _job(seed, person, "queued")
     with pytest.raises(asyncpg.InsufficientPrivilegeError, match="not a test account"):
@@ -90,6 +96,7 @@ async def test_reset_function_refuses_unflagged(household, seed):
 
 
 async def test_reset_function_clears_jobs_and_spend(graph, seed):
+    """The reset clears queued jobs and spend, keeps running jobs, and stamps the time."""
     person = await _solo(graph)
     await _flag(seed, person)
     await _job(seed, person, "queued")
@@ -116,6 +123,7 @@ async def test_reset_function_clears_jobs_and_spend(graph, seed):
 
 
 async def test_reset_function_leaves_other_people_alone(graph, seed):
+    """The reset function leaves other people's jobs alone."""
     person = await _solo(graph)
     other = await _solo(graph, "other@example.test")
     await _flag(seed, person)
@@ -150,6 +158,7 @@ async def test_reset_function_refuses_shared_spaces(household, graph, seed):
 
 
 async def test_hurry_moves_queued_jobs(household, seed):
+    """The hurry function makes a flagged person's queued jobs due now."""
     person = household["wouter"]
     await _flag(seed, person)
     await _job(seed, person, "queued", hours_ahead=1)
@@ -161,6 +170,7 @@ async def test_hurry_moves_queued_jobs(household, seed):
 
 
 async def test_hurry_does_nothing_for_unflagged(household, seed):
+    """The hurry function moves nothing for a person who is not flagged."""
     person = household["wouter"]
     await _job(seed, person, "queued", hours_ahead=1)
     async with transaction_scope():
@@ -171,6 +181,7 @@ async def test_hurry_does_nothing_for_unflagged(household, seed):
 
 
 async def test_totals_skip_test_accounts(household, seed):
+    """The call-log totals leave out test accounts."""
     await _flag(seed, household["wouter"])
     for person in (household["wouter"], household["partner"]):
         await seed.execute(
@@ -185,6 +196,7 @@ async def test_totals_skip_test_accounts(household, seed):
 
 
 async def test_hurry_leaves_running_jobs_and_other_people_alone(household, seed):
+    """The hurry function leaves running jobs and other people's jobs alone."""
     person = household["wouter"]
     await _flag(seed, person)
     await _job(seed, person, "running", hours_ahead=1)

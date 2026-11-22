@@ -136,7 +136,6 @@ async def reset(principal: Principal, store: ObjectStore | None) -> ResetResult:
     :raises SharedWithOthers: when the person shares a space with anyone
     :returns: what was loaded, and which services are configured
     """
-    fixture = read_fixture()
     async with transaction_scope():
         await TestAccount.raw(
             "SELECT pg_advisory_xact_lock({}, hashtext({}))",
@@ -145,6 +144,8 @@ async def reset(principal: Principal, store: ObjectStore | None) -> ResetResult:
         )
         await arm(principal)
         await _start(principal)
+        # Read only once the flag is checked: a refused reset reads nothing.
+        fixture = read_fixture()
         keys = await _wipe(principal)
         # The loader's own transactions, the file store's two among them,
         # join this one: a reset that fails part-way loads nothing. Bytes it
