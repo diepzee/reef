@@ -1,0 +1,314 @@
+# Scripted conversations with a made-up person, Lode Vanhecke of Mechelen.
+#
+# Every fact comes from src/reef/testaccount/person/. Messages are written
+# the way Lode types: Dutch or English, short, no mention of tools. A
+# confirmation is Lode's next message. Reads come first, then writes: each
+# write starts from a reset, and its [[scenario.after]] checks read the
+# memory afterwards.
+#
+# Fields: id, kind ("read" or "write"), messages, tools_required,
+# tools_forbidden, facts (every one must be in the answer; a list inside is a
+# set of ways to write it), engrams (paths the answer must name), needs
+# ("files", "file_text"), connector (only search and fetch are offered).
+# After checks: ref, contains (same shape as facts), absent (a list of texts
+# that must be gone, or true when the whole engram must be gone).
+
+# --- reads ---------------------------------------------------------------------
+
+[[scenario]]
+id = "dentist-moved"
+kind = "read"
+messages = ["Wanneer moet ik naar de tandarts?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["3 december", ["9:15", "09:15", "9.15", "9u15"]]
+
+[[scenario]]
+id = "fleetboard-deadline"
+kind = "read"
+messages = ["When is the deadline of Fleetboard for the first customer?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["18 january 2027", "january 18, 2027", "january 18 2027", "18 jan 2027"]]
+
+[[scenario]]
+id = "bench-record"
+kind = "read"
+messages = ["Wat is mijn record op bankdrukken voor 5 herhalingen?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["82,5", "82.5"]]
+
+[[scenario]]
+id = "open-training-log"
+kind = "read"
+messages = ["Open mijn traininglog en vertel me wat ik op mijn laatste benentraining deed."]
+tools_required = ["load_index", "open"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["21 november", "115"]
+engrams = ["logs/training.md"]
+
+[[scenario]]
+id = "newspaper-cancelled"
+kind = "read"
+messages = ["Heb ik nog een krantenabonnement?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["1 oktober"]
+
+[[scenario]]
+id = "brief-bathroom"
+kind = "read"
+messages = ["Ik bel morgen met de loodgieter over de badkamer. Bereid me voor."]
+tools_required = ["load_index", "brief"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["inloopdouche", "640", "11 januari"]
+
+[[scenario]]
+id = "brief-one-on-one"
+kind = "read"
+messages = ["I have a meeting with Greet about Fleetboard tomorrow. Prepare me."]
+tools_required = ["load_index", "brief"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["18 january", "january 18"]]
+
+[[scenario]]
+id = "catch-up-week"
+kind = "read"
+messages = ["Wat is er de afgelopen week veranderd in mijn geheugen?"]
+tools_required = ["load_index", "catch_up"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+
+[[scenario]]
+id = "wifi-restart"
+kind = "read"
+messages = ["De wifi doet raar. Wat moet ik doen?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["30 seconden", "30 sec"], "Nettie"]
+
+[[scenario]]
+id = "tyre-pressure"
+kind = "read"
+messages = ["What pressure do I use for my city bike tyres?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["4.5", "4,5"], ["rear", "back"]]
+
+[[scenario]]
+id = "friday-schedule"
+kind = "read"
+messages = ["Wat doe ik op vrijdag?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["Antwerpen", ["7:15", "7.15", "7u15", "07:15"]]
+
+[[scenario]]
+id = "parents-evening"
+kind = "read"
+messages = ["Wanneer is de ouderavond en wie gaat er?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["26 november", "Sofie"]
+
+[[scenario]]
+id = "asturias-trip"
+kind = "read"
+messages = ["Hoeveel kost ons huisje in Asturië per nacht, en wanneer vertrekken we?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["96", "17 juli"]
+
+[[scenario]]
+id = "team-leave"
+kind = "read"
+messages = ["Who in my team is on leave in December?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["Pieter", ["25 december", "december 25", "14 to 25 december", "14-25 december"]]
+
+[[scenario]]
+id = "allergy"
+kind = "read"
+messages = ["Waarvoor ben ik allergisch? Ik wil iets bakken voor het schoolfeest."]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["hazelnoten"]
+
+[[scenario]]
+id = "not-in-memory"
+kind = "read"
+messages = ["Wat is mijn rijksregisternummer?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+# The answer must say that memory holds nothing; a person reads the rest.
+facts = [["niet", "geen", "not", "no "]]
+
+[[scenario]]
+id = "connector-plate"
+kind = "read"
+connector = true
+messages = ["Zoek in mijn geheugen naar de nummerplaat van mijn auto."]
+tools_required = ["search", "fetch"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["1-ABC-123"]
+
+[[scenario]]
+id = "quote-price"
+kind = "read"
+needs = ["files", "file_text"]
+messages = ["Wat kost de inrichting in de offerte van Fleetboard voor Van den Abeele?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["18.500"]
+
+[[scenario]]
+id = "dentist-letter"
+kind = "read"
+needs = ["files", "file_text"]
+messages = ["Hoeveel minuten vooraf moet ik aanwezig zijn bij de tandarts? Dat stond in de brief."]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["10 minuten"]
+
+[[scenario]]
+id = "harvest-photo"
+kind = "read"
+needs = ["files"]
+messages = ["Heb ik een foto van de tomatenoogst, en hoeveel kilo was het?"]
+tools_required = ["load_index", "recall"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["14"]
+
+# --- writes --------------------------------------------------------------------
+
+[[scenario]]
+id = "remember-party"
+kind = "write"
+messages = ["Onthoud even: Arne is zaterdag uitgenodigd op het feestje van Lowie."]
+tools_required = ["remember"]
+tools_forbidden = ["forget", "write"]
+
+[[scenario.after]]
+ref = "personal/inbox.md"
+contains = ["Lowie"]
+
+[[scenario]]
+id = "log-training"
+kind = "write"
+messages = ["Zet in mijn traininglog van vandaag: bankdrukken 85 x 5, 5 sets. Nieuw record."]
+tools_required = ["load_index", "log"]
+tools_forbidden = ["forget", "write"]
+
+[[scenario.after]]
+ref = "personal/logs/training.md"
+# The new entry is there and the older entries are still there.
+contains = [["85 x 5", "85 kg x 5", "85 kg × 5", "85 × 5", "85x5"], "Squat 115 x 5"]
+
+[[scenario]]
+id = "fix-tyre-pressure"
+kind = "write"
+messages = ["Update my bike tyre pressure: 5 bar at the rear and 4.5 bar at the front now."]
+tools_required = ["load_index", "correct"]
+tools_forbidden = ["forget"]
+
+[[scenario.after]]
+ref = "personal/howto/bike-tire.md"
+contains = ["5 bar"]
+absent = ["4.5 bar rear"]
+
+[[scenario]]
+id = "new-engram-menu"
+kind = "write"
+messages = [
+  "Maak een nieuwe notitie notes/kerstmenu.md: voorgerecht pompoensoep, hoofdgerecht notenbraad zonder hazelnoten, dessert chocolademousse.",
+]
+tools_required = ["load_index", "write"]
+tools_forbidden = ["forget"]
+
+[[scenario.after]]
+ref = "personal/notes/kerstmenu.md"
+contains = ["pompoensoep", "chocolademousse"]
+
+[[scenario]]
+id = "update-deadline"
+kind = "write"
+messages = ["De deadline van Fleetboard is verschoven naar 1 februari 2027."]
+tools_required = ["load_index"]
+tools_forbidden = ["forget"]
+
+[[scenario.after]]
+ref = "personal/work/project-fleetboard.md"
+contains = ["1 februari 2027"]
+
+[[scenario]]
+id = "undo-change"
+kind = "write"
+messages = [
+  "De ouderavond is verplaatst naar 3 december.",
+  "Sorry, dat was een vergissing. Maak die wijziging ongedaan.",
+]
+tools_required = ["load_index", "undo"]
+tools_forbidden = ["forget"]
+
+[[scenario.after]]
+ref = "personal/household/kids.md"
+contains = ["26 november"]
+absent = ["3 december"]
+
+[[scenario]]
+id = "forget-confirmed"
+kind = "write"
+messages = ["Verwijder mijn notitie met cadeau-ideeën.", "Ja, doe maar."]
+tools_required = ["load_index", "forget"]
+
+[[scenario.after]]
+ref = "personal/notes/gift-ideas.md"
+absent = true
+
+[[scenario]]
+id = "forget-declined"
+kind = "write"
+messages = ["Verwijder mijn notitie met cadeau-ideeën.", "Nee, laat maar."]
+tools_required = ["load_index"]
+
+[[scenario.after]]
+ref = "personal/notes/gift-ideas.md"
+contains = ["loopjas"]
+
+[[scenario]]
+id = "share-schedule"
+kind = "write"
+messages = [
+  "Zet onze weekplanning in de gedeelde ruimte household, zodat Sofie ze ook ziet.",
+  "Ja, doe maar.",
+]
+tools_required = ["load_index", "share"]
+
+[[scenario.after]]
+ref = "household/household/weekly-schedule.md"
+contains = ["Zwemles"]
+
+[[scenario]]
+id = "change-persona"
+kind = "write"
+messages = [
+  "Pas mijn persona aan: gebruik voortaan geen emoji's meer, in geen enkel antwoord.",
+  "Ja, doe maar.",
+]
+tools_required = ["load_index", "instruct"]
+
+[[scenario.after]]
+ref = "personal/meta/persona.md"
+# The new persona still holds the old one's lines.
+contains = ["emoji", "Lode Vanhecke"]
+
+[[scenario]]
+id = "store-file-text"
+kind = "write"
+needs = ["files"]
+messages = [
+  "Bewaar deze tekst als bestand tegel-offerte.txt bij mijn badkamerverbouwing: \"Tegelhuis Mechelen, offerte 2026-117: 42 m2 witte wandtegels, 1.260 euro inclusief btw.\"",
+]
+tools_required = ["load_index", "store_file"]
+tools_forbidden = ["forget"]
