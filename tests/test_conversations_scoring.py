@@ -781,6 +781,18 @@ async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
     assert "reset broke" in report["meta"]["final_reset_failed"]
 
 
+_REAL_WARM_UP = run.warm_up_cli
+
+
+@pytest.fixture(autouse=True)
+def _no_warm_up(monkeypatch):
+    """Keep ``uv`` out of the tests: the warm-up does nothing unless a test asks.
+
+    :param monkeypatch: pytest's monkeypatch
+    """
+    monkeypatch.setattr(run, "warm_up_cli", lambda: None)
+
+
 @pytest.fixture(autouse=True)
 def _signed_in_test_home(tmp_path, monkeypatch):
     """Give every test a signed-in Codex test home and a CLI test folder of its own.
@@ -1169,13 +1181,15 @@ class _FakeCommands:
         )
 
     def kind(self, command: list[str]) -> str:
-        """Name a command: ``token``, ``reset``, ``open``, ``codex`` or ``resume``.
+        """Name a command: ``warmup``, ``token``, ``reset``, ``open``, ``codex`` or ``resume``.
 
         :param command: the command
         :returns: its kind
         """
         if command[:2] == ["codex", "exec"]:
             return "resume" if "resume" in command else "codex"
+        if command[-1] == "--help":
+            return "warmup"
         assert command[: len(run._CLI)] == run._CLI, command
         return {"token": "token", "reset-test-account": "reset", "open": "open"}[
             command[len(run._CLI)]
@@ -1451,3 +1465,74 @@ async def test_xdg_cli_folder_is_refused(tmp_path, monkeypatch, folder):
     assert target.resets == 0 and list(xdg.iterdir()) == []
     monkeypatch.delenv("XDG_CONFIG_HOME")
     assert run.check_cli_config_dir() == (xdg / folder).resolve()
+
+
+async def test_warm_up_happens_once_before_the_first_token(tmp_path, monkeypatch):
+    """The environment is built once per run, before the first ``reef token``.
+
+    ``uv`` may take minutes to build it on a fresh worktree; that must not
+    be taken for a server problem. It gets a long limit and no network.
+    """
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setattr(run, "warm_up_cli", _REAL_WARM_UP)
+    fake = _FakeCommands()
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    await run.run(run.ProductionTarget(), ["dentist-moved", "bench-record"], None)
+    kinds = [call["kind"] for call in fake.calls]
+    assert kinds.count("warmup") == 1
+    assert kinds[:2] == ["warmup", "token"]
+    assert kinds.count("token") > 1
+
+
+def test_warm_up_is_generous_and_does_not_stop_the_run(monkeypatch):
+    """A long limit, the same project as ``reef``; a failed warm-up is not fatal."""
+    seen: list[dict] = []
+
+    def slow(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        """Note the call, then time out.
+
+        :param command: the command
+        :param kwargs: the other arguments
+        :raises subprocess.TimeoutExpired: always
+        """
+        seen.append({"command": command, **kwargs})
+        raise subprocess.TimeoutExpired(command, 1)
+
+    monkeypatch.setattr(run.subprocess, "run", slow)
+    _REAL_WARM_UP()
+    assert seen[0]["command"] == [*run._CLI[:-2], "--help"]
+    assert seen[0]["timeout"] >= 600 > run.TOKEN_TIMEOUT
+    assert seen[0]["env"]["REEF_CONFIG_DIR"]
+
+
+async def test_report_says_when_the_run_finished(tmp_path, monkeypatch):
+    """A completed run has a ``finished`` time, not ``None``."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+    monkeypatch.setattr(
+        run, "play", _Recorder(_probe(_index_call(read_fixture().persona)))
+    )
+    await run.run(_FakeTarget(), ["dentist-moved"], None)
+    meta = _report(tmp_path)["meta"]
+    assert meta["finished"] >= meta["started"]
+    assert "stopped" not in meta
+
+
+async def test_stopped_run_also_has_a_finished_time(tmp_path, monkeypatch):
+    """A run that stopped says when, next to why."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path)
+
+    def boom(scenario: dict, server: run.Server, tools: object = None) -> Session:
+        """Fail as a broken Codex would.
+
+        :param scenario: ignored
+        :param server: ignored
+        :param tools: ignored
+        :raises RuntimeError: always
+        """
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(run, "play", boom)
+    with pytest.raises(RuntimeError, match="boom"):
+        await run.run(_FakeTarget(), ["dentist-moved"], None)
+    meta = _report(tmp_path)["meta"]
+    assert "boom" in meta["stopped"] and meta["finished"] >= meta["started"]

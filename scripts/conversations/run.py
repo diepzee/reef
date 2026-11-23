@@ -90,6 +90,8 @@ RESET_TIMEOUT = 360
 READY_TIMEOUT = 300
 #: Seconds ``reef token`` may take.
 TOKEN_TIMEOUT = 120
+#: Seconds ``uv`` may take to build the command line tool's environment.
+WARM_UP_TIMEOUT = 900
 
 #: Codex features that give the assistant a way to act outside Reef.
 _DISABLED_FEATURES = (
@@ -495,6 +497,28 @@ _NO_TOKEN = (
 )
 
 
+def warm_up_cli() -> None:
+    """Let ``uv`` build the command line tool's environment, once, up front.
+
+    On a fresh worktree the first ``reef`` call builds it, which can take
+    longer than :data:`TOKEN_TIMEOUT` and would be reported as a server or
+    network problem. ``reef --help`` builds it and uses no network. A failure
+    is not an error here: the token call that follows reports real problems.
+    """
+    try:
+        subprocess.run(
+            [*_CLI[:-2], "--help"],
+            capture_output=True,
+            text=True,
+            env=cli_env(),
+            stdin=subprocess.DEVNULL,
+            timeout=WARM_UP_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
 def cli_token() -> str:
     """Get a valid access token for production from the command line tool.
 
@@ -895,6 +919,8 @@ async def run(
         check_cli_config_dir()
     home = check_codex_home()
     if target.server.bearer:
+        # The first token call must not wait for ``uv`` to build the tool.
+        warm_up_cli()
         # Proves the command line tool is signed in before any reset; this
         # token is not used.
         cli_token()
@@ -942,6 +968,7 @@ async def run(
                     meta["final_reset_failed"] = f"{type(error).__name__}: {error}"
     finally:
         await target.stop()
+        meta["finished"] = datetime.now(UTC).isoformat(timespec="seconds")
         stem = f"{started:%Y-%m-%dT%H-%M-%SZ}-{meta['target']}"
         _, markdown = write_report(REPORTS, stem, meta, scored, answers)
         print(f"Report: {markdown}", flush=True)

@@ -20,7 +20,7 @@
 [[scenario]]
 id = "dentist-moved"
 kind = "read"
-messages = ["Wanneer moet ik naar de tandarts?"]
+messages = ["Wanneer is mijn volgende tandartsafspraak?"]
 tools_required = ["load_index", "recall"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = ["3 december", ["9:15", "09:15", "9.15", "9u15"]]
@@ -44,11 +44,31 @@ facts = [["82,5", "82.5"]]
 [[scenario]]
 id = "open-training-log"
 kind = "read"
-messages = ["Open mijn traininglog en vertel me wat ik op mijn laatste benentraining deed."]
+# One recall answers the last session; a full overview of November needs every
+# entry, so the whole engram.
+messages = ["Geef me een overzicht van al mijn benentrainingen in november, met het gewicht van de squat erbij."]
 tools_required = ["load_index", "open"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
-facts = ["21 november", "115"]
+facts = [
+  ["7 november", "7 nov", "2026-11-07", "07/11", "7/11"],
+  "110",
+  ["14 november", "14 nov", "2026-11-14", "14/11"],
+  ["112,5", "112.5"],
+  ["21 november", "21 nov", "2026-11-21", "21/11"],
+  "115",
+]
 engrams = ["logs/training.md"]
+
+[[scenario]]
+id = "deadlift-tomorrow"
+kind = "read"
+# No "my notes" and no "my memory": the assistant must reach for Reef by
+# itself. Only the memory knows about Lode's back and his last deadlift
+# (profile/health.md, logs/training.md: 130 x 5 on 21 november).
+messages = ["Mag ik morgen deadliften?"]
+tools_required = ["load_index"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["onderrug", "lage rug", "rug"], "130"]
 
 [[scenario]]
 id = "newspaper-cancelled"
