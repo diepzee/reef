@@ -732,3 +732,17 @@ async def test_token_says_when_the_server_fails(monkeypatch, tmp_path, capsys):
     assert out.out == ""
     assert json.loads(out.err) == {"error": "server_error"}
     assert "half-a-token" not in out.err
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "-inf"])
+def test_token_refuses_a_negative_margin(capsys, value):
+    """``--refresh-within`` takes no negative number and no NaN.
+
+    :param value: what is given
+    """
+    with pytest.raises(SystemExit) as caught:
+        build_parser().parse_args(["token", f"--refresh-within={value}"])
+    assert caught.value.code == 2
+    assert "--refresh-within" in capsys.readouterr().err
+    zero = build_parser().parse_args(["token", "--refresh-within", "0"])
+    assert zero.refresh_within == 0

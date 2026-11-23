@@ -222,6 +222,23 @@ def _add_text_source(parser: argparse.ArgumentParser, name: str) -> None:
     )
 
 
+def _seconds(value: str) -> float:
+    """Read a number of seconds that is zero or more.
+
+    :param value: the text given on the command line
+    :returns: the number
+    :raises argparse.ArgumentTypeError: when it is not a number, is
+        negative or is NaN
+    """
+    try:
+        seconds = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a number: {value}") from exc
+    if not seconds >= 0:  # also refuses NaN, which compares false
+        raise argparse.ArgumentTypeError(f"must be 0 or more: {value}")
+    return seconds
+
+
 def _tool_parser(
     subparsers: argparse._SubParsersAction, name: str, help: str
 ) -> argparse.ArgumentParser:
@@ -252,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     token.add_argument(
         "--refresh-within",
-        type=float,
+        type=_seconds,
         default=DEFAULT_TOKEN_MARGIN,
         metavar="SECONDS",
         help="refresh the token first when it runs out within SECONDS "

@@ -1562,15 +1562,17 @@ Do these in order.
 
    This is the only Reef sign-in the runs need. Codex does not sign in to
    Reef itself: for each run, it gets the sign-in from the command-line
-   tool, in memory only (see "How Codex gets the sign-in" below). If the
-   sign-in were yours, the account check would stop the run before any
-   scenario. But Codex would already have read your index once.
+   tool, in memory only (see "How Codex gets the sign-in" below). The
+   runner resets the account with the same sign-in before Codex runs. Reef
+   refuses that reset for any sign-in that is not a test account's, such as
+   yours, so the run stops before Codex can read anyone's index.
 
    The test sign-in is kept in `~/.reef-conversations/reef-cli`. Your own
    sign-in, in `~/.config/reef`, stays as it is. To keep the test sign-in
    elsewhere, set `REEF_CONVERSATIONS_REEF_CONFIG_DIR` and use that folder
-   in the command. The runner refuses `~/.config/reef`, and any folder
-   inside it or around it.
+   in the command. The runner refuses `~/.config/reef` and, when
+   `XDG_CONFIG_HOME` is set, `$XDG_CONFIG_HOME/reef`: both may hold your own
+   sign-in. It also refuses any folder inside or around them.
 
    `reef` signs in to reefwith.me unless `REEF_MCP_URL` is set in your
    shell: unset it first. Without `reef` installed, use
@@ -1599,19 +1601,24 @@ Do these in order.
    The runner checks the account itself, before every run. When the check
    passes, the line under the report's title holds `account_check: passed`.
 
-   If the command-line tool is signed in to another account, the run stops
-   before any scenario and prints:
+   If the command-line tool is signed in to an account that is not a test
+   account, such as yours, Reef refuses the first reset. The run stops
+   before Codex runs and prints:
 
-   > Codex is signed in to another account: the index it read does not carry
-   > the persona of the made-up person, Lode Vanhecke. No scenario was played.
-   > Codex uses the sign-in of the Reef command line tool. Sign the tool out
-   > with `REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef logout`. Sign
-   > the command line tool in as the test account, in a private window:
+   > the reset failed: not_a_test_account. Reef resets only the test
+   > account, and the command line tool is not signed in as it. Sign the
+   > tool out with `REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef logout`.
+   > Sign the command line tool in as the test account, in a private window:
    > `REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login`. Then run
    > the tests again.
 
-   Do what it says. If the run stops with "The account check failed", Codex
-   did not read the index at all: see "Unproven" below.
+   Do what it says. The same advice follows `unauthenticated`.
+
+   Only a sign-in to another test account gets past the reset. Then the
+   account check stops the run before any scenario, with "Codex is signed
+   in to another account" and the same advice. If the run stops with "The
+   account check failed", Codex did not read the index at all: see
+   "Unproven" below.
 
 **How Codex gets the sign-in.** The runner starts Codex with
 `--ignore-user-config`, so Codex does not read `config.toml`. Codex knows
@@ -1645,6 +1652,10 @@ test home's sign-in to Codex.
 - The command-line tool renews its own sign-in while it can. When it no
   longer can, the run stops and asks you to sign in again. Run the command
   of step 2 again, in a private window, as the test account.
+- Codex cannot renew the token it gets for a message. If Reef's access
+  tokens last less than 420 seconds, one very long message can still end
+  with an authentication error. That scenario is then `invalid`: run it
+  again with `--only`.
 - If the run says the test home is not signed in to Codex, run
   `CODEX_HOME=~/.reef-conversations/codex codex login` again.
 

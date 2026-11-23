@@ -114,6 +114,10 @@ _CLI = [
     PRODUCTION_URL,
 ]
 
+#: Reset refusals that mean the command line tool is not signed in as the
+#: test account.
+_SIGN_IN_REFUSALS = frozenset({"not_a_test_account", "unauthenticated"})
+
 #: The only tools a connector scenario is offered.
 CONNECTOR_TOOLS = ("search", "fetch")
 
@@ -202,10 +206,7 @@ PRODUCTION_SERVER = Server(
         f"mcp_servers.reef_bench.url={json.dumps(PRODUCTION_URL)}",
         f"mcp_servers.reef_bench.bearer_token_env_var={json.dumps(TOKEN_VARIABLE)}",
     ),
-    lambda: (
-        "Codex uses the sign-in of the Reef command line tool. Sign the tool "
-        f"out with `{cli_prefix()} reef logout`. {sign_in_advice()}"
-    ),
+    lambda: f"Codex uses the sign-in of the Reef command line tool. {switch_advice()}",
     bearer=True,
 )
 
@@ -288,14 +289,16 @@ def home_prefix() -> str:
 def codex_env(token: str | None = None) -> dict[str, str]:
     """Build the environment of a ``codex`` process the runner starts.
 
-    The runner's own environment is not changed. A ``REEF_BENCH_TOKEN`` in
-    the shell never reaches Codex: only the token given here does.
+    The runner's own environment is not changed. A ``REEF_BENCH_TOKEN`` or
+    ``REEF_ACCESS_TOKEN`` in the shell never reaches Codex: only the token
+    given here does.
 
     :param token: the access token Codex sends to production, or None
     :returns: a copy of the environment with ``CODEX_HOME`` set to the test
         home, and ``REEF_BENCH_TOKEN`` set to the token when there is one
     """
     env = {**os.environ, "CODEX_HOME": str(codex_home())}
+    env.pop("REEF_ACCESS_TOKEN", None)
     env.pop(TOKEN_VARIABLE, None)
     if token is not None:
         env[TOKEN_VARIABLE] = token
@@ -419,25 +422,53 @@ def sign_in_advice() -> str:
     )
 
 
+def switch_advice() -> str:
+    """Say how to replace a sign-in that is not the test account's.
+
+    ``reef login`` keeps a sign-in that still works, so it comes after a
+    sign-out.
+
+    :returns: the advice, in plain words
+    """
+    return f"Sign the tool out with `{cli_prefix()} reef logout`. {sign_in_advice()}"
+
+
+def _own_cli_folders() -> list[tuple[Path, str]]:
+    """List the folders that may hold your own sign-in of the command line tool.
+
+    :returns: each folder, resolved, with how to name it: ``~/.config/reef``,
+        and ``$XDG_CONFIG_HOME/reef`` when ``XDG_CONFIG_HOME`` is set
+    """
+    folders = [
+        ((Path.home().resolve() / ".config" / "reef").resolve(), "~/.config/reef")
+    ]
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        own = (Path(xdg).expanduser().resolve() / "reef").resolve()
+        folders.append((own, str(own)))
+    return folders
+
+
 def check_cli_config_dir() -> Path:
     """Refuse your own sign-in folder of the Reef command line tool.
 
-    Refuses ``~/.config/reef``, a folder inside it, or a folder that
-    contains it (such as your home folder). Changes nothing.
+    Refuses ``~/.config/reef`` and, when ``XDG_CONFIG_HOME`` is set,
+    ``$XDG_CONFIG_HOME/reef``; a folder inside either; or a folder that
+    contains either (such as your home folder). Changes nothing.
 
     :returns: the test folder
-    :raises RunError: when the folder is, is inside or contains
-        ``~/.config/reef``
+    :raises RunError: when the folder is, is inside or contains one of them
     """
     folder = cli_config_dir()
-    own = (Path.home().resolve() / ".config" / "reef").resolve()
-    if folder == own or own in folder.parents or folder in own.parents:
-        raise RunError(
-            f"The test sign-in folder {folder} is your own sign-in folder of "
-            "the Reef command line tool, ~/.config/reef, or a folder inside it "
-            "or around it. The test sign-in must be kept in a separate folder. "
-            f"Unset {CLI_CONFIG_VARIABLE} or point it at another folder."
-        )
+    for own, shown in _own_cli_folders():
+        if folder == own or own in folder.parents or folder in own.parents:
+            raise RunError(
+                f"The test sign-in folder {folder} is your own sign-in folder "
+                f"of the Reef command line tool, {shown}, or a folder inside it "
+                "or around it. The test sign-in must be kept in a separate "
+                f"folder. Unset {CLI_CONFIG_VARIABLE} or point it at another "
+                "folder."
+            )
     return folder
 
 
@@ -456,6 +487,14 @@ def cli_env() -> dict[str, str]:
     return env
 
 
+#: Why the run stops when ``reef token`` fails for another reason than a
+#: missing sign-in.
+_NO_TOKEN = (
+    "The Reef command line tool could not get an access token (a server or "
+    "network problem). Try again later."
+)
+
+
 def cli_token() -> str:
     """Get a valid access token for production from the command line tool.
 
@@ -464,7 +503,8 @@ def cli_token() -> str:
     stays in memory: it is never printed, logged or written.
 
     :returns: the token
-    :raises RunError: when the tool gives no token
+    :raises RunError: when the tool gives no token: with the sign-in advice
+        when it is not signed in, otherwise with a request to try again
     """
     command = [*_CLI, "token", "--refresh-within", str(MESSAGE_TIMEOUT)]
     try:
@@ -478,17 +518,32 @@ def cli_token() -> str:
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise RunError(
-            f"The Reef command line tool gave no access token. {sign_in_advice()}"
-        ) from error
+        raise RunError(_NO_TOKEN) from error
     token = done.stdout.strip()
-    if done.returncode != 0 or not token:
-        # Its error output is not shown: nothing it printed may reach a report.
+    if done.returncode == 0 and token:
+        return token
+    # What it printed is never shown: nothing of it may reach a report.
+    if _error_code(done.stderr) == "not_signed_in":
         raise RunError(
             "The Reef command line tool has no valid sign-in for the test "
             f"account, so Codex cannot reach production. {sign_in_advice()}"
         )
-    return token
+    raise RunError(_NO_TOKEN)
+
+
+def _error_code(text: str) -> str | None:
+    """Read the code of an error ``reef`` printed last, as ``{"error": code}``.
+
+    :param text: what it printed as an error
+    :returns: the code, or None when the last line is not such an error
+    """
+    lines = text.strip().splitlines()
+    try:
+        found = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError:
+        return None
+    code = found.get("error") if isinstance(found, dict) else None
+    return code if isinstance(code, str) else None
 
 
 def _run_codex(
@@ -708,7 +763,13 @@ class ProductionTarget:
         except json.JSONDecodeError as error:
             raise RunError("the reset printed something unreadable") from error
         if "error" in result:
-            raise RunError(f"the reset failed: {result['error']}")
+            message = f"the reset failed: {result['error']}"
+            if result["error"] in _SIGN_IN_REFUSALS:
+                message += (
+                    ". Reef resets only the test account, and the command line "
+                    f"tool is not signed in as it. {switch_advice()}"
+                )
+            raise RunError(message)
         services = result["services"]
         return Services(
             files=bool(services["files"]),

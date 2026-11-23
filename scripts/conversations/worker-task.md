@@ -39,7 +39,9 @@ affected: typing `codex` keeps using `~/.codex`.
 - Do not start other runs, and do not rerun scenarios.
 - If `run.py` exits with a non-zero status, do not retry it. Report the exit
   status and the last lines it printed. If it printed a report path, include
-  it anyway: the report is written even when a run stops.
+  it anyway: the report is written even when a run stops. The checks before
+  the run (the sign-in folder, the Codex home and the sign-ins) stop it
+  before a report exists: then there is no report path to give.
 - Never print or copy a token, sign-in code or cookie into your report. Do
   not run `reef token` yourself: the runner does.
 
