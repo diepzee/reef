@@ -35,11 +35,12 @@ import asyncio
 import json
 import os
 import secrets
+import shlex
 import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.metadata import version
@@ -119,12 +120,13 @@ class Server:
     :param name: the server's name in the Codex settings; the name the
         events carry back
     :param settings: its ``-c`` settings, as ``key=value`` text
-    :param advice: what to do when the account check fails, in plain words
+    :param advice: gives what to do when the account check fails, in plain
+        words; called when the message is made, so it can name the Codex home
     """
 
     name: str
     settings: tuple[str, ...]
-    advice: str
+    advice: Callable[[], str]
 
 
 def run_secret() -> str:
@@ -166,7 +168,7 @@ def local_server(secret: str) -> Server:
             f"{prefix}.env_vars={json.dumps(forwarded)}",
             f"{prefix}.startup_timeout_sec=60",
         ),
-        (
+        lambda: (
             f"The local server runs as {LOCAL_EMAIL}. Check that this shell "
             "and the server use the same database, then run "
             "`just conversations-account` and try again."
@@ -177,9 +179,8 @@ def local_server(secret: str) -> Server:
 PRODUCTION_SERVER = Server(
     "reef_test",
     (f"mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}",),
-    (
-        "Sign Codex out with `CODEX_HOME=~/.reef-conversations/codex "
-        "codex mcp logout reef_test -c "
+    lambda: (
+        f"Sign Codex out with `{home_prefix()} codex mcp logout reef_test -c "
         f"'mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}'`. Then sign "
         "it in again as the test account, as step 2 of the one-time "
         "production setup in docs/runbook.md says."
@@ -242,7 +243,24 @@ def codex_home() -> Path:
         ``~/.reef-conversations/codex``; never ``~/.codex``
     """
     override = os.environ.get(CODEX_HOME_VARIABLE)
-    return Path(override).expanduser() if override else DEFAULT_CODEX_HOME
+    if not override:
+        return DEFAULT_CODEX_HOME
+    return Path(override).expanduser().resolve()
+
+
+def home_prefix() -> str:
+    """Write the ``CODEX_HOME=...`` prefix of a command the person types.
+
+    :returns: ``CODEX_HOME=~/.reef-conversations/codex`` for the default
+        home, otherwise the shell-quoted path
+    """
+    home = codex_home()
+    shown = (
+        "~/.reef-conversations/codex"
+        if home == DEFAULT_CODEX_HOME
+        else shlex.quote(str(home))
+    )
+    return f"CODEX_HOME={shown}"
 
 
 def codex_env() -> dict[str, str]:
@@ -258,16 +276,24 @@ def codex_env() -> dict[str, str]:
 def prepare_codex_home() -> Path:
     """Make the test home ready, or say why it cannot be used.
 
-    Creates the folder (readable by its owner only) when it is missing.
+    Refuses your own ``~/.codex``, or a folder inside it, before anything
+    is created there. Creates the folder (readable by its owner only) when it is missing.
     Checks that the runner can create and remove a file in it, as the
     nested ``codex exec`` processes must write there. Refuses a home that
     holds an ``AGENTS.md``, as Codex would load it into every conversation.
 
     :returns: the test home
-    :raises RunError: when the folder cannot be written, or holds an
-        ``AGENTS.md``
+    :raises RunError: when the folder is or is inside ``~/.codex``, cannot be
+        written, or holds an ``AGENTS.md``
     """
     home = codex_home()
+    own = (Path.home() / ".codex").resolve()
+    if home == own or own in home.parents:
+        raise RunError(
+            f"The test Codex home {home} is, or is inside, your own Codex "
+            "home. The test home must be separate from your own Codex home. "
+            f"Unset {CODEX_HOME_VARIABLE} or point it at another folder."
+        )
     no_access = RunError(
         f"The folder {home} is not readable and writable. The process that "
         "runs the tests needs read and write access to it."
@@ -315,10 +341,9 @@ def check_codex_home() -> Path:
     home = prepare_codex_home()
     status, text = codex_login_status()
     if status != 0 or "not logged in" in text.lower():
-        shown = "~/.reef-conversations/codex" if home == DEFAULT_CODEX_HOME else home
         raise RunError(
             "The test home is not signed in to Codex. Run this once, then "
-            f"run the tests again: `CODEX_HOME={shown} codex login`. "
+            f"run the tests again: `{home_prefix()} codex login`. "
             "This does not affect your own Codex."
         )
     return home
@@ -618,7 +643,9 @@ async def check_account(server: Server, persona: str) -> None:
     session = await asyncio.to_thread(play, PROBE, server, PROBE_TOOLS)
     problem = account_problem(session, persona)
     if problem is not None:
-        raise AccountCheckFailed(f"{problem}. No scenario was played. {server.advice}")
+        raise AccountCheckFailed(
+            f"{problem}. No scenario was played. {server.advice()}"
+        )
 
 
 async def run(

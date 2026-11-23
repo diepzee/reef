@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 from importlib.metadata import version
@@ -889,6 +890,7 @@ async def test_agents_file_in_the_test_home_stops_the_run(tmp_path, monkeypatch)
     assert target.resets == 0
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
 async def test_unwritable_home_stops_the_run(tmp_path, monkeypatch):
     """A read-only test home stops the run and names the folder."""
     home = tmp_path / "readonly"
@@ -914,3 +916,87 @@ async def test_report_names_the_codex_home(tmp_path, monkeypatch):
     await run.run(_FakeTarget(), ["dentist-moved"], None)
     meta = _report(tmp_path / "reports")["meta"]
     assert meta["codex_home"] == os.environ[run.CODEX_HOME_VARIABLE]
+
+
+@pytest.mark.parametrize("inside", ["", "sub/dir"])
+async def test_own_codex_home_is_refused(tmp_path, monkeypatch, inside):
+    """``~/.codex``, or a folder inside it, is never the test home."""
+    fake_home = tmp_path / "person"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    own = fake_home / ".codex"
+    link = tmp_path / "link"
+    link.symlink_to(fake_home)
+    # A symlink and a trailing slash must not get around the refusal.
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, f"{link}/.codex/{inside}/")
+    target = _FakeTarget()
+    with pytest.raises(run.RunError, match="separate from your own Codex home"):
+        await run.run(target, ["dentist-moved"], None)
+    assert not own.exists()
+    assert target.resets == 0
+
+
+def test_relative_override_becomes_absolute(tmp_path, monkeypatch):
+    """A relative folder is resolved once, so ``codex`` sees the same one."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, "rel/home")
+    assert run.codex_home() == (tmp_path / "rel" / "home").resolve()
+    assert run.codex_env()["CODEX_HOME"] == str((tmp_path / "rel" / "home").resolve())
+
+
+def test_sign_out_advice_names_the_actual_home(tmp_path, monkeypatch):
+    """The production advice shows the default literally, else a quoted path."""
+    monkeypatch.delenv(run.CODEX_HOME_VARIABLE)
+    default = run.PRODUCTION_SERVER.advice()
+    assert "CODEX_HOME=~/.reef-conversations/codex codex mcp logout" in default
+    other = tmp_path / "my home"
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(other))
+    advice = run.PRODUCTION_SERVER.advice()
+    assert f"CODEX_HOME={shlex.quote(str(other.resolve()))} codex mcp logout" in advice
+    monkeypatch.setattr(run, "codex_login_status", lambda: (1, "Not logged in"))
+    with pytest.raises(run.RunError) as caught:
+        run.check_codex_home()
+    assert f"CODEX_HOME={shlex.quote(str(other.resolve()))} codex login" in str(
+        caught.value
+    )
+
+
+async def test_checks_run_in_order(tmp_path, monkeypatch):
+    """Own home, then writable, then AGENTS.md, then signed in, then reset."""
+    steps: list[str] = []
+    real = run.prepare_codex_home
+    status = run.codex_login_status
+
+    def signed_in() -> tuple[int, str]:
+        """Note the check and say signed in.
+
+        :returns: a signed-in status
+        """
+        steps.append("signed-in")
+        return 0, "Logged in using ChatGPT"
+
+    monkeypatch.setattr(run, "codex_login_status", signed_in)
+    home = Path(os.environ[run.CODEX_HOME_VARIABLE])
+    cases = []
+    # 1. own home beats everything, even an AGENTS.md
+    fake_home = tmp_path / "person"
+    (fake_home / ".codex").mkdir(parents=True)
+    (fake_home / ".codex" / "AGENTS.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(fake_home / ".codex"))
+    with pytest.raises(run.RunError, match="separate"):
+        run.check_codex_home()
+    cases.append(list(steps))
+    # 2. AGENTS.md is refused before any codex call
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(home))
+    home.mkdir()
+    (home / "AGENTS.md").write_text("x", encoding="utf-8")
+    with pytest.raises(run.RunError, match="AGENTS.md"):
+        run.check_codex_home()
+    cases.append(list(steps))
+    # 3. only then the sign-in is asked
+    (home / "AGENTS.md").unlink()
+    assert run.check_codex_home() == home.resolve()
+    cases.append(list(steps))
+    assert cases == [[], [], ["signed-in"]]
+    assert real and status
