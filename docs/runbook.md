@@ -1617,8 +1617,8 @@ Do these in order.
    Only a sign-in to another test account gets past the reset. Then the
    account check stops the run before any scenario, with "Codex is signed
    in to another account" and the same advice. If the run stops with "The
-   account check failed", Codex did not read the index at all: see
-   "Unproven" below.
+   account check failed", Codex did not read the index at all. Check that
+   `reef token` works with the test sign-in folder, then run again.
 
 **How Codex gets the sign-in.** The runner starts Codex with
 `--ignore-user-config`, so Codex does not read `config.toml`. Codex knows
