@@ -1,10 +1,16 @@
 import base64
 import json
 import os
+import webbrowser
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import parse_qs
 
 import httpx
+import pytest
+from fastmcp.client.auth import OAuth
+from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from reef_cli.cli import JsonTokenStore, build_parser, run
 
 from reef.server import mcp
@@ -51,6 +57,7 @@ async def test_named_commands_match_every_mcp_tool():
     assert commands == server_tools | {
         "login",
         "logout",
+        "token",
         "tools",
         "call",
         "reset-test-account",
@@ -487,3 +494,255 @@ async def test_base_url_strips_mcp(monkeypatch, tmp_path, capsys):
 
     assert urls[0] == "https://example.test/api/test-account/reset"
     assert urls[1] == "https://example.test/api/test-account/ready"
+
+
+TOKEN_URL = "https://example.test/mcp"
+
+#: What the token endpoint answers to a refresh.
+FRESH = {
+    "access_token": "fresh-access",
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "refresh_token": "fresh-refresh",
+}
+
+
+async def _sign_in(
+    config: Path, *, expires_in: int | None, refresh: str | None
+) -> None:
+    """Cache a sign-in for the example endpoint, as ``reef login`` leaves it.
+
+    :param config: the CLI's config folder
+    :param expires_in: seconds the access token has left, or None for no expiry
+    :param refresh: the refresh token, or None for none
+    """
+    oauth = OAuth(
+        mcp_url=TOKEN_URL,
+        client_name="Reef CLI",
+        token_storage=JsonTokenStore(config / "oauth.json"),
+    )
+    saved = oauth.token_storage_adapter
+    await saved.set_tokens(
+        OAuthToken(
+            access_token="cached-access",
+            token_type="Bearer",
+            expires_in=expires_in,
+            refresh_token=refresh,
+        )
+    )
+    await saved.set_client_info(
+        OAuthClientInformationFull(
+            client_id="reef-cli",
+            client_secret="cli-secret",
+            redirect_uris=["http://localhost:9/callback"],
+            token_endpoint_auth_method="client_secret_post",
+        )
+    )
+
+
+async def _token(
+    monkeypatch: Any,
+    tmp_path: Path,
+    handler: Callable[[httpx.Request], httpx.Response],
+    argv: list[str],
+) -> int:
+    """Run ``reef token`` against a mocked token endpoint, with no browser.
+
+    A token in ``REEF_ACCESS_TOKEN`` is set too: ``token`` must ignore it.
+
+    :param monkeypatch: pytest's monkeypatch
+    :param tmp_path: holds the CLI's config folder, ``config``
+    :param handler: answers every request the command makes
+    :param argv: the command line after ``reef``
+    :returns: the exit status
+    """
+
+    def no_browser(url: str, *args: object, **kwargs: object) -> bool:
+        """Fail the test: ``reef token`` must never start a sign-in.
+
+        :param url: the page the browser would open
+        :param args: ignored
+        :param kwargs: ignored
+        :raises AssertionError: always
+        """
+        raise AssertionError(f"reef token opened a browser at {url}")
+
+    monkeypatch.setattr(webbrowser, "open", no_browser)
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "shell-token")
+    monkeypatch.setenv("REEF_CONFIG_DIR", str(tmp_path / "config"))
+    args = build_parser().parse_args(argv)
+    return await run(args, transport=httpx.MockTransport(handler))
+
+
+def _refuse(request: httpx.Request) -> httpx.Response:
+    """Fail the test: no request was expected.
+
+    :param request: the request
+    :raises AssertionError: always
+    """
+    raise AssertionError(f"unexpected request to {request.url}")
+
+
+async def test_token_prints_the_cached_token(monkeypatch, tmp_path, capsys):
+    """A valid cached token is printed alone, and nothing is sent."""
+    await _sign_in(tmp_path / "config", expires_in=3600, refresh="old-refresh")
+
+    status = await _token(monkeypatch, tmp_path, _refuse, ["--url", TOKEN_URL, "token"])
+
+    out = capsys.readouterr()
+    assert status == 0
+    assert out.out == "cached-access\n"
+    assert out.err == ""
+    commands = next(
+        action
+        for action in build_parser()._actions
+        if action.__class__.__name__ == "_SubParsersAction"
+    )
+    helps = {choice.dest: choice.help for choice in commands._choices_actions}
+    assert (
+        helps["token"] == "print a valid access token for this endpoint (for scripts)"
+    )
+
+
+@pytest.mark.parametrize(
+    ("expires_in", "options"),
+    [(10, []), (3600, ["--refresh-within", "4000"])],
+    ids=["expired", "expires-within-the-margin"],
+)
+async def test_token_refreshes_through_the_cached_sign_in(
+    monkeypatch, tmp_path, capsys, expires_in, options
+):
+    """A token that runs out within the margin is refreshed, and the new one is kept.
+
+    :param expires_in: seconds the cached token has left
+    :param options: extra options for ``reef token``
+    """
+    await _sign_in(tmp_path / "config", expires_in=expires_in, refresh="old-refresh")
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Note the request and hand out a fresh token.
+
+        :param request: the refresh request
+        :returns: the new tokens
+        """
+        requests.append(request)
+        return httpx.Response(200, json=FRESH)
+
+    argv = ["--url", TOKEN_URL, "token", *options]
+    status = await _token(monkeypatch, tmp_path, handler, argv)
+
+    assert status == 0
+    assert capsys.readouterr().out == "fresh-access\n"
+    assert [(r.method, str(r.url)) for r in requests] == [
+        ("POST", "https://example.test/token")
+    ]
+    form = parse_qs(requests[0].content.decode())
+    assert form["grant_type"] == ["refresh_token"]
+    assert form["refresh_token"] == ["old-refresh"]
+    assert form["client_id"] == ["reef-cli"]
+    assert form["client_secret"] == ["cli-secret"]
+    # The new token is kept: the next call prints it without asking again.
+    status = await _token(monkeypatch, tmp_path, _refuse, ["--url", TOKEN_URL, "token"])
+    assert status == 0
+    assert capsys.readouterr().out == "fresh-access\n"
+
+
+async def test_token_keeps_the_refresh_token_the_server_did_not_replace(
+    monkeypatch, tmp_path, capsys
+):
+    """A refresh answer without a refresh token keeps the old one for next time."""
+    config = tmp_path / "config"
+    await _sign_in(config, expires_in=10, refresh="old-refresh")
+    without = {key: value for key, value in FRESH.items() if key != "refresh_token"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Hand out a new access token only.
+
+        :param request: the refresh request
+        :returns: the new access token
+        """
+        return httpx.Response(200, json={**without, "expires_in": 10})
+
+    argv = ["--url", TOKEN_URL, "token"]
+    assert await _token(monkeypatch, tmp_path, handler, argv) == 0
+    oauth = OAuth(
+        mcp_url=TOKEN_URL,
+        client_name="Reef CLI",
+        token_storage=JsonTokenStore(config / "oauth.json"),
+    )
+    kept = await oauth.token_storage_adapter.get_tokens()
+    assert kept is not None and kept.refresh_token == "old-refresh"
+    assert capsys.readouterr().out == "fresh-access\n"
+
+
+def _invalid_grant(request: httpx.Request) -> httpx.Response:
+    """Refuse a refresh, as a server does for a revoked sign-in.
+
+    :param request: the refresh request
+    :returns: the refusal
+    """
+    return httpx.Response(400, json={"error": "invalid_grant"})
+
+
+@pytest.mark.parametrize(
+    ("cached", "handler"),
+    [
+        (None, _refuse),
+        ({"expires_in": 10, "refresh": None}, _refuse),
+        ({"expires_in": 10, "refresh": "old-refresh"}, _invalid_grant),
+    ],
+    ids=["nothing-cached", "expired-without-refresh-token", "refresh-refused"],
+)
+async def test_token_without_a_usable_sign_in(
+    monkeypatch, tmp_path, capsys, cached, handler
+):
+    """No usable sign-in: exit 1 with ``not_signed_in`` on stderr, and no browser.
+
+    :param cached: the sign-in to cache first, or None for none
+    :param handler: answers the token endpoint
+    """
+    if cached is not None:
+        await _sign_in(tmp_path / "config", **cached)
+
+    status = await _token(monkeypatch, tmp_path, handler, ["--url", TOKEN_URL, "token"])
+
+    out = capsys.readouterr()
+    assert status == 1
+    assert out.out == ""
+    assert json.loads(out.err) == {"error": "not_signed_in"}
+
+
+async def test_token_says_when_the_server_fails(monkeypatch, tmp_path, capsys):
+    """A failing token endpoint is a server error, and nothing it sent is echoed."""
+    await _sign_in(tmp_path / "config", expires_in=10, refresh="old-refresh")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Answer with something that is not a token.
+
+        :param request: the refresh request
+        :returns: a cut-off body that names a token
+        """
+        return httpx.Response(200, text='{"access_token": "half-a-token", ')
+
+    status = await _token(monkeypatch, tmp_path, handler, ["--url", TOKEN_URL, "token"])
+
+    out = capsys.readouterr()
+    assert status == 1
+    assert out.out == ""
+    assert json.loads(out.err) == {"error": "server_error"}
+    assert "half-a-token" not in out.err
+
+
+@pytest.mark.parametrize("value", ["-1", "nan", "-inf"])
+def test_token_refuses_a_negative_margin(capsys, value):
+    """``--refresh-within`` takes no negative number and no NaN.
+
+    :param value: what is given
+    """
+    with pytest.raises(SystemExit) as caught:
+        build_parser().parse_args(["token", f"--refresh-within={value}"])
+    assert caught.value.code == 2
+    assert "--refresh-within" in capsys.readouterr().err
+    zero = build_parser().parse_args(["token", "--refresh-within", "0"])
+    assert zero.refresh_within == 0

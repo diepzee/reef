@@ -5,6 +5,7 @@ The sample in ``tests/conversations/sample-events.jsonl`` is a real Codex
 made up.
 """
 
+import asyncio
 import importlib.util
 import json
 import os
@@ -506,7 +507,7 @@ def _index_call(persona: str, *, ok: bool = True, structured: bool = True) -> di
         "item": {
             "id": "item_1",
             "type": "mcp_tool_call",
-            "server": "reef_test",
+            "server": "reef_bench",
             "tool": "load_index",
             "arguments": {},
             "result": result,
@@ -650,6 +651,9 @@ async def test_account_check_runs_before_the_first_scenario(tmp_path, monkeypatc
 async def test_refused_account_check_plays_no_scenario(tmp_path, monkeypatch):
     """Another person's index stops the run before any scenario, and says what to do."""
     monkeypatch.setattr(run, "REPORTS", tmp_path)
+    monkeypatch.setattr(run, "cli_token", lambda: "bench-token-0")
+    monkeypatch.delenv(run.CLI_CONFIG_VARIABLE)
+    monkeypatch.setattr(run, "DEFAULT_CLI_CONFIG", tmp_path / "default-cli")
     recorder = _Recorder(_probe(_index_call(OTHER_PERSONA)))
     monkeypatch.setattr(run, "play", recorder)
     target = _FakeTarget(server=run.PRODUCTION_SERVER)
@@ -658,11 +662,12 @@ async def test_refused_account_check_plays_no_scenario(tmp_path, monkeypatch):
     assert recorder.played == [("account-check", ("load_index",))]
     report = _report(tmp_path)
     assert report["scenarios"] == []
-    assert "No scenario was played" in report["meta"]["stopped"]
-    assert (
-        "codex mcp logout reef_test -c "
-        "'mcp_servers.reef_test.url=\"https://reefwith.me/mcp\"'"
-    ) in report["meta"]["stopped"]
+    stopped = report["meta"]["stopped"]
+    assert "No scenario was played" in stopped
+    assert "REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef logout" in stopped
+    assert "REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login" in stopped
+    assert "private window" in stopped
+    assert "reef_test" not in stopped
     assert target.resets == 2
 
 
@@ -673,14 +678,18 @@ async def test_local_servers_of_a_run_share_one_secret(tmp_path, monkeypatch):
     sample = parse_events(SAMPLE.read_text(encoding="utf-8").splitlines())
     commands: list[list[str]] = []
 
-    def fake_codex(command: list[str], message: str, workdir: Path) -> Session:
+    def fake_codex(
+        command: list[str], message: str, workdir: Path, token: str | None = None
+    ) -> Session:
         """Note the command and answer with the sample.
 
         :param command: the ``codex exec`` command
         :param message: ignored
         :param workdir: ignored
+        :param token: the access token; None for the local server
         :returns: the sample session
         """
+        assert token is None
         commands.append(command)
         return sample
 
@@ -774,12 +783,13 @@ async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _signed_in_test_home(tmp_path, monkeypatch):
-    """Give every test a writable, signed-in Codex test home of its own.
+    """Give every test a signed-in Codex test home and a CLI test folder of its own.
 
     :param tmp_path: the test's temporary directory
     :param monkeypatch: pytest's monkeypatch
     """
     monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(tmp_path / "codex-home"))
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, str(tmp_path / "reef-cli"))
     monkeypatch.setattr(
         run, "codex_login_status", lambda: (0, "Logged in using ChatGPT")
     )
@@ -813,6 +823,7 @@ def test_every_codex_command_runs_in_the_test_home(tmp_path, monkeypatch):
     default = tmp_path / "default-home"
     monkeypatch.setattr(run, "DEFAULT_CODEX_HOME", default)
     monkeypatch.setenv("CODEX_HOME", str(Path.home() / ".codex"))
+    monkeypatch.setattr(run, "cli_token", lambda: "bench-token-0")
     before = dict(os.environ)
     calls = _capture_subprocess(monkeypatch)
     scenario = {"id": "x", "messages": ["a", "b"], "connector": False}
@@ -945,14 +956,18 @@ def test_relative_override_becomes_absolute(tmp_path, monkeypatch):
 
 
 def test_sign_out_advice_names_the_actual_home(tmp_path, monkeypatch):
-    """The production advice shows the default literally, else a quoted path."""
-    monkeypatch.delenv(run.CODEX_HOME_VARIABLE)
+    """The advice shows the default folder literally, else a quoted path."""
+    monkeypatch.delenv(run.CLI_CONFIG_VARIABLE)
     default = run.PRODUCTION_SERVER.advice()
-    assert "CODEX_HOME=~/.reef-conversations/codex codex mcp logout" in default
+    assert "REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef logout" in default
+    cli_folder = tmp_path / "my cli"
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, str(cli_folder))
+    advice = run.PRODUCTION_SERVER.advice()
+    quoted = shlex.quote(str(cli_folder.resolve()))
+    assert f"REEF_CONFIG_DIR={quoted} reef logout" in advice
+    assert f"REEF_CONFIG_DIR={quoted} reef login" in advice
     other = tmp_path / "my home"
     monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(other))
-    advice = run.PRODUCTION_SERVER.advice()
-    assert f"CODEX_HOME={shlex.quote(str(other.resolve()))} codex mcp logout" in advice
     monkeypatch.setattr(run, "codex_login_status", lambda: (1, "Not logged in"))
     with pytest.raises(run.RunError) as caught:
         run.check_codex_home()
@@ -1055,3 +1070,384 @@ async def test_a_folder_around_your_codex_home_is_refused(
         await run.run(target, ["dentist-moved"], None)
     assert list(person.iterdir()) == []
     assert target.resets == 0
+
+
+#: A made-up production token. It has no dot, so the report's own redaction
+#: cannot hide it: if it reaches a report, a test sees it.
+TOKEN = "bench-token-7f3a9c41d2"
+
+
+def test_reef_bench_is_reef_and_reef_test_is_not():
+    """Calls to ``reef_bench`` are Reef's; the retired ``reef_test`` is another tool."""
+    calls = [
+        {
+            "type": "item.completed",
+            "item": {
+                "id": str(number),
+                "type": "mcp_tool_call",
+                "server": server,
+                "tool": "recall",
+                "status": "completed",
+            },
+        }
+        for number, server in enumerate(["reef_bench", "reef_test"])
+    ]
+    session = _probe(*calls)
+    assert [(call.server, call.tool) for call in session.tool_calls] == [
+        ("reef_bench", "recall")
+    ]
+    assert session.other_tools == ["reef_test.recall"]
+
+
+def test_production_codex_command_names_reef_bench():
+    """Codex reaches production as ``reef_bench``, with the token from a variable."""
+    probe = run.codex_command(
+        run.PRODUCTION_SERVER, tools=run.PROBE_TOOLS, session_id=None
+    )
+    connector = run.codex_command(
+        run.PRODUCTION_SERVER, tools=run.CONNECTOR_TOOLS, session_id="t-1"
+    )
+    for command in (probe, connector):
+        assert 'mcp_servers.reef_bench.url="https://reefwith.me/mcp"' in command
+        assert (
+            'mcp_servers.reef_bench.bearer_token_env_var="REEF_BENCH_TOKEN"' in command
+        )
+        assert 'mcp_servers.reef_bench.default_tools_approval_mode="approve"' in command
+        assert not any("reef_test" in part for part in command)
+    assert 'mcp_servers.reef_bench.enabled_tools=["load_index"]' in probe
+    assert 'mcp_servers.reef_bench.enabled_tools=["search", "fetch"]' in connector
+    assert run.PRODUCTION_SERVER.bearer and not run.local_server("ab" * 32).bearer
+
+
+def test_codex_gets_the_token_only_when_given(monkeypatch):
+    """A token goes into the child's environment; none from the shell ever does."""
+    monkeypatch.setenv(run.TOKEN_VARIABLE, "stale-from-the-shell")
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "the-operators-own-token")
+    for env in (run.codex_env(), run.codex_env(TOKEN)):
+        assert "REEF_ACCESS_TOKEN" not in env
+    assert run.TOKEN_VARIABLE not in run.codex_env()
+    assert run.codex_env(TOKEN)[run.TOKEN_VARIABLE] == TOKEN
+    assert os.environ[run.TOKEN_VARIABLE] == "stale-from-the-shell"
+    assert os.environ["REEF_ACCESS_TOKEN"] == "the-operators-own-token"
+
+
+class _FakeCommands:
+    """Stands in for ``subprocess.run``: the Reef command line tool and Codex.
+
+    Notes every call with its command and environment. ``reef token`` prints
+    :data:`TOKEN`, or fails when asked to. A reset and ``reef open`` print
+    what the runner expects. ``codex exec`` prints the sample record, as
+    ``reef_bench``; when asked, a resumed turn fails with the token in its
+    error output, as a careless Codex might print it.
+    """
+
+    def __init__(
+        self,
+        *,
+        token_status: int = 0,
+        token_out: str = TOKEN + "\n",
+        token_err: str = "",
+        resume_fails: bool = False,
+        reset_error: str | None = None,
+    ) -> None:
+        """Choose how ``reef token``, a reset and a resumed turn answer.
+
+        :param token_status: the exit status of ``reef token``
+        :param token_out: what ``reef token`` prints
+        :param token_err: what ``reef token`` prints as an error
+        :param resume_fails: make every resumed turn fail
+        :param reset_error: the code every reset is refused with, or None
+        """
+        self.calls: list[dict] = []
+        self.token_status = token_status
+        self.token_out = token_out
+        self.token_err = token_err
+        self.resume_fails = resume_fails
+        self.reset_error = reset_error
+        self.sample = SAMPLE.read_text(encoding="utf-8").replace(
+            "reef_local", "reef_bench"
+        )
+
+    def kind(self, command: list[str]) -> str:
+        """Name a command: ``token``, ``reset``, ``open``, ``codex`` or ``resume``.
+
+        :param command: the command
+        :returns: its kind
+        """
+        if command[:2] == ["codex", "exec"]:
+            return "resume" if "resume" in command else "codex"
+        assert command[: len(run._CLI)] == run._CLI, command
+        return {"token": "token", "reset-test-account": "reset", "open": "open"}[
+            command[len(run._CLI)]
+        ]
+
+    def __call__(
+        self, command: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess:
+        """Note the call and answer it.
+
+        :param command: the command
+        :param kwargs: the other arguments of ``subprocess.run``
+        :returns: the answer
+        """
+        assert TOKEN not in os.environ.values()
+        kind = self.kind(command)
+        self.calls.append({"kind": kind, "command": command, "env": kwargs.get("env")})
+        if kind == "token":
+            return subprocess.CompletedProcess(
+                command, self.token_status, self.token_out, self.token_err
+            )
+        if kind == "reset" and self.reset_error is not None:
+            refused = json.dumps({"error": self.reset_error})
+            return subprocess.CompletedProcess(command, 1, refused, "")
+        if kind == "reset":
+            body = {
+                "reset": True,
+                "services": {"files": True, "file_text": True},
+                "fixture_version": "1",
+                "reef_version": "9.9",
+            }
+            return subprocess.CompletedProcess(command, 0, json.dumps(body), "")
+        if kind == "open":
+            opened = {"structured_content": {"result": []}}
+            return subprocess.CompletedProcess(command, 0, json.dumps(opened), "")
+        if kind == "resume" and self.resume_fails:
+            error = f"error: MCP request failed: Authorization: Bearer {TOKEN}\n"
+            return subprocess.CompletedProcess(command, 1, "", error)
+        return subprocess.CompletedProcess(command, 0, self.sample, "")
+
+
+async def test_production_run_gives_the_token_to_codex_only(
+    tmp_path, monkeypatch, capsys
+):
+    """A fresh token before every ``codex exec``, in its environment and nowhere else."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setenv("REEF_ACCESS_TOKEN", "the-operators-own-token")
+    folder = Path(os.environ[run.CLI_CONFIG_VARIABLE])
+    before = dict(os.environ)
+    fake = _FakeCommands(resume_fails=True)
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    await run.run(run.ProductionTarget(), ["dentist-moved", "forget-confirmed"], None)
+    kinds = [call["kind"] for call in fake.calls]
+    # The sign-in check, the first reset; then a token before each Codex turn.
+    assert kinds[:2] == ["token", "reset"]
+    assert kinds.count("codex") == 3 and kinds.count("resume") == 1
+    for index, kind in enumerate(kinds):
+        if kind in ("codex", "resume"):
+            assert kinds[index - 1] == "token"
+    assert kinds.count("token") == 1 + 4
+    for call in fake.calls:
+        assert TOKEN not in " ".join(call["command"])
+        assert "REEF_ACCESS_TOKEN" not in call["env"]
+        if call["kind"] in ("codex", "resume"):
+            assert call["env"][run.TOKEN_VARIABLE] == TOKEN
+            assert call["env"]["CODEX_HOME"] == os.environ[run.CODEX_HOME_VARIABLE]
+        else:
+            assert call["env"]["REEF_CONFIG_DIR"] == str(folder)
+            assert run.TOKEN_VARIABLE not in call["env"]
+            assert "REEF_ACCESS_TOKEN" not in call["env"]
+    assert dict(os.environ) == before
+    printed = capsys.readouterr()
+    assert TOKEN not in printed.out + printed.err
+    reports = list((tmp_path / "reports").iterdir())
+    assert len(reports) == 2
+    for path in reports:
+        text = path.read_text(encoding="utf-8")
+        assert TOKEN not in text
+        assert "the-operators-own-token" not in text
+    report = _report(tmp_path / "reports")
+    forget = next(s for s in report["scenarios"] if s["id"] == "forget-confirmed")
+    assert forget["verdict"] == "invalid"
+
+
+def test_every_reef_command_gets_the_test_cli_folder(tmp_path, monkeypatch):
+    """Resets, reads and tokens all use the test folder, set only for the child."""
+    fake = _FakeCommands()
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    monkeypatch.setenv("REEF_CONFIG_DIR", str(Path.home() / ".config" / "reef"))
+    before = dict(os.environ)
+    target = run.ProductionTarget()
+    asyncio.run(target.reset())
+    asyncio.run(target.read(["personal/a.md"]))
+    assert run.cli_token() == TOKEN
+    assert dict(os.environ) == before
+    other = tmp_path / "elsewhere"
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, str(other))
+    run.cli_token()
+    monkeypatch.delenv(run.CLI_CONFIG_VARIABLE)
+    run.cli_token()
+    folders = [call["env"]["REEF_CONFIG_DIR"] for call in fake.calls]
+    first = str(tmp_path / "reef-cli")
+    default = str(Path.home().resolve() / ".reef-conversations" / "reef-cli")
+    assert folders == [first, first, first, str(other), default]
+    assert [call["kind"] for call in fake.calls] == [
+        "reset",
+        "open",
+        "token",
+        "token",
+        "token",
+    ]
+    assert run.DEFAULT_CLI_CONFIG == Path(default)
+
+
+@pytest.mark.parametrize(
+    ("folder", "why"),
+    [
+        (".config/reef", "the same folder"),
+        (".config/reef/sub/dir", "a folder inside it"),
+        (".config", "a folder around it"),
+        (".", "your home folder"),
+    ],
+)
+async def test_own_cli_folder_is_refused(tmp_path, monkeypatch, folder, why):
+    """``~/.config/reef``, or a folder in or around it, is never the test folder.
+
+    It is refused before anything else: before the Codex home, any sign-in
+    check and any reset.
+
+    :param folder: the test folder, from the home folder
+    :param why: what the folder is to ``~/.config/reef``
+    """
+    person = tmp_path / "person"
+    person.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: person)
+    link = tmp_path / "link"
+    link.symlink_to(person)
+    # A symlink and a trailing slash must not get around the refusal.
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, f"{link}/{folder}/")
+    events: list[str] = []
+    monkeypatch.setattr(
+        run, "codex_login_status", lambda: events.append("codex") or (0, "")
+    )
+    monkeypatch.setattr(run, "cli_token", lambda: events.append("token") or TOKEN)
+    target = _FakeTarget(server=run.PRODUCTION_SERVER)
+    with pytest.raises(run.RunError, match="separate folder") as caught:
+        await run.run(target, ["dentist-moved"], None)
+    assert "~/.config/reef" in str(caught.value)
+    assert run.CLI_CONFIG_VARIABLE in str(caught.value)
+    assert events == [] and target.resets == 0
+    assert not Path(os.environ[run.CODEX_HOME_VARIABLE]).exists()
+    assert list(person.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("status", "out", "err", "signed_out"),
+    [
+        (1, "", '{"error": "not_signed_in"}\n', True),
+        (1, "", '{"error": "server_error"}\n', False),
+        (0, "\n", "", False),
+        (1, "", f"reef: the server said {TOKEN}\n", False),
+        (1, "", f'{{"error": "not_signed_in", "detail": "{TOKEN}"}}\n', True),
+    ],
+    ids=[
+        "not-signed-in",
+        "server-error",
+        "printed-nothing",
+        "failed-loudly",
+        "signed-out-loudly",
+    ],
+)
+async def test_failing_token_stops_before_any_reset(
+    tmp_path, monkeypatch, status, out, err, signed_out
+):
+    """No token from the command line tool: stop, say what to do, touch nothing.
+
+    Only ``not_signed_in`` asks for a new sign-in; anything else asks to try
+    again. What the tool printed is never shown.
+
+    :param status: the exit status of ``reef token``
+    :param out: what it prints
+    :param err: what it prints as an error
+    :param signed_out: whether the run must ask for a new sign-in
+    """
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.delenv(run.CLI_CONFIG_VARIABLE)
+    monkeypatch.setattr(run, "DEFAULT_CLI_CONFIG", tmp_path / "default-cli")
+    fake = _FakeCommands(token_status=status, token_out=out, token_err=err)
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    recorder = _Recorder(_probe(_index_call(read_fixture().persona)))
+    monkeypatch.setattr(run, "play", recorder)
+    target = _FakeTarget(server=run.PRODUCTION_SERVER)
+    with pytest.raises(run.RunError) as caught:
+        await run.run(target, ["dentist-moved"], None)
+    message = str(caught.value)
+    login = "REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login"
+    if signed_out:
+        assert login in message
+        assert "private window" in message and "test account" in message
+    else:
+        assert login not in message
+        assert "server or network problem" in message and "Try again" in message
+    assert TOKEN not in message and "the server said" not in message
+    assert "server_error" not in message
+    assert [call["kind"] for call in fake.calls] == ["token"]
+    assert target.resets == 0 and recorder.played == []
+
+
+async def test_local_run_needs_no_cli_sign_in(tmp_path, monkeypatch):
+    """The local target never asks the command line tool for anything."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, str(Path.home() / ".config" / "reef"))
+    fake = _FakeCommands()
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    monkeypatch.setattr(
+        run, "play", _Recorder(_probe(_index_call(read_fixture().persona)))
+    )
+    await run.run(_FakeTarget(), ["dentist-moved"], None)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("code", ["not_a_test_account", "unauthenticated"])
+async def test_reset_refused_for_another_sign_in_says_how_to_sign_in(
+    tmp_path, monkeypatch, code
+):
+    """A reset refused for the sign-in stops the run before Codex, with the fix.
+
+    :param code: the refusal's code
+    """
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.delenv(run.CLI_CONFIG_VARIABLE)
+    monkeypatch.setattr(run, "DEFAULT_CLI_CONFIG", tmp_path / "default-cli")
+    fake = _FakeCommands(reset_error=code)
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    with pytest.raises(run.RunError) as caught:
+        await run.run(run.ProductionTarget(), ["dentist-moved"], None)
+    message = str(caught.value)
+    assert f"the reset failed: {code}" in message
+    assert "REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login" in message
+    assert "private window" in message and "test account" in message
+    assert [call["kind"] for call in fake.calls] == ["token", "reset"]
+
+
+def test_other_reset_refusals_do_not_ask_for_a_sign_in(monkeypatch):
+    """A refusal that is not about the sign-in names only its code."""
+    monkeypatch.setattr(
+        run.subprocess, "run", _FakeCommands(reset_error="shared_with_others")
+    )
+    with pytest.raises(run.RunError) as caught:
+        asyncio.run(run.ProductionTarget().reset())
+    assert str(caught.value) == "the reset failed: shared_with_others"
+
+
+@pytest.mark.parametrize(
+    "folder", ["reef", "reef/sub", ".", ".."], ids=["same", "inside", "xdg", "above"]
+)
+async def test_xdg_cli_folder_is_refused(tmp_path, monkeypatch, folder):
+    """With ``XDG_CONFIG_HOME`` set, its ``reef`` folder is yours too.
+
+    :param folder: the test folder, from ``$XDG_CONFIG_HOME``
+    """
+    xdg = tmp_path / "people" / "xdg"
+    xdg.mkdir(parents=True)
+    link = tmp_path / "link"
+    link.symlink_to(xdg)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(link))
+    monkeypatch.setenv(run.CLI_CONFIG_VARIABLE, f"{xdg}/{folder}/")
+    monkeypatch.setattr(run, "cli_token", lambda: pytest.fail("token asked for"))
+    target = _FakeTarget(server=run.PRODUCTION_SERVER)
+    with pytest.raises(run.RunError, match="separate folder") as caught:
+        await run.run(target, ["dentist-moved"], None)
+    assert str((xdg / "reef").resolve()) in str(caught.value)
+    assert target.resets == 0 and list(xdg.iterdir()) == []
+    monkeypatch.delenv("XDG_CONFIG_HOME")
+    assert run.check_cli_config_dir() == (xdg / folder).resolve()

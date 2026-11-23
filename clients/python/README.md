@@ -7,4 +7,5 @@ for people and their AI assistants, reached over MCP.
     reef login
 
 Every MCP tool is mirrored as a subcommand; `reef call <tool> '<json>'` is the
-exact passthrough. JSON on stdout, always.
+exact passthrough. JSON on stdout, always, with one exception: `reef token`
+prints a bare access token, for scripts.

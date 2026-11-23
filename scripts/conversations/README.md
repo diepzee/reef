@@ -31,13 +31,18 @@ process that runs the tests needs read and write access to
 `~/.reef-conversations/codex`. Set `REEF_CONVERSATIONS_CODEX_HOME` to use
 another folder.
 
-For production, also sign the test account in to Reef, with the same prefix:
+For production, also sign the Reef command-line tool in as the test account,
+once, in a private browser window:
 
 ```
-CODEX_HOME=~/.reef-conversations/codex codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'
+REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login
 ```
 
-To sign out again, use `codex mcp logout reef_test` with the same prefix and `-c`.
+This is the only Reef sign-in production needs. Your own sign-in, in
+`~/.config/reef`, is not affected. Codex gets the sign-in from the
+command-line tool for each run: before each message, the runner asks
+`reef token` for an access token and passes it to Codex in memory only. Set
+`REEF_CONVERSATIONS_REEF_CONFIG_DIR` to keep the test sign-in in another folder.
 
 ```
 just conversations-account                      # local only, once
