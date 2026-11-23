@@ -930,7 +930,7 @@ async def test_own_codex_home_is_refused(tmp_path, monkeypatch, inside):
     # A symlink and a trailing slash must not get around the refusal.
     monkeypatch.setenv(run.CODEX_HOME_VARIABLE, f"{link}/.codex/{inside}/")
     target = _FakeTarget()
-    with pytest.raises(run.RunError, match="separate from your own Codex home"):
+    with pytest.raises(run.RunError, match="separate folder"):
         await run.run(target, ["dentist-moved"], None)
     assert not own.exists()
     assert target.resets == 0
@@ -962,41 +962,96 @@ def test_sign_out_advice_names_the_actual_home(tmp_path, monkeypatch):
 
 
 async def test_checks_run_in_order(tmp_path, monkeypatch):
-    """Own home, then writable, then AGENTS.md, then signed in, then reset."""
-    steps: list[str] = []
-    real = run.prepare_codex_home
-    status = run.codex_login_status
+    """Own home, writable, no AGENTS.md, signed in, and only then the first reset."""
+    events: list[str] = []
+    status = (0, "Logged in using ChatGPT")
 
     def signed_in() -> tuple[int, str]:
-        """Note the check and say signed in.
+        """Note the sign-in check and answer with the current status.
 
-        :returns: a signed-in status
+        :returns: the status
         """
-        steps.append("signed-in")
-        return 0, "Logged in using ChatGPT"
+        events.append("signed-in")
+        return status
 
+    class Tracing(_FakeTarget):
+        """A target that notes its resets."""
+
+        async def reset(self) -> run.Services:
+            """Note the reset, then reset.
+
+            :returns: the services
+            """
+            events.append("reset")
+            return await super().reset()
+
+    async def attempt(match: str | None) -> None:
+        """Run once; expect the refusal in ``match``, or a full run.
+
+        :param match: text the refusal must hold, or None when the run passes
+        """
+        events.clear()
+        if match is None:
+            await run.run(Tracing(), ["dentist-moved"], None)
+            return
+        with pytest.raises(run.RunError, match=match):
+            await run.run(Tracing(), ["dentist-moved"], None)
+
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
     monkeypatch.setattr(run, "codex_login_status", signed_in)
-    home = Path(os.environ[run.CODEX_HOME_VARIABLE])
-    cases = []
-    # 1. own home beats everything, even an AGENTS.md
-    fake_home = tmp_path / "person"
-    (fake_home / ".codex").mkdir(parents=True)
-    (fake_home / ".codex" / "AGENTS.md").write_text("x", encoding="utf-8")
-    monkeypatch.setattr(Path, "home", lambda: fake_home)
-    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(fake_home / ".codex"))
-    with pytest.raises(run.RunError, match="separate"):
-        run.check_codex_home()
-    cases.append(list(steps))
-    # 2. AGENTS.md is refused before any codex call
-    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(home))
-    home.mkdir()
-    (home / "AGENTS.md").write_text("x", encoding="utf-8")
-    with pytest.raises(run.RunError, match="AGENTS.md"):
-        run.check_codex_home()
-    cases.append(list(steps))
-    # 3. only then the sign-in is asked
-    (home / "AGENTS.md").unlink()
-    assert run.check_codex_home() == home.resolve()
-    cases.append(list(steps))
-    assert cases == [[], [], ["signed-in"]]
-    assert real and status
+    monkeypatch.setattr(
+        run, "play", _Recorder(_probe(_index_call(read_fixture().persona)))
+    )
+    person = tmp_path / "person"
+    (person / ".codex").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: person)
+    test_home = tmp_path / "test-home"
+
+    # 1. Your own home comes first, though it holds an AGENTS.md too.
+    (person / ".codex" / "AGENTS.md").write_text("x", encoding="utf-8")
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(person / ".codex"))
+    await attempt("separate folder")
+    assert events == []
+
+    # 2. Then writability, though the home holds an AGENTS.md as well.
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(test_home))
+    test_home.mkdir()
+    (test_home / "AGENTS.md").write_text("x", encoding="utf-8")
+    if os.geteuid() != 0:
+        test_home.chmod(0o500)
+        try:
+            await attempt("read and write access")
+        finally:
+            test_home.chmod(0o700)
+        assert events == []
+
+    # 3. Then the AGENTS.md, before any call to Codex.
+    await attempt("AGENTS.md")
+    assert events == []
+
+    # 4. Then the sign-in, before the first reset.
+    (test_home / "AGENTS.md").unlink()
+    status = (1, "Not logged in")
+    await attempt("not signed in")
+    assert events == ["signed-in"]
+
+    # 5. When every check passes, the first reset comes after them.
+    status = (0, "Logged in using ChatGPT")
+    await attempt(None)
+    assert events[:2] == ["signed-in", "reset"]
+
+
+@pytest.mark.parametrize("around", [".", ".."])
+async def test_a_folder_around_your_codex_home_is_refused(
+    tmp_path, monkeypatch, around
+):
+    """Your home folder, or one above it, would put Codex's files among yours."""
+    person = tmp_path / "people" / "person"
+    person.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: person)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(person / around))
+    target = _FakeTarget()
+    with pytest.raises(run.RunError, match="separate folder"):
+        await run.run(target, ["dentist-moved"], None)
+    assert list(person.iterdir()) == []
+    assert target.resets == 0

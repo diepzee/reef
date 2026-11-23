@@ -63,7 +63,7 @@ REPORTS = Path.home() / ".reef-conversations" / "reports"
 
 #: Names the folder Codex keeps its sign-in and settings in, for test runs.
 CODEX_HOME_VARIABLE = "REEF_CONVERSATIONS_CODEX_HOME"
-DEFAULT_CODEX_HOME = Path.home() / ".reef-conversations" / "codex"
+DEFAULT_CODEX_HOME = (Path.home() / ".reef-conversations" / "codex").resolve()
 
 MODEL = "gpt-6-astra"
 LOCAL_EMAIL = "conversations@reef.local"
@@ -276,8 +276,9 @@ def codex_env() -> dict[str, str]:
 def prepare_codex_home() -> Path:
     """Make the test home ready, or say why it cannot be used.
 
-    Refuses your own ``~/.codex``, or a folder inside it, before anything
-    is created there. Creates the folder (readable by its owner only) when it is missing.
+    Refuses your own ``~/.codex``, a folder inside it, or a folder that
+    contains it (such as your home folder), before anything is created.
+    Creates the folder (readable by its owner only) when it is missing.
     Checks that the runner can create and remove a file in it, as the
     nested ``codex exec`` processes must write there. Refuses a home that
     holds an ``AGENTS.md``, as Codex would load it into every conversation.
@@ -287,11 +288,13 @@ def prepare_codex_home() -> Path:
         written, or holds an ``AGENTS.md``
     """
     home = codex_home()
-    own = (Path.home() / ".codex").resolve()
-    if home == own or own in home.parents:
+    person = Path.home().resolve()
+    own = (person / ".codex").resolve()
+    if home in (own, person) or own in home.parents or home in own.parents:
         raise RunError(
-            f"The test Codex home {home} is, or is inside, your own Codex "
-            "home. The test home must be separate from your own Codex home. "
+            f"The test Codex home {home} is your own Codex home, or a folder "
+            "inside it or around it. The test home must be a separate folder, "
+            "not your own Codex home or a folder that contains it. "
             f"Unset {CODEX_HOME_VARIABLE} or point it at another folder."
         )
     no_access = RunError(
