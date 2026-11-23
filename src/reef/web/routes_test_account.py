@@ -46,8 +46,8 @@ async def principal_from_bearer(request: Request) -> Principal:
     The provider is never looked up through ``reef.server``. Production runs
     ``python -m reef.server``, so the serving server is ``__main__.mcp``;
     importing ``reef.server`` would build a second server, with a provider
-    that has never served a request and accepts none of the real one's
-    tokens.
+    that has never served a request and may not accept the real one's
+    tokens (the OAuth proxy's never does).
 
     When the serving server has no provider, ``REEF_DEV_INSECURE=1`` falls
     back to ``REEF_DEV_PRINCIPAL_EMAIL``, as

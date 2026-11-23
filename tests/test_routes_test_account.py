@@ -242,6 +242,27 @@ async def test_with_provider_dev_person_is_refused(route, monkeypatch, graph, se
     assert response.status_code == 401
 
 
+async def test_failed_token_never_takes_dev_person(route, monkeypatch, graph, seed):
+    """A token the provider rejects stays refused, even with the dev settings on."""
+    person = await _person(graph, seed, flagged=True)
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
+    monkeypatch.setattr(get_settings().dev, "principal_email", person.email)
+    response = await route.post("/api/test-account/reset", headers=_bearer("nope"))
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthenticated"}
+
+
+async def test_without_provider_dev_off_is_401(monkeypatch, graph, seed):
+    """A server without a provider admits nobody while ``REEF_DEV_INSECURE`` is off."""
+    person = await _person(graph, seed, flagged=True)
+    monkeypatch.setattr(get_settings().dev, "insecure", False)
+    monkeypatch.setattr(get_settings().dev, "principal_email", person.email)
+    async with _serve(_OPEN) as client:
+        response = await client.get("/api/test-account/ready")
+    assert response.status_code == 401
+    assert response.json() == {"error": "unauthenticated"}
+
+
 async def test_reset_is_not_an_mcp_tool():
     """The reset is a route only: no MCP tool resets."""
     from reef.server import mcp
