@@ -22,6 +22,11 @@ is reset once more at the end, also after a failure, so it rests as the
 made-up person. Reports go to ``~/.reef-conversations/reports/``, outside
 the repository, and hold only made-up content.
 
+Every ``codex exec`` runs in its own Codex home, ``~/.reef-conversations/codex``
+(or ``$REEF_CONVERSATIONS_CODEX_HOME``), set only in the environment of the
+processes the runner starts. The person's own ``~/.codex`` is never read or
+changed, so their personal ``AGENTS.md`` and settings stay out of the tests.
+
 Every ``codex exec`` uses the Codex quota of whoever runs this.
 """
 
@@ -54,6 +59,10 @@ from reef.testaccount.fixture import read_fixture
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = ROOT / "tests" / "conversations" / "scenarios.toml"
 REPORTS = Path.home() / ".reef-conversations" / "reports"
+
+#: Names the folder Codex keeps its sign-in and settings in, for test runs.
+CODEX_HOME_VARIABLE = "REEF_CONVERSATIONS_CODEX_HOME"
+DEFAULT_CODEX_HOME = Path.home() / ".reef-conversations" / "codex"
 
 MODEL = "gpt-6-astra"
 LOCAL_EMAIL = "conversations@reef.local"
@@ -169,7 +178,8 @@ PRODUCTION_SERVER = Server(
     "reef_test",
     (f"mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}",),
     (
-        "Sign Codex out with `codex mcp logout reef_test -c "
+        "Sign Codex out with `CODEX_HOME=~/.reef-conversations/codex "
+        "codex mcp logout reef_test -c "
         f"'mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}'`. Then sign "
         "it in again as the test account, as step 2 of the one-time "
         "production setup in docs/runbook.md says."
@@ -225,6 +235,95 @@ def codex_command(
     return [*command, "-"]
 
 
+def codex_home() -> Path:
+    """Find the folder test conversations use as their Codex home.
+
+    :returns: ``$REEF_CONVERSATIONS_CODEX_HOME`` when set, otherwise
+        ``~/.reef-conversations/codex``; never ``~/.codex``
+    """
+    override = os.environ.get(CODEX_HOME_VARIABLE)
+    return Path(override).expanduser() if override else DEFAULT_CODEX_HOME
+
+
+def codex_env() -> dict[str, str]:
+    """Build the environment of a ``codex`` process the runner starts.
+
+    The runner's own environment is not changed.
+
+    :returns: a copy of the environment with ``CODEX_HOME`` set to the test home
+    """
+    return {**os.environ, "CODEX_HOME": str(codex_home())}
+
+
+def prepare_codex_home() -> Path:
+    """Make the test home ready, or say why it cannot be used.
+
+    Creates the folder (readable by its owner only) when it is missing.
+    Checks that the runner can create and remove a file in it, as the
+    nested ``codex exec`` processes must write there. Refuses a home that
+    holds an ``AGENTS.md``, as Codex would load it into every conversation.
+
+    :returns: the test home
+    :raises RunError: when the folder cannot be written, or holds an
+        ``AGENTS.md``
+    """
+    home = codex_home()
+    no_access = RunError(
+        f"The folder {home} is not readable and writable. The process that "
+        "runs the tests needs read and write access to it."
+    )
+    try:
+        home.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=home, prefix=".write-check-"):
+            pass
+    except OSError as error:
+        raise no_access from error
+    if (home / "AGENTS.md").exists():
+        raise RunError(
+            f"The test Codex home {home} holds an AGENTS.md. Codex would "
+            "load it into every test conversation. Remove it and run again."
+        )
+    return home
+
+
+def codex_login_status() -> tuple[int, str]:
+    """Ask Codex whether the test home is signed in.
+
+    :returns: the exit status and the text ``codex login status`` printed
+    """
+    try:
+        done = subprocess.run(
+            ["codex", "login", "status"],
+            capture_output=True,
+            text=True,
+            env=codex_env(),
+            stdin=subprocess.DEVNULL,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, f"could not run codex login status: {error}"
+    return done.returncode, f"{done.stdout}{done.stderr}".strip()
+
+
+def check_codex_home() -> Path:
+    """Stop unless the test home is usable and signed in to Codex.
+
+    :returns: the test home
+    :raises RunError: when the home is not usable, or not signed in
+    """
+    home = prepare_codex_home()
+    status, text = codex_login_status()
+    if status != 0 or "not logged in" in text.lower():
+        shown = "~/.reef-conversations/codex" if home == DEFAULT_CODEX_HOME else home
+        raise RunError(
+            "The test home is not signed in to Codex. Run this once, then "
+            f"run the tests again: `CODEX_HOME={shown} codex login`. "
+            "This does not affect your own Codex."
+        )
+    return home
+
+
 def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
     """Run one ``codex exec`` and read what it printed.
 
@@ -240,6 +339,7 @@ def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
             capture_output=True,
             text=True,
             cwd=workdir,
+            env=codex_env(),
             timeout=MESSAGE_TIMEOUT,
             check=False,
         )
@@ -547,6 +647,7 @@ async def run(
         raise RunError(f"no scenario named {', '.join(unknown)}")
     chosen = [s for s in scenarios if not only or s["id"] in only]
     chosen.sort(key=lambda s: s["kind"] != "read")
+    home = check_codex_home()
     started = datetime.now(UTC)
     scored: list[Scored] = []
     answers: dict[str, str] = {}
@@ -554,6 +655,7 @@ async def run(
         "target": "local" if isinstance(target, LocalTarget) else "production",
         "started": started.isoformat(timespec="seconds"),
         "model": MODEL,
+        "codex_home": str(home),
     }
     persona = read_fixture().persona
     services: Services | None = None

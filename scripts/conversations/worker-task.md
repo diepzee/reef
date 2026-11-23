@@ -3,6 +3,17 @@
 You run Reef's test conversations once and report what happened. You change
 nothing.
 
+## Before you start
+
+The runner uses its own Codex home, `~/.reef-conversations/codex`. It must be
+signed in once: `CODEX_HOME=~/.reef-conversations/codex codex login`. For
+production, the test account must also be signed in to Reef:
+`CODEX_HOME=~/.reef-conversations/codex codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
+Only the operator signs in. If the runner says the test home is not signed in,
+do not run these commands: report that and stop. The process that runs the
+tests needs read and write access to that folder. Your own Codex is not
+affected: typing `codex` keeps using `~/.codex`.
+
 ## Do this
 
 1. From the repository root (your current worktree), run:
