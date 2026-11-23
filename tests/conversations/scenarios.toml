@@ -44,18 +44,19 @@ facts = [["82,5", "82.5"]]
 [[scenario]]
 id = "open-training-log"
 kind = "read"
-# One recall answers the last session; a full overview of November needs every
-# entry, so the whole engram.
-messages = ["Geef me een overzicht van al mijn benentrainingen in november, met het gewicht van de squat erbij."]
+# Read word for word: only the whole engram has the exact lines, a search
+# passage never holds all of them. Each fact is a line of the log, copied as
+# written, with "×" as the way an assistant may reformat "x".
+messages = ["Lees de novemberdagen uit mijn traininglog letterlijk voor, zoals ze er staan."]
 tools_required = ["load_index", "open"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = [
-  ["7 november", "7 nov", "2026-11-07", "07/11", "7/11"],
-  "110",
-  ["14 november", "14 nov", "2026-11-14", "14/11"],
-  ["112,5", "112.5"],
-  ["21 november", "21 nov", "2026-11-21", "21/11"],
-  "115",
+  ["Deadlift 140 x 3, 3 sets. Rug voelde stijf", "Deadlift 140 × 3, 3 sets. Rug voelde stijf"],
+  ["Roeien 72,5 x 8", "Roeien 72,5 × 8"],
+  "Deadlift overgeslagen vanwege de rug",
+  ["Schouderdrukken 42,5 x 8", "Schouderdrukken 42,5 × 8"],
+  ["Optrekken +12,5 kg x 6, 3 sets. Roeien 75 x 8: record", "Optrekken +12,5 kg × 6, 3 sets. Roeien 75 × 8: record"],
+  ["Squat 115 x 5, 5 sets: record. Deadlift 130 x 5, 3 sets, rustig", "Squat 115 × 5, 5 sets: record. Deadlift 130 × 5, 3 sets, rustig"],
 ]
 engrams = ["logs/training.md"]
 
