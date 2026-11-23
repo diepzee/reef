@@ -7,11 +7,14 @@ nothing.
 
 The runner uses its own Codex home, `~/.reef-conversations/codex`. It must be
 signed in once: `CODEX_HOME=~/.reef-conversations/codex codex login`. For
-production, the test account must also be signed in to Reef:
-`CODEX_HOME=~/.reef-conversations/codex codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
-Only the operator signs in. If the runner says the test home is not signed in,
+production, the Reef command-line tool must also be signed in once, as the
+test account, in a private window:
+`REEF_CONFIG_DIR=~/.reef-conversations/reef-cli reef login`. Codex gets that
+sign-in from the command-line tool for each run, in memory only.
+Only the operator signs in. If the runner says something is not signed in,
 do not run these commands: report that and stop. The process that runs the
-tests needs read and write access to that folder. Your own Codex is not
+tests needs read and write access to `~/.reef-conversations/codex` and, for
+production, `~/.reef-conversations/reef-cli`. Your own Codex is not
 affected: typing `codex` keeps using `~/.codex`.
 
 ## Do this
@@ -37,7 +40,8 @@ affected: typing `codex` keeps using `~/.codex`.
 - If `run.py` exits with a non-zero status, do not retry it. Report the exit
   status and the last lines it printed. If it printed a report path, include
   it anyway: the report is written even when a run stops.
-- Never print or copy a token, sign-in code or cookie into your report.
+- Never print or copy a token, sign-in code or cookie into your report. Do
+  not run `reef token` yourself: the runner does.
 
 ## What `worker_done` holds
 

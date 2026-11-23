@@ -27,6 +27,14 @@ Every ``codex exec`` runs in its own Codex home, ``~/.reef-conversations/codex``
 processes the runner starts. The person's own ``~/.codex`` is never read or
 changed, so their personal ``AGENTS.md`` and settings stay out of the tests.
 
+In production, one sign-in serves the whole run: the Reef command line
+tool's, kept in ``~/.reef-conversations/reef-cli`` (or
+``$REEF_CONVERSATIONS_REEF_CONFIG_DIR``), never in the person's own
+``~/.config/reef``. Every ``reef`` command the runner starts gets that
+folder. Before each ``codex exec``, ``reef token`` gives a valid access
+token, and Codex gets it in ``REEF_BENCH_TOKEN``, in its own environment
+only. The token stays in memory: it is never printed, logged or written.
+
 Every ``codex exec`` uses the Codex quota of whoever runs this.
 """
 
@@ -65,6 +73,13 @@ REPORTS = Path.home() / ".reef-conversations" / "reports"
 CODEX_HOME_VARIABLE = "REEF_CONVERSATIONS_CODEX_HOME"
 DEFAULT_CODEX_HOME = (Path.home() / ".reef-conversations" / "codex").resolve()
 
+#: Names the folder the Reef command line tool keeps its sign-in in, for test runs.
+CLI_CONFIG_VARIABLE = "REEF_CONVERSATIONS_REEF_CONFIG_DIR"
+DEFAULT_CLI_CONFIG = (Path.home() / ".reef-conversations" / "reef-cli").resolve()
+
+#: The variable Codex reads the production access token from.
+TOKEN_VARIABLE = "REEF_BENCH_TOKEN"
+
 MODEL = "gpt-6-astra"
 LOCAL_EMAIL = "conversations@reef.local"
 PRODUCTION_URL = "https://reefwith.me/mcp"
@@ -73,6 +88,8 @@ PRODUCTION_URL = "https://reefwith.me/mcp"
 MESSAGE_TIMEOUT = 420
 RESET_TIMEOUT = 360
 READY_TIMEOUT = 300
+#: Seconds ``reef token`` may take.
+TOKEN_TIMEOUT = 120
 
 #: Codex features that give the assistant a way to act outside Reef.
 _DISABLED_FEATURES = (
@@ -121,12 +138,15 @@ class Server:
         events carry back
     :param settings: its ``-c`` settings, as ``key=value`` text
     :param advice: gives what to do when the account check fails, in plain
-        words; called when the message is made, so it can name the Codex home
+        words; called when the message is made, so it can name the folder
+    :param bearer: whether Codex signs in with the command line tool's access
+        token, which the runner passes in ``REEF_BENCH_TOKEN``
     """
 
     name: str
     settings: tuple[str, ...]
     advice: Callable[[], str]
+    bearer: bool = False
 
 
 def run_secret() -> str:
@@ -177,14 +197,16 @@ def local_server(secret: str) -> Server:
 
 
 PRODUCTION_SERVER = Server(
-    "reef_test",
-    (f"mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}",),
-    lambda: (
-        f"Sign Codex out with `{home_prefix()} codex mcp logout reef_test -c "
-        f"'mcp_servers.reef_test.url={json.dumps(PRODUCTION_URL)}'`. Then sign "
-        "it in again as the test account, as step 2 of the one-time "
-        "production setup in docs/runbook.md says."
+    "reef_bench",
+    (
+        f"mcp_servers.reef_bench.url={json.dumps(PRODUCTION_URL)}",
+        f"mcp_servers.reef_bench.bearer_token_env_var={json.dumps(TOKEN_VARIABLE)}",
     ),
+    lambda: (
+        "Codex uses the sign-in of the Reef command line tool. Sign the tool "
+        f"out with `{cli_prefix()} reef logout`. {sign_in_advice()}"
+    ),
+    bearer=True,
 )
 
 
@@ -263,14 +285,21 @@ def home_prefix() -> str:
     return f"CODEX_HOME={shown}"
 
 
-def codex_env() -> dict[str, str]:
+def codex_env(token: str | None = None) -> dict[str, str]:
     """Build the environment of a ``codex`` process the runner starts.
 
-    The runner's own environment is not changed.
+    The runner's own environment is not changed. A ``REEF_BENCH_TOKEN`` in
+    the shell never reaches Codex: only the token given here does.
 
-    :returns: a copy of the environment with ``CODEX_HOME`` set to the test home
+    :param token: the access token Codex sends to production, or None
+    :returns: a copy of the environment with ``CODEX_HOME`` set to the test
+        home, and ``REEF_BENCH_TOKEN`` set to the token when there is one
     """
-    return {**os.environ, "CODEX_HOME": str(codex_home())}
+    env = {**os.environ, "CODEX_HOME": str(codex_home())}
+    env.pop(TOKEN_VARIABLE, None)
+    if token is not None:
+        env[TOKEN_VARIABLE] = token
+    return env
 
 
 def prepare_codex_home() -> Path:
@@ -352,12 +381,128 @@ def check_codex_home() -> Path:
     return home
 
 
-def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
+def cli_config_dir() -> Path:
+    """Find the folder the Reef command line tool keeps its test sign-in in.
+
+    :returns: ``$REEF_CONVERSATIONS_REEF_CONFIG_DIR`` when set, otherwise
+        ``~/.reef-conversations/reef-cli``
+    """
+    override = os.environ.get(CLI_CONFIG_VARIABLE)
+    if not override:
+        return DEFAULT_CLI_CONFIG
+    return Path(override).expanduser().resolve()
+
+
+def cli_prefix() -> str:
+    """Write the ``REEF_CONFIG_DIR=...`` prefix of a command the person types.
+
+    :returns: ``REEF_CONFIG_DIR=~/.reef-conversations/reef-cli`` for the
+        default folder, otherwise the shell-quoted path
+    """
+    folder = cli_config_dir()
+    shown = (
+        "~/.reef-conversations/reef-cli"
+        if folder == DEFAULT_CLI_CONFIG
+        else shlex.quote(str(folder))
+    )
+    return f"REEF_CONFIG_DIR={shown}"
+
+
+def sign_in_advice() -> str:
+    """Say how to sign the command line tool in as the test account.
+
+    :returns: the advice, in plain words
+    """
+    return (
+        "Sign the command line tool in as the test account, in a private "
+        f"window: `{cli_prefix()} reef login`. Then run the tests again."
+    )
+
+
+def check_cli_config_dir() -> Path:
+    """Refuse your own sign-in folder of the Reef command line tool.
+
+    Refuses ``~/.config/reef``, a folder inside it, or a folder that
+    contains it (such as your home folder). Changes nothing.
+
+    :returns: the test folder
+    :raises RunError: when the folder is, is inside or contains
+        ``~/.config/reef``
+    """
+    folder = cli_config_dir()
+    own = (Path.home().resolve() / ".config" / "reef").resolve()
+    if folder == own or own in folder.parents or folder in own.parents:
+        raise RunError(
+            f"The test sign-in folder {folder} is your own sign-in folder of "
+            "the Reef command line tool, ~/.config/reef, or a folder inside it "
+            "or around it. The test sign-in must be kept in a separate folder. "
+            f"Unset {CLI_CONFIG_VARIABLE} or point it at another folder."
+        )
+    return folder
+
+
+def cli_env() -> dict[str, str]:
+    """Build the environment of a ``reef`` command the runner starts.
+
+    The runner's own environment is not changed. ``REEF_ACCESS_TOKEN`` is
+    left out, so a token in the shell cannot replace the test sign-in.
+
+    :returns: a copy of the environment with ``REEF_CONFIG_DIR`` set to the
+        test folder
+    """
+    env = {**os.environ, "REEF_CONFIG_DIR": str(check_cli_config_dir())}
+    env.pop("REEF_ACCESS_TOKEN", None)
+    env.pop(TOKEN_VARIABLE, None)
+    return env
+
+
+def cli_token() -> str:
+    """Get a valid access token for production from the command line tool.
+
+    Runs ``reef token`` with the test folder. The token is good for at least
+    as long as one ``codex exec`` may take, when the server allows that. It
+    stays in memory: it is never printed, logged or written.
+
+    :returns: the token
+    :raises RunError: when the tool gives no token
+    """
+    command = [*_CLI, "token", "--refresh-within", str(MESSAGE_TIMEOUT)]
+    try:
+        done = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            env=cli_env(),
+            stdin=subprocess.DEVNULL,
+            timeout=TOKEN_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RunError(
+            f"The Reef command line tool gave no access token. {sign_in_advice()}"
+        ) from error
+    token = done.stdout.strip()
+    if done.returncode != 0 or not token:
+        # Its error output is not shown: nothing it printed may reach a report.
+        raise RunError(
+            "The Reef command line tool has no valid sign-in for the test "
+            f"account, so Codex cannot reach production. {sign_in_advice()}"
+        )
+    return token
+
+
+def _run_codex(
+    command: list[str], message: str, workdir: Path, token: str | None = None
+) -> Session:
     """Run one ``codex exec`` and read what it printed.
+
+    The token, if Codex printed it anyway, is taken out of what it printed
+    before anything is read.
 
     :param command: the command
     :param message: the person's message
     :param workdir: the directory Codex works in
+    :param token: the access token Codex sends to production, or None
     :returns: the session; with an error when Codex failed or timed out
     """
     try:
@@ -367,7 +512,7 @@ def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
             capture_output=True,
             text=True,
             cwd=workdir,
-            env=codex_env(),
+            env=codex_env(token),
             timeout=MESSAGE_TIMEOUT,
             check=False,
         )
@@ -375,9 +520,13 @@ def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
         return Session(
             "", [], [], "", f"Codex took longer than {MESSAGE_TIMEOUT} seconds"
         )
-    session = parse_events(done.stdout.splitlines())
+    stdout, stderr = done.stdout, done.stderr
+    if token:
+        stdout = stdout.replace(token, "[token removed]")
+        stderr = stderr.replace(token, "[token removed]")
+    session = parse_events(stdout.splitlines())
     if done.returncode != 0 and session.error in (None, "the turn did not finish"):
-        lines = done.stderr.strip().splitlines()
+        lines = stderr.strip().splitlines()
         session = replace(session, error=(lines[-1][:200] if lines else "Codex failed"))
     return session
 
@@ -385,11 +534,14 @@ def _run_codex(command: list[str], message: str, workdir: Path) -> Session:
 def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> Session:
     """Play a scenario's messages, in one Codex session.
 
+    For a server that takes a token, each message gets a fresh one.
+
     :param scenario: the scenario
     :param server: the Reef server to offer
     :param tools: the only Reef tools to offer; None offers all of them, or
         only ``search`` and ``fetch`` to a connector scenario
     :returns: the conversation: every call in order, every answer
+    :raises RunError: when the command line tool gives no token
     """
     if tools is None and scenario["connector"]:
         tools = CONNECTOR_TOOLS
@@ -401,7 +553,8 @@ def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> 
             command = codex_command(
                 server, tools=tools, session_id=session_id, workdir=workdir
             )
-            turn = _run_codex(command, message, workdir)
+            token = cli_token() if server.bearer else None
+            turn = _run_codex(command, message, workdir, token)
             turns.append(turn)
             session_id = session_id or turn.session_id
             if turn.error or not session_id:
@@ -519,7 +672,7 @@ class ProductionTarget:
         """Nothing to disconnect from."""
 
     def _cli(self, *arguments: str, timeout: int) -> str:
-        """Run the Reef command line tool.
+        """Run the Reef command line tool, with the test sign-in.
 
         :param arguments: what to give it
         :param timeout: seconds to wait
@@ -531,6 +684,7 @@ class ProductionTarget:
                 [*_CLI, *arguments],
                 capture_output=True,
                 text=True,
+                env=cli_env(),
                 timeout=timeout,
                 check=False,
                 stdin=subprocess.DEVNULL,
@@ -538,9 +692,7 @@ class ProductionTarget:
         except subprocess.TimeoutExpired as error:
             raise RunError(
                 "The Reef command line tool did not finish. It may be waiting "
-                "for a sign-in. Sign in first with `uv run --project "
-                f"clients/python reef --url {PRODUCTION_URL} login`, then run "
-                "this again."
+                f"for a sign-in. {sign_in_advice()}"
             ) from error
         return done.stdout
 
@@ -666,7 +818,8 @@ async def run(
     :param only: the ids to play, or None for all
     :param file_text: whether file text is on, or None to ask the target
     :returns: the Markdown report's path
-    :raises RunError: when an id is unknown or a reset fails
+    :raises RunError: when an id is unknown, a folder or sign-in is not
+        usable, or a reset fails
     :raises AccountCheckFailed: when nothing shows that Codex reaches the
         made-up person's memory; no scenario is played then
     """
@@ -677,7 +830,13 @@ async def run(
         raise RunError(f"no scenario named {', '.join(unknown)}")
     chosen = [s for s in scenarios if not only or s["id"] in only]
     chosen.sort(key=lambda s: s["kind"] != "read")
+    if target.server.bearer:
+        check_cli_config_dir()
     home = check_codex_home()
+    if target.server.bearer:
+        # Proves the command line tool is signed in before any reset; this
+        # token is not used.
+        cli_token()
     started = datetime.now(UTC)
     scored: list[Scored] = []
     answers: dict[str, str] = {}

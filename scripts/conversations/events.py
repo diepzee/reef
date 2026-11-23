@@ -21,7 +21,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
 #: The names Reef's server goes by in the runner's Codex settings.
-REEF_SERVERS = frozenset({"reef_local", "reef_test"})
+REEF_SERVERS = frozenset({"reef_local", "reef_bench"})
 
 #: Items that are neither a tool nor a source of information: the
 #: assistant's words, its reasoning, its own to-do list, and warnings.

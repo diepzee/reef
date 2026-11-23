@@ -19,6 +19,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, SupportsFloat
+from urllib.parse import urlsplit
 
 import httpx
 from fastmcp import Client
@@ -28,6 +29,8 @@ DEFAULT_MCP_URL = "https://reefwith.me/mcp"
 DEFAULT_RESET_TIMEOUT = 300.0
 READY_POLL_SECONDS = 2.0
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "reef"
+#: ``reef token`` refreshes a token that runs out within this many seconds.
+DEFAULT_TOKEN_MARGIN = 60.0
 
 
 class CLIError(Exception):
@@ -244,6 +247,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("login", help="sign in through MCP OAuth and cache the tokens")
     sub.add_parser("logout", help="remove cached OAuth tokens for this endpoint")
+    token = sub.add_parser(
+        "token", help="print a valid access token for this endpoint (for scripts)"
+    )
+    token.add_argument(
+        "--refresh-within",
+        type=float,
+        default=DEFAULT_TOKEN_MARGIN,
+        metavar="SECONDS",
+        help="refresh the token first when it runs out within SECONDS "
+        "(default: %(default)s)",
+    )
     sub.add_parser("tools", help="list the MCP server's current tool schemas")
     reset = sub.add_parser(
         "reset-test-account",
@@ -578,6 +592,73 @@ async def reset_test_account(
     return result, 0
 
 
+async def access_token(
+    url: str,
+    store: JsonTokenStore,
+    *,
+    refresh_within: float,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[str | None, str | None]:
+    """Find a valid access token in the cached sign-in, refreshed when needed.
+
+    Never starts a sign-in: without a usable cached sign-in it gives up. A
+    refresh goes to the server's ``/token``, as the OAuth client's own
+    refresh does, and the new tokens replace the cached ones.
+
+    :param url: the MCP endpoint the sign-in is for
+    :param store: the cached OAuth state
+    :param refresh_within: refresh first when the token runs out within this
+        many seconds
+    :param transport: replaces the network, for tests
+    :returns: the token and None; or None and the error code,
+        ``not_signed_in`` or ``server_error``
+    """
+    oauth = OAuth(mcp_url=url, client_name="Reef CLI", token_storage=store)
+    saved = oauth.token_storage_adapter
+    tokens = await saved.get_tokens()
+    if tokens is None:
+        return None, "not_signed_in"
+    expires_at = await saved.get_token_expiry()
+    if expires_at is None and tokens.expires_in is None:
+        return tokens.access_token, None
+    if expires_at is not None and expires_at - time.time() > refresh_within:
+        return tokens.access_token, None
+    client = await saved.get_client_info()
+    if not tokens.refresh_token or client is None or not client.client_id:
+        return None, "not_signed_in"
+    oauth.context.client_info = client
+    form, headers = oauth.context.prepare_token_auth(
+        {
+            "grant_type": "refresh_token",
+            "refresh_token": tokens.refresh_token,
+            "client_id": client.client_id,
+        },
+        {"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    parts = urlsplit(url)
+    try:
+        async with httpx.AsyncClient(transport=transport, timeout=30.0) as http:
+            response = await http.post(
+                f"{parts.scheme}://{parts.netloc}/token", data=form, headers=headers
+            )
+    except httpx.HTTPError:
+        return None, "server_error"
+    if response.status_code in (400, 401):
+        return None, "not_signed_in"
+    if response.status_code != 200:
+        return None, "server_error"
+    try:
+        # The cached token's own model, so the CLI needs no import of ``mcp``.
+        fresh = type(tokens).model_validate_json(response.content)
+    except ValueError:
+        # Never echo the body: it may hold a token.
+        return None, "server_error"
+    if fresh.refresh_token is None:
+        fresh = fresh.model_copy(update={"refresh_token": tokens.refresh_token})
+    await saved.set_tokens(fresh)
+    return fresh.access_token, None
+
+
 async def run(
     args: argparse.Namespace,
     *,
@@ -589,7 +670,8 @@ async def run(
 
     :param args: the parsed command
     :param client_class: the MCP client, replaced in tests
-    :param transport: the HTTP transport of ``reset-test-account``, replaced in tests
+    :param transport: the HTTP transport of ``reset-test-account`` and
+        ``token``, replaced in tests
     :param poll_interval: seconds between ``reset-test-account`` readiness checks
     :returns: the process status
     """
@@ -598,6 +680,17 @@ async def run(
         oauth = OAuth(mcp_url=args.url, client_name="Reef CLI", token_storage=store)
         await oauth.token_storage_adapter.clear()
         _print_json({"logged_out": True, "url": args.url}, compact=args.compact)
+        return 0
+
+    if args.command == "token":
+        # Only the cached sign-in counts: ``REEF_ACCESS_TOKEN`` is not read.
+        found, error = await access_token(
+            args.url, store, refresh_within=args.refresh_within, transport=transport
+        )
+        if found is None:
+            print(json.dumps({"error": error}), file=sys.stderr)
+            return 1
+        print(found)
         return 0
 
     token = os.environ.get("REEF_ACCESS_TOKEN")
