@@ -20,6 +20,25 @@ section of `docs/runbook.md`.
 
 ## Run it
 
+Once, before any run (local or production), sign in the runner's own Codex home:
+
+```
+CODEX_HOME=~/.reef-conversations/codex codex login
+```
+
+Your own Codex is not affected: typing `codex` keeps using `~/.codex`. The
+process that runs the tests needs read and write access to
+`~/.reef-conversations/codex`. Set `REEF_CONVERSATIONS_CODEX_HOME` to use
+another folder.
+
+For production, also sign the test account in to Reef, with the same prefix:
+
+```
+CODEX_HOME=~/.reef-conversations/codex codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'
+```
+
+To sign out again, use `codex mcp logout reef_test` with the same prefix and `-c`.
+
 ```
 just conversations-account                      # local only, once
 uv run python scripts/conversations/run.py --target local

@@ -1495,6 +1495,23 @@ Codex reaches. It asks Codex one question with `load_index` as the only tool,
 and stops unless the index carries Lode Vanhecke's persona word for word.
 Reports go to `~/.reef-conversations/reports/`, outside git.
 
+### Set up Codex once (local and production)
+
+The runner uses its own Codex home, `~/.reef-conversations/codex`, so your
+personal Codex settings and `AGENTS.md` never reach a test. Sign it in to
+Codex once, before any run:
+
+```
+CODEX_HOME=~/.reef-conversations/codex codex login
+```
+
+Your own Codex is not affected: typing `codex` keeps using `~/.codex`.
+
+Before anything else, the runner checks this home. It stops when the home is
+not signed in, holds an `AGENTS.md`, or cannot be read and written. The
+process that runs the tests needs read and write access to the folder, also
+inside a sandbox. To use another folder, set `REEF_CONVERSATIONS_CODEX_HOME`.
+
 ### Run it locally
 
 1. `just conversations-account` makes `conversations@reef.local` in the
@@ -1538,7 +1555,7 @@ Do these in order.
    window where nobody is signed in, and choose the test account's address.
    If Codex were signed in as you, the account check would stop the run
    before any scenario. But Codex would already have read your index once.
-   - For Codex: `codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`
+   - For Codex: `CODEX_HOME=~/.reef-conversations/codex codex mcp login reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`
    - For the reset command: `uv run --project clients/python reef --url https://reefwith.me/mcp login`
 
    The runner passes `--url https://reefwith.me/mcp` to every Reef command,
@@ -1576,7 +1593,7 @@ Do these in order.
 
    > Codex is signed in to another account: the index it read does not carry
    > the persona of the made-up person, Lode Vanhecke. No scenario was played.
-   > Sign Codex out with `codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
+   > Sign Codex out with `CODEX_HOME=~/.reef-conversations/codex codex mcp logout reef_test -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`.
    > Then sign it in again as the test account, as step 2 of the one-time
    > production setup in docs/runbook.md says.
 
@@ -1585,32 +1602,15 @@ Do these in order.
    see "Unproven" below.
 
 **Why the Codex login uses `-c`.** The runner starts Codex with
-`--ignore-user-config`, so Codex does not read `~/.codex/config.toml`. The
-server `reef_test` exists only through the `-c` settings the runner passes. A
-`[mcp_servers.reef_test]` entry in `config.toml` would not be seen. Codex
-stores the login by server name and URL (in the system keychain, or in a file
-under `CODEX_HOME`, per `mcp_oauth_credentials_store`; the default is `auto`).
-The login command above uses the same name and URL, so the runner should find
-it. Check with `codex mcp list -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`:
-the `reef_test` row must say `OAuth`, not `Not logged in`.
-
-**Unproven.** `codex mcp list` showed that Codex knows `reef_test` from `-c`
-alone (`Not logged in` before the login). That is not the same as
-`codex exec --ignore-user-config` finding the login, and nobody has completed
-a real sign-in to test it. If the first production run stops with "The
-account check failed", the login was not found. There are two options, and
-each needs a change to the runner:
-
-- **A dedicated `CODEX_HOME` for the runs (recommended).** You sign in to
-  Codex itself once more in that directory, and the test account's Reef login
-  lives there, apart from anything else. Isolation stays intact.
-- **Drop `--ignore-user-config`.** Codex then reads your own settings, so a
-  `[mcp_servers.reef_test]` entry in `~/.codex/config.toml` would work. It
-  also loads your other MCP servers, rules and settings, which weakens "Reef
-  tools and nothing else".
-
-Both change what the runner does, and the second changes your Codex settings.
-Decide before the first run that needs it.
+`--ignore-user-config`, so Codex does not read `config.toml`. The server
+`reef_test` exists only through the `-c` settings the runner passes. Codex
+stores the login by server name and URL, in the test home. The login command
+above uses the same name, URL and `CODEX_HOME`, so the runner finds it.
+Check with
+`CODEX_HOME=~/.reef-conversations/codex codex mcp list -c 'mcp_servers.reef_test.url="https://reefwith.me/mcp"'`:
+the `reef_test` row must say `OAuth`, not `Not logged in`. If the first
+production run stops with "The account check failed", the login was not
+found: repeat step 2.
 
 ### What the verdicts mean
 
@@ -1631,7 +1631,8 @@ Both logins expire. Signs: the run stops at "The account check failed", or
 Codex scenarios end `invalid` with an authentication error; or `reef
 reset-test-account` fails, or the runner stops after 360 seconds with a
 message to sign in. Sign in again with the two commands of step 2, as the
-test account. Nothing else needs to change.
+test account. If the run says the test home is not signed in to Codex, run
+`CODEX_HOME=~/.reef-conversations/codex codex login` again. Nothing else needs to change.
 
 ## Deploying the rename (RUG-40)
 

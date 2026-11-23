@@ -7,7 +7,10 @@ made up.
 
 import importlib.util
 import json
+import os
 import re
+import shlex
+import subprocess
 import sys
 from importlib.metadata import version
 from pathlib import Path
@@ -767,3 +770,288 @@ async def test_failed_run_still_writes_a_report(tmp_path, monkeypatch):
     report = _report(tmp_path)
     assert "boom" in report["meta"]["stopped"]
     assert "reset broke" in report["meta"]["final_reset_failed"]
+
+
+@pytest.fixture(autouse=True)
+def _signed_in_test_home(tmp_path, monkeypatch):
+    """Give every test a writable, signed-in Codex test home of its own.
+
+    :param tmp_path: the test's temporary directory
+    :param monkeypatch: pytest's monkeypatch
+    """
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(tmp_path / "codex-home"))
+    monkeypatch.setattr(
+        run, "codex_login_status", lambda: (0, "Logged in using ChatGPT")
+    )
+
+
+def _capture_subprocess(monkeypatch) -> list[dict]:
+    """Replace ``subprocess.run`` in the runner and note each call.
+
+    :param monkeypatch: pytest's monkeypatch
+    :returns: the list the calls are noted in; each has ``command`` and ``env``
+    """
+    calls: list[dict] = []
+
+    def fake(command: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        """Note the call and print nothing.
+
+        :param command: the command
+        :param kwargs: the other arguments
+        :returns: an empty, successful result
+        """
+        calls.append({"command": command, "env": kwargs.get("env")})
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(run.subprocess, "run", fake)
+    return calls
+
+
+def test_every_codex_command_runs_in_the_test_home(tmp_path, monkeypatch):
+    """Both targets, resumed turns and the account check get the test home."""
+    monkeypatch.delenv(run.CODEX_HOME_VARIABLE)
+    default = tmp_path / "default-home"
+    monkeypatch.setattr(run, "DEFAULT_CODEX_HOME", default)
+    monkeypatch.setenv("CODEX_HOME", str(Path.home() / ".codex"))
+    before = dict(os.environ)
+    calls = _capture_subprocess(monkeypatch)
+    scenario = {"id": "x", "messages": ["a", "b"], "connector": False}
+    for server in (run.local_server("ab" * 32), run.PRODUCTION_SERVER):
+        run._run_codex(
+            run.codex_command(server, tools=None, session_id=None), "a", tmp_path
+        )
+        run._run_codex(
+            run.codex_command(server, tools=None, session_id="t-1"), "b", tmp_path
+        )
+        run.play(scenario, server, run.PROBE_TOOLS)
+    assert len(calls) == 6
+    expected = str(default)
+    for call in calls:
+        assert call["command"][:2] == ["codex", "exec"]
+        assert call["env"]["CODEX_HOME"] == expected
+        assert call["env"]["PATH"] == os.environ["PATH"]
+    assert dict(os.environ) == before
+
+
+def test_codex_home_can_be_overridden(tmp_path, monkeypatch):
+    """``REEF_CONVERSATIONS_CODEX_HOME`` replaces the default folder."""
+    other = tmp_path / "elsewhere"
+    monkeypatch.setenv("REEF_CONVERSATIONS_CODEX_HOME", str(other))
+    calls = _capture_subprocess(monkeypatch)
+    run._run_codex(["codex", "exec", "-"], "hi", tmp_path)
+    assert run.codex_home() == other
+    assert calls[0]["env"]["CODEX_HOME"] == str(other)
+    monkeypatch.delenv("REEF_CONVERSATIONS_CODEX_HOME")
+    assert run.codex_home() == run.DEFAULT_CODEX_HOME
+    assert run.DEFAULT_CODEX_HOME == Path.home() / ".reef-conversations" / "codex"
+
+
+def test_preparing_the_home_makes_it_private(tmp_path):
+    """The folder is made when missing, readable by its owner only."""
+    home = run.prepare_codex_home()
+    assert home.is_dir() and home.stat().st_mode & 0o777 == 0o700
+    assert list(home.iterdir()) == []
+
+
+async def test_not_signed_in_stops_before_any_reset(tmp_path, monkeypatch):
+    """No sign-in in the test home: stop, say the command, touch nothing."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setattr(run, "codex_login_status", lambda: (1, "Not logged in"))
+    monkeypatch.delenv(run.CODEX_HOME_VARIABLE)
+    monkeypatch.setattr(run, "DEFAULT_CODEX_HOME", tmp_path / "default-home")
+    recorder = _Recorder(_probe(_index_call(read_fixture().persona)))
+    monkeypatch.setattr(run, "play", recorder)
+    target = _FakeTarget()
+    with pytest.raises(run.RunError) as caught:
+        await run.run(target, ["dentist-moved"], None)
+    message = str(caught.value)
+    assert "not signed in to Codex" in message
+    assert "CODEX_HOME=~/.reef-conversations/codex codex login" in message
+    assert "does not affect your own Codex" in message
+    assert target.resets == 0 and recorder.played == []
+
+
+async def test_status_exit_code_decides_signed_in(tmp_path, monkeypatch):
+    """A zero exit that says "Not logged in" still counts as not signed in."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setattr(run, "codex_login_status", lambda: (0, "Not logged in"))
+    with pytest.raises(run.RunError, match="not signed in"):
+        await run.run(_FakeTarget(), ["dentist-moved"], None)
+
+
+async def test_agents_file_in_the_test_home_stops_the_run(tmp_path, monkeypatch):
+    """An ``AGENTS.md`` in the test home would reach every conversation."""
+    home = Path(os.environ[run.CODEX_HOME_VARIABLE])
+    home.mkdir()
+    (home / "AGENTS.md").write_text("Always answer in rhyme.", encoding="utf-8")
+    target = _FakeTarget()
+    with pytest.raises(run.RunError, match="AGENTS.md"):
+        await run.run(target, ["dentist-moved"], None)
+    assert target.resets == 0
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permissions")
+async def test_unwritable_home_stops_the_run(tmp_path, monkeypatch):
+    """A read-only test home stops the run and names the folder."""
+    home = tmp_path / "readonly"
+    home.mkdir()
+    home.chmod(0o500)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(home))
+    target = _FakeTarget()
+    try:
+        with pytest.raises(run.RunError) as caught:
+            await run.run(target, ["dentist-moved"], None)
+    finally:
+        home.chmod(0o700)
+    assert str(home) in str(caught.value)
+    assert "read and write access" in str(caught.value)
+    assert target.resets == 0
+
+
+async def test_report_names_the_codex_home(tmp_path, monkeypatch):
+    """The report's meta says which Codex home the run used."""
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    recorder = _Recorder(_probe(_index_call(read_fixture().persona)))
+    monkeypatch.setattr(run, "play", recorder)
+    await run.run(_FakeTarget(), ["dentist-moved"], None)
+    meta = _report(tmp_path / "reports")["meta"]
+    assert meta["codex_home"] == os.environ[run.CODEX_HOME_VARIABLE]
+
+
+@pytest.mark.parametrize("inside", ["", "sub/dir"])
+async def test_own_codex_home_is_refused(tmp_path, monkeypatch, inside):
+    """``~/.codex``, or a folder inside it, is never the test home."""
+    fake_home = tmp_path / "person"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    own = fake_home / ".codex"
+    link = tmp_path / "link"
+    link.symlink_to(fake_home)
+    # A symlink and a trailing slash must not get around the refusal.
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, f"{link}/.codex/{inside}/")
+    target = _FakeTarget()
+    with pytest.raises(run.RunError, match="separate folder"):
+        await run.run(target, ["dentist-moved"], None)
+    assert not own.exists()
+    assert target.resets == 0
+
+
+def test_relative_override_becomes_absolute(tmp_path, monkeypatch):
+    """A relative folder is resolved once, so ``codex`` sees the same one."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, "rel/home")
+    assert run.codex_home() == (tmp_path / "rel" / "home").resolve()
+    assert run.codex_env()["CODEX_HOME"] == str((tmp_path / "rel" / "home").resolve())
+
+
+def test_sign_out_advice_names_the_actual_home(tmp_path, monkeypatch):
+    """The production advice shows the default literally, else a quoted path."""
+    monkeypatch.delenv(run.CODEX_HOME_VARIABLE)
+    default = run.PRODUCTION_SERVER.advice()
+    assert "CODEX_HOME=~/.reef-conversations/codex codex mcp logout" in default
+    other = tmp_path / "my home"
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(other))
+    advice = run.PRODUCTION_SERVER.advice()
+    assert f"CODEX_HOME={shlex.quote(str(other.resolve()))} codex mcp logout" in advice
+    monkeypatch.setattr(run, "codex_login_status", lambda: (1, "Not logged in"))
+    with pytest.raises(run.RunError) as caught:
+        run.check_codex_home()
+    assert f"CODEX_HOME={shlex.quote(str(other.resolve()))} codex login" in str(
+        caught.value
+    )
+
+
+async def test_checks_run_in_order(tmp_path, monkeypatch):
+    """Own home, writable, no AGENTS.md, signed in, and only then the first reset."""
+    events: list[str] = []
+    status = (0, "Logged in using ChatGPT")
+
+    def signed_in() -> tuple[int, str]:
+        """Note the sign-in check and answer with the current status.
+
+        :returns: the status
+        """
+        events.append("signed-in")
+        return status
+
+    class Tracing(_FakeTarget):
+        """A target that notes its resets."""
+
+        async def reset(self) -> run.Services:
+            """Note the reset, then reset.
+
+            :returns: the services
+            """
+            events.append("reset")
+            return await super().reset()
+
+    async def attempt(match: str | None) -> None:
+        """Run once; expect the refusal in ``match``, or a full run.
+
+        :param match: text the refusal must hold, or None when the run passes
+        """
+        events.clear()
+        if match is None:
+            await run.run(Tracing(), ["dentist-moved"], None)
+            return
+        with pytest.raises(run.RunError, match=match):
+            await run.run(Tracing(), ["dentist-moved"], None)
+
+    monkeypatch.setattr(run, "REPORTS", tmp_path / "reports")
+    monkeypatch.setattr(run, "codex_login_status", signed_in)
+    monkeypatch.setattr(
+        run, "play", _Recorder(_probe(_index_call(read_fixture().persona)))
+    )
+    person = tmp_path / "person"
+    (person / ".codex").mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: person)
+    test_home = tmp_path / "test-home"
+
+    # 1. Your own home comes first, though it holds an AGENTS.md too.
+    (person / ".codex" / "AGENTS.md").write_text("x", encoding="utf-8")
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(person / ".codex"))
+    await attempt("separate folder")
+    assert events == []
+
+    # 2. Then writability, though the home holds an AGENTS.md as well.
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(test_home))
+    test_home.mkdir()
+    (test_home / "AGENTS.md").write_text("x", encoding="utf-8")
+    if os.geteuid() != 0:
+        test_home.chmod(0o500)
+        try:
+            await attempt("read and write access")
+        finally:
+            test_home.chmod(0o700)
+        assert events == []
+
+    # 3. Then the AGENTS.md, before any call to Codex.
+    await attempt("AGENTS.md")
+    assert events == []
+
+    # 4. Then the sign-in, before the first reset.
+    (test_home / "AGENTS.md").unlink()
+    status = (1, "Not logged in")
+    await attempt("not signed in")
+    assert events == ["signed-in"]
+
+    # 5. When every check passes, the first reset comes after them.
+    status = (0, "Logged in using ChatGPT")
+    await attempt(None)
+    assert events[:2] == ["signed-in", "reset"]
+
+
+@pytest.mark.parametrize("around", [".", ".."])
+async def test_a_folder_around_your_codex_home_is_refused(
+    tmp_path, monkeypatch, around
+):
+    """Your home folder, or one above it, would put Codex's files among yours."""
+    person = tmp_path / "people" / "person"
+    person.mkdir(parents=True)
+    monkeypatch.setattr(Path, "home", lambda: person)
+    monkeypatch.setenv(run.CODEX_HOME_VARIABLE, str(person / around))
+    target = _FakeTarget()
+    with pytest.raises(run.RunError, match="separate folder"):
+        await run.run(target, ["dentist-moved"], None)
+    assert list(person.iterdir()) == []
+    assert target.resets == 0
