@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.3.0",
+      "date": "2026-11-23",
+      "changes": [
+        {
+          "kind": "fixed",
+          "text": "The command-line tool works again after a fresh install, instead of stopping with an error about a missing module."
+        }
+      ]
+    },
+    {
       "version": "2.2.0",
       "date": "2026-11-23",
       "changes": [

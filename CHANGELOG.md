@@ -1,3 +1,13 @@
+## [2.3.0](https://github.com/diepzee/reef/compare/v2.2.0...v2.3.0) (2026-11-23)
+
+### Features
+
+* **conversations:** run test conversations in their own Codex home (RUG-66) ([#157](https://github.com/diepzee/reef/issues/157)) ([1f6e87d](https://github.com/diepzee/reef/commit/1f6e87d5c45c75023280916eee7b24b6b2faea8f))
+
+### Bug fixes
+
+* **test-accounts:** verify sign-ins with the running server, and declare httpx for the CLI ([#159](https://github.com/diepzee/reef/issues/159)) ([2b9f723](https://github.com/diepzee/reef/commit/2b9f72309f85688f19fa19a5317562bb29e9df30))
+
 ## [2.2.0](https://github.com/diepzee/reef/compare/v2.1.0...v2.2.0) (2026-11-23)
 
 ### Features
