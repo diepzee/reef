@@ -1,3 +1,10 @@
+## [2.2.0](https://github.com/diepzee/reef/compare/v2.1.0...v2.2.0) (2026-11-23)
+
+### Features
+
+* **calls:** say on the privacy page that the call log is on (RUG-45) ([#154](https://github.com/diepzee/reef/issues/154)) ([06e7ad1](https://github.com/diepzee/reef/commit/06e7ad1fda84726c0c5b14d9231739bed787841b))
+* **test-accounts:** test conversations on a made-up account (RUG-63) ([#155](https://github.com/diepzee/reef/issues/155)) ([b541140](https://github.com/diepzee/reef/commit/b5411409bcacd76111395ffb6e1ae7bb579d4091))
+
 ## [2.1.0](https://github.com/diepzee/reef/compare/v2.0.0...v2.1.0) (2026-11-21)
 
 ### Features

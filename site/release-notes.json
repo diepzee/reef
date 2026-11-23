@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.2.0",
+      "date": "2026-11-23",
+      "changes": [
+        {
+          "kind": "changed",
+          "text": "reef now keeps a private record of what your assistant asks it to do, and why. Only you can see it, and it is deleted after 90 days."
+        }
+      ]
+    },
+    {
       "version": "2.1.0",
       "date": "2026-11-21",
       "changes": [
