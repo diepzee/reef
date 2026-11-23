@@ -10,6 +10,7 @@ person id or any engram text.
 from dataclasses import asdict
 from importlib.metadata import version
 
+from mcp.server.auth.middleware.bearer_auth import AuthenticatedUser
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -33,39 +34,56 @@ _registered: set[int] = set()
 
 
 async def principal_from_bearer(request: Request) -> Principal:
-    """Resolve the caller from an ``Authorization: Bearer`` header.
+    """Resolve the caller from the bearer token the serving server verified.
 
-    The token is verified by the server's own auth provider. Without a
-    provider, ``REEF_DEV_INSECURE=1`` falls back to
-    ``REEF_DEV_PRINCIPAL_EMAIL``, as :func:`reef.auth.current_principal` does.
+    FastMCP's HTTP app sends every request, these routes included, through
+    its provider's authentication middleware. When the provider accepts the
+    ``Authorization: Bearer`` token, the middleware leaves an
+    :class:`~mcp.server.auth.middleware.bearer_auth.AuthenticatedUser` holding
+    the verified token in ``request.scope["user"]``. That is the only
+    verification trusted here.
+
+    The provider is never looked up through ``reef.server``. Production runs
+    ``python -m reef.server``, so the serving server is ``__main__.mcp``;
+    importing ``reef.server`` would build a second server, with a provider
+    that has never served a request and accepts none of the real one's
+    tokens.
+
+    When the serving server has no provider, ``REEF_DEV_INSECURE=1`` falls
+    back to ``REEF_DEV_PRINCIPAL_EMAIL``, as
+    :func:`reef.auth.current_principal` does.
 
     :param request: the incoming request
     :raises AccessDenied: when no identity can be established
     :returns: the authenticated principal
     """
-    from reef.server import mcp
-
-    provider = mcp.auth
-    if provider is None:
-        settings = get_settings()
-        email = settings.dev.principal_email or None
-        if not settings.dev.insecure or not email:
-            raise AccessDenied("no auth provider on this server")
-        async with transaction_scope():
-            identity = await person_by_email(email)
-            if identity is None:
-                raise AccessDenied("unknown principal")
-            principal = Principal(person_id=identity.person_id, email=identity.email)
-            await arm(principal)
-        return principal
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise AccessDenied("no bearer token")
-    verified = await provider.verify_token(token.strip())
-    if verified is None:
-        raise AccessDenied("token not accepted")
+    if request.app.state.fastmcp_server.auth is None:
+        return await _dev_principal()
+    user = request.scope.get("user")
+    if not isinstance(user, AuthenticatedUser):
+        raise AccessDenied("no bearer token the server accepted")
     async with transaction_scope():
-        return await principal_from_claims(dict(verified.claims))
+        return await principal_from_claims(dict(user.access_token.claims or {}))
+
+
+async def _dev_principal() -> Principal:
+    """Resolve the dev person, for a server running without a provider.
+
+    :raises AccessDenied: unless ``REEF_DEV_INSECURE=1`` names a known
+        ``REEF_DEV_PRINCIPAL_EMAIL``
+    :returns: the dev principal
+    """
+    settings = get_settings()
+    email = settings.dev.principal_email or None
+    if not settings.dev.insecure or not email:
+        raise AccessDenied("no auth provider on this server")
+    async with transaction_scope():
+        identity = await person_by_email(email)
+        if identity is None:
+            raise AccessDenied("unknown principal")
+        principal = Principal(person_id=identity.person_id, email=identity.email)
+        await arm(principal)
+    return principal
 
 
 async def _is_flagged(principal: Principal) -> bool:

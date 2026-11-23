@@ -1,7 +1,7 @@
 """The test-account routes: reset and readiness, for the signed-in test account."""
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
 from importlib.metadata import version
 
 import asyncpg
@@ -9,9 +9,11 @@ import httpx
 import pytest
 import pytest_asyncio
 from conftest import Graph
-from fastmcp import Client
+from fastmcp import Client, FastMCP
+from fastmcp.server.auth import AccessToken, TokenVerifier
 
 from reef.access import Principal, arm
+from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.models import Engram, Person
@@ -20,14 +22,7 @@ from reef.testaccount.fixture import read_fixture
 GOOD = "good-token"
 
 
-@dataclass
-class _Token:
-    """A verified token, as the provider hands it back."""
-
-    claims: dict[str, str]
-
-
-class _StubAuth:
+class _StubAuth(TokenVerifier):
     """An auth provider that accepts one token and names its subject."""
 
     def __init__(self, subject: str) -> None:
@@ -35,9 +30,10 @@ class _StubAuth:
 
         :param subject: the subject the good token carries
         """
+        super().__init__()
         self.subject = subject
 
-    async def verify_token(self, token: str) -> _Token | None:
+    async def verify_token(self, token: str) -> AccessToken | None:
         """Accept only the good token.
 
         :param token: the bearer token
@@ -45,31 +41,59 @@ class _StubAuth:
         """
         if token != GOOD:
             return None
-        return _Token(claims={"sub": self.subject})
+        return AccessToken(
+            token=token, client_id="reef-cli", scopes=[], claims={"sub": self.subject}
+        )
 
 
-@pytest_asyncio.fixture
-async def route(
-    monkeypatch: pytest.MonkeyPatch, graph: Graph
-) -> AsyncIterator[httpx.AsyncClient]:
-    """Serve the test-account routes with a stub auth provider.
+class _RejectAll(TokenVerifier):
+    """An auth provider that accepts nothing, like a second copy of the server's."""
 
-    :param monkeypatch: pytest's monkeypatch fixture
-    :param graph: the topology builders
-    :returns: an async client against the server's app
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Reject every token.
+
+        :param token: the bearer token
+        :returns: always None
+        """
+        return None
+
+
+#: A server that is not ``reef.server.mcp``, as production's ``__main__.mcp``
+#: is not. Built once for the whole module: route registration is keyed on
+#: the server's ``id()``, which a fresh server per test could reuse.
+_SERVED = FastMCP("reef-test-account-routes", auth=_StubAuth("sub-1"))
+#: A server without a provider, as in local development.
+_OPEN = FastMCP("reef-test-account-routes-open")
+
+
+@asynccontextmanager
+async def _serve(server: FastMCP) -> AsyncIterator[httpx.AsyncClient]:
+    """Serve the test-account routes from ``server``'s own HTTP app.
+
+    :param server: the server to register the routes on and serve
+    :returns: an async client against that server's app
     """
-    from reef.server import mcp
     from reef.web.routes_test_account import register_test_account_routes
 
-    register_test_account_routes(mcp)
-    app = mcp.http_app()
-    # Set after the app is built: the app would otherwise ask the stub for
-    # middleware. The routes read the provider from the server per request.
-    monkeypatch.setattr(mcp, "auth", _StubAuth("sub-1"))
-    transport = httpx.ASGITransport(app=app)
+    register_test_account_routes(server)
+    transport = httpx.ASGITransport(app=server.http_app())
     async with httpx.AsyncClient(
         transport=transport, base_url="https://reef.example"
     ) as client:
+        yield client
+
+
+@pytest_asyncio.fixture
+async def route(graph: Graph) -> AsyncIterator[httpx.AsyncClient]:
+    """Serve the test-account routes from a server whose provider is the stub.
+
+    The stub is the server's provider from the start, so its HTTP app runs
+    the stub's authentication middleware, as production's app runs AuthKit's.
+
+    :param graph: the topology builders
+    :returns: an async client against the server's app
+    """
+    async with _serve(_SERVED) as client:
         yield client
 
 
@@ -174,6 +198,48 @@ async def test_ready_reports_counts(route, graph, seed):
         "files_unread",
         "jobs_waiting",
     }
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [("POST", "/api/test-account/reset"), ("GET", "/api/test-account/ready")],
+)
+async def test_routes_trust_the_server_that_serves_them(
+    monkeypatch, graph, seed, method, path
+):
+    """A sign-in the serving server accepts is accepted, whatever ``reef.server`` says.
+
+    Production starts ``python -m reef.server``, so the serving server is
+    ``__main__.mcp``, and importing ``reef.server`` builds a second server with
+    a provider of its own. Here that second provider rejects every token: the
+    routes must never ask it.
+    """
+    from reef.server import mcp
+
+    monkeypatch.setattr(mcp, "auth", _RejectAll())
+    await _person(graph, seed, flagged=True)
+    async with _serve(_SERVED) as client:
+        response = await client.request(method, path, headers=_bearer())
+    assert response.status_code == 200
+
+
+async def test_without_provider_dev_person_is_admitted(monkeypatch, graph, seed):
+    """A server without a provider admits the dev person when ``REEF_DEV_INSECURE=1``."""
+    person = await _person(graph, seed, flagged=True)
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
+    monkeypatch.setattr(get_settings().dev, "principal_email", person.email)
+    async with _serve(_OPEN) as client:
+        response = await client.get("/api/test-account/ready")
+    assert response.status_code == 200
+
+
+async def test_with_provider_dev_person_is_refused(route, monkeypatch, graph, seed):
+    """A server with a provider ignores the dev settings: no token stays 401."""
+    person = await _person(graph, seed, flagged=True)
+    monkeypatch.setattr(get_settings().dev, "insecure", True)
+    monkeypatch.setattr(get_settings().dev, "principal_email", person.email)
+    response = await route.get("/api/test-account/ready")
+    assert response.status_code == 401
 
 
 async def test_reset_is_not_an_mcp_tool():
