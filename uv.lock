@@ -1788,10 +1788,14 @@ version = "2.0.0"
 source = { editable = "clients/python" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "httpx" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "fastmcp", specifier = ">=2" }]
+requires-dist = [
+    { name = "fastmcp", specifier = ">=2,<4" },
+    { name = "httpx", specifier = ">=0.28.1" },
+]
 
 [[package]]
 name = "referencing"
