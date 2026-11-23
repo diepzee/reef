@@ -1558,3 +1558,52 @@ def test_memory_deadlift_answer_passes_without_the_weight():
     answer = "Rustig aan: Joris Peeters zei dat je beter core-oefeningen doet."
     scored = _score(_deadlift(), _session("load_index", "recall", answer=answer))
     assert scored.verdict == "pass", scored.reasons
+
+
+def test_alternative_tools_are_met_by_either():
+    """A list in ``tools_required`` needs one of its tools, not all."""
+    scenario = _scenario(tools_required=["load_index", ["open", "recall"]])
+    for tool in ("open", "recall"):
+        scored = _score(scenario, _session("load_index", tool, answer=RIGHT_ANSWER))
+        assert scored.verdict == "pass", (tool, scored.reasons)
+
+
+def test_unmet_alternatives_give_one_combined_reason():
+    """None of the alternatives used: one reason names them all."""
+    scenario = _scenario(tools_required=["load_index", ["open", "recall"]])
+    scored = _score(scenario, _session("load_index", answer=RIGHT_ANSWER))
+    assert scored.verdict == "fail"
+    assert scored.reasons == ["none of open, recall was used successfully"]
+
+
+def test_failed_call_to_the_only_used_alternative_does_not_count():
+    """An alternative whose only call failed is not used."""
+    scenario = _scenario(tools_required=["load_index", ["open", "recall"]])
+    session = Session(
+        "t", [_call("load_index"), _call("open", ok=False)], [], RIGHT_ANSWER
+    )
+    scored = _score(scenario, session)
+    assert scored.verdict == "fail"
+    assert "none of open, recall was used successfully" in scored.reasons
+
+
+def test_coverage_counts_alternatives():
+    """Every tool named inside a list of alternatives is covered."""
+    scenarios = [{"tools_required": ["load_index", ["open", "recall"]]}]
+    assert coverage(scenarios) == {"load_index", "open", "recall"}
+
+
+def test_training_log_passes_with_recall_alone_when_quoted_in_full():
+    """The production case: only recall, and every line quoted word for word."""
+    scenario = next(s for s in load(SCENARIOS) if s["id"] == "open-training-log")
+    answer = (
+        "Uit logs/training.md:\n"
+        "- Deadlift 140 x 3, 3 sets. Rug voelde stijf.\n"
+        "- Roeien 72,5 x 8.\n"
+        "- Deadlift overgeslagen vanwege de rug.\n"
+        "- Schouderdrukken 42,5 x 8.\n"
+        "- Optrekken +12,5 kg x 6, 3 sets. Roeien 75 x 8: record.\n"
+        "- Squat 115 x 5, 5 sets: record. Deadlift 130 x 5, 3 sets, rustig."
+    )
+    scored = _score(scenario, _session("load_index", "recall", answer=answer))
+    assert scored.verdict == "pass", scored.reasons
