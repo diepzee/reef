@@ -1536,3 +1536,25 @@ async def test_stopped_run_also_has_a_finished_time(tmp_path, monkeypatch):
         await run.run(_FakeTarget(), ["dentist-moved"], None)
     meta = _report(tmp_path)["meta"]
     assert "boom" in meta["stopped"] and meta["finished"] >= meta["started"]
+
+
+def _deadlift() -> dict:
+    """Load the unprompted-memory scenario from the scenarios file.
+
+    :returns: the ``deadlift-tomorrow`` scenario
+    """
+    return next(s for s in load(SCENARIOS) if s["id"] == "deadlift-tomorrow")
+
+
+def test_generic_deadlift_answer_does_not_pass():
+    """Advice without the memory fails, even with "terug" or "rug" in it."""
+    answer = "Ja hoor, kom rustig terug in vorm en let op je rug en onderrug."
+    scored = _score(_deadlift(), _session("load_index", answer=answer))
+    assert scored.verdict != "pass"
+
+
+def test_memory_deadlift_answer_passes_without_the_weight():
+    """Any detail from the memory is enough, here the physiotherapist's name."""
+    answer = "Rustig aan: Joris Peeters zei dat je beter core-oefeningen doet."
+    scored = _score(_deadlift(), _session("load_index", "recall", answer=answer))
+    assert scored.verdict == "pass", scored.reasons

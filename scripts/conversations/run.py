@@ -967,8 +967,8 @@ async def run(
                 except Exception as error:  # noqa: BLE001 - reported, not hidden
                     meta["final_reset_failed"] = f"{type(error).__name__}: {error}"
     finally:
-        await target.stop()
         meta["finished"] = datetime.now(UTC).isoformat(timespec="seconds")
+        await target.stop()
         stem = f"{started:%Y-%m-%dT%H-%M-%SZ}-{meta['target']}"
         _, markdown = write_report(REPORTS, stem, meta, scored, answers)
         print(f"Report: {markdown}", flush=True)

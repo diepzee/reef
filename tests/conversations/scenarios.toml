@@ -64,11 +64,14 @@ id = "deadlift-tomorrow"
 kind = "read"
 # No "my notes" and no "my memory": the assistant must reach for Reef by
 # itself. Only the memory knows about Lode's back and his last deadlift
-# (profile/health.md, logs/training.md: 130 x 5 on 21 november).
+# (profile/health.md: "Kinesist Joris Peeters"; logs/training.md: deadlift
+# 130 x 5 on 21 november, 140 x 3 on 7 november, skipped on 14 november).
+# One fact, many ways: any detail only the memory has will do, and no way is a
+# short word a generic answer could contain ("rug" is in "terug").
 messages = ["Mag ik morgen deadliften?"]
 tools_required = ["load_index"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
-facts = [["onderrug", "lage rug", "rug"], "130"]
+facts = [["joris", "peeters", "130 kg", "130 x 5", "140 kg", "140 x 3", "14 november", "vanwege de rug"]]
 
 [[scenario]]
 id = "newspaper-cancelled"
