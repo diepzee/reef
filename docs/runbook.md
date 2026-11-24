@@ -11,7 +11,7 @@ to stand the service up again.
 | 1 — Prove the connection works | **Done** on desktop, 6 Aug 2026. Phones untested |
 | 2 — Who is allowed in | **Partly done** — one person seeded; invitation completion remains unverified |
 | 3 — Deploy the real service | **Done**, 6 Aug 2026 |
-| 4 — Storage and safety nets | **Partly verified** — daily R2 dumps observed through 10 Sep; the separate 7 Aug restore drill passed; managed backups and R2 policies remain unverified |
+| 4 — Storage and safety nets | **Partly verified** — R2 buckets, keys, locks and expiry verified 24 Nov 2026; the separate 7 Aug restore drill passed; Railway managed backups remain unverified |
 | 5 — Content: the import | **Done**, 6 Aug 2026 |
 | 6 — Protocol and personas | **Redesigned 9 Aug 2026** — the protocol ships with the product (`src/reef/protocol.md`), no longer an engram; `meta/persona.md` is still the smoke-test placeholder |
 | 7 — Measure the context ceiling | **Open** |
@@ -42,9 +42,9 @@ assumed: it has no command for cron schedules or start commands)
       and schedule below are prescribed settings, not reverified live state.
 - [ ] **Railway managed Postgres backups.** PITR state, volume-backup cadence,
       retention, and latest success remain unverified. Phase 4, step 2.
-- [ ] **R2 bucket locks.** The intended rules are `attachments/` indefinitely
-      and `backups/` for about 30 days, but their live state remains unverified.
-      Phase 4, step 1.
+- [x] **R2 bucket locks.** Verified 24 Nov 2026, after the move to two
+      buckets: `reef-backups` locks `backups/` for 30 days, and `reef` (stored
+      files) has no lock, so forgetting a file deletes it. Phase 4.
 
 **Waiting on information or a decision**
 
@@ -76,10 +76,18 @@ assumed: it has no command for cron schedules or start commands)
       schema but zero rows in `migration`, so `scripts/migrate.py` tries to
       re-run the first migration and fails on `relation "persons" already
       exists`. Tests are unaffected — `conftest` builds `rif_test` directly.
-- [ ] **R2 lifecycle rule for `backups/`.** Dumps accumulate forever
-      otherwise. The archived 24 Aug notes claim a 45-day rule, but its live
-      state remains unverified. It must expire later than that prefix's bucket
-      lock or the delete will not happen. See `docs/restore.md`.
+- [x] **R2 lifecycle rule for `backups/`.** Verified 24 Nov 2026:
+      `reef-backups` deletes `backups/` after 45 days, later than its 30-day
+      lock, as it must be or the delete will not happen. See `docs/restore.md`.
+- [ ] **Remove the temporary rule on `reef`.** The move copied old dumps into
+      `reef/backups/`; the rule `remove-copied-backups` deletes them after one
+      day. Once that folder is empty, remove the rule
+      (`wrangler r2 bucket lifecycle remove reef --name remove-copied-backups -J eu`).
+- [ ] **Delete the objects in `reef` that no file record points to.** 110 on
+      24 Nov 2026: files that were forgotten while `rif`'s lock refused the
+      delete, copied along in the move.
+- [ ] **Revoke the key `reef-app` used for `rif`.** Nothing in Reef uses it
+      since 24 Nov 2026. Check first that no other project does.
 - [ ] **Re-check the `postgresql-client-18` pin** whenever Railway upgrades
       its Postgres. `pg_dump` aborts against a newer server, so a server
       upgrade silently breaks every backup until the image catches up.
@@ -88,9 +96,9 @@ assumed: it has no command for cron schedules or start commands)
 
 **Where the risk sits now.** RLS is enforced in production as of 7 Aug, and
 the separate 7 Aug dump restored with `memberships` intact. Daily off-platform
-dumps were observed through 10 Sep, with uploaded size checks only. Railway
-managed backups and R2 lock, retention, and lifecycle settings remain
-unverified.
+dumps were observed through 10 Sep, with uploaded size checks only, and a
+manual run on 24 Nov 2026 landed in the new backups bucket. R2 locks and expiry
+were verified that day. Railway managed backups remain unverified.
 
 ---
 
@@ -384,41 +392,69 @@ spike service and for recovering when a bad commit is already on `main`.
 > record to have passed a restore drill. Railway PITR and volume backups, R2
 > locks, retention, and lifecycle settings remain unverified.
 
-**R2 (images):**
+**R2 (stored files and backups):**
 
-1. Cloudflare dashboard → R2 → create bucket `rif`.
+> **Verified, 24 Nov 2026.** Storage moved from the single bucket `rif` to two
+> buckets, each service got its own key, and every rule below was read back
+> with `wrangler`. The checks that day: each of the 641 file records had its
+> object in `reef`; the app's key could read, write and delete there; the
+> worker's key could read and was refused a write; and a manual run of
+> `reef-backup` uploaded and size-verified
+> `backups/reef-20261124T122345Z.dump` (6,216,313 bytes) in `reef-backups`.
 
-   **Not object versioning — R2 has none.** `GetBucketVersioning` and
-   `PutBucketVersioning` are both in R2's unimplemented-operations table. An
-   earlier draft of this runbook said to enable it; there is no such setting
-   to find. The feature R2 does have is **bucket locks**, which prevent
-   deletion and overwriting for a fixed period or indefinitely.
+All three buckets are in Cloudflare's EU jurisdiction. Commands need
+`--jurisdiction eu`, and the S3 address is
+`https://<account-id>.eu.r2.cloudflarestorage.com`.
 
-   The intended configuration has two prefix-scoped rules with opposite
-   policies. Its live state was not verified as of 10 Sep 2026:
+| Bucket | Holds | Rules |
+|---|---|---|
+| `reef` | Stored files, under `attachments/` | No lock, so forgetting a file deletes its object. |
+| `reef-backups` | Daily dumps, under `backups/` | `backups/` locked for 30 days and deleted after 45 days. |
+| `rif` | Closed archive: files and dumps up to 24 Nov 2026 | `attachments/` locked indefinitely; `backups/` locked for 30 days and deleted after 45 days. No service uses it. |
 
-   | Prefix | Rule | Why |
-   |---|---|---|
-   | `attachments/` | lock indefinitely | Image bytes are never in `pg_dump`. Reef does delete objects, so an indefinite lock can block deletion and leave an unreachable object after its database row is removed; confirm that tradeoff before enabling it. |
-   | `backups/` | lock ~30 days | Protects recent dumps from the same threats while still letting old ones age out. |
+Each service has its own account API token, limited to one bucket:
 
-   **Do not set a rule without a prefix.** Cloudflare's docs are explicit
-   that such a rule covers every object in the bucket, that lock rules beat
-   lifecycle rules, and that *a bucket cannot be emptied while lock rules
-   remain configured*. Deleting the policy afterwards does not release
-   objects already inside their retention window. A bucket-wide indefinite
-   lock would therefore trap every daily dump forever, and the mistake is
-   effectively irreversible.
+| Service | Token name in Cloudflare | May |
+|---|---|---|
+| `reef-app` | `reef-app (files in reef, read and write)` | read, write and delete in `reef` |
+| `reef-worker` | `reef-worker (files in reef, read only)` | read in `reef` |
+| `reef-backup` | `reef-backup (backups in reef-backups, read and write)` | read and write in `reef-backups` |
 
-   Any lifecycle expiry for `backups/` must be **longer** than that prefix's
-   lock, or the delete simply will not happen.
-2. Create an S3-compatible API token, then:
+Each service reads four variables: `REEF_S3_ENDPOINT`, `REEF_S3_BUCKET`,
+`REEF_S3_ACCESS_KEY` and `REEF_S3_SECRET_KEY`. To replace a key, create a new
+token with the same limits, set the two key variables on that one service,
+redeploy it, then delete the old token.
 
-   ```bash
-   railway variables --set REEF_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com \
-     --set REEF_S3_BUCKET=rif --set REEF_S3_ACCESS_KEY=<key> --set REEF_S3_SECRET_KEY=<secret>
-   railway up
-   ```
+**Why files and backups are apart.** A lock and "forget" cannot share a
+prefix. `rif` locked `attachments/` indefinitely, because file bytes are never
+in `pg_dump`. Reef does delete objects, so every forgotten file left an object
+nobody could reach or remove: 751 objects for 641 records on 24 Nov 2026.
+Deleting a lock rule does not release objects already inside their retention
+window, so `rif` can never be emptied or deleted. Its dumps age out by
+8 Jan 2027; its files stay. In `reef`, files have no lock and the dumps live
+in a bucket of their own, where a lock costs nothing.
+
+**Not object versioning — R2 has none.** `GetBucketVersioning` and
+`PutBucketVersioning` are both in R2's unimplemented-operations table. An
+earlier draft of this runbook said to enable it; there is no such setting
+to find. The feature R2 does have is **bucket locks**, which prevent
+deletion and overwriting for a fixed period or indefinitely.
+
+**Do not set a rule without a prefix.** Cloudflare's docs are explicit
+that such a rule covers every object in the bucket, that lock rules beat
+lifecycle rules, and that *a bucket cannot be emptied while lock rules
+remain configured*. A bucket-wide indefinite lock would therefore trap every
+object forever, and the mistake is effectively irreversible.
+
+Any lifecycle expiry for `backups/` must be **longer** than that prefix's
+lock, or the delete simply will not happen. The two rules on `reef-backups`:
+
+```bash
+npx wrangler r2 bucket lock add reef-backups lock-backups-30d backups/ --retention-days 30 -J eu
+npx wrangler r2 bucket lifecycle add reef-backups expire-backups-45d backups/ --expire-days 45 -J eu
+npx wrangler r2 bucket lock list reef-backups -J eu
+npx wrangler r2 bucket lifecycle list reef-backups -J eu
+```
 
 **Backups — read this part, it has a trap:**
 

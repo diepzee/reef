@@ -22,8 +22,13 @@ Railway support. Dumps land in the `backups/` prefix of the R2 bucket named by
 --format=custom` form. Logs show one successful upload and byte-count check
 each day from 24 August through 10 September 2026. That proves the job ran and
 the stored size matched the dump; the review retained no restore-test evidence
-for dumps from this period. The current R2 lock, retention, and lifecycle
-settings remain unverified.
+for dumps from this period.
+
+Since 24 November 2026 the dumps land in the bucket `reef-backups`, which
+locks `backups/` for 30 days and deletes it after 45 days; both rules were
+verified that day. Dumps from before that date are in the old bucket `rif`
+until they age out, by 8 January 2027. See Phase 4 of
+[`runbook.md`](runbook.md).
 
 ## Required: the backup connection must bypass RLS
 
