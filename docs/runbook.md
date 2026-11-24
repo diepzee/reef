@@ -1437,6 +1437,12 @@ embedded per day. A large account therefore takes days to finish. When the
 day's pages are spent, the job ends normally and the file waits six hours
 (`REEF_FILE_TEXT_RETRY_SECONDS`). Pages already read are kept.
 
+**In search.** With reading on, every five results hold at most three files
+(`REEF_SEARCH_FILES_IN_FIVE`), so files cannot push engrams out of the first
+results. A file's passage is cut from the part of the file closest to the
+question: from the paragraph that holds the question's words, or from the
+part's start when it holds none of them.
+
 **The sandbox.** The worker never parses a file itself. Each file is read in
 a child process that has an empty environment, runs as the `reader` user when
 the worker runs as root, and has limits on CPU, memory and time. The

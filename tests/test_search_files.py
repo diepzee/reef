@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 import pytest
 from test_search_hybrid import SubjectEmbedder
 
-from reef import embedding, filechunks, rerank, search
+from reef import embedding, filechunks, rerank, search, sections
 from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import get_settings
@@ -901,3 +901,228 @@ def test_the_reading_off_statements_keep_their_text():
     assert hashlib.sha256(search._SEMANTIC_SQL.encode()).hexdigest() == (
         "51d5db5dfd71c0ce7403915562ebf1aed63d00a9cccb392ed7843446f3a69b4b"
     )
+
+
+# --- a file's passage follows the words ------------------------------------------
+
+#: A page chunk longer than a passage whose telling sentence lies behind the
+#: cut: one paragraph of filler, then the sentence in a paragraph of its own.
+#: The files that hold it are described without a word of the fake model's
+#: subjects, so the page about the vehicle is the closest chunk.
+BURIED = (
+    "The vehicle papers. "
+    + "word " * 330
+    + "\n\nThe vehicle inspection sticker is number QX-7731.\n\n"
+    + "word " * 20
+)
+
+
+async def test_a_long_chunk_is_cut_around_the_questions_words(tx, household, service):
+    """The words asked for lie behind the first 1,500 characters of the
+    closest chunk: the passage keeps the chunk's context lines and starts at
+    their paragraph."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert "QX-7731" in hit["passage"]
+    assert hit["passage"].startswith("papers.pdf\nScanned papers.\npage 2\n\n…\n\n")
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+    assert hit["page"] == 2
+
+
+async def test_a_long_chunk_without_the_questions_words_starts_at_its_start(
+    tx, household, service
+):
+    """Found by meaning alone, with no word of the question in the chunk: the
+    passage is the chunk's first 1,500 characters, as before."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(await search_engrams(me, "car", passages=True))
+    chunks = filechunks.split(
+        "papers.pdf", "Scanned papers.", [(1, f"Holiday plans. {FILLER}"), (2, BURIED)]
+    )
+    closest = next(chunk for chunk in chunks if chunk.anchor == "p2")
+    assert hit["passage"] == closest.text[:PASSAGE_CHARS]
+
+
+async def test_the_whole_file_chunk_follows_the_words_too(tx, household, service):
+    """A file of one long page: its whole-file chunk is closest, and the
+    passage shows the paragraph behind the cut that holds the words."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me, household["w_personal"], "papers.pdf", "Scanned papers.", [BURIED]
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert "QX-7731" in hit["passage"]
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+
+
+async def test_the_second_part_of_a_long_page_follows_the_words_too(
+    tx, household, service
+):
+    """A page longer than a chunk is cut in two; its second part is closest,
+    and the passage shows the paragraph behind the cut that holds the words."""
+    me = principal_for(household["wouter"])
+    page = "The dwelling got new paint. " + "word " * 350 + "\n\n" + BURIED
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", page],
+    )
+    await embedding.embed_file(me, file, service)
+    chunks = filechunks.split(
+        "papers.pdf", "Scanned papers.", [(1, f"Holiday plans. {FILLER}"), (2, page)]
+    )
+    second = next(chunk for chunk in chunks if chunk.anchor == "p2~2")
+    assert second.body == BURIED.strip()
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert hit["page"] == 2
+    assert "QX-7731" in hit["passage"]
+    assert hit["passage"].startswith("papers.pdf\nScanned papers.\npage 2\n\n…\n\n")
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+
+
+async def test_no_long_chunk_sends_no_headline_statement(
+    tx, household, service, monkeypatch
+):
+    """Every closest chunk fits in a passage: search asks Postgres to mark
+    nothing, and the passage is the chunk."""
+    me = principal_for(household["wouter"])
+    letter = await _file(
+        me, household["w_personal"], "letter.pdf", "A scanned letter.", LETTER
+    )
+    await embedding.embed_file(me, letter, service)
+    statements: list[str] = []
+    original = Engram.raw
+
+    def recording(sql: str, *args):
+        """Remember a statement, then send it.
+
+        :param sql: the statement
+        :param args: its values
+        :returns: what :meth:`Engram.raw` returns
+        """
+        statements.append(sql)
+        return original(sql, *args)
+
+    monkeypatch.setattr(Engram, "raw", recording)
+    [hit] = _files(await search_engrams(me, "xylophone", passages=True))
+    assert hit["passage"].startswith("letter.pdf\nA scanned letter.\n\nDear")
+    assert "The xylophone recital" in hit["passage"]
+    assert not [sql for sql in statements if search._CHUNK_HEADLINES_SQL in sql]
+
+
+async def test_a_failing_headline_of_the_chunks_leaves_the_start(
+    tx, household, service, monkeypatch
+):
+    """When the statement that marks the words fails, the search answers and
+    the passage is the chunk's start."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    monkeypatch.setattr(
+        search, "_CHUNK_HEADLINES_SQL", "SELECT nothing FROM nowhere", raising=True
+    )
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert hit["passage"].startswith(
+        "papers.pdf\nScanned papers.\npage 2\n\nThe vehicle papers."
+    )
+
+
+def _papers_chunk(body: str) -> sections.Section:
+    """Build page 2's chunk of ``papers.pdf``, as embedding cuts it.
+
+    :param body: the chunk's body
+    :returns: the chunk
+    """
+    return sections.piece("p2", ("page 2",), body, "papers.pdf", "Scanned papers.")
+
+
+#: The context lines of :func:`_papers_chunk`, before its body.
+PAPERS_HEADER = "papers.pdf\nScanned papers.\npage 2\n\n"
+
+
+def test_a_fragment_across_the_cut_leaves_the_chunks_start():
+    """A fragment on one long line that starts before the cut and ends behind
+    it cannot be shown whole: the passage is the chunk's first 1,500
+    characters."""
+    body = "word " * 290 + "the marked sticker sits right here " + "word " * 100
+    chunk = _papers_chunk(body)
+    begin = len(PAPERS_HEADER) + body.index("the marked")
+    assert begin < PASSAGE_CHARS < begin + len("the marked sticker sits right here")
+    headline = "the marked **sticker** sits right here word"
+    assert search._file_passage(chunk, headline) == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_fragment_in_a_paragraph_longer_than_a_passage_starts_at_its_line():
+    """The paragraph would push the fragment past the cut, so the passage
+    starts at the fragment's own line."""
+    body = (
+        "Intro.\n\n"
+        + "word " * 400
+        + "\nThe vehicle inspection sticker is number QX-7731.\nword word"
+    )
+    passage = search._file_passage(
+        _papers_chunk(body),
+        "The vehicle **inspection** **sticker** is number QX-7731.",
+    )
+    assert passage.startswith(PAPERS_HEADER + "…\n\nThe vehicle inspection sticker")
+    assert "QX-7731" in passage
+    assert len(passage) <= PASSAGE_CHARS
+
+
+def test_a_body_with_the_mark_character_is_still_followed():
+    """The body's own emphasis does not hide the fragment: marks are set aside
+    when the fragment is sought, and the passage keeps the body's text."""
+    body = "word " * 400 + "\n\nThe **sticker** is number QX-7731.\n\nword"
+    passage = search._file_passage(
+        _papers_chunk(body), "The ****sticker**** is number QX-7731."
+    )
+    assert passage == PAPERS_HEADER + "…\n\nThe **sticker** is number QX-7731.\n\nword"
+
+
+def test_a_headline_without_a_mark_leaves_the_chunks_start():
+    """Postgres marked nothing: the passage is the chunk's start, even when
+    the headline's text lies behind the cut."""
+    body = "word " * 400 + "\n\nThe sticker is number QX-7731.\n\nword"
+    chunk = _papers_chunk(body)
+    passage = search._file_passage(chunk, "The sticker is number QX-7731.")
+    assert passage == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_short_chunk_is_its_own_passage():
+    """A chunk that fits in a passage is shown whole, marked words or not."""
+    chunk = _papers_chunk("The **sticker** is number QX-7731.")
+    assert search._file_passage(chunk, "The ****sticker**** is") == chunk.text
+    assert search._file_passage(chunk, None) == chunk.text

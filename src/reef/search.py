@@ -461,6 +461,19 @@ _FILE_TEXT_SQL = (
     "WHERE id = ANY({}::uuid[]) AND status = {}"
 )
 
+#: The headline of each long file chunk's body, numbered from 1 in the order
+#: given, see :func:`_chunk_headlines`. Follows :data:`_QUERY_SQL`, whose
+#: ``query`` relation :func:`_headline` marks by. The bodies come as one
+#: array parameter; the statement reads no table.
+_CHUNK_HEADLINES_SQL = f"""
+    chunks AS (
+        SELECT chunk.body, chunk.n
+        FROM unnest({{}}::text[]) WITH ORDINALITY AS chunk(body, n)
+    )
+    SELECT chunks.n, {_headline("chunks.body")} AS headline
+    FROM chunks CROSS JOIN query
+"""
+
 #: Each candidate file's chunks closest to the query, best first, as
 #: :data:`_PASSAGES_SQL` for engrams. Joined to ``attachments`` so only a
 #: ready file the caller can see is read. Equal distances fall to the chunk
@@ -1002,7 +1015,9 @@ def _wanted_pages(anchors: list[str | None]) -> set[int | None]:
     return {filechunks.page_of(anchor) for anchor in anchors} or {None}
 
 
-def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
+def _file_sections(
+    row: dict, pages: _Pages, anchors: list[str | None]
+) -> list[sections.Section]:
     """Cut a file's chunks with these anchors out of what was read of it.
 
     Each comes out as it was cut for embedding, see
@@ -1013,22 +1028,33 @@ def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[st
     :param row: the file's id, filename and description
     :param pages: what :func:`_read_pages` read of it
     :param anchors: the chunks wanted, best first
-    :returns: their texts, in that order
+    :returns: the chunks, in that order
     """
     filename, description = row["filename"] or "", row["description"] or ""
     cut = {
-        chunk.anchor: chunk.text
+        chunk.anchor: chunk
         for chunk in filechunks.page_chunks(
             filename, description, pages.chunk_pages, page_count=pages.count
         )
     }
-    texts: list[str] = []
+    chunks: list[sections.Section] = []
     for anchor in anchors:
         if anchor is None:
-            texts.append(filechunks.whole(filename, description, pages.start).text)
+            chunks.append(filechunks.whole(filename, description, pages.start))
         elif anchor in cut:
-            texts.append(cut[anchor])
-    return texts
+            chunks.append(cut[anchor])
+    return chunks
+
+
+def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
+    """Give the texts of a file's chunks with these anchors, see :func:`_file_sections`.
+
+    :param row: the file's id, filename and description
+    :param pages: what :func:`_read_pages` read of it
+    :param anchors: the chunks wanted, best first
+    :returns: their texts, in that order
+    """
+    return [chunk.text for chunk in _file_sections(row, pages, anchors)]
 
 
 @dataclass
@@ -1426,8 +1452,10 @@ async def _read_files(
 
     One statement for the files, one for the pages their closest chunks
     need, in a savepoint: on any failure nothing is read, and each file's
-    passage is its snippet. A passage is at most :data:`PASSAGE_CHARS`
-    long, so no more of the start of a text is read.
+    passage is its snippet. Each closest chunk is read whole, the
+    whole-file chunk too: its start up to ``REEF_EMBEDDING_ENGRAM_CHARS``,
+    since the passage may be cut from anywhere in it, see
+    :func:`_file_passage`.
 
     :param nearest: the closest chunks of the files found that have one
     :returns: the files' id, filename and description, and what was read of
@@ -1447,7 +1475,7 @@ async def _read_files(
                 file_id: _wanted_pages(anchors[:1])
                 for file_id, anchors in nearest.items()
             },
-            PASSAGE_CHARS,
+            get_settings().embedding.engram_chars,
         )
     # Broad on purpose: without its text, a file's snippet will do.
     except Exception as error:  # noqa: BLE001
@@ -1458,32 +1486,143 @@ async def _read_files(
     return list(files), pages
 
 
-def _file_passages(
+def _closest_file_chunks(
     nearest: dict[UUID, list[str | None]],
     files: list[dict],
     pages: dict[UUID, _Pages],
-) -> dict[UUID, str]:
+) -> dict[UUID, sections.Section]:
     """Cut each file's closest chunk out of what was read, as the reranker reads it.
 
     The chunk carries the filename, the description and its page in front,
-    see :func:`_file_chunks`. A file read again since it was embedded may no
-    longer have that chunk; it gets none. Pure, so it can run in a thread.
+    see :func:`_file_sections`. A file read again since it was embedded may no
+    longer have that chunk; it gets none, and so does a chunk whose text is
+    only white space. Pure, so it can run in a thread.
 
     :param nearest: each file's closest chunks, best first
     :param files: the files' id, filename and description
     :param pages: what :func:`_read_pages` read of them
-    :returns: each file's passage, at most :data:`PASSAGE_CHARS` long
+    :returns: each file's closest chunk
     """
-    passages: dict[UUID, str] = {}
+    chunks: dict[UUID, sections.Section] = {}
     for row in files:
-        texts = _file_chunks(
+        found = _file_sections(
             row, pages.get(row["id"], _Pages()), nearest[row["id"]][:1]
         )
-        # A file without text ends its only chunk in a blank line.
-        text = texts[0].rstrip() if texts else ""
-        if text:
-            passages[row["id"]] = text[:PASSAGE_CHARS]
-    return passages
+        if found and found[0].text.strip():
+            chunks[row["id"]] = found[0]
+    return chunks
+
+
+def _file_passage(chunk: sections.Section, headline: str | None) -> str:
+    """Cut a file's passage out of its closest chunk, around the question's words.
+
+    A chunk of at most :data:`PASSAGE_CHARS` characters is the passage. So
+    is the chunk's start when the headline is missing or marks nothing (it
+    holds no :data:`_MARK`), when its text is not found whole in the chunk's
+    body (see :func:`_seeker`; the first place that holds it), when it ends
+    within :data:`PASSAGE_CHARS` of the chunk's start, and when not even its
+    line brings it within the cut.
+
+    Otherwise the passage is the chunk's context lines, :data:`_GAP`, then
+    the body from the start of the paragraph that holds the headline, or of
+    its line when that paragraph would push it past the cut, see
+    :data:`_PARAGRAPH_BREAK`; without trailing white space, cut to
+    :data:`PASSAGE_CHARS`. It is held to one rule: it holds the headline's
+    text in full, see :func:`_plain`. One that would not gives the chunk's
+    start instead.
+
+    Pure, so it can run in a thread.
+
+    :param chunk: the file's closest chunk
+    :param headline: what Postgres marked of the chunk's body, see
+        :data:`_CHUNK_HEADLINES_SQL`; None when none was asked for or the
+        statement failed
+    :returns: the passage, at most :data:`PASSAGE_CHARS` long. The chunk's
+        start is its text with the trailing white space a file without text
+        leaves, cut to that length.
+    """
+    start = chunk.text.rstrip()[:PASSAGE_CHARS]
+    plain = _plain(headline or "")
+    if not plain or _MARK not in (headline or ""):
+        return start
+    body = chunk.body
+    found = _seeker(plain).search(body)
+    if found is None:
+        return start
+    begin_at, end = found.span()
+    front = len(chunk.text) - len(body)
+    if front + end <= PASSAGE_CHARS:
+        return start
+    breaks = [ends.end() for ends in _PARAGRAPH_BREAK.finditer(body, 0, begin_at)]
+    paragraph = breaks[-1] if breaks else 0
+    line = body.rfind("\n", 0, begin_at) + 1
+    header = chunk.text[:front]
+    for begin in (paragraph, line):
+        gap = _GAP if begin else ""
+        if len(header) + len(gap) + end - begin <= PASSAGE_CHARS:
+            passage = f"{header}{gap}{body[begin:]}".rstrip()[:PASSAGE_CHARS]
+            return passage if plain in _plain(passage) else start
+    return start
+
+
+def _file_passages(
+    chunks: dict[UUID, sections.Section], headlines: dict[UUID, str]
+) -> dict[UUID, str]:
+    """Cut each file's passage out of its closest chunk, see :func:`_file_passage`.
+
+    Pure, so it can run in a thread.
+
+    :param chunks: each file's closest chunk
+    :param headlines: what Postgres marked of the long chunks' bodies
+    :returns: each file's passage, at most :data:`PASSAGE_CHARS` long
+    """
+    return {
+        file_id: _file_passage(chunk, headlines.get(file_id))
+        for file_id, chunk in chunks.items()
+    }
+
+
+async def _chunk_headlines(
+    query: str, chunks: dict[UUID, sections.Section]
+) -> dict[UUID, str]:
+    """Ask Postgres which words of the question each long chunk's body holds.
+
+    Only a chunk longer than :data:`PASSAGE_CHARS` needs it; when none is,
+    no statement is sent. One statement for all, see
+    :data:`_CHUNK_HEADLINES_SQL`, in a short transaction of its own, in a
+    savepoint. It reads no table. On any failure it gives nothing, and each
+    passage is its chunk's start.
+
+    :param query: the search text
+    :param chunks: each file's closest chunk
+    :returns: the headline of each long chunk's body
+    """
+    long = [
+        (file_id, chunk.body)
+        for file_id, chunk in chunks.items()
+        if len(chunk.text.rstrip()) > PASSAGE_CHARS
+    ]
+    if not long:
+        return {}
+    async with transaction_scope():
+        savepoint = await DB.current_transaction.get().savepoint()
+        try:
+            rows = await Engram.raw(
+                _QUERY_SQL + _CHUNK_HEADLINES_SQL,
+                query,
+                query,
+                [body for _, body in long],
+            )
+        # Broad on purpose: without the headlines, a chunk's start will do.
+        except Exception as error:  # noqa: BLE001
+            await savepoint.rollback_to()
+            log.warning(
+                "search cuts files' passages from their start (%s)",
+                type(error).__name__,
+            )
+            return {}
+        await savepoint.release()
+    return {long[row["n"] - 1][0]: row["headline"] for row in rows}
 
 
 async def _payloads(
@@ -1495,11 +1634,14 @@ async def _payloads(
     nearest: dict[UUID, list[str | None]] | None = None,
     file_rows: list[dict] | None = None,
     pages: dict[UUID, _Pages] | None = None,
+    query: str = "",
 ) -> list[dict]:
     """Shape the result rows, each with its passage when passages were asked for.
 
     Passages are cut in a thread, like the reranker's: cutting long engrams
-    would hold up every other request.
+    would hold up every other request. A file's closest chunk is cut first,
+    then Postgres marks the question's words in the long ones, then the
+    passages are cut; no connection waits on the cutting.
 
     :param rows: the result rows, best first
     :param aliases: the caller's space-id-to-alias map
@@ -1510,6 +1652,8 @@ async def _payloads(
     :param file_rows: the files' id, filename and description, for the files
         with a closest chunk
     :param pages: what :func:`_read_pages` read of those files
+    :param query: the search text, which a file's passage is cut around, see
+        :func:`_chunk_headlines`
     :returns: one payload per row, see :func:`_row_payload`
     """
     if not passages:
@@ -1520,9 +1664,11 @@ async def _payloads(
         else {}
     )
     if file_rows:
-        found |= await asyncio.to_thread(
-            _file_passages, nearest or {}, file_rows, pages or {}
+        chunks = await asyncio.to_thread(
+            _closest_file_chunks, nearest or {}, file_rows, pages or {}
         )
+        headlines = await _chunk_headlines(query, chunks)
+        found |= await asyncio.to_thread(_file_passages, chunks, headlines)
     return [_row_payload(row, aliases, found) for row in rows]
 
 
@@ -1699,7 +1845,11 @@ async def search_engrams(
     :param passages: give each hit a ``passage`` too: its piece or chunk
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
-        search already has, so the query is still embedded once. Every other
+        search already has, so the query is still embedded once. A file's
+        chunk longer than that is cut around the words Postgres marks in its
+        body: its context lines, then the text from the paragraph or line
+        that holds them, never half of them; when it marks none, the passage
+        is the chunk's start. See :func:`_file_passage`. Every other
         engram gets its snippet widened in place: an engram without vectors,
         any engram in a search without them, and one edited since it was
         embedded. The passage is the engram's start when the snippet ends
@@ -1838,5 +1988,5 @@ async def search_engrams(
                 }
             )
     return await _payloads(
-        rows, aliases, passages, best, texts, nearest, file_rows, pages
+        rows, aliases, passages, best, texts, nearest, file_rows, pages, query
     )
