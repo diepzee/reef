@@ -719,6 +719,82 @@ async def test_the_rule_holds_after_the_reranker(tx, household, service, reranke
     assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
 
 
+class FilesFirstReranker(RecordingReranker):
+    """Stands in for a reranker that prefers every file to every engram."""
+
+    async def score(self, query: str, documents: list[str]) -> list[float]:
+        """Remember the passages and score a file's above an engram's.
+
+        A file's passage starts with its filename, which in these tests holds
+        ``invoice``; no engram's passage does.
+
+        :param query: the search text
+        :param documents: the passages
+        :returns: 1 for each file passage, 0 for each engram passage
+        """
+        self.documents.extend(documents)
+        return [1.0 if "invoice" in document else 0.0 for document in documents]
+
+
+async def test_the_rule_holds_when_the_reranker_puts_files_first(
+    tx, household, service, reranker, monkeypatch
+):
+    """A reranker that scores every file above every engram still leaves
+    both engrams in the first five, beside three files.
+
+    Before the reranker the rule has already put both engrams in the first
+    five, and all ten rows are its candidates. The reranker then puts the
+    eight files first. Only the rule applied again after the reranker moves
+    the engrams back; without it the first five are five files.
+    """
+    fake = FilesFirstReranker()
+    monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"invoice-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert any("invoice" in document for document in fake.documents)
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_an_engram_farther_than_every_file_is_still_a_candidate(
+    tx, household, service
+):
+    """An engram that lacks the word and is farther in meaning than more
+    files than the fusion is deep is still in the first five.
+
+    The fake model gives "garage" a vector slightly off the question's,
+    and every file the question's own. With engrams and files cut together
+    by meaning, the closest ``fusion_depth`` rows are all files, and the
+    engram, found by no word, is in no ranking at all. Only the cut per
+    kind keeps it a candidate, and the rule then gives it a place.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage is in Ghent.")
+    depth = get_settings().search.fusion_depth
+    for number in range(depth + 5):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"bill-{number}.pdf",
+            "A bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert "auto.md" in {hit.get("path") for hit in hits}
+
+
 async def test_only_files_still_fill_the_results(tx, household, service):
     """With no engram to show, five files are five results."""
     me = principal_for(household["wouter"])
