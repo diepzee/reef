@@ -4,14 +4,14 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from test_search import SUBSCRIPTIONS, subscriptions_piece
+from test_search import SUBSCRIPTIONS, piece_of, subscriptions_piece
 
 from reef import embedding, search
 from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import get_settings
 from reef.engrams import save_engram
-from reef.models import Attachment, AttachmentStatus, SearchLog
+from reef.models import Attachment, AttachmentStatus, Engram, SearchLog
 from reef.search import fuse, search_engrams
 
 FUSION_DEPTH = get_settings().search.fusion_depth
@@ -438,6 +438,37 @@ async def test_an_engram_without_vectors_yet_gets_the_section_that_matched(
     assert results[0]["passage"] == subscriptions_piece("kranten")
     # The engram with vectors keeps the piece closest in meaning.
     assert results[1]["passage"] == "auto\n\nThe garage visit is in May."
+
+
+async def test_an_engram_edited_since_it_was_embedded_goes_by_words(
+    tx, household, service
+):
+    """Its piece closest in meaning is gone, so its best piece by words is used."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Plans\n\nWhat we plan for the year.\n\n## Garage\n\n"
+        "The garage needs a new door before winter. "
+        + "word " * 60
+        + "\n\n## Trips\n\nThe holiday in Norway is booked for July. "
+        + "word " * 60
+        + "\n\n## Other\n\n"
+        + "word " * 300
+    )
+    engram = await save_engram(
+        me, "personal", "plans.md", body, message="x", title="Plans"
+    )
+    await embedding.embed_engram(me, engram.id, service)
+    edited = body.replace("## Trips", "## Reizen")
+    await save_engram(me, "personal", "plans.md", edited, message="x")
+    await arm(me)
+    stored = await Engram.raw(
+        "SELECT section_anchor FROM engram_embeddings WHERE engram_id = {}",
+        engram.id,
+    )
+    # Still the vectors of the old text, whose closest piece is "trips".
+    assert "trips" in {row["section_anchor"] for row in stored}
+    [hit] = await search_engrams(me, "holiday", passages=True)
+    assert hit["passage"] == piece_of("Plans", edited, "reizen")
 
 
 async def test_an_exact_query_gets_the_section_even_with_vectors(

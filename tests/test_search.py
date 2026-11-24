@@ -56,14 +56,33 @@ SUBSCRIPTIONS = (
 )
 
 
-def subscriptions_piece(anchor: str) -> str:
-    """Return one piece of :data:`SUBSCRIPTIONS` as a passage shows it.
+#: A sentence that answers nothing, to make a note or a section long.
+FILL = "Dit is gewone tekst over het huishouden die niets met de vraag te maken heeft. "
 
-    :param anchor: the piece's anchor
+#: The fact the late-match notes hold, after more than a passage of filler.
+OMNIUM = "De omnium bij Ethias is opgezegd op 1 oktober 2026."
+
+
+def piece_of(title: str, body: str, anchor: str | None) -> str:
+    """Return one piece of an engram, cut as a passage is.
+
+    :param title: the engram's title
+    :param body: its body
+    :param anchor: the piece's anchor; None for the whole-engram piece
     :returns: the piece with its title and heading in front, cut to a passage
     """
-    pieces = sections.split("Abonnementen", summary(SUBSCRIPTIONS), SUBSCRIPTIONS)
+    pieces = sections.split(title, summary(body), body)
     return next(p.text for p in pieces if p.anchor == anchor)[:PASSAGE_CHARS]
+
+
+def subscriptions_piece(anchor: str | None, title: str = "Abonnementen") -> str:
+    """Return one piece of :data:`SUBSCRIPTIONS` as a passage shows it.
+
+    :param anchor: the piece's anchor; None for the whole-engram piece
+    :param title: the title the note was saved under
+    :returns: the piece with its title and heading in front, cut to a passage
+    """
+    return piece_of(title, SUBSCRIPTIONS, anchor)
 
 
 def principal_for(person) -> Principal:
@@ -492,12 +511,105 @@ async def test_a_snippet_that_runs_into_the_next_section_finds_its_own(tx, house
     assert hit["passage"] == subscriptions_piece("streaming")
 
 
-async def test_a_match_only_in_the_title_keeps_the_snippet(tx, household):
-    """The body holds no matched word, so no piece holds the match."""
+async def test_a_match_only_in_the_title_gets_the_start_of_the_engram(tx, household):
+    """The body holds no matched word, so the passage is the whole-engram piece."""
     me = principal_for(household["wouter"])
     await _subscriptions(me, title="Huishoudpot")
     [hit] = await search_engrams(me, "huishoudpot", passages=True)
     assert "**" not in hit["snippet"]
+    assert hit["passage"] == subscriptions_piece(None, title="Huishoudpot")
+
+
+async def test_a_match_in_the_title_line_gets_the_start_of_the_engram(tx, household):
+    """The body's "# Abonnementen" line is the title, which no section holds."""
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, "abonnementen", passages=True)
+    assert hit["snippet"].startswith("**Abonnementen**")
+    assert hit["passage"] == subscriptions_piece(None)
+
+
+async def test_a_heading_named_in_an_overview_finds_its_own_section(tx, household):
+    """The snippet starts at a heading, which no section's text holds.
+
+    The overview names that heading too, but the passage is the section under
+    it, not the overview.
+    """
+    me = principal_for(household["wouter"])
+    body = (
+        "# Abonnementen\n\nOverzicht: Streaming, Kranten, Sport. "
+        + FILL * 3
+        + "\n\n## Streaming\n\nNetflix kost 6 euro per maand. "
+        + FILL * 6
+        + "\n\n## Kranten\n\nOpgezegd: De Mosselkoerier, op 1 oktober 2026. "
+        + "Het tuinblad blijft lopen. "
+        + FILL * 3
+        + "\n\n## Sport\n\n"
+        + FILL * 16
+    )
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abo")
+    [hit] = await search_engrams(me, "kranten opgezegd", passages=True)
+    assert hit["snippet"].startswith("**Kranten**")
+    assert hit["passage"] == piece_of("Abo", body, "kranten")
+
+
+async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household):
+    """ "Krantenwinkel" in an earlier section is not the heading "Krant"."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Huis\n\nWat er in huis gebeurt.\n\n## Boodschappen\n\n"
+        "De Krantenwinkel op de hoek verkoopt ook brood en melk. "
+        + FILL
+        * 4
+        + "\n\n## Krant\n\n"
+        "De Mosselkoerier: digitaal, 9 euro per maand. Opgezegd op 1 oktober "
+        "2026, loopt af eind oktober. Het tuinblad komt vier keer per jaar en "
+        "kost 32 euro per jaar. Oude nummers gaan naar de buren, die ze graag "
+        "lezen bij het ontbijt, en folders willen we niet.\n\n## Sport\n\n" + FILL * 20
+    )
+    await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")
+    [hit] = await search_engrams(me, "krant", passages=True)
+    assert hit["snippet"].startswith("**Krant**")
+    assert hit["passage"] == piece_of("Huis", body, "krant")
+
+
+async def test_a_late_match_in_a_one_piece_engram_is_in_the_passage(tx, household):
+    """The passage starts at the paragraph that holds the match, after the title."""
+    me = principal_for(household["wouter"])
+    body = "\n\n".join([FILL * 4] * 6) + f"\n\n{OMNIUM}"
+    whole = sections.split("Auto", summary(body), body)
+    assert len(whole) == 1
+    assert whole[0].text.index("Ethias") > PASSAGE_CHARS
+    await save_engram(me, "personal", "auto.md", body, message="x", title="Auto")
+    [hit] = await search_engrams(me, "omnium opgezegd", passages=True)
+    assert hit["passage"] == f"Auto\n\n…\n\n{OMNIUM}"
+
+
+async def test_a_late_match_in_a_long_section_is_in_the_passage(tx, household):
+    """The section's title and heading stay in front of the paragraph."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Auto\n\nAlles over de auto.\n\n## Verzekering\n\n"
+        + "\n\n".join([FILL * 4] * 5)
+        + f"\n\n{OMNIUM}\n\n## Onderhoud\n\n"
+        + FILL * 10
+    )
+    pieces = sections.split("Auto", summary(body), body)
+    insurance = next(p for p in pieces if p.anchor == "verzekering")
+    assert insurance.text.index("Ethias") > PASSAGE_CHARS
+    await save_engram(me, "personal", "auto.md", body, message="x", title="Auto")
+    [hit] = await search_engrams(me, "omnium opgezegd", passages=True)
+    assert hit["passage"] == f"Auto\nVerzekering\n\n…\n\n{OMNIUM}"
+
+
+async def test_a_late_match_on_one_long_line_keeps_the_snippet(tx, household):
+    """No paragraph or line start brings the match into a passage."""
+    me = principal_for(household["wouter"])
+    body = FILL * 24 + OMNIUM
+    assert "\n" not in body
+    await save_engram(me, "personal", "auto.md", body, message="x", title="Auto")
+    [hit] = await search_engrams(me, "omnium opgezegd", passages=True)
+    assert "Ethias" in hit["snippet"]
     assert hit["passage"] == hit["snippet"]
 
 

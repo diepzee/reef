@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from test_search import SUBSCRIPTIONS, subscriptions_piece
 
 from reef import embedding, rerank
 from reef.access import Principal, arm
@@ -554,6 +555,28 @@ async def test_an_engram_with_no_text_is_read_by_its_title(tx, household, rerank
     results = _paths(await search_engrams(me, "boiler"))
     assert f"Boiler {ANSWER}" in reranker.sent
     assert results[0] in {"empty.md", "answer.md"}
+
+
+async def test_without_vectors_a_reread_hit_gets_the_section_that_matched(
+    tx, household, reranker
+):
+    """Read again, but with no embedding service: each passage goes by words."""
+    me = principal_for(household["wouter"])
+    await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title="Abonnementen",
+    )
+    await save_engram(
+        me, "personal", "tafel.md", "De krant ligt op tafel.", message="x"
+    )
+    results = await search_engrams(me, "krant abonnement opgezegd", passages=True)
+    assert reranker.calls
+    [hit] = [r for r in results if r["path"] == "finance/subscriptions.md"]
+    assert hit["passage"] == subscriptions_piece("kranten")
 
 
 async def test_scoping_to_one_space_holds_for_the_reranker(tx, household, reranker):

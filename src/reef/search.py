@@ -1136,35 +1136,172 @@ def _plain(text: str) -> str:
     return _spaced(text.replace("*", ""))
 
 
-def _piece_by_words(snippet: str, body: str, pieces: list[sections.Section]) -> str:
+def _plain_places(text: str) -> tuple[str, list[int]]:
+    """Return :func:`_plain` of a text, and where each of its characters is.
+
+    Slower than :func:`_plain`, so it is only run on the piece found.
+
+    :param text: a piece's body
+    :returns: the plain text, and for each of its characters its place in
+        ``text``. A collapsed run of white space is placed at the character
+        after it.
+    """
+    chars: list[str] = []
+    places: list[int] = []
+    space = False
+    for place, char in enumerate(text):
+        if char == "*":
+            continue
+        if char.isspace():
+            space = True
+            continue
+        if space and chars:
+            chars.append(" ")
+            places.append(place)
+        space = False
+        chars.append(char)
+        places.append(place)
+    return "".join(chars), places
+
+
+def _pattern(sought: str) -> re.Pattern[str]:
+    """Match a text only as whole words: "Krant" is not in "Krantenwinkel".
+
+    :param sought: plain text, see :func:`_plain`
+    :returns: the pattern
+    """
+    start = r"(?<!\w)" if re.match(r"\w", sought) else ""
+    end = r"(?!\w)" if re.match(r"\w", sought[-1]) else ""
+    return re.compile(start + re.escape(sought) + end)
+
+
+#: A piece the words were found in, and where in its body: start and end.
+type _Found = tuple[sections.Section, int, int]
+
+
+def _first_holding(
+    sought: str, among: list[sections.Section], texts: list[str]
+) -> _Found | None:
+    """Find the first piece whose body holds a text, as whole words.
+
+    :param sought: plain text, see :func:`_plain`
+    :param among: the pieces, in engram order
+    :param texts: each piece's body, plain
+    :returns: the piece, and where the text is in its body; None if no
+        piece holds it
+    """
+    pattern = _pattern(sought)
+    for piece, text in zip(among, texts, strict=True):
+        if pattern.search(text):
+            plain, places = _plain_places(piece.body)
+            match = pattern.search(plain)
+            if match:
+                return piece, places[match.start()], places[match.end() - 1] + 1
+    return None
+
+
+def _locate(snippet: str, pieces: list[sections.Section]) -> _Found | None:
     """Find the piece that holds the words an engram's snippet marks.
 
     The snippet is the body's own text around the matched words, with marks
-    around them, see :func:`_headline`. It is looked for in each section as
-    a whole, and else by each line that marks a word: a snippet that runs on
-    past a heading is in no one section, but such a line is, as a section
-    starts after its heading's line and a long one is cut between
-    paragraphs. The whole-engram piece is passed over when there are
-    sections: it holds every match, so it would always be the first.
+    around them, see :func:`_headline`. It is looked for in this order:
+
+    1. The snippet as a whole, in each section.
+    2. A line of it that marks a word and is a section's heading: the piece
+       under that heading. A snippet that starts at a heading is in no
+       section, because a section's text leaves its heading out.
+    3. Each line of it that marks a word, longest first. A snippet that runs
+       on past a heading is in no one section, but such a line nearly always
+       is: a section starts after its heading's line, and a long section is
+       cut between paragraphs. Only a paragraph longer than a piece is cut
+       anywhere, so a line in it can be split between two pieces.
+    4. The same, in the whole-engram piece. It holds the engram's ``#``
+       title line, which no section does: a match there is a match on the
+       title, and its passage is the start of the engram.
+
+    Text is compared as whole words, with asterisks and white space set
+    aside, see :func:`_plain`. The whole-engram piece is otherwise passed
+    over when there are sections: it holds every match, so it would always
+    be first. A snippet with an HTML-like tag in it is not found: Postgres
+    puts a space where the tag was.
+
+    :param snippet: the engram's snippet
+    :param pieces: the engram's pieces, see :func:`reef.sections.split`
+    :returns: the piece, and where the words are in its body; None if no
+        piece holds them
+    """
+    among = pieces[1:] or pieces
+    texts = [_plain(piece.body) for piece in among]
+    whole = _plain(snippet)
+    if whole and (found := _first_holding(whole, among, texts)):
+        return found
+    marked = [_plain(line) for line in snippet.splitlines() if _MARK in line]
+    for line in marked:
+        heading = line.strip("#").strip()
+        for piece in among:
+            if heading and heading in map(_plain, piece.heading_path):
+                return piece, 0, 0
+    longest = sorted(filter(None, marked), key=len, reverse=True)
+    for line in longest:
+        if found := _first_holding(line, among, texts):
+            return found
+    if len(pieces) > 1:
+        start = [_plain(pieces[0].body)]
+        for sought in filter(None, [whole, *longest]):
+            if found := _first_holding(sought, pieces[:1], start):
+                return found
+    return None
+
+
+#: Between a piece's title and heading and the paragraph a passage shows.
+_GAP = "…\n\n"
+
+
+def _window(piece: sections.Section, start: int, end: int) -> str:
+    """Show the words found in a piece within the first passage's length.
+
+    The piece as it is when they fit there. Otherwise its title and heading,
+    then the body from the start of the paragraph that holds them, or of
+    their line when that paragraph is too long to fit.
+
+    :param piece: the piece the words were found in
+    :param start: where they start in its body
+    :param end: where they end
+    :returns: the text to cut a passage from; empty when even their line
+        does not bring them within :data:`PASSAGE_CHARS` characters
+    """
+    header = piece.text[: len(piece.text) - len(piece.body)]
+    if len(header) + end <= PASSAGE_CHARS:
+        return piece.text
+    paragraph = piece.body.rfind("\n\n", 0, start)
+    line = piece.body.rfind("\n", 0, start) + 1
+    for begin in (paragraph + 2 if paragraph >= 0 else 0, line):
+        if len(header) + len(_GAP) + end - begin <= PASSAGE_CHARS:
+            return f"{header}{_GAP}{piece.body[begin:]}"
+    return ""
+
+
+def _piece_by_words(snippet: str, body: str, pieces: list[sections.Section]) -> str:
+    """Give an engram's best piece by words, as a passage is cut from it.
+
+    That is the piece that holds the words its snippet marks, see
+    :func:`_locate`, shown so those words are in the passage, see
+    :func:`_window`. A snippet that marks nothing comes from an engram whose
+    title matched and whose body did not: it is merely the start of the
+    body, and the engram's best piece is its start, the whole-engram piece.
 
     :param snippet: the engram's snippet
     :param body: the engram's body
     :param pieces: the engram's pieces, see :func:`reef.sections.split`
-    :returns: the first piece that holds the snippet, with its title and
-        heading in front. Empty when none does, and when the snippet marks
-        nothing: then the body did not match, only the title did, and the
-        snippet is merely the start of the body.
+    :returns: the text to cut a passage from; empty when no piece holds
+        the words, or the passage could not show them
     """
-    if _spaced(snippet) in _spaced(body):
+    if not pieces:
         return ""
-    among = pieces[1:] or pieces
-    texts = [_plain(piece.body) for piece in among]
-    marked = [line for line in snippet.splitlines() if _MARK in line]
-    for sought in filter(None, map(_plain, [snippet, *marked])):
-        for piece, text in zip(among, texts, strict=True):
-            if sought in text:
-                return piece.text
-    return ""
+    if _spaced(snippet) in _spaced(body):
+        return pieces[0].text
+    found = _locate(snippet, pieces)
+    return _window(*found) if found else ""
 
 
 def _passages(
@@ -1172,11 +1309,12 @@ def _passages(
 ) -> dict[UUID, str]:
     """Cut each engram's best piece out of its text, as the reranker reads it.
 
-    The best piece is the one closest in meaning. An engram without one, as
-    is every engram in a search without vectors, gets its best piece by
-    words: the piece that holds its snippet, see :func:`_piece_by_words`. So
-    does an engram edited since it was embedded, which may no longer have
-    the piece closest in meaning. An engram with neither gets none.
+    The best piece is the one closest in meaning, cut to its start. An
+    engram without one, as is every engram in a search without vectors,
+    gets its best piece by words, shown around the matched words, see
+    :func:`_piece_by_words`. So does an engram edited since it was
+    embedded, which may no longer have the piece closest in meaning. An
+    engram with neither gets none.
 
     The piece carries its title and heading in front, see
     :func:`reef.sections.split`. Pure, so it can run in a thread.
@@ -1274,6 +1412,46 @@ def _file_passages(
         if text:
             passages[row["id"]] = text[:PASSAGE_CHARS]
     return passages
+
+
+async def _payloads(
+    rows: list[dict],
+    aliases: dict,
+    passages: bool,
+    best: dict[UUID, str | None],
+    texts: list[dict],
+    nearest: dict[UUID, list[str | None]] | None = None,
+    file_rows: list[dict] | None = None,
+    pages: dict[UUID, _Pages] | None = None,
+) -> list[dict]:
+    """Shape the result rows, each with its passage when passages were asked for.
+
+    Passages are cut in a thread, like the reranker's: cutting long engrams
+    would hold up every other request.
+
+    :param rows: the result rows, best first
+    :param aliases: the caller's space-id-to-alias map
+    :param passages: whether passages were asked for
+    :param best: the best anchor by meaning of each engram that has one
+    :param texts: the engrams' text, as :func:`_read_engrams` read it
+    :param nearest: each file's closest chunks, best first
+    :param file_rows: the files' id, filename and description, for the files
+        with a closest chunk
+    :param pages: what :func:`_read_pages` read of those files
+    :returns: one payload per row, see :func:`_row_payload`
+    """
+    if not passages:
+        return [_row_payload(row, aliases) for row in rows]
+    found = (
+        await asyncio.to_thread(_passages, best, texts, _snippets(rows))
+        if texts
+        else {}
+    )
+    if file_rows:
+        found |= await asyncio.to_thread(
+            _file_passages, nearest or {}, file_rows, pages or {}
+        )
+    return [_row_payload(row, aliases, found) for row in rows]
 
 
 async def _chosen_rows(
@@ -1537,14 +1715,8 @@ async def search_engrams(
             )
     if words_only:
         # Nothing was ranked by meaning, so no engram has a best piece by
-        # meaning and no file a closest chunk. Each engram gets its best piece
-        # by words, cut in a thread like the passages below.
-        found = (
-            await asyncio.to_thread(_passages, {}, texts, _snippets(rows))
-            if texts
-            else {}
-        )
-        return [_row_payload(row, aliases, found if passages else None) for row in rows]
+        # meaning and no file a closest chunk.
+        return await _payloads(rows, aliases, passages, {}, texts)
     if reading.candidates:
         # In a thread: cutting long engrams would hold up every other request.
         documents, owners = await asyncio.to_thread(_documents, reading)
@@ -1579,12 +1751,6 @@ async def search_engrams(
                     if row["kind"] == "file" and row["id"] in nearest
                 }
             )
-    # In a thread, like the reranker's passages: cutting long engrams takes time.
-    found = (
-        await asyncio.to_thread(_passages, best, texts, _snippets(rows))
-        if texts
-        else {}
+    return await _payloads(
+        rows, aliases, passages, best, texts, nearest, file_rows, pages
     )
-    if file_rows:
-        found |= await asyncio.to_thread(_file_passages, nearest, file_rows, pages)
-    return [_row_payload(row, aliases, found if passages else None) for row in rows]
