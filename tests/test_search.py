@@ -573,19 +573,42 @@ async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household)
     assert hit["passage"] == piece_of("Huis", body, "krant")
 
 
+#: The head of a Markdown table of costs.
+TABLE = "| Wat | Bedrag |\n| --- | --- |\n"
+
+
+@pytest.mark.parametrize(
+    ("norway", "italy"),
+    [
+        ("De vlucht kostte 300 euro. ", "Het hotel in Rome kostte 900 euro. "),
+        (
+            TABLE + "| Vlucht | 300 euro |\n| Hotel in Oslo | 700 euro |\n\n",
+            TABLE + "| Hotel in Rome | 900 euro |\n\n",
+        ),
+        (
+            "- Verzekering: 40 euro\n- Vlucht naar Oslo: 300 euro\n\n",
+            "- Verzekering: 40 euro\n- Hotel in Rome: 900 euro\n\n",
+        ),
+    ],
+    ids=["sentence", "same-table-head", "same-first-item"],
+)
 async def test_a_repeated_heading_finds_the_section_the_snippet_came_from(
-    tx, household
+    tx, household, norway, italy
 ):
-    """Two sections called "Kosten": the later one holds the matched words."""
+    """Two sections called "Kosten": the later one holds the matched words.
+
+    They may start the same way, so the lines after the heading do not tell
+    them apart; the matched words do.
+    """
     me = principal_for(household["wouter"])
     body = (
         "# Reizen\n\nOnze reizen.\n\n## Noorwegen\n\n"
         + FILL * 3
-        + "\n\n## Kosten\n\nDe vlucht kostte 300 euro. "
+        + f"\n\n## Kosten\n\n{norway}"
         + FILL * 14
         + "\n\n## Italie\n\n"
         + FILL * 3
-        + "\n\n## Kosten\n\nHet hotel in Rome kostte 900 euro. "
+        + f"\n\n## Kosten\n\n{italy}"
         + FILL * 14
     )
     await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
@@ -594,19 +617,23 @@ async def test_a_repeated_heading_finds_the_section_the_snippet_came_from(
     assert hit["passage"] == piece_of("Reizen", body, "kosten-2")
 
 
+@pytest.mark.parametrize(
+    "opening", ["", "Bijgehouden door Wouter.\n"], ids=["plain", "same-opening"]
+)
 async def test_a_repeated_subheading_finds_the_section_the_snippet_came_from(
-    tx, household
+    tx, household, opening
 ):
     """Two "Notities" under different years: the later one holds the match."""
     me = principal_for(household["wouter"])
     body = (
         "# Huis\n\nWat er in huis gebeurt.\n\n## 2025\n\n"
         + FILL * 3
-        + "\n\n### Notities\n\nDe oude ketel werd nagekeken in mei. "
+        + f"\n\n### Notities\n\n{opening}De oude ketel werd nagekeken in mei. "
         + FILL * 14
         + "\n\n## 2026\n\n"
         + FILL * 3
-        + "\n\n### Notities\n\nDe nieuwe Daikin warmtepomp is geplaatst op 3 maart. "
+        + f"\n\n### Notities\n\n{opening}"
+        + "De nieuwe Daikin warmtepomp is geplaatst op 3 maart. "
         + FILL * 14
     )
     await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")

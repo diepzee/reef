@@ -41,6 +41,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
+from typing import Self
 from uuid import UUID
 
 from reef import embedding, filechunks, searchlog, sections
@@ -1169,19 +1170,77 @@ def _plain_places(text: str) -> tuple[str, list[int]]:
 _WORD = r"[^\W_]"
 
 
-def _pattern(sought: str) -> re.Pattern[str]:
+def _pattern(sought: str, flags: int = 0) -> re.Pattern[str]:
     """Match a text only as whole words: "Krant" is not in "Krantenwinkel".
 
     :param sought: plain text, see :func:`_plain`
+    :param flags: flags for the pattern, such as :data:`re.IGNORECASE`
     :returns: the pattern
     """
     start = f"(?<!{_WORD})" if re.match(_WORD, sought) else ""
     end = f"(?!{_WORD})" if re.match(_WORD, sought[-1]) else ""
-    return re.compile(start + re.escape(sought) + end)
+    return re.compile(start + re.escape(sought) + end, flags)
+
+
+#: A word Postgres marked in a snippet. It marks whole words, and a word
+#: holds no white space and no asterisk.
+_MARKED_WORD = re.compile(rf"{re.escape(_MARK)}([^*\s]+){re.escape(_MARK)}")
+
+
+@dataclass(frozen=True)
+class _Marks:
+    """What a snippet's place is judged by.
+
+    ``lines`` holds each line that is not blank, plain (see :func:`_plain`),
+    with whether it marks a word. ``words`` holds the distinct words it
+    marks, in lower case. Both are read from the lines as Postgres marked
+    them.
+    """
+
+    lines: list[tuple[bool, str]]
+    words: frozenset[str]
+
+    @classmethod
+    def of(cls, snippet: str) -> Self:
+        """Read a snippet.
+
+        :param snippet: the engram's snippet
+        :returns: its lines and marked words
+        """
+        lines: list[tuple[bool, str]] = []
+        words: set[str] = set()
+        for line in snippet.splitlines():
+            marked = _MARKED_WORD.findall(line)
+            words.update(word.lower() for word in marked)
+            if plain := _plain(line):
+                lines.append((bool(marked), plain))
+        return cls(lines, frozenset(words))
+
+    @property
+    def marked(self) -> list[str]:
+        """The lines that mark a word, longest first."""
+        return sorted(
+            (line for mark, line in self.lines if mark), key=len, reverse=True
+        )
 
 
 #: A piece the words were found in, and where in its body: start and end.
 type _Found = tuple[sections.Section, int, int]
+
+
+def _place(piece: sections.Section, sought: list[str]) -> _Found | None:
+    """Find where in a piece's body the first of some texts is.
+
+    :param piece: the piece
+    :param sought: plain texts, see :func:`_plain`, the most telling first
+    :returns: the piece, and where the first text its body holds is in it;
+        None when it holds none of them
+    """
+    plain, places = _plain_places(piece.body)
+    for text in sought:
+        if match := _pattern(text).search(plain):
+            return piece, places[match.start()], places[match.end() - 1] + 1
+    return None
 
 
 def _first_holding(
@@ -1197,45 +1256,45 @@ def _first_holding(
     """
     pattern = _pattern(sought)
     for piece, text in zip(among, texts, strict=True):
-        if pattern.search(text):
-            plain, places = _plain_places(piece.body)
-            match = pattern.search(plain)
-            if match:
-                return piece, places[match.start()], places[match.end() - 1] + 1
+        if pattern.search(text) and (found := _place(piece, [sought])):
+            return found
     return None
 
 
-def _under_heading(
-    line: str, after: list[str], among: list[sections.Section], texts: list[str]
-) -> _Found | None:
-    """Find the section under a heading that a line of the snippet is.
+def _best_of(candidates: list[tuple[sections.Section, str]], marks: _Marks) -> _Found:
+    """Choose the piece a snippet came from among several that could hold it.
 
-    Headings repeat, such as a "Costs" under each trip. Postgres starts the
-    snippet where most of the matched words are, often under a later one,
-    so the lines after the heading in the snippet decide which.
+    Headings repeat, such as a "Kosten" under each trip, and such sections
+    often start the same way. What sets the right one apart is the words
+    Postgres matched: it cut the snippet where most of them are. So the
+    piece that holds the most of the snippet's distinct marked words is
+    chosen, each as a whole word in any case; on a tie, the one that holds
+    more of the snippet's lines; on a further tie, the first.
 
-    :param line: a line of the snippet, plain
-    :param after: the snippet's lines after it, plain
-    :param among: the sections, in engram order
-    :param texts: each section's body, plain
-    :returns: of the sections that carry the heading, the first that holds
-        the first of the later lines any of them holds, else the first of
-        them; None when no section carries it
+    :param candidates: the pieces, in engram order, each with its body plain
+    :param marks: the snippet's lines and marked words
+    :returns: the piece, and where in its body its longest marked line is,
+        else its longest line; its start when it holds no line
     """
-    heading = line.strip("#").strip()
-    under = [
-        (piece, text)
-        for piece, text in zip(among, texts, strict=True)
-        if heading and heading in map(_plain, piece.heading_path)
-    ]
-    if not under:
-        return None
-    candidates = [piece for piece, _ in under]
-    plains = [text for _, text in under]
-    for later in after:
-        if found := _first_holding(later, candidates, plains):
-            return found
-    return candidates[0], 0, 0
+
+    def score(candidate: tuple[sections.Section, str]) -> tuple[int, int]:
+        """Count the marked words, then the lines, a candidate holds.
+
+        :param candidate: a piece, with its body plain
+        :returns: the two counts, to compare in that order
+        """
+        _, text = candidate
+        words = sum(
+            1 for word in marks.words if _pattern(word, re.IGNORECASE).search(text)
+        )
+        lines = sum(1 for _, line in marks.lines if _pattern(line).search(text))
+        return words, lines
+
+    piece, _ = max(candidates, key=score)
+    unmarked = sorted(
+        (line for mark, line in marks.lines if not mark), key=len, reverse=True
+    )
+    return _place(piece, [*marks.marked, *unmarked]) or (piece, 0, 0)
 
 
 def _locate(snippet: str, pieces: list[sections.Section]) -> _Found | None:
@@ -1244,20 +1303,22 @@ def _locate(snippet: str, pieces: list[sections.Section]) -> _Found | None:
     The snippet is the body's own text around the matched words, with marks
     around them, see :func:`_headline`. It is looked for in this order:
 
-    1. The snippet as a whole, in each section.
-    2. A line of it that marks a word and is a section's heading: the piece
-       under that heading. A snippet that starts at a heading is in no
-       section, because a section's text leaves its heading out. When
-       several sections carry that heading, the one that holds the lines
-       after it in the snippet; the first only when none does.
-    3. Each line of it that marks a word, longest first. A snippet that runs
-       on past a heading is in no one section, but such a line nearly always
-       is: a section starts after its heading's line, and a long section is
-       cut between paragraphs. Only a paragraph longer than a piece is cut
-       anywhere, so a line in it can be split between two pieces.
-    4. The snippet, then those lines, in the whole-engram piece. It holds
-       what no section does: a ``#`` line, such as the engram's title, and
-       words a very long paragraph split between two pieces. The passage
+    1. The snippet as a whole, in each section; the first that holds it.
+    2. A line of it that marks a word and is a section's heading. A snippet
+       that starts at a heading is in no section, because a section's text
+       leaves its heading out. Of the sections that carry that heading, at
+       any level, the one :func:`_best_of` ranks first: the one that holds
+       the most of the snippet's distinct marked words, then the most of its
+       lines, then the first.
+    3. Of the sections that hold a line of it that marks a word, the one
+       ranked first the same way. A snippet that runs on past a heading is in
+       no one section, but such a line nearly always is: a section starts
+       after its heading's line, and a long section is cut between
+       paragraphs. Only a paragraph longer than a piece is cut anywhere, so
+       a line in it can be split between two pieces.
+    4. The snippet, then its marked lines, in the whole-engram piece. It
+       holds what no section does: a ``#`` line, such as the engram's title,
+       and words a very long paragraph split between two pieces. The passage
        then comes from the whole-engram piece, shown around the words as
        :func:`_window` shows any piece.
 
@@ -1277,20 +1338,28 @@ def _locate(snippet: str, pieces: list[sections.Section]) -> _Found | None:
     whole = _plain(snippet)
     if whole and (found := _first_holding(whole, among, texts)):
         return found
-    lines = [(_MARK in line, _plain(line)) for line in snippet.splitlines()]
-    lines = [(mark, line) for mark, line in lines if line]
-    marked = [line for mark, line in lines if mark]
-    for number, (mark, line) in enumerate(lines):
-        after = [later for _, later in lines[number + 1 :]]
-        if mark and (found := _under_heading(line, after, among, texts)):
-            return found
-    longest = sorted(marked, key=len, reverse=True)
-    for line in longest:
-        if found := _first_holding(line, among, texts):
-            return found
+    marks = _Marks.of(snippet)
+    candidates = list(zip(among, texts, strict=True))
+    for mark, line in marks.lines:
+        heading = line.strip("#").strip()
+        under = [
+            (piece, text)
+            for piece, text in candidates
+            if mark and heading and heading in map(_plain, piece.heading_path)
+        ]
+        if under:
+            return _best_of(under, marks)
+    patterns = [_pattern(line) for line in marks.marked]
+    holding = [
+        (piece, text)
+        for piece, text in candidates
+        if any(pattern.search(text) for pattern in patterns)
+    ]
+    if holding:
+        return _best_of(holding, marks)
     if len(pieces) > 1:
         start = [_plain(pieces[0].body)]
-        for sought in filter(None, [whole, *longest]):
+        for sought in filter(None, [whole, *marks.marked]):
             if found := _first_holding(sought, pieces[:1], start):
                 return found
     return None
