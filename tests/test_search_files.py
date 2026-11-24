@@ -5,12 +5,13 @@ by the real embedding path with a fake model, so a chunk is cut exactly as it
 is in production.
 """
 
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
 from test_search_hybrid import SubjectEmbedder
 
-from reef import embedding, filechunks, rerank, search
+from reef import embedding, filechunks, rerank, search, sections
 from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import get_settings
@@ -630,3 +631,583 @@ async def test_a_failing_read_of_the_closest_chunks_leaves_the_snippet(
     [hit] = _files(await search_engrams(me, "xylophone", passages=True))
     assert hit["page"] == 3
     assert hit["passage"] == hit["snippet"]
+
+
+# --- files leave room for engrams -------------------------------------------------
+
+
+async def test_files_cannot_push_the_right_engram_out_of_the_first_five(
+    tx, household, service
+):
+    """More files than the fusion is deep, all as close to the question as
+    the engram and all holding its word: the engram is still in the first
+    five, which hold at most three files.
+
+    The engrams are long, so every file outranks them by words too: without
+    the rule they fall out of the keyword candidates and the files fill the
+    first five.
+    """
+    me = principal_for(household["wouter"])
+    filler = "word " * 100
+    await _engram(
+        me, service, "personal", "auto.md", f"The vehicle is due in May. {filler}"
+    )
+    await _engram(
+        me,
+        service,
+        "personal",
+        "garage.md",
+        f"The vehicle garage is in Ghent. {filler}",
+    )
+    depth = get_settings().search.fusion_depth
+    for number in range(depth + 5):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert [hit["kind"] for hit in hits].count("file") == 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_by_words_alone_files_leave_room_for_engrams(tx, household):
+    """Without an embedding service, six files that hold the word and two
+    engrams that hold it: the first five hold both engrams."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(6):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight. xylophone xylophone"],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5)
+    assert [hit["kind"] for hit in hits].count("file") == 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_the_rule_holds_after_the_reranker(tx, household, service, reranker):
+    """A reranker that likes every passage the same leaves the order, and the
+    first five still hold at most three files.
+
+    The engrams are as close in meaning as the files but lack the word, so
+    without the rule the files, found both ways, fill the first five.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in for its yearly check, bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_the_reranker_reads_an_engram_behind_more_files_than_it_reads(
+    tx, household, service, reranker, monkeypatch
+):
+    """More files in front than the reranker reads: it still reads an engram.
+
+    The reranker reads the first four results. The eight files are found by
+    meaning and by words, the engrams by meaning alone, so by the fusion
+    every file comes first. Only the rule applied before the reranker puts
+    an engram among the four it reads; the rule after it cannot.
+    """
+    monkeypatch.setattr(get_settings().rerank, "candidates", 4)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert any(
+        "due in May" in text or "is in Ghent" in text for text in reranker.documents
+    )
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+
+
+async def test_the_reranker_alone_leaves_room_for_engrams(tx, household, reranker):
+    """Without an embedding service, the reranker alone reads the keyword
+    order: six files and two engrams hold the word, and the first five hold
+    at most three files and both engrams."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(6):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight. xylophone xylophone"],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5)
+    assert reranker.documents
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_engrams_alone_by_words_with_reading_on(tx, household):
+    """A search of engrams alone, by words, with reading on: files that hold
+    the word are left out, and the engrams are found."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(3):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight."],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5, files=False)
+    assert all(hit["kind"] == "page" for hit in hits)
+    assert {"auto.md", "garage.md"} == {hit["path"] for hit in hits}
+
+
+class FilesFirstReranker(RecordingReranker):
+    """Stands in for a reranker that prefers every file to every engram."""
+
+    async def score(self, query: str, documents: list[str]) -> list[float]:
+        """Remember the passages and score a file's above an engram's.
+
+        A file's passage starts with its filename, which in these tests holds
+        ``invoice``; no engram's passage does.
+
+        :param query: the search text
+        :param documents: the passages
+        :returns: 1 for each file passage, 0 for each engram passage
+        """
+        self.documents.extend(documents)
+        return [1.0 if "invoice" in document else 0.0 for document in documents]
+
+
+async def test_the_rule_holds_when_the_reranker_puts_files_first(
+    tx, household, service, reranker, monkeypatch
+):
+    """A reranker that scores every file above every engram still leaves
+    both engrams in the first five, beside three files.
+
+    Before the reranker the rule has already put both engrams in the first
+    five, and all ten rows are its candidates. The reranker then puts the
+    eight files first. Only the rule applied again after the reranker moves
+    the engrams back; without it the first five are five files.
+    """
+    fake = FilesFirstReranker()
+    monkeypatch.setattr(rerank, "HttpReranker", lambda url, model, timeout: fake)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"invoice-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert any("invoice" in document for document in fake.documents)
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_an_engram_farther_than_every_file_is_still_a_candidate(
+    tx, household, service
+):
+    """An engram that lacks the word and is farther in meaning than more
+    files than the fusion is deep is still in the first five.
+
+    The fake model gives "garage" a vector slightly off the question's,
+    and every file the question's own. With engrams and files cut together
+    by meaning, the closest ``fusion_depth`` rows are all files, and the
+    engram, found by no word, is in no ranking at all. Only the cut per
+    kind keeps it a candidate, and the rule then gives it a place.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage is in Ghent.")
+    depth = get_settings().search.fusion_depth
+    for number in range(depth + 5):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"bill-{number}.pdf",
+            "A bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert "auto.md" in {hit.get("path") for hit in hits}
+
+
+async def test_only_files_still_fill_the_results(tx, household, service):
+    """With no engram to show, five files are five results."""
+    me = principal_for(household["wouter"])
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in for its yearly check, bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert [hit["kind"] for hit in hits] == ["file"] * 5
+
+
+async def test_the_setting_decides_how_many_files(tx, household, service, monkeypatch):
+    """With the setting at 5 the files take every place, as before the rule.
+
+    The engram is as close in meaning as the files but lacks the word, so
+    the files, found both ways, outrank it; only the rule could move it up.
+    """
+    monkeypatch.setattr(get_settings().search, "files_in_five", 5)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert [hit["kind"] for hit in hits] == ["file"] * 5
+
+
+async def test_with_reading_off_the_statements_are_as_before(
+    tx, household, reading, service, reranker, monkeypatch
+):
+    """Switched off, search sends neither per-kind statement and never spreads.
+
+    One search goes through the fusion and the reranker, one by words alone,
+    each with files. Neither sends the statement that ranks files by meaning
+    or the hits that hold a file's pages, and neither calls :func:`spread`.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The vehicle is due in May.")
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A vehicle bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    monkeypatch.setattr(reading, "enabled", False)
+
+    def refuse(*args, **kwargs):
+        """Fail the test: with reading off nothing is spread.
+
+        :param args: ignored
+        :param kwargs: ignored
+        :raises AssertionError: always
+        """
+        raise AssertionError("spread was called with reading off")
+
+    monkeypatch.setattr(search, "spread", refuse)
+    statements: list[str] = []
+    original = Engram.raw
+
+    def recording(sql: str, *args):
+        """Remember a statement, then send it.
+
+        :param sql: the statement
+        :param args: its values
+        :returns: what :meth:`Engram.raw` returns
+        """
+        statements.append(sql)
+        return original(sql, *args)
+
+    monkeypatch.setattr(Engram, "raw", recording)
+    assert await search_engrams(me, "vehicle", limit=5, files=True)
+    assert await search_engrams(
+        me, "vehicle", limit=5, files=True, semantic=False, rerank=False
+    )
+    page_hits = search._PAGE_HITS_SQL.format(engram_filter="", file_filter="")
+    hits = search._HITS_SQL.format(engram_filter="", file_filter="")
+    assert search._SEMANTIC_FILES_SQL % ("", "") not in statements
+    assert not [
+        sql for sql in statements if sql.startswith(search._QUERY_SQL + page_hits)
+    ]
+    assert [sql for sql in statements if sql.startswith(search._QUERY_SQL + hits)]
+
+
+def test_the_reading_off_statements_keep_their_text():
+    """``_HITS_SQL`` and ``_SEMANTIC_SQL`` are byte for byte what they were
+    before files were spread: their SHA-256, taken before the change."""
+    assert hashlib.sha256(search._HITS_SQL.encode()).hexdigest() == (
+        "1c12883bf5e763ade0a556dc076da74a10e562c6f36b45160e9ace4cf1ac806b"
+    )
+    assert hashlib.sha256(search._SEMANTIC_SQL.encode()).hexdigest() == (
+        "51d5db5dfd71c0ce7403915562ebf1aed63d00a9cccb392ed7843446f3a69b4b"
+    )
+
+
+# --- a file's passage follows the words ------------------------------------------
+
+#: A page chunk longer than a passage whose telling sentence lies behind the
+#: cut: one paragraph of filler, then the sentence in a paragraph of its own.
+#: The files that hold it are described without a word of the fake model's
+#: subjects, so the page about the vehicle is the closest chunk.
+BURIED = (
+    "The vehicle papers. "
+    + "word " * 330
+    + "\n\nThe vehicle inspection sticker is number QX-7731.\n\n"
+    + "word " * 20
+)
+
+
+async def test_a_long_chunk_is_cut_around_the_questions_words(tx, household, service):
+    """The words asked for lie behind the first 1,500 characters of the
+    closest chunk: the passage keeps the chunk's context lines and starts at
+    their paragraph."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert "QX-7731" in hit["passage"]
+    assert hit["passage"].startswith("papers.pdf\nScanned papers.\npage 2\n\n…\n\n")
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+    assert hit["page"] == 2
+
+
+async def test_a_long_chunk_without_the_questions_words_starts_at_its_start(
+    tx, household, service
+):
+    """Found by meaning alone, with no word of the question in the chunk: the
+    passage is the chunk's first 1,500 characters, as before."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(await search_engrams(me, "car", passages=True))
+    chunks = filechunks.split(
+        "papers.pdf", "Scanned papers.", [(1, f"Holiday plans. {FILLER}"), (2, BURIED)]
+    )
+    closest = next(chunk for chunk in chunks if chunk.anchor == "p2")
+    assert hit["passage"] == closest.text[:PASSAGE_CHARS]
+
+
+async def test_the_whole_file_chunk_follows_the_words_too(tx, household, service):
+    """A file of one long page: its whole-file chunk is closest, and the
+    passage shows the paragraph behind the cut that holds the words."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me, household["w_personal"], "papers.pdf", "Scanned papers.", [BURIED]
+    )
+    await embedding.embed_file(me, file, service)
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert "QX-7731" in hit["passage"]
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+
+
+async def test_the_second_part_of_a_long_page_follows_the_words_too(
+    tx, household, service
+):
+    """A page longer than a chunk is cut in two; its second part is closest,
+    and the passage shows the paragraph behind the cut that holds the words."""
+    me = principal_for(household["wouter"])
+    page = "The dwelling got new paint. " + "word " * 350 + "\n\n" + BURIED
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", page],
+    )
+    await embedding.embed_file(me, file, service)
+    chunks = filechunks.split(
+        "papers.pdf", "Scanned papers.", [(1, f"Holiday plans. {FILLER}"), (2, page)]
+    )
+    second = next(chunk for chunk in chunks if chunk.anchor == "p2~2")
+    assert second.body == BURIED.strip()
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert hit["page"] == 2
+    assert "QX-7731" in hit["passage"]
+    assert hit["passage"].startswith("papers.pdf\nScanned papers.\npage 2\n\n…\n\n")
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+
+
+async def test_no_long_chunk_sends_no_headline_statement(
+    tx, household, service, monkeypatch
+):
+    """Every closest chunk fits in a passage: search asks Postgres to mark
+    nothing, and the passage is the chunk."""
+    me = principal_for(household["wouter"])
+    letter = await _file(
+        me, household["w_personal"], "letter.pdf", "A scanned letter.", LETTER
+    )
+    await embedding.embed_file(me, letter, service)
+    statements: list[str] = []
+    original = Engram.raw
+
+    def recording(sql: str, *args):
+        """Remember a statement, then send it.
+
+        :param sql: the statement
+        :param args: its values
+        :returns: what :meth:`Engram.raw` returns
+        """
+        statements.append(sql)
+        return original(sql, *args)
+
+    monkeypatch.setattr(Engram, "raw", recording)
+    [hit] = _files(await search_engrams(me, "xylophone", passages=True))
+    assert hit["passage"].startswith("letter.pdf\nA scanned letter.\n\nDear")
+    assert "The xylophone recital" in hit["passage"]
+    assert not [sql for sql in statements if search._CHUNK_HEADLINES_SQL in sql]
+
+
+async def test_a_failing_headline_of_the_chunks_leaves_the_start(
+    tx, household, service, monkeypatch
+):
+    """When the statement that marks the words fails, the search answers and
+    the passage is the chunk's start."""
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    monkeypatch.setattr(
+        search, "_CHUNK_HEADLINES_SQL", "SELECT nothing FROM nowhere", raising=True
+    )
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert hit["passage"].startswith(
+        "papers.pdf\nScanned papers.\npage 2\n\nThe vehicle papers."
+    )
+
+
+def _papers_chunk(body: str) -> sections.Section:
+    """Build page 2's chunk of ``papers.pdf``, as embedding cuts it.
+
+    :param body: the chunk's body
+    :returns: the chunk
+    """
+    return sections.piece("p2", ("page 2",), body, "papers.pdf", "Scanned papers.")
+
+
+#: The context lines of :func:`_papers_chunk`, before its body.
+PAPERS_HEADER = "papers.pdf\nScanned papers.\npage 2\n\n"
+
+
+def test_a_fragment_across_the_cut_leaves_the_chunks_start():
+    """A fragment on one long line that starts before the cut and ends behind
+    it cannot be shown whole: the passage is the chunk's first 1,500
+    characters."""
+    body = "word " * 290 + "the marked sticker sits right here " + "word " * 100
+    chunk = _papers_chunk(body)
+    begin = len(PAPERS_HEADER) + body.index("the marked")
+    assert begin < PASSAGE_CHARS < begin + len("the marked sticker sits right here")
+    headline = "the marked **sticker** sits right here word"
+    assert search._file_passage(chunk, headline) == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_fragment_within_the_cut_leaves_the_chunks_start():
+    """A chunk longer than a passage whose marked fragment ends within its
+    first 1,500 characters, in its second paragraph: the passage is exactly
+    what it was before, not cut from that paragraph."""
+    body = "Intro.\n\nThe sticker QX. " + "word " * 400
+    chunk = _papers_chunk(body)
+    assert len(chunk.text) > PASSAGE_CHARS
+    passage = search._file_passage(chunk, "The **sticker** QX. word word")
+    assert passage == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_fragment_in_a_paragraph_longer_than_a_passage_starts_at_its_line():
+    """The paragraph would push the fragment past the cut, so the passage
+    starts at the fragment's own line."""
+    body = (
+        "Intro.\n\n"
+        + "word " * 400
+        + "\nThe vehicle inspection sticker is number QX-7731.\nword word"
+    )
+    passage = search._file_passage(
+        _papers_chunk(body),
+        "The vehicle **inspection** **sticker** is number QX-7731.",
+    )
+    assert passage.startswith(PAPERS_HEADER + "…\n\nThe vehicle inspection sticker")
+    assert "QX-7731" in passage
+    assert len(passage) <= PASSAGE_CHARS
+
+
+def test_a_body_with_the_mark_character_is_still_followed():
+    """The body's own emphasis does not hide the fragment: marks are set aside
+    when the fragment is sought, and the passage keeps the body's text."""
+    body = "word " * 400 + "\n\nThe **sticker** is number QX-7731.\n\nword"
+    passage = search._file_passage(
+        _papers_chunk(body), "The ****sticker**** is number QX-7731."
+    )
+    assert passage == PAPERS_HEADER + "…\n\nThe **sticker** is number QX-7731.\n\nword"
+
+
+def test_a_headline_without_a_mark_leaves_the_chunks_start():
+    """Postgres marked nothing: the passage is the chunk's start, even when
+    the headline's text lies behind the cut."""
+    body = "word " * 400 + "\n\nThe sticker is number QX-7731.\n\nword"
+    chunk = _papers_chunk(body)
+    passage = search._file_passage(chunk, "The sticker is number QX-7731.")
+    assert passage == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_short_chunk_is_its_own_passage():
+    """A chunk that fits in a passage is shown whole, marked words or not."""
+    chunk = _papers_chunk("The **sticker** is number QX-7731.")
+    assert search._file_passage(chunk, "The ****sticker**** is") == chunk.text
+    assert search._file_passage(chunk, None) == chunk.text

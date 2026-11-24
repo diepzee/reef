@@ -1437,6 +1437,13 @@ embedded per day. A large account therefore takes days to finish. When the
 day's pages are spent, the job ends normally and the file waits six hours
 (`REEF_FILE_TEXT_RETRY_SECONDS`). Pages already read are kept.
 
+**In search.** With reading on, every five results hold at most three files
+by default (`REEF_SEARCH_FILES_IN_FIVE` changes it), so files cannot push
+engrams out of the first results. When no engram is left to show, files
+fill the remaining places. A file's passage is cut from the part of the
+file closest to the question: from the paragraph that holds the question's
+words, or from the part's start when it holds none of them.
+
 **The sandbox.** The worker never parses a file itself. Each file is read in
 a child process that has an empty environment, runs as the `reader` user when
 the worker runs as root, and has limits on CPU, memory and time. The
@@ -1816,6 +1823,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |
 | search | `REEF_SEARCH_RRF_K` | `60` | The constant of reciprocal rank fusion, from the paper. |
 | search | `REEF_SEARCH_SEMANTIC_WEIGHT` | `2` | Measured. How much a place in the meaning ranking counts, against 1 for a place in the keyword ranking. |
+| search | `REEF_SEARCH_FILES_IN_FIVE` | `3` | With reading on, the most files among every five results. 5 is no limit. |
 | search | `REEF_SEARCH_SURE_WORDS` | `3` | Measured. The longest query in which an engram holding every word keeps its keyword place in the fusion. |
 | embedding | `REEF_EMBEDDING_URL` | (none) | Where the embedding service is. Empty: none, nothing is embedded or queued. Engram text goes there, so it must be a service this deployment runs itself, on a private network. |
 | embedding | `REEF_EMBEDDING_MODEL` | `embeddinggemma:300m` | Which model it serves. Stored with every vector: a change of model re-embeds everything. Must match on app and worker. |

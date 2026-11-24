@@ -306,6 +306,14 @@ class SearchSettings(BaseSettings):
             "1 for a place in the keyword ranking."
         ),
     )
+    files_in_five: int = Field(
+        3,
+        ge=0,
+        le=5,
+        description=(
+            "With reading on, the most files among every five results. 5 is no limit."
+        ),
+    )
     # Somebody who types an identifier or a name wants the engram that has
     # it. In a whole question, holding every word says little: treating
     # those engrams as sure as well found 44.0% of benchmark questions, against

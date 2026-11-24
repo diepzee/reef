@@ -40,6 +40,8 @@ are ORed, so either reading of a word can match.
 import asyncio
 import logging
 import re
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -193,7 +195,7 @@ _QUERY_SQL = """
 """
 
 
-def _hits_sql(page: str, files: str) -> str:
+def _hits_sql(page: str, files: str, per_kind: bool = False) -> str:
     """Return the ``hits`` relation: every row that matches by words, ranked.
 
     Rank first, excerpt second. ``ts_headline`` re-parses the whole text, so
@@ -202,21 +204,44 @@ def _hits_sql(page: str, files: str) -> str:
     :param page: what follows an engram's ``at`` column: nothing, or the
         ``page`` column a file hit carries
     :param files: the branch that finds files
+    :param per_kind: False cuts engrams and files together, at one limit.
+        True cuts each branch on its own, in the same order, so the relation
+        holds up to the limit of engrams and up to the limit of files: files
+        that rank higher can no longer push every engram out. The relation
+        then takes the limit twice, first for engrams, then for files.
     :returns: the relation, with ``{engram_filter}`` and ``{file_filter}``
         left to fill in
     """
-    return f"""
-    hits AS (
-        SELECT 'page' AS kind, engrams.id, engrams.space_id,
+    engrams = f"""        SELECT 'page' AS kind, engrams.id, engrams.space_id,
             search_vector @@ (query.english || query.dutch) AS every_word,
             ts_rank(search_vector, query.english_any || query.dutch_any,
                 {_RANK_NORMALIZATION}) AS rank,
             updated_at AS at{page}
         FROM engrams, query
-        WHERE search_vector @@ (query.english_any || query.dutch_any){{engram_filter}}
+        WHERE search_vector @@ (query.english_any || query.dutch_any){{engram_filter}}"""
+    order = "ORDER BY every_word DESC, rank DESC, at DESC"
+    if per_kind:
+        return f"""
+    hits AS (
+        (
+{engrams}
+        {order}
+        LIMIT {{{{}}}}
+        )
+        UNION ALL
+        (
+{files}
+        {order}
+        LIMIT {{{{}}}}
+        )
+    )
+"""
+    return f"""
+    hits AS (
+{engrams}
         UNION ALL
 {files}
-        ORDER BY every_word DESC, rank DESC, at DESC
+        {order}
         LIMIT {{{{}}}}
     )
 """
@@ -268,8 +293,32 @@ _FILE_PAGE_HITS = f"""        SELECT 'file' AS kind, attachments.id, attachments
 _HITS_SQL = _hits_sql("", _FILE_HITS)
 
 #: As :data:`_HITS_SQL`, with the words on a file's pages. Each row carries
-#: ``page``: the page a file was found on, or None.
-_PAGE_HITS_SQL = _hits_sql(", NULL::int AS page", _FILE_PAGE_HITS)
+#: ``page``: the page a file was found on, or None. Engrams and files are cut
+#: each on their own, so it takes the limit twice; see :func:`_hits_params`.
+_PAGE_HITS_SQL = _hits_sql(", NULL::int AS page", _FILE_PAGE_HITS, per_kind=True)
+
+
+def _hits_params(query: str, space_ids: list, limit: int, per_kind: bool) -> list:
+    """Return the values of :data:`_QUERY_SQL` followed by a ``hits`` relation.
+
+    :param query: the search text, given to both readings of the query
+    :param space_ids: the one space to stay inside, or an empty list
+    :param limit: how many hits the relation keeps; with ``per_kind`` how
+        many of each kind
+    :param per_kind: whether the relation is :data:`_PAGE_HITS_SQL`, which
+        takes the limit once for engrams and once for files
+    :returns: the values, in the order of the statement's placeholders
+    """
+    engram_limit = [limit] if per_kind else []
+    return [
+        query,
+        query,
+        *space_ids,
+        *engram_limit,
+        AttachmentStatus.READY.value,
+        *space_ids,
+        limit,
+    ]
 
 
 def _results_sql(order: str, pages: bool = False) -> str:
@@ -412,6 +461,19 @@ _FILE_TEXT_SQL = (
     "WHERE id = ANY({}::uuid[]) AND status = {}"
 )
 
+#: The headline of each long file chunk's body, numbered from 1 in the order
+#: given, see :func:`_chunk_headlines`. Follows :data:`_QUERY_SQL`, whose
+#: ``query`` relation :func:`_headline` marks by. The bodies come as one
+#: array parameter; the statement reads no table.
+_CHUNK_HEADLINES_SQL = f"""
+    chunks AS (
+        SELECT chunk.body, chunk.n
+        FROM unnest({{}}::text[]) WITH ORDINALITY AS chunk(body, n)
+    )
+    SELECT chunks.n, {_headline("chunks.body")} AS headline
+    FROM chunks CROSS JOIN query
+"""
+
 #: Each candidate file's chunks closest to the query, best first, as
 #: :data:`_PASSAGES_SQL` for engrams. Joined to ``attachments`` so only a
 #: ready file the caller can see is read. Equal distances fall to the chunk
@@ -536,11 +598,15 @@ _SEMANTIC_SQL = """
 #: vectors of the question's model and length are compared. A file must be
 #: ready, as for a search by words; the join to ``attachments`` also puts its
 #: row security in front of its vectors'. The first parameter is the
-#: question's vector, compared in both halves.
+#: question's vector, compared in both halves. Each half is cut on its own,
+#: the closest engrams at the first limit and the closest files at the
+#: second, so many close files cannot push every engram out. Both are then
+#: ordered together by distance, then id.
 _SEMANTIC_FILES_SQL = """
     WITH question AS (SELECT {}::vector AS vector)
     SELECT closest.kind, closest.id
     FROM (
+        (
         SELECT 'page' AS kind, e.engram_id AS id,
             min(e.embedding <=> question.vector) AS distance
         FROM engram_embeddings e
@@ -548,16 +614,23 @@ _SEMANTIC_FILES_SQL = """
         CROSS JOIN question
         WHERE e.model_id = {} AND e.dims = {}%s
         GROUP BY e.engram_id
+        ORDER BY distance, e.engram_id
+        LIMIT {}
+        )
         UNION ALL
+        (
         SELECT 'file', f.attachment_id, min(f.embedding <=> question.vector)
+            AS distance
         FROM file_embeddings f
         JOIN attachments ON attachments.id = f.attachment_id
         CROSS JOIN question
         WHERE f.model_id = {} AND f.dims = {} AND attachments.status = {}%s
         GROUP BY f.attachment_id
+        ORDER BY distance, f.attachment_id
+        LIMIT {}
+        )
     ) closest
     ORDER BY closest.distance, closest.id
-    LIMIT {}
 """
 
 #: A quoted phrase or an excluded word. Such a query says exactly what an
@@ -658,6 +731,62 @@ def fuse(
     return sorted(score, key=lambda key: score[key], reverse=True)
 
 
+def spread[T](
+    ranking: list[T], is_file: Callable[[T], bool], files_in_five: int
+) -> list[T]:
+    """Keep files from filling the first results, whatever their scores.
+
+    Places are filled one by one, in blocks of five (places 1 to 5, 6 to 10,
+    and so on). For each place the first row not yet placed is taken, in the
+    ranking's order. If that row is a file, the current block already holds
+    ``files_in_five`` files, and an engram is still unplaced, the first
+    unplaced engram is taken instead. So files wait for the next block only
+    while engrams remain; no place is left empty, and each kind keeps its
+    own order. The function is pure: it returns a new list and changes
+    nothing else.
+
+    :param ranking: rows, best first
+    :param is_file: tells whether a row is a file
+    :param files_in_five: the most files in a block of five, from 0 to 5
+    :returns: the same rows, with files moved back where a block was full
+    """
+    engrams: deque[tuple[int, T]] = deque()
+    files: deque[tuple[int, T]] = deque()
+    for index, row in enumerate(ranking):
+        (files if is_file(row) else engrams).append((index, row))
+    placed: list[T] = []
+    in_block = 0
+    while engrams or files:
+        first_is_engram = not files or (engrams and engrams[0][0] < files[0][0])
+        if first_is_engram or (engrams and in_block >= files_in_five):
+            row = engrams.popleft()[1]
+        else:
+            row = files.popleft()[1]
+            in_block += 1
+        placed.append(row)
+        if len(placed) % 5 == 0:
+            in_block = 0
+    return placed
+
+
+def _is_file_row(row: dict) -> bool:
+    """Tell whether a result row is a file, for :func:`spread`.
+
+    :param row: a row with a ``kind`` column
+    :returns: True for a file
+    """
+    return row["kind"] == "file"
+
+
+def _is_file_hit(hit: tuple[str, UUID]) -> bool:
+    """Tell whether a ranked kind and id is a file, for :func:`spread`.
+
+    :param hit: kind and id
+    :returns: True for a file
+    """
+    return hit[0] == "file"
+
+
 async def _closest(
     embedded: tuple[str, list[float]], space_ids: list, files: bool
 ) -> list[tuple[str, UUID]]:
@@ -671,8 +800,9 @@ async def _closest(
     :param embedded: the model's name and the query's vector
     :param space_ids: the one space to stay inside, or an empty list
     :param files: rank files by their chunks too, see
-        :data:`_SEMANTIC_FILES_SQL`. False runs the statement search ran
-        before files had text.
+        :data:`_SEMANTIC_FILES_SQL`: up to ``REEF_SEARCH_FUSION_DEPTH``
+        engrams and as many files. False runs the statement search ran
+        before files had text, which keeps that many engrams.
     :returns: kind and id of each row, closest first. Empty when the
         statement failed or nothing visible has a vector of this model.
     """
@@ -687,6 +817,7 @@ async def _closest(
             model_id,
             len(vector),
             *space_ids,
+            depth,
             model_id,
             len(vector),
             AttachmentStatus.READY.value,
@@ -884,7 +1015,9 @@ def _wanted_pages(anchors: list[str | None]) -> set[int | None]:
     return {filechunks.page_of(anchor) for anchor in anchors} or {None}
 
 
-def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
+def _file_sections(
+    row: dict, pages: _Pages, anchors: list[str | None]
+) -> list[sections.Section]:
     """Cut a file's chunks with these anchors out of what was read of it.
 
     Each comes out as it was cut for embedding, see
@@ -895,22 +1028,33 @@ def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[st
     :param row: the file's id, filename and description
     :param pages: what :func:`_read_pages` read of it
     :param anchors: the chunks wanted, best first
-    :returns: their texts, in that order
+    :returns: the chunks, in that order
     """
     filename, description = row["filename"] or "", row["description"] or ""
     cut = {
-        chunk.anchor: chunk.text
+        chunk.anchor: chunk
         for chunk in filechunks.page_chunks(
             filename, description, pages.chunk_pages, page_count=pages.count
         )
     }
-    texts: list[str] = []
+    chunks: list[sections.Section] = []
     for anchor in anchors:
         if anchor is None:
-            texts.append(filechunks.whole(filename, description, pages.start).text)
+            chunks.append(filechunks.whole(filename, description, pages.start))
         elif anchor in cut:
-            texts.append(cut[anchor])
-    return texts
+            chunks.append(cut[anchor])
+    return chunks
+
+
+def _file_chunks(row: dict, pages: _Pages, anchors: list[str | None]) -> list[str]:
+    """Give the texts of a file's chunks with these anchors, see :func:`_file_sections`.
+
+    :param row: the file's id, filename and description
+    :param pages: what :func:`_read_pages` read of it
+    :param anchors: the chunks wanted, best first
+    :returns: their texts, in that order
+    """
+    return [chunk.text for chunk in _file_sections(row, pages, anchors)]
 
 
 @dataclass
@@ -1308,8 +1452,10 @@ async def _read_files(
 
     One statement for the files, one for the pages their closest chunks
     need, in a savepoint: on any failure nothing is read, and each file's
-    passage is its snippet. A passage is at most :data:`PASSAGE_CHARS`
-    long, so no more of the start of a text is read.
+    passage is its snippet. Each closest chunk is read whole, the
+    whole-file chunk too: its start up to ``REEF_EMBEDDING_ENGRAM_CHARS``,
+    since the passage may be cut from anywhere in it, see
+    :func:`_file_passage`.
 
     :param nearest: the closest chunks of the files found that have one
     :returns: the files' id, filename and description, and what was read of
@@ -1329,7 +1475,7 @@ async def _read_files(
                 file_id: _wanted_pages(anchors[:1])
                 for file_id, anchors in nearest.items()
             },
-            PASSAGE_CHARS,
+            get_settings().embedding.engram_chars,
         )
     # Broad on purpose: without its text, a file's snippet will do.
     except Exception as error:  # noqa: BLE001
@@ -1340,32 +1486,145 @@ async def _read_files(
     return list(files), pages
 
 
-def _file_passages(
+def _closest_file_chunks(
     nearest: dict[UUID, list[str | None]],
     files: list[dict],
     pages: dict[UUID, _Pages],
-) -> dict[UUID, str]:
+) -> dict[UUID, sections.Section]:
     """Cut each file's closest chunk out of what was read, as the reranker reads it.
 
     The chunk carries the filename, the description and its page in front,
-    see :func:`_file_chunks`. A file read again since it was embedded may no
-    longer have that chunk; it gets none. Pure, so it can run in a thread.
+    see :func:`_file_sections`. A file read again since it was embedded may no
+    longer have that chunk; it gets none, and so does a chunk whose text is
+    only white space. Pure. It cuts only the pages that were read for each
+    found file's closest chunk, so it runs inside the transaction that read
+    the files, where the chunks' words are marked next.
 
     :param nearest: each file's closest chunks, best first
     :param files: the files' id, filename and description
     :param pages: what :func:`_read_pages` read of them
-    :returns: each file's passage, at most :data:`PASSAGE_CHARS` long
+    :returns: each file's closest chunk
     """
-    passages: dict[UUID, str] = {}
+    chunks: dict[UUID, sections.Section] = {}
     for row in files:
-        texts = _file_chunks(
+        found = _file_sections(
             row, pages.get(row["id"], _Pages()), nearest[row["id"]][:1]
         )
-        # A file without text ends its only chunk in a blank line.
-        text = texts[0].rstrip() if texts else ""
-        if text:
-            passages[row["id"]] = text[:PASSAGE_CHARS]
-    return passages
+        if found and found[0].text.strip():
+            chunks[row["id"]] = found[0]
+    return chunks
+
+
+def _file_passage(chunk: sections.Section, headline: str | None) -> str:
+    """Cut a file's passage out of its closest chunk, around the question's words.
+
+    A chunk of at most :data:`PASSAGE_CHARS` characters is the passage. So
+    is the chunk's start when the headline is missing or marks nothing (it
+    holds no :data:`_MARK`), when its text is not found whole in the chunk's
+    body (see :func:`_seeker`; the first place that holds it), when it ends
+    within :data:`PASSAGE_CHARS` of the chunk's start, and when not even its
+    line brings it within the cut.
+
+    Otherwise the passage is the chunk's context lines, :data:`_GAP`, then
+    the body from the start of the paragraph that holds the headline, or of
+    its line when that paragraph would push it past the cut, see
+    :data:`_PARAGRAPH_BREAK`; without trailing white space, cut to
+    :data:`PASSAGE_CHARS`. It is held to one rule: it holds the headline's
+    text in full, see :func:`_plain`. One that would not gives the chunk's
+    start instead.
+
+    Pure, so it can run in a thread.
+
+    :param chunk: the file's closest chunk
+    :param headline: what Postgres marked of the chunk's body, see
+        :data:`_CHUNK_HEADLINES_SQL`; None when none was asked for or the
+        statement failed
+    :returns: the passage, at most :data:`PASSAGE_CHARS` long. The chunk's
+        start is its text without the trailing white space a file without
+        text leaves, cut to that length.
+    """
+    start = chunk.text.rstrip()[:PASSAGE_CHARS]
+    plain = _plain(headline or "")
+    if not plain or _MARK not in (headline or ""):
+        return start
+    body = chunk.body
+    found = _seeker(plain).search(body)
+    if found is None:
+        return start
+    begin_at, end = found.span()
+    front = len(chunk.text) - len(body)
+    if front + end <= PASSAGE_CHARS:
+        return start
+    breaks = [ends.end() for ends in _PARAGRAPH_BREAK.finditer(body, 0, begin_at)]
+    paragraph = breaks[-1] if breaks else 0
+    line = body.rfind("\n", 0, begin_at) + 1
+    header = chunk.text[:front]
+    for begin in (paragraph, line):
+        gap = _GAP if begin else ""
+        if len(header) + len(gap) + end - begin <= PASSAGE_CHARS:
+            passage = f"{header}{gap}{body[begin:]}".rstrip()[:PASSAGE_CHARS]
+            return passage if plain in _plain(passage) else start
+    return start
+
+
+def _file_passages(
+    chunks: dict[UUID, sections.Section], headlines: dict[UUID, str]
+) -> dict[UUID, str]:
+    """Cut each file's passage out of its closest chunk, see :func:`_file_passage`.
+
+    Pure, so it can run in a thread.
+
+    :param chunks: each file's closest chunk
+    :param headlines: what Postgres marked of the long chunks' bodies
+    :returns: each file's passage, at most :data:`PASSAGE_CHARS` long
+    """
+    return {
+        file_id: _file_passage(chunk, headlines.get(file_id))
+        for file_id, chunk in chunks.items()
+    }
+
+
+async def _chunk_headlines(
+    query: str, chunks: dict[UUID, sections.Section]
+) -> dict[UUID, str]:
+    """Ask Postgres which words of the question each long chunk's body holds.
+
+    Only a chunk longer than :data:`PASSAGE_CHARS` needs it; when none is,
+    no statement is sent. One statement for all, see
+    :data:`_CHUNK_HEADLINES_SQL`, in a savepoint of the transaction that read
+    the files, like :func:`_closest`. It reads no table. On any failure the
+    savepoint is rolled back, it gives nothing, and each passage is its
+    chunk's start.
+
+    :param query: the search text
+    :param chunks: each file's closest chunk
+    :returns: the headline of each long chunk's body
+    """
+    long = [
+        (file_id, chunk.body)
+        for file_id, chunk in chunks.items()
+        if len(chunk.text.rstrip()) > PASSAGE_CHARS
+    ]
+    if not long:
+        return {}
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Engram.raw(
+            _QUERY_SQL + _CHUNK_HEADLINES_SQL,
+            query,
+            query,
+            [body for _, body in long],
+        )
+    # Broad on purpose: without the headlines, a chunk's start will do.
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning(
+            "search cuts files' passages from their start (%s)",
+            type(error).__name__,
+        )
+        return {}
+    await savepoint.release()
+    return {long[row["n"] - 1][0]: row["headline"] for row in rows}
 
 
 async def _payloads(
@@ -1374,24 +1633,25 @@ async def _payloads(
     passages: bool,
     best: dict[UUID, str | None],
     texts: list[dict],
-    nearest: dict[UUID, list[str | None]] | None = None,
-    file_rows: list[dict] | None = None,
-    pages: dict[UUID, _Pages] | None = None,
+    chunks: dict[UUID, sections.Section] | None = None,
+    headlines: dict[UUID, str] | None = None,
 ) -> list[dict]:
     """Shape the result rows, each with its passage when passages were asked for.
 
     Passages are cut in a thread, like the reranker's: cutting long engrams
-    would hold up every other request.
+    would hold up every other request. A file's passage is cut from its
+    closest chunk around what Postgres marked of it, see
+    :func:`_file_passages`.
 
     :param rows: the result rows, best first
     :param aliases: the caller's space-id-to-alias map
     :param passages: whether passages were asked for
     :param best: the best anchor by meaning of each engram that has one
     :param texts: the engrams' text, as :func:`_read_engrams` read it
-    :param nearest: each file's closest chunks, best first
-    :param file_rows: the files' id, filename and description, for the files
-        with a closest chunk
-    :param pages: what :func:`_read_pages` read of those files
+    :param chunks: each found file's closest chunk, see
+        :func:`_closest_file_chunks`
+    :param headlines: what Postgres marked of the long ones, see
+        :func:`_chunk_headlines`
     :returns: one payload per row, see :func:`_row_payload`
     """
     if not passages:
@@ -1401,10 +1661,8 @@ async def _payloads(
         if texts
         else {}
     )
-    if file_rows:
-        found |= await asyncio.to_thread(
-            _file_passages, nearest or {}, file_rows, pages or {}
-        )
+    if chunks:
+        found |= await asyncio.to_thread(_file_passages, chunks, headlines or {})
     return [_row_payload(row, aliases, found) for row in rows]
 
 
@@ -1551,10 +1809,20 @@ async def search_engrams(
     A query with a quoted phrase or an exclusion is neither merged nor read
     again: it stays exact.
 
+    **Room for engrams.** With reading on, engrams and files are taken as
+    candidates each on their own, by words and by meaning, so files that
+    rank higher cannot push every engram out. Every five results then hold
+    at most ``REEF_SEARCH_FILES_IN_FIVE`` files while engrams remain, see
+    :func:`spread`: after the fusion or the keyword ranking, again after
+    the reranker, and on the rows of a search by words alone.
+
     **Never slow because of a model.** The search embeds the query first,
     then reads in one short transaction, then asks the reranker, then reads
-    the results in a second short transaction. No database connection
-    waits on a model. Called inside a transaction, it runs in that one.
+    the results in a second short transaction. When passages are asked
+    for, the second also reads what they are cut from and has Postgres mark
+    the question's words in long file chunks; the passages themselves are
+    cut after it, in a thread. No database connection waits on a model.
+    Called inside a transaction, it runs in that one.
 
     Search never fails because of the embedding service or the reranker.
     Without them, or when they are slow or down, the answer is the order
@@ -1574,7 +1842,13 @@ async def search_engrams(
     :param passages: give each hit a ``passage`` too: its piece or chunk
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
-        search already has, so the query is still embedded once. Every other
+        search already has, so the query is still embedded once. A file's
+        chunk longer than that is cut around the fragment Postgres marks in
+        its body: its context lines, then the text from the paragraph or
+        line that holds the fragment. The passage holds the whole fragment,
+        or it is the chunk's start, as before: when nothing is marked, the
+        fragment is not found, it already lies within the cut, or it would
+        not fit. See :func:`_file_passage`. Every other
         engram gets its snippet widened in place: an engram without vectors,
         any engram in a search without them, and one edited since it was
         embedded. The passage is the engram's start when the snippet ends
@@ -1591,8 +1865,7 @@ async def search_engrams(
         chunk, and for a file without vectors its best page by words, else
         None. A file's snippet comes from that page.
     :param files: False searches engrams alone, so no file takes the place
-        of an engram. True, the default, runs the statements search has
-        always run.
+        of an engram. True, the default, searches files beside engrams.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -1604,12 +1877,12 @@ async def search_engrams(
     limit = max(1, min(limit, settings.search.max_results))
     exact = _EXACT.search(query) is not None
     file_text = settings.reading.enabled
+    files_in_five = settings.search.files_in_five
     embedded = await embedding.embed_question(query) if semantic and not exact else None
     reread = rerank and not exact and reranking.wanted()
     reading = _Reading(candidates=[])
     async with transaction_scope():
         aliases = await alias_map(principal)
-        ready = AttachmentStatus.READY.value
         space_filter = ""
         space_ids: list = []
         if space is not None:
@@ -1630,13 +1903,11 @@ async def search_engrams(
             # Keyword search, in one statement, as it always was.
             rows = await Engram.raw(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                limit,
+                *_hits_params(query, space_ids, limit, file_text),
             )
+            if file_text:
+                # Up to the limit of each kind: spread, then cut.
+                rows = spread(rows, _is_file_row, files_in_five)[:limit]
             await _record(log, principal, query, rows)
             engram_ids = [row["id"] for row in rows if row["kind"] == "page"]
             texts = await _read_engrams(engram_ids) if passages else []
@@ -1644,12 +1915,12 @@ async def search_engrams(
             model_id, vector = embedded
             keyword = await Engram.raw(
                 hits_sql + _RANKING_SQL,
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                max(limit, settings.search.fusion_depth),
+                *_hits_params(
+                    query,
+                    space_ids,
+                    max(limit, settings.search.fusion_depth),
+                    file_text,
+                ),
                 len(query.split()) <= settings.search.sure_words,
                 model_id,
                 len(vector),
@@ -1660,14 +1931,16 @@ async def search_engrams(
         else:
             keyword = await Engram.raw(
                 hits_sql + _KEYWORD_RANKING_SQL,
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                max(limit, settings.rerank.candidates),
+                *_hits_params(
+                    query,
+                    space_ids,
+                    max(limit, settings.rerank.candidates),
+                    file_text,
+                ),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
+        if file_text and not words_only:
+            ranking = spread(ranking, _is_file_hit, files_in_five)
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
@@ -1682,11 +1955,14 @@ async def search_engrams(
         scores = await reranking.rerank(query, documents) if documents else None
         if scores is not None:
             ranking = reorder(ranking, len(reading.candidates), owners, scores)
+    if file_text:
+        # The reranker may have moved files up; the rule holds all the same.
+        ranking = spread(ranking, _is_file_hit, files_in_five)
     chosen = ranking[:limit]
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []
-    file_rows: list[dict] = []
-    pages: dict[UUID, _Pages] = {}
+    chunks: dict[UUID, sections.Section] = {}
+    headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
         # Without a vector in sight, no file has a closest chunk.
@@ -1710,6 +1986,7 @@ async def search_engrams(
                     if row["kind"] == "file" and row["id"] in nearest
                 }
             )
-    return await _payloads(
-        rows, aliases, passages, best, texts, nearest, file_rows, pages
-    )
+            # Pure and small: at most ``limit`` chunks of pages already read.
+            chunks = _closest_file_chunks(nearest, file_rows, pages)
+            headlines = await _chunk_headlines(query, chunks)
+    return await _payloads(rows, aliases, passages, best, texts, chunks, headlines)
