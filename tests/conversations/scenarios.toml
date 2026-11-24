@@ -6,7 +6,8 @@
 # write starts from a reset, and its [[scenario.after]] checks read the
 # memory afterwards.
 #
-# Fields: id, kind ("read" or "write"), messages, tools_required,
+# Fields: id, kind ("read" or "write"), messages, tools_required (a list inside
+# is a set of alternatives: one of them is enough),
 # tools_forbidden, facts (every one must be in the answer; a list inside is a
 # set of ways to write it), engrams (paths the answer must name), needs
 # ("files", "file_text"), connector (only search and fetch are offered).
@@ -20,7 +21,7 @@
 [[scenario]]
 id = "dentist-moved"
 kind = "read"
-messages = ["Wanneer moet ik naar de tandarts?"]
+messages = ["Wanneer is mijn volgende tandartsafspraak?"]
 tools_required = ["load_index", "recall"]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = ["3 december", ["9:15", "09:15", "9.15", "9u15"]]
@@ -44,11 +45,35 @@ facts = [["82,5", "82.5"]]
 [[scenario]]
 id = "open-training-log"
 kind = "read"
-messages = ["Open mijn traininglog en vertel me wat ik op mijn laatste benentraining deed."]
-tools_required = ["load_index", "open"]
+# Read word for word: the answer must hold the exact lines. Opening the engram
+# gives them; so may a recall of a short log, so either tool is accepted. Each fact is a line of the log, copied as
+# written, with "×" as the way an assistant may reformat "x".
+messages = ["Lees de novemberdagen uit mijn traininglog letterlijk voor, zoals ze er staan."]
+tools_required = ["load_index", ["open", "recall"]]
 tools_forbidden = ["write", "correct", "remember", "log", "forget"]
-facts = ["21 november", "115"]
+facts = [
+  ["Deadlift 140 x 3, 3 sets. Rug voelde stijf", "Deadlift 140 × 3, 3 sets. Rug voelde stijf"],
+  ["Roeien 72,5 x 8", "Roeien 72,5 × 8"],
+  "Deadlift overgeslagen vanwege de rug",
+  ["Schouderdrukken 42,5 x 8", "Schouderdrukken 42,5 × 8"],
+  ["Optrekken +12,5 kg x 6, 3 sets. Roeien 75 x 8: record", "Optrekken +12,5 kg × 6, 3 sets. Roeien 75 × 8: record"],
+  ["Squat 115 x 5, 5 sets: record. Deadlift 130 x 5, 3 sets, rustig", "Squat 115 × 5, 5 sets: record. Deadlift 130 × 5, 3 sets, rustig"],
+]
 engrams = ["logs/training.md"]
+
+[[scenario]]
+id = "deadlift-tomorrow"
+kind = "read"
+# No "my notes" and no "my memory": the assistant must reach for Reef by
+# itself. Only the memory knows about Lode's back and his last deadlift
+# (profile/health.md: "Kinesist Joris Peeters"; logs/training.md: deadlift
+# 130 x 5 on 21 november, 140 x 3 on 7 november, skipped on 14 november).
+# One fact, many ways: any detail only the memory has will do, and no way is a
+# short word a generic answer could contain ("rug" is in "terug").
+messages = ["Mag ik morgen deadliften?"]
+tools_required = ["load_index"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = [["joris", "peeters", "130 kg", "130 x 5", "140 kg", "140 x 3", "14 november", "vanwege de rug"]]
 
 [[scenario]]
 id = "newspaper-cancelled"

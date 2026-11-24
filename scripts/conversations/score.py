@@ -93,9 +93,15 @@ def coverage(scenarios: list[dict]) -> set[str]:
     """Name the tools the scenarios require.
 
     :param scenarios: the scenarios
-    :returns: every tool named in a ``tools_required``
+    :returns: every tool named in a ``tools_required``, also inside a list of
+        alternatives
     """
-    return {tool for scenario in scenarios for tool in scenario["tools_required"]}
+    return {
+        tool
+        for scenario in scenarios
+        for entry in scenario["tools_required"]
+        for tool in ([entry] if isinstance(entry, str) else entry)
+    }
 
 
 def normalize(text: str) -> str:
@@ -220,11 +226,16 @@ def score(
     broken = [
         f"the call to {call.tool} failed" for call in session.tool_calls if not call.ok
     ]
-    failures = [
-        f"required tool {t} was not used successfully"
-        for t in scenario["tools_required"]
-        if t not in worked
-    ]
+    failures = []
+    for entry in scenario["tools_required"]:
+        # A list is a set of alternatives: one of them is enough.
+        names = [entry] if isinstance(entry, str) else list(entry)
+        if worked.isdisjoint(names):
+            failures.append(
+                f"required tool {names[0]} was not used successfully"
+                if len(names) == 1
+                else f"none of {', '.join(names)} was used successfully"
+            )
     failures += [
         f"forbidden tool {t} was used"
         for t in scenario["tools_forbidden"]
