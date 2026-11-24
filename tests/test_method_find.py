@@ -308,8 +308,11 @@ async def test_recall_returns_passage_and_source(household):
     [hit] = await find.recall(me, "which boiler we have", "boiler")
     async with transaction_scope():
         stored = await get_engram(me.principal, "household", "boiler.md")
-    # Without vectors the passage is the search snippet.
-    assert "**boiler**" in hit.pop("passage").lower()
+    # Without vectors the passage is the piece that holds the matched words.
+    assert (
+        hit.pop("passage")
+        == "Boiler\n\nThe boiler is a Vaillant ecoTEC, serviced in May."
+    )
     assert hit == {
         "kind": "engram",
         "space": "household",
@@ -347,6 +350,37 @@ async def test_recall_passage_is_the_section_that_answers(household, service):
     assert len(car.text) > 1_500
     assert hit["passage"] == car.text[:1_500]
     assert "storm" not in hit["passage"]
+
+
+async def test_recall_passage_by_meaning_wins_over_words(household, service):
+    """With vectors, the piece closest in meaning is the passage.
+
+    The question's matching words are in the car section. Its meaning, about
+    neither subject, is closest to the house section, which names its
+    subject less often.
+    """
+    me = caller_for(household["wouter"])
+    body = (
+        "# Insurance\n\nOur policies, kept together.\n\n"
+        f"## Car\n\n{CAR * 25}\n\n## House\n\n{HOUSE * 16}"
+    )
+    async with transaction_scope():
+        engram = await save_engram(
+            me.principal,
+            "personal",
+            "insurance.md",
+            body,
+            message="x",
+            title="Insurance",
+        )
+        await embedding.embed_engram(me.principal, engram.id, service)
+
+    [hit] = await find.recall(me, "insurer", "Is Ethias still our insurer?")
+
+    pieces = sections.split("Insurance", "Our policies, kept together.", body)
+    house = next(piece for piece in pieces if piece.anchor == "house")
+    assert hit["passage"] == house.text[:1_500]
+    assert "Ethias" not in hit["passage"]
 
 
 async def test_recall_respects_space(household):

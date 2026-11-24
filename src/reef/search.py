@@ -67,8 +67,10 @@ SEARCH_CONFIGS = ("english", "dutch")
 #: scripts can still exceed it, and such a write is refused by the database.
 INDEXED_CHARS = 200_000
 
-#: Snippets bold their matches as Markdown, the format every reader here speaks.
-_HEADLINE_OPTIONS = "StartSel=**, StopSel=**, MaxWords=25, MinWords=8"
+#: Snippets bold their matches as Markdown, the format every reader here
+#: speaks. A passage is placed by them too, see :func:`_piece_by_words`.
+_MARK = "**"
+_HEADLINE_OPTIONS = f"StartSel={_MARK}, StopSel={_MARK}, MaxWords=25, MinWords=8"
 
 #: How much of an engram's best piece a hit carries as its passage, in
 #: characters. See ``passages`` in :func:`search_engrams`.
@@ -392,8 +394,9 @@ _PASSAGES_SQL = """
 """
 
 #: The text of candidate engrams. Whole for an engram whose best pieces are
-#: known, since any piece may be among them. Otherwise only as much as the
-#: whole-engram piece holds: that is all that will be read.
+#: known, or whose passage is wanted, since any piece may be among them.
+#: Otherwise only as much as the whole-engram piece holds: that is all that
+#: will be read.
 _ENGRAM_TEXT_SQL = (
     "SELECT id, title, description, "
     "CASE WHEN id = ANY({}::uuid[]) THEN body ELSE left(body, {}) END AS body "
@@ -1075,50 +1078,135 @@ def _documents(reading: _Reading) -> tuple[list[str], list[int]]:
     return documents, owners
 
 
-async def _read_best_pieces(
-    engram_ids: list[UUID], embedded: tuple[str, list[float]] | None
-) -> tuple[dict[UUID, str | None], list[dict]]:
-    """Read what each engram's passage is cut from.
+async def _read_engrams(engram_ids: list[UUID]) -> list[dict]:
+    """Read what engrams' passages are cut from.
 
-    The best piece is the one :func:`_best_anchors` puts first, the same
-    choice the reranker reads first. An engram without vectors of the
-    question's model has none, and nothing of it is read.
+    Whole: the piece that holds the match may be anywhere in an engram.
 
     :param engram_ids: the engrams found
-    :param embedded: the model's name and the query's vector, if any
-    :returns: each engram's best anchor, and the text of those engrams
+    :returns: each engram's id, title, description and body
     """
-    anchors = await _best_anchors(engram_ids, embedded, 1)
-    best = {engram_id: found[0] for engram_id, found in anchors.items()}
-    if not best:
-        return {}, []
-    ids = [str(engram_id) for engram_id in best]
+    if not engram_ids:
+        return []
+    ids = [str(engram_id) for engram_id in engram_ids]
     rows = await Engram.raw(
         _ENGRAM_TEXT_SQL, ids, get_settings().embedding.engram_chars, ids
     )
-    return best, list(rows)
+    return list(rows)
 
 
-def _passages(best: dict[UUID, str | None], engrams: list[dict]) -> dict[UUID, str]:
+async def _read_best_pieces(
+    engram_ids: list[UUID], embedded: tuple[str, list[float]] | None
+) -> tuple[dict[UUID, str | None], list[dict]]:
+    """Read what each engram's passage is cut from, and its best piece by meaning.
+
+    The best piece is the one :func:`_best_anchors` puts first, the same
+    choice the reranker reads first. An engram without vectors of the
+    question's model has none; :func:`_passages` finds its best piece by
+    words instead.
+
+    :param engram_ids: the engrams found
+    :param embedded: the model's name and the query's vector, if any
+    :returns: the best anchor of each engram that has one, and the text of
+        every engram
+    """
+    anchors = await _best_anchors(engram_ids, embedded, 1)
+    best = {engram_id: found[0] for engram_id, found in anchors.items()}
+    return best, await _read_engrams(engram_ids)
+
+
+def _spaced(text: str) -> str:
+    """Collapse each run of white space in a text to one space.
+
+    :param text: the text
+    :returns: the text on one line
+    """
+    return " ".join(text.split())
+
+
+def _plain(text: str) -> str:
+    """Return a text as a snippet and a piece are compared in.
+
+    Without asterisks, so a mark around a matched word and the body's own
+    emphasis read alike, and with its white space collapsed.
+
+    :param text: a snippet or a piece's text
+    :returns: the text to compare
+    """
+    return _spaced(text.replace("*", ""))
+
+
+def _piece_by_words(snippet: str, body: str, pieces: list[sections.Section]) -> str:
+    """Find the piece that holds the words an engram's snippet marks.
+
+    The snippet is the body's own text around the matched words, with marks
+    around them, see :func:`_headline`. It is looked for in each section as
+    a whole, and else by each line that marks a word: a snippet that runs on
+    past a heading is in no one section, but such a line is, as a section
+    starts after its heading's line and a long one is cut between
+    paragraphs. The whole-engram piece is passed over when there are
+    sections: it holds every match, so it would always be the first.
+
+    :param snippet: the engram's snippet
+    :param body: the engram's body
+    :param pieces: the engram's pieces, see :func:`reef.sections.split`
+    :returns: the first piece that holds the snippet, with its title and
+        heading in front. Empty when none does, and when the snippet marks
+        nothing: then the body did not match, only the title did, and the
+        snippet is merely the start of the body.
+    """
+    if _spaced(snippet) in _spaced(body):
+        return ""
+    among = pieces[1:] or pieces
+    texts = [_plain(piece.body) for piece in among]
+    marked = [line for line in snippet.splitlines() if _MARK in line]
+    for sought in filter(None, map(_plain, [snippet, *marked])):
+        for piece, text in zip(among, texts, strict=True):
+            if sought in text:
+                return piece.text
+    return ""
+
+
+def _passages(
+    best: dict[UUID, str | None], engrams: list[dict], snippets: dict[UUID, str]
+) -> dict[UUID, str]:
     """Cut each engram's best piece out of its text, as the reranker reads it.
 
-    The piece carries its title and heading in front, see
-    :func:`reef.sections.split`. An engram edited since it was embedded may
-    no longer have that piece; it gets none. Pure, so it can run in a thread.
+    The best piece is the one closest in meaning. An engram without one, as
+    is every engram in a search without vectors, gets its best piece by
+    words: the piece that holds its snippet, see :func:`_piece_by_words`. So
+    does an engram edited since it was embedded, which may no longer have
+    the piece closest in meaning. An engram with neither gets none.
 
-    :param best: each engram's best anchor
-    :param engrams: the engrams' text, as :func:`_read_best_pieces` read it
+    The piece carries its title and heading in front, see
+    :func:`reef.sections.split`. Pure, so it can run in a thread.
+
+    :param best: the best anchor by meaning of each engram that has one
+    :param engrams: the engrams' text, as :func:`_read_engrams` read it
+    :param snippets: each engram's snippet
     :returns: each engram's passage, at most :data:`PASSAGE_CHARS` long
     """
     passages: dict[UUID, str] = {}
     for row in engrams:
         title, body = row["title"] or "", row["body"] or ""
         pieces = sections.split(title, row["description"] or summary(body), body)
-        anchor = best[row["id"]]
-        text = next((piece.text for piece in pieces if piece.anchor == anchor), "")
+        text = ""
+        if row["id"] in best:
+            anchor = best[row["id"]]
+            text = next((piece.text for piece in pieces if piece.anchor == anchor), "")
+        text = text or _piece_by_words(snippets.get(row["id"]) or "", body, pieces)
         if text:
             passages[row["id"]] = text[:PASSAGE_CHARS]
     return passages
+
+
+def _snippets(rows: list[dict]) -> dict[UUID, str]:
+    """Return each engram hit's snippet.
+
+    :param rows: result rows of a search
+    :returns: the snippet of each engram among them
+    """
+    return {row["id"]: row["snippet"] for row in rows if row["kind"] == "page"}
 
 
 async def _read_files(
@@ -1354,9 +1442,11 @@ async def search_engrams(
     :param passages: give each hit a ``passage`` too: its piece or chunk
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
-        search already has, so the query is still embedded once. A hit
-        without vectors, or a search without them, gets its snippet; so
-        does every file with reading off.
+        search already has, so the query is still embedded once. An engram
+        without vectors, or any engram in a search without them, gets the
+        piece that holds the words its snippet marks; when no piece does,
+        as when only its title matched, its snippet. A file without
+        vectors gets its snippet, and so does every file with reading off.
     :returns: one dict per hit — engrams carry path and title, files key,
         filename and ``page``; both carry the space alias, kind, and a
         snippet. ``page`` always says where the file's passage comes from:
@@ -1398,7 +1488,8 @@ async def search_engrams(
         closest = (
             await _closest(embedded, space_ids, file_text and files) if embedded else []
         )
-        if not closest and not reread:
+        words_only = not closest and not reread
+        if words_only:
             # Keyword search, in one statement, as it always was.
             rows = await Engram.raw(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
@@ -1410,12 +1501,9 @@ async def search_engrams(
                 limit,
             )
             await _record(log, principal, query, rows)
-            # Nothing was ranked by meaning, so no engram has a best piece
-            # and no file a closest chunk.
-            return [
-                _row_payload(row, aliases, {} if passages else None) for row in rows
-            ]
-        if closest:
+            engram_ids = [row["id"] for row in rows if row["kind"] == "page"]
+            texts = await _read_engrams(engram_ids) if passages else []
+        elif closest:
             model_id, vector = embedded
             keyword = await Engram.raw(
                 hits_sql + _RANKING_SQL,
@@ -1447,6 +1535,16 @@ async def search_engrams(
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
             )
+    if words_only:
+        # Nothing was ranked by meaning, so no engram has a best piece by
+        # meaning and no file a closest chunk. Each engram gets its best piece
+        # by words, cut in a thread like the passages below.
+        found = (
+            await asyncio.to_thread(_passages, {}, texts, _snippets(rows))
+            if texts
+            else {}
+        )
+        return [_row_payload(row, aliases, found if passages else None) for row in rows]
     if reading.candidates:
         # In a thread: cutting long engrams would hold up every other request.
         documents, owners = await asyncio.to_thread(_documents, reading)
@@ -1482,7 +1580,11 @@ async def search_engrams(
                 }
             )
     # In a thread, like the reranker's passages: cutting long engrams takes time.
-    found = await asyncio.to_thread(_passages, best, texts) if texts else {}
+    found = (
+        await asyncio.to_thread(_passages, best, texts, _snippets(rows))
+        if texts
+        else {}
+    )
     if file_rows:
         found |= await asyncio.to_thread(_file_passages, nearest, file_rows, pages)
     return [_row_payload(row, aliases, found if passages else None) for row in rows]

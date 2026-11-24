@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from test_search import SUBSCRIPTIONS, subscriptions_piece
 
 from reef import embedding, search
 from reef.access import Principal, arm
@@ -413,6 +414,48 @@ async def test_an_engram_without_vectors_yet_is_not_pushed_out(tx, household, se
     await _many_cars(me, service)
     await save_engram(me, "personal", "new.md", "Vehicle tax is due.", message="x")
     assert _paths(await search_engrams(me, "vehicle"))[0] == "new.md"
+
+
+async def test_an_engram_without_vectors_yet_gets_the_section_that_matched(
+    tx, household, service
+):
+    """Saved minutes ago, it has no best piece by meaning: its best by words.
+
+    The other engram has vectors, so the search ranks by meaning and merges.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage visit is in May.")
+    await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title="Abonnementen",
+    )
+    results = await search_engrams(me, "krant abonnement opgezegd", passages=True)
+    assert _paths(results) == ["finance/subscriptions.md", "auto.md"]
+    assert results[0]["passage"] == subscriptions_piece("kranten")
+    # The engram with vectors keeps the piece closest in meaning.
+    assert results[1]["passage"] == "auto\n\nThe garage visit is in May."
+
+
+async def test_an_exact_query_gets_the_section_even_with_vectors(
+    tx, household, service
+):
+    """A quoted phrase skips the ranking by meaning, so no piece is best by it."""
+    me = principal_for(household["wouter"])
+    engram = await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title="Abonnementen",
+    )
+    await embedding.embed_engram(me, engram.id, service)
+    [hit] = await search_engrams(me, '"de mosselkoerier"', passages=True)
+    assert hit["passage"] == subscriptions_piece("kranten")
 
 
 async def test_the_engram_with_the_exact_words_is_not_pushed_out(

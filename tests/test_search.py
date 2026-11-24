@@ -7,11 +7,63 @@ here are the point, not an afterthought.
 
 import pytest
 
+from reef import sections
 from reef.access import AccessDenied, Principal, arm
 from reef.config import get_settings
 from reef.engrams import save_engram
+from reef.indexfields import summary
 from reef.models import Attachment, AttachmentStatus, Engram
-from reef.search import search_engrams
+from reef.search import PASSAGE_CHARS, search_engrams
+
+#: A note shaped like the made-up person's subscriptions: long enough to be
+#: cut into sections, with the deciding fact late on the line that matches.
+SUBSCRIPTIONS = (
+    "# Abonnementen\n\n"
+    "Wat we elke maand betalen, en wat nog loopt of al stopt.\n\n"
+    "## Streaming\n\n"
+    "Netflix: standaard met reclame, 6 euro per maand, betaald met de "
+    "kredietkaart. Spotify Duo: 17 euro per maand, gedeeld met de partner, "
+    "verlengd elke maand zonder einddatum. De prijzen gaan elk voorjaar wat "
+    "omhoog, dus in april kijken we ze na en schrappen we wat niemand nog "
+    "gebruikt. Wie iets nieuws wil, vraagt het eerst aan de ander, en we "
+    "proberen nooit meer dan twee diensten tegelijk te houden. Films huren we "
+    "liever los, voor een avond, dan er een dienst bij te nemen voor een "
+    "enkele reeks. De rekening komt op de eerste van de maand. "
+    "Disney+ is gestopt in juni.\n\n"
+    "## Kranten\n\n"
+    "Krant De Mosselkoerier: digitaal, 9 euro per maand. "
+    "Opgezegd op 1 oktober 2026, loopt af eind oktober.\n"
+    "Het tuinblad komt vier keer per jaar en kost 32 euro per jaar, te "
+    "betalen in januari. Het weekblad over koken lezen we in de bibliotheek, "
+    "dat kost niets. Oude nummers gaan naar de buren, die ze graag lezen bij "
+    "het ontbijt. Folders en reclame willen we niet: er hangt een sticker op "
+    "de brievenbus, en wat toch komt, gaat meteen bij het oud papier.\n\n"
+    "## Sport\n\n"
+    "De fitness in het dorp kost 30 euro per maand per persoon, met een "
+    "opzegtermijn van een maand. De zwemclub vraagt 120 euro per seizoen, "
+    "betaald in september. Het tennisplein huren we per uur, ongeveer tien "
+    "keer per zomer, aan 12 euro per uur. Sportkleren kopen we in de solden, "
+    "en schoenen pas als de oude echt versleten zijn. De mutualiteit betaalt "
+    "een deel van de fitness terug, als we het formulier op tijd binnenbrengen.\n\n"
+    "## Software\n\n"
+    "De wachtwoordkluis kost 36 euro per jaar, voor het hele gezin. De "
+    "opslag voor foto's kost 3 euro per maand, met twee terabyte ruimte. Het "
+    "tekstprogramma is een eenmalige aankoop, zonder maandprijs. De "
+    "antivirus zit in het besturingssysteem, die kost niets extra. Elk jaar "
+    "in december kijken we na wat we nog gebruiken en wat weg mag, en we "
+    "noteren hier wat we besloten hebben, zodat we het volgend jaar weten. "
+    "Een nieuwe dienst komt er pas bij als er een andere weggaat.\n"
+)
+
+
+def subscriptions_piece(anchor: str) -> str:
+    """Return one piece of :data:`SUBSCRIPTIONS` as a passage shows it.
+
+    :param anchor: the piece's anchor
+    :returns: the piece with its title and heading in front, cut to a passage
+    """
+    pieces = sections.split("Abonnementen", summary(SUBSCRIPTIONS), SUBSCRIPTIONS)
+    return next(p.text for p in pieces if p.anchor == anchor)[:PASSAGE_CHARS]
 
 
 def principal_for(person) -> Principal:
@@ -381,3 +433,85 @@ async def test_a_nul_byte_in_the_query_cannot_error(tx, household):
     await save_engram(me, "personal", "house.md", "The boiler manual.", message="x")
     assert [r["path"] for r in await search_engrams(me, "boi\x00ler")] == ["house.md"]
     assert await search_engrams(me, "\x00") == []
+
+
+# --- passages without vectors ---------------------------------------------------
+
+
+async def _subscriptions(me: Principal, title: str = "Abonnementen") -> None:
+    """Save the subscriptions note, without vectors.
+
+    :param me: the principal who owns it
+    :param title: its title
+    """
+    await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title=title,
+    )
+
+
+async def test_a_passage_without_vectors_holds_the_rest_of_the_matching_line(
+    tx, household
+):
+    """The snippet stops a few words after the match; the passage does not.
+
+    Seen in a test conversation: the snippet ended before "opgezegd", and the
+    assistant told the person the subscription still ran.
+    """
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, "krant abonnement opgezegd", passages=True)
+    assert "1 oktober 2026" not in hit["snippet"]
+    assert "1 oktober 2026" in hit["passage"]
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+
+
+async def test_a_passage_without_vectors_is_the_section_that_matched(tx, household):
+    """The section holding the matched words, not the first section."""
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, "krant abonnement opgezegd", passages=True)
+    assert hit["passage"] == subscriptions_piece("kranten")
+    assert "Netflix" not in hit["passage"]
+
+
+async def test_a_snippet_that_runs_into_the_next_section_finds_its_own(tx, household):
+    """A match at the end of a section is still placed in that section.
+
+    Its snippet runs on past the heading after it, so the whole snippet is in
+    no one section; the line holding the match is.
+    """
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, "disney", passages=True)
+    assert "Kranten" in hit["snippet"]
+    assert hit["passage"] == subscriptions_piece("streaming")
+
+
+async def test_a_match_only_in_the_title_keeps_the_snippet(tx, household):
+    """The body holds no matched word, so no piece holds the match."""
+    me = principal_for(household["wouter"])
+    await _subscriptions(me, title="Huishoudpot")
+    [hit] = await search_engrams(me, "huishoudpot", passages=True)
+    assert "**" not in hit["snippet"]
+    assert hit["passage"] == hit["snippet"]
+
+
+async def test_a_quoted_phrase_gets_the_section_too(tx, household):
+    """An exact query is never ranked by meaning; its passage is still the section."""
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, '"de mosselkoerier"', passages=True)
+    assert hit["passage"] == subscriptions_piece("kranten")
+
+
+async def test_without_passages_a_hit_carries_none(tx, household):
+    """Only a caller that asks for passages pays for reading the engrams."""
+    me = principal_for(household["wouter"])
+    await _subscriptions(me)
+    [hit] = await search_engrams(me, "krant abonnement opgezegd")
+    assert "passage" not in hit
