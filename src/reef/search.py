@@ -1538,8 +1538,8 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
         :data:`_CHUNK_HEADLINES_SQL`; None when none was asked for or the
         statement failed
     :returns: the passage, at most :data:`PASSAGE_CHARS` long. The chunk's
-        start is its text with the trailing white space a file without text
-        leaves, cut to that length.
+        start is its text without the trailing white space a file without
+        text leaves, cut to that length.
     """
     start = chunk.text.rstrip()[:PASSAGE_CHARS]
     plain = _plain(headline or "")
@@ -1590,8 +1590,8 @@ async def _chunk_headlines(
     Only a chunk longer than :data:`PASSAGE_CHARS` needs it; when none is,
     no statement is sent. One statement for all, see
     :data:`_CHUNK_HEADLINES_SQL`, in a short transaction of its own, in a
-    savepoint. It reads no table. On any failure it gives nothing, and each
-    passage is its chunk's start.
+    savepoint. It reads no table. On any failure, opening that transaction
+    included, it gives nothing, and each passage is its chunk's start.
 
     :param query: the search text
     :param chunks: each file's closest chunk
@@ -1604,24 +1604,30 @@ async def _chunk_headlines(
     ]
     if not long:
         return {}
-    async with transaction_scope():
-        savepoint = await DB.current_transaction.get().savepoint()
-        try:
-            rows = await Engram.raw(
-                _QUERY_SQL + _CHUNK_HEADLINES_SQL,
-                query,
-                query,
-                [body for _, body in long],
-            )
-        # Broad on purpose: without the headlines, a chunk's start will do.
-        except Exception as error:  # noqa: BLE001
-            await savepoint.rollback_to()
-            log.warning(
-                "search cuts files' passages from their start (%s)",
-                type(error).__name__,
-            )
-            return {}
-        await savepoint.release()
+    try:
+        async with transaction_scope():
+            # Called inside a transaction, the savepoint keeps a failure from
+            # aborting it; the step's exception is caught below either way.
+            savepoint = await DB.current_transaction.get().savepoint()
+            try:
+                rows = await Engram.raw(
+                    _QUERY_SQL + _CHUNK_HEADLINES_SQL,
+                    query,
+                    query,
+                    [body for _, body in long],
+                )
+            except Exception:
+                await savepoint.rollback_to()
+                raise
+            await savepoint.release()
+    # Broad on purpose: without the headlines, a chunk's start will do. This
+    # covers opening the transaction too: the pool, BEGIN and the savepoint.
+    except Exception as error:  # noqa: BLE001
+        log.warning(
+            "search cuts files' passages from their start (%s)",
+            type(error).__name__,
+        )
+        return {}
     return {long[row["n"] - 1][0]: row["headline"] for row in rows}
 
 
@@ -1846,10 +1852,12 @@ async def search_engrams(
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
         search already has, so the query is still embedded once. A file's
-        chunk longer than that is cut around the words Postgres marks in its
-        body: its context lines, then the text from the paragraph or line
-        that holds them, never half of them; when it marks none, the passage
-        is the chunk's start. See :func:`_file_passage`. Every other
+        chunk longer than that is cut around the fragment Postgres marks in
+        its body: its context lines, then the text from the paragraph or
+        line that holds the fragment. The passage holds the whole fragment,
+        or it is the chunk's start, as before: when nothing is marked, the
+        fragment is not found, it already lies within the cut, or it would
+        not fit. See :func:`_file_passage`. Every other
         engram gets its snippet widened in place: an engram without vectors,
         any engram in a search without them, and one edited since it was
         embedded. The passage is the engram's start when the snippet ends

@@ -6,6 +6,8 @@ is in production.
 """
 
 import hashlib
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
@@ -1060,6 +1062,60 @@ async def test_a_failing_headline_of_the_chunks_leaves_the_start(
     )
 
 
+async def test_a_failing_start_of_the_headline_step_leaves_the_start(
+    tx, household, service, monkeypatch
+):
+    """When the headline step cannot even open its transaction, the search
+    answers and the passage is the chunk's start.
+
+    Only that step's transaction fails: :func:`search._chunk_headlines` is
+    wrapped so that ``transaction_scope`` raises while it runs, and only
+    then. The search's own two transactions open as usual.
+    """
+    me = principal_for(household["wouter"])
+    file = await _file(
+        me,
+        household["w_personal"],
+        "papers.pdf",
+        "Scanned papers.",
+        [f"Holiday plans. {FILLER}", BURIED],
+    )
+    await embedding.embed_file(me, file, service)
+    opened: list[str] = []
+
+    @asynccontextmanager
+    async def broken() -> AsyncIterator[None]:
+        """Fail as a dropped connection would, before the transaction opens.
+
+        :raises ConnectionError: always
+        """
+        opened.append("headline")
+        raise ConnectionError("no connection")
+        yield
+
+    original = search._chunk_headlines
+
+    async def failing_start(query: str, chunks: dict) -> dict:
+        """Run the headline step with a transaction that cannot open.
+
+        :param query: the search text
+        :param chunks: each file's closest chunk
+        :returns: what the step returns
+        """
+        with monkeypatch.context() as patch:
+            patch.setattr(search, "transaction_scope", broken)
+            return await original(query, chunks)
+
+    monkeypatch.setattr(search, "_chunk_headlines", failing_start)
+    [hit] = _files(
+        await search_engrams(me, "vehicle inspection sticker", passages=True)
+    )
+    assert opened == ["headline"]
+    assert hit["passage"].startswith(
+        "papers.pdf\nScanned papers.\npage 2\n\nThe vehicle papers."
+    )
+
+
 def _papers_chunk(body: str) -> sections.Section:
     """Build page 2's chunk of ``papers.pdf``, as embedding cuts it.
 
@@ -1083,6 +1139,17 @@ def test_a_fragment_across_the_cut_leaves_the_chunks_start():
     assert begin < PASSAGE_CHARS < begin + len("the marked sticker sits right here")
     headline = "the marked **sticker** sits right here word"
     assert search._file_passage(chunk, headline) == chunk.text[:PASSAGE_CHARS]
+
+
+def test_a_fragment_within_the_cut_leaves_the_chunks_start():
+    """A chunk longer than a passage whose marked fragment ends within its
+    first 1,500 characters, in its second paragraph: the passage is exactly
+    what it was before, not cut from that paragraph."""
+    body = "Intro.\n\nThe sticker QX. " + "word " * 400
+    chunk = _papers_chunk(body)
+    assert len(chunk.text) > PASSAGE_CHARS
+    passage = search._file_passage(chunk, "The **sticker** QX. word word")
+    assert passage == chunk.text[:PASSAGE_CHARS]
 
 
 def test_a_fragment_in_a_paragraph_longer_than_a_passage_starts_at_its_line():
