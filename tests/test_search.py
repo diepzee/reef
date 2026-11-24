@@ -573,6 +573,63 @@ async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household)
     assert hit["passage"] == piece_of("Huis", body, "krant")
 
 
+async def test_a_repeated_heading_finds_the_section_the_snippet_came_from(
+    tx, household
+):
+    """Two sections called "Kosten": the later one holds the matched words."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Reizen\n\nOnze reizen.\n\n## Noorwegen\n\n"
+        + FILL * 3
+        + "\n\n## Kosten\n\nDe vlucht kostte 300 euro. "
+        + FILL * 14
+        + "\n\n## Italie\n\n"
+        + FILL * 3
+        + "\n\n## Kosten\n\nHet hotel in Rome kostte 900 euro. "
+        + FILL * 14
+    )
+    await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
+    [hit] = await search_engrams(me, "kosten hotel rome", passages=True)
+    assert hit["snippet"].startswith("**Kosten**")
+    assert hit["passage"] == piece_of("Reizen", body, "kosten-2")
+
+
+async def test_a_repeated_subheading_finds_the_section_the_snippet_came_from(
+    tx, household
+):
+    """Two "Notities" under different years: the later one holds the match."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Huis\n\nWat er in huis gebeurt.\n\n## 2025\n\n"
+        + FILL * 3
+        + "\n\n### Notities\n\nDe oude ketel werd nagekeken in mei. "
+        + FILL * 14
+        + "\n\n## 2026\n\n"
+        + FILL * 3
+        + "\n\n### Notities\n\nDe nieuwe Daikin warmtepomp is geplaatst op 3 maart. "
+        + FILL * 14
+    )
+    await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")
+    [hit] = await search_engrams(me, "notities daikin", passages=True)
+    assert hit["snippet"].startswith("**Notities**")
+    assert hit["passage"] == piece_of("Huis", body, "2026/notities")
+
+
+async def test_a_match_after_an_underscore_finds_its_section(tx, household):
+    """Postgres reads "max_connections" as two words; so does the passage."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Config\n\nInstellingen.\n\n## Server\n\n"
+        + FILL * 4
+        + "\n\n## Database\n\nZet max_connections op 200 en herstart de dienst "
+        "daarna meteen. " + FILL * 14 + "\n\n## Overig\n\n" + FILL * 10
+    )
+    await save_engram(me, "personal", "config.md", body, message="x", title="Config")
+    [hit] = await search_engrams(me, "connections", passages=True)
+    assert hit["snippet"].startswith("**connections**")
+    assert hit["passage"] == piece_of("Config", body, "database")
+
+
 async def test_a_late_match_in_a_one_piece_engram_is_in_the_passage(tx, household):
     """The passage starts at the paragraph that holds the match, after the title."""
     me = principal_for(household["wouter"])
