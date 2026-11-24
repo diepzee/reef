@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.4.0",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "`reef token` prints a valid access token from your sign-in, for scripts that need one, and never opens a browser."
+        }
+      ]
+    },
+    {
       "version": "2.3.0",
       "date": "2026-11-23",
       "changes": [
