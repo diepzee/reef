@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import MemoryStore, caller_for, store_as
-from filefixtures import scan_image, text_pdf
+from filefixtures import combined_pdf, scan_image, scan_pdf, text_pdf
 
 from reef import filetext
 from reef.access import Principal, arm
@@ -26,6 +26,8 @@ import file_report
 
 FILENAME = "ZEBRAQUILT-polis.pdf"
 DESCRIPTION = "ZEBRAQUILT car insurance"
+TEXT_LAYER = "De polis dekt de woning en de inboedel tegen brand en waterschade. " * 3
+"""Enough text for a PDF page to count as a text page, not as a scan."""
 
 
 @pytest.fixture(autouse=True)
@@ -107,6 +109,44 @@ async def test_timing_skips_a_file_it_cannot_read_and_counts_it(household):
     assert report["unreadable"] == 1
     assert report["timed_pages"] == 1
     assert "ZEBRAQUILT" not in out
+
+
+async def test_a_long_text_file_does_not_use_up_the_search_for_scans(household):
+    """A file with more text pages than the whole search may open is left
+    after its first pages, so the scan stored before it is still timed."""
+    me = caller_for(household["wouter"])
+    await store_as(
+        me,
+        "personal",
+        "foto.png",
+        scan_image(["Polisnummer 4711"], "PNG"),
+        "image/png",
+        DESCRIPTION,
+    )
+    # Stored last, so it is the first the report tries.
+    pages = [
+        f"page {n}: {TEXT_LAYER}" for n in range(file_report.PROBE_LIMIT_PER_PAGE + 5)
+    ]
+    await store_as(
+        me, "personal", FILENAME, text_pdf(pages), "application/pdf", DESCRIPTION
+    )
+    out = await file_report.run(
+        ["--email", household["wouter"].email, "--time", "1"], store=MemoryStore()
+    )
+    report = json.loads(out)
+    assert report["timed_pages"] == 1
+    assert report["unreadable"] == 0
+
+
+async def test_a_scan_behind_a_text_page_in_the_same_file_is_timed(household):
+    """One text page, such as a cover, does not make the report leave a file."""
+    me = caller_for(household["wouter"])
+    document = combined_pdf(text_pdf([TEXT_LAYER]), scan_pdf(["Polisnummer 4711"]))
+    await store_as(me, "personal", FILENAME, document, "application/pdf", DESCRIPTION)
+    out = await file_report.run(
+        ["--email", household["wouter"].email, "--time", "1"], store=MemoryStore()
+    )
+    assert json.loads(out)["timed_pages"] == 1
 
 
 async def test_queueing_adds_the_jobs_it_made(household, monkeypatch):
