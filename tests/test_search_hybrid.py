@@ -4,13 +4,14 @@ from uuid import uuid4
 
 import httpx
 import pytest
+from test_search import SUBSCRIPTIONS, piece_of, subscriptions_piece
 
 from reef import embedding, search
 from reef.access import Principal, arm
 from reef.breaker import Breaker
 from reef.config import get_settings
 from reef.engrams import save_engram
-from reef.models import Attachment, AttachmentStatus, SearchLog
+from reef.models import Attachment, AttachmentStatus, Engram, SearchLog
 from reef.search import fuse, search_engrams
 
 FUSION_DEPTH = get_settings().search.fusion_depth
@@ -413,6 +414,82 @@ async def test_an_engram_without_vectors_yet_is_not_pushed_out(tx, household, se
     await _many_cars(me, service)
     await save_engram(me, "personal", "new.md", "Vehicle tax is due.", message="x")
     assert _paths(await search_engrams(me, "vehicle"))[0] == "new.md"
+
+
+async def test_an_engram_without_vectors_yet_gets_its_snippet_widened(
+    tx, household, service
+):
+    """Saved minutes ago, it has no best piece by meaning: its passage goes by words.
+
+    The other engram has vectors, so the search ranks by meaning and merges.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The garage visit is in May.")
+    await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title="Abonnementen",
+    )
+    results = await search_engrams(me, "krant abonnement opgezegd", passages=True)
+    assert _paths(results) == ["finance/subscriptions.md", "auto.md"]
+    assert results[0]["passage"] == subscriptions_piece(None)
+    assert "Opgezegd op 1 oktober 2026" in results[0]["passage"]
+    # The engram with vectors keeps the piece closest in meaning.
+    assert results[1]["passage"] == "auto\n\nThe garage visit is in May."
+
+
+async def test_an_engram_edited_since_it_was_embedded_goes_by_words(
+    tx, household, service
+):
+    """Its piece closest in meaning is gone, so its passage goes by words."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Plans\n\nWhat we plan for the year.\n\n## Garage\n\n"
+        "The garage needs a new door before winter. "
+        + "word " * 60
+        + "\n\n## Trips\n\nThe holiday in Norway is booked for July. "
+        + "word " * 60
+        + "\n\n## Other\n\n"
+        + "word " * 300
+    )
+    engram = await save_engram(
+        me, "personal", "plans.md", body, message="x", title="Plans"
+    )
+    await embedding.embed_engram(me, engram.id, service)
+    edited = body.replace("## Trips", "## Reizen")
+    await save_engram(me, "personal", "plans.md", edited, message="x")
+    await arm(me)
+    stored = await Engram.raw(
+        "SELECT section_anchor FROM engram_embeddings WHERE engram_id = {}",
+        engram.id,
+    )
+    # Still the vectors of the old text, whose closest piece is "trips".
+    assert "trips" in {row["section_anchor"] for row in stored}
+    [hit] = await search_engrams(me, "holiday", passages=True)
+    assert hit["passage"] == piece_of("Plans", edited, None)
+    assert "The holiday in Norway is booked for July." in hit["passage"]
+
+
+async def test_an_exact_query_gets_a_passage_by_words_even_with_vectors(
+    tx, household, service
+):
+    """A quoted phrase skips the ranking by meaning, so no piece is best by it."""
+    me = principal_for(household["wouter"])
+    engram = await save_engram(
+        me,
+        "personal",
+        "finance/subscriptions.md",
+        SUBSCRIPTIONS,
+        message="x",
+        title="Abonnementen",
+    )
+    await embedding.embed_engram(me, engram.id, service)
+    [hit] = await search_engrams(me, '"de mosselkoerier"', passages=True)
+    assert hit["passage"] == subscriptions_piece(None)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
 
 
 async def test_the_engram_with_the_exact_words_is_not_pushed_out(
