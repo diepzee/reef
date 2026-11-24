@@ -561,8 +561,8 @@ async def test_a_match_in_the_title_line_gets_the_start_of_the_engram(tx, househ
     assert hit["passage"] == subscriptions_piece(None)
 
 
-async def test_a_heading_named_in_an_overview_keeps_its_section_s_fact(tx, household):
-    """The snippet starts at the heading, not at the overview that names it."""
+async def test_a_snippet_at_a_heading_an_overview_names_keeps_its_fact(tx, household):
+    """The snippet starts at the "Kranten" heading, not at the overview naming it."""
     me = principal_for(household["wouter"])
     body = (
         "# Abonnementen\n\nOverzicht: Streaming, Kranten, Sport. "
@@ -582,8 +582,8 @@ async def test_a_heading_named_in_an_overview_keeps_its_section_s_fact(tx, house
     assert "De Mosselkoerier, op 1 oktober 2026" in hit["passage"]
 
 
-async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household):
-    """ "Krantenwinkel" in an earlier section is not the heading "Krant"."""
+async def test_a_longer_word_holding_the_match_does_not_move_the_passage(tx, household):
+    """ "Krantenwinkel" comes earlier; the passage holds what follows "Krant"."""
     me = principal_for(household["wouter"])
     body = (
         "# Huis\n\nWat er in huis gebeurt.\n\n## Boodschappen\n\n"
@@ -651,7 +651,8 @@ async def test_a_repeated_heading_shows_the_place_the_snippet_came_from(
     """Two sections called "Kosten": the passage starts at the later one.
 
     It is past a passage's length, so the passage starts at the paragraph
-    that holds the snippet, under the heading above it.
+    that holds the snippet: the "## Kosten" line. "## Italie" is at the same
+    level, so its section ended there, and no heading is put in front.
     """
     me = principal_for(household["wouter"])
     body = trips(norway, italy)
@@ -659,7 +660,7 @@ async def test_a_repeated_heading_shows_the_place_the_snippet_came_from(
     [hit] = await search_engrams(me, "kosten hotel rome", passages=True)
     assert hit["snippet"].startswith("**Kosten**")
     begin = body.strip().rindex("## Kosten")
-    assert hit["passage"] == widened("Reizen\nItalie", body, begin)
+    assert hit["passage"] == widened("Reizen", body, begin)
     assert "900 euro" in hit["passage"]
 
 
@@ -696,7 +697,7 @@ async def test_an_earlier_same_named_section_with_the_words_is_not_shown(
     assert "900 euro" in hit["passage"]
     assert_holds_its_snippet(hit)
     begin = body.strip().rindex("## Kosten")
-    assert hit["passage"] == widened("Reizen\nItalie", body, begin)
+    assert hit["passage"] == widened("Reizen", body, begin)
 
 
 async def test_a_repeated_subsection_with_the_words_in_prose_is_not_shown(
@@ -841,6 +842,83 @@ async def test_a_late_match_on_one_long_line_keeps_the_snippet(tx, household):
     [hit] = await search_engrams(me, "omnium opgezegd", passages=True)
     assert "Ethias" in hit["snippet"]
     assert hit["passage"] == hit["snippet"]
+
+
+#: Paragraphs that push what follows them past a passage's length.
+LONG = "\n\n".join([FILL * 4] * 6)
+
+#: A line whose deciding fact follows the few words a snippet holds.
+LATE = (
+    "Krant De Mosselkoerier: digitaal, 9 euro per maand. "
+    "Opgezegd op 1 oktober 2026, loopt af eind oktober."
+)
+
+
+@pytest.mark.parametrize(
+    ("blank", "end"),
+    [("\n\n", "\n"), ("\r\n\r\n", "\r\n"), ("\n \t \n", "\n")],
+    ids=["lf", "crlf", "blank-line-holding-spaces"],
+)
+async def test_a_late_match_in_a_paragraph_that_fits_starts_at_the_paragraph(
+    tx, household, blank, end
+):
+    """The paragraph's first line comes along, whatever ends its lines.
+
+    A blank line may hold spaces, or the carriage return of a Windows line end.
+    """
+    me = principal_for(household["wouter"])
+    body = blank.join(
+        [
+            "# Abo",
+            *[FILL * 4] * 6,
+            "## Kranten",
+            f"Eerste regel van de alinea.{end}{LATE}",
+        ]
+    )
+    await save_engram(me, "personal", "abo.md", body + end, message="x", title="Abo")
+    [hit] = await search_engrams(me, "krant opgezegd", passages=True)
+    assert hit["snippet"].startswith("**Krant** De Mosselkoerier")
+    begin = body.index("Eerste regel")
+    assert hit["passage"] == widened("Abo\nKranten", body, begin)
+    assert hit["passage"].endswith(f"Eerste regel van de alinea.{end}{LATE}")
+
+
+async def test_a_long_paragraph_shows_the_line_that_holds_the_match(tx, household):
+    """Its start would push the match past the cut, so the passage starts at the line."""
+    me = principal_for(household["wouter"])
+    body = "\n".join([FILL * 2] * 12) + f"\n{LATE}"
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abo")
+    [hit] = await search_engrams(me, "krant opgezegd", passages=True)
+    assert hit["passage"] == f"Abo\n\n…\n\n{LATE}"
+
+
+async def test_a_heading_that_repeats_the_title_is_not_shown(tx, household):
+    """The nearest heading above repeats the title; an earlier one is not shown.
+
+    "## Kosten" ended where "# Reizen" starts, so it does not hold the text.
+    """
+    me = principal_for(household["wouter"])
+    body = (
+        f"## Kosten\n\n{LONG}\n\n# Reizen\n\nOnze reis naar Italie, in het kort."
+        "\n\nHet hotel in Rome kostte 900 euro."
+    )
+    await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
+    [hit] = await search_engrams(me, "hotel rome", passages=True)
+    assert hit["passage"] == (
+        "Reizen\n\n…\n\nOnze reis naar Italie, in het kort.\n\n"
+        "Het hotel in Rome kostte 900 euro."
+    )
+
+
+async def test_a_heading_that_opens_the_passage_ends_the_sections_above(tx, household):
+    """The shown text starts at "# Reizen", which no heading above holds."""
+    me = principal_for(household["wouter"])
+    body = f"## Kosten\n\n{LONG}\n\n# Reizen\n\nHet hotel in Rome kostte 900 euro."
+    await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
+    [hit] = await search_engrams(me, "hotel rome", passages=True)
+    assert hit["passage"] == (
+        "Reizen\n\n…\n\n# Reizen\n\nHet hotel in Rome kostte 900 euro."
+    )
 
 
 async def test_a_snippet_that_is_not_in_the_body_is_the_passage(tx, household):

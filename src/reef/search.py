@@ -68,9 +68,13 @@ SEARCH_CONFIGS = ("english", "dutch")
 INDEXED_CHARS = 200_000
 
 #: Snippets bold their matches as Markdown, the format every reader here
-#: speaks. A passage is found by them too, see :func:`_widen`.
-_MARK = "**"
-_HEADLINE_OPTIONS = f"StartSel={_MARK}, StopSel={_MARK}, MaxWords=25, MinWords=8"
+#: speaks: two of this character on each side. A snippet is found in its
+#: engram with every one of them set aside, see :func:`_plain` and
+#: :func:`_seeker`, so a mark and the body's own emphasis read alike.
+_MARK = "*"
+_HEADLINE_OPTIONS = (
+    f"StartSel={_MARK * 2}, StopSel={_MARK * 2}, MaxWords=25, MinWords=8"
+)
 
 #: How much of an engram's best piece a hit carries as its passage, in
 #: characters. See ``passages`` in :func:`search_engrams`.
@@ -1118,14 +1122,13 @@ async def _read_best_pieces(
 def _plain(text: str) -> str:
     """Return a text as a snippet is compared with a passage.
 
-    Without asterisks, so a mark around a matched word and the body's own
-    emphasis read alike, and with each run of white space collapsed to one
-    space.
+    Without the mark character, see :data:`_MARK`, and with each run of white
+    space collapsed to one space.
 
     :param text: a snippet or a passage
     :returns: the text to compare
     """
-    return " ".join(text.replace("*", "").split())
+    return " ".join(text.replace(_MARK, "").split())
 
 
 #: A letter or a digit. Postgres ends a word at an underscore, so
@@ -1136,46 +1139,56 @@ _WORD = r"[^\W_]"
 def _seeker(plain: str) -> re.Pattern[str]:
     """Match a plain text where it stands in a body, as whole words.
 
-    The body keeps its own white space and asterisks, which :func:`_plain`
-    drops: between two words any run of them that holds white space, inside a
-    word any asterisks. Each run is taken whole, never given back, so a search
-    stays linear however long a run is.
+    The body keeps its own white space and mark characters, which
+    :func:`_plain` drops: between two words any run of them that holds white
+    space, inside a word any mark characters. Each run is taken whole, never
+    given back, so a search stays linear however long a run is.
 
     :param plain: a snippet, plain; see :func:`_plain`
     :returns: the pattern
     """
-    words = (r"\**+".join(map(re.escape, word)) for word in plain.split(" "))
+    mark = re.escape(_MARK)
+    words = (f"{mark}*+".join(map(re.escape, word)) for word in plain.split(" "))
     start = f"(?<!{_WORD})" if re.match(_WORD, plain) else ""
     end = f"(?!{_WORD})" if re.match(_WORD, plain[-1]) else ""
-    return re.compile(start + r"\**+\s[\s*]*+".join(words) + end)
+    return re.compile(start + rf"{mark}*+\s[\s{mark}]*+".join(words) + end)
 
 
 def _heading_above(body: str, begin: int, title: str) -> str:
-    """Return the nearest Markdown heading above a place in a body.
+    """Return the nearest Markdown heading whose section holds a place in a body.
 
-    A heading on the line that starts there is not above it: it is shown.
-    Neither is a heading that repeats the title, which the passage already
-    starts with.
+    When the shown text starts with a heading, that heading is shown, and only
+    one above it at a higher level (fewer ``#``) still holds it: one at the
+    same level or lower ended where it starts. Otherwise the nearest heading
+    above holds it. When that heading repeats the title, which the passage
+    already starts with, there is none to show: an earlier heading may no
+    longer hold the text.
 
     :param body: the engram's body
-    :param begin: where the passage's body text starts
+    :param begin: where the passage's body text starts, at the start of a line
     :param title: the engram's title
-    :returns: the heading's text; empty when there is none
+    :returns: the heading's text; empty when there is none to show
     """
     starts = [0]
     for line in body.splitlines(keepends=True):
         starts.append(starts[-1] + len(line))
+    found = sections.headings(body)
+    shown = next((level for number, level, _ in found if starts[number] == begin), None)
     above = [
         text
-        for number, _, text in sections.headings(body)
-        if starts[number] < begin and text != title
+        for number, level, text in found
+        if starts[number] < begin and (shown is None or level < shown)
     ]
-    return above[-1] if above else ""
+    return above[-1] if above and above[-1] != title else ""
 
 
 #: Between a passage's title and heading and the body text it shows, when
 #: that text does not start at the top of the engram.
 _GAP = "…\n\n"
+
+#: Where a paragraph ends: a line break, then one or more blank lines. A blank
+#: line may hold spaces, tabs or the carriage return of a Windows line end.
+_PARAGRAPH_BREAK = re.compile(r"\n(?:[ \t\r]*\n)+")
 
 
 def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
@@ -1184,9 +1197,11 @@ def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
     The snippet is found whole in the body, see :func:`_seeker`; the first
     place that holds it. When it ends within :data:`PASSAGE_CHARS` of the
     engram's start, the text is the whole-engram piece, as the engram starts.
-    Otherwise it is the title and the nearest heading above, ``…``, then the
-    body from the start of the paragraph that holds the snippet, or of its
-    line when that paragraph would push it past the cut.
+    Otherwise it is the title and the nearest heading that holds the shown
+    text, see :func:`_heading_above`, ``…``, then the body from the start of the
+    paragraph that holds the snippet, or of its line when that paragraph
+    would push it past the cut. A paragraph ends at a blank line, see
+    :data:`_PARAGRAPH_BREAK`.
 
     :param snippet: the engram's snippet
     :param title: the engram's title
@@ -1205,9 +1220,10 @@ def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
     front = len(whole.text) - len(whole.body)
     if end <= len(whole.body) and front + end <= PASSAGE_CHARS:
         return whole.text
-    paragraph = body.rfind("\n\n", 0, start)
+    breaks = [found.end() for found in _PARAGRAPH_BREAK.finditer(body, 0, start)]
+    paragraph = breaks[-1] if breaks else 0
     line = body.rfind("\n", 0, start) + 1
-    for begin in (paragraph + 2 if paragraph >= 0 else 0, line):
+    for begin in (paragraph, line):
         heading = _heading_above(body, begin, title)
         head = "\n".join(part for part in (title, heading) if part)
         header = f"{head}\n\n" if head else ""
@@ -1246,11 +1262,15 @@ def _passages(
 
     An engram with a best piece by meaning gets that piece, cut to its start,
     as the reranker reads it. The piece carries its title and heading in
-    front, see :func:`reef.sections.split`. Every other engram, as is every
-    engram in a search without vectors, gets its snippet widened in place,
-    see :func:`_by_words`. So does an engram edited since it was embedded,
-    which may no longer have the piece closest in meaning. An engram with
-    neither gets none, and shows its snippet. Pure, so it can run in a thread.
+    front, see :func:`reef.sections.split`.
+
+    Any other engram gets its snippet widened in place, see
+    :func:`_by_words`. That is every engram in a search without vectors, an
+    engram without vectors yet, and an engram edited since it was embedded,
+    whose piece closest in meaning may be gone. When widening gives nothing,
+    or the engram has no text, it gets no passage, and shows its snippet.
+
+    Pure, so it can run in a thread.
 
     :param best: the best anchor by meaning of each engram that has one
     :param engrams: the engrams' text, as :func:`_read_engrams` read it
@@ -1554,14 +1574,16 @@ async def search_engrams(
     :param passages: give each hit a ``passage`` too: its piece or chunk
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
-        search already has, so the query is still embedded once. An engram
-        without vectors, or any engram in a search without them, gets its
-        snippet widened in place: the engram's start when the snippet is
-        near it, else the text around the snippet from the start of its
-        paragraph. Such a passage always holds the snippet's text; when it
-        could not, the passage is the snippet. See :func:`_by_words`. A file
-        without vectors gets its snippet, and so does every file with
-        reading off.
+        search already has, so the query is still embedded once. Every other
+        engram gets its snippet widened in place: an engram without vectors,
+        any engram in a search without them, and one edited since it was
+        embedded. The passage is the engram's start when the snippet ends
+        within the cut. Otherwise it is the title, the nearest heading above,
+        and the text from the start of the snippet's paragraph, or of its
+        line when the paragraph is too long. Such a passage always holds the
+        snippet's text; when it could not, the passage is the snippet. See
+        :func:`_by_words`. A file without vectors gets its snippet, and so
+        does every file with reading off.
     :returns: one dict per hit — engrams carry path and title, files key,
         filename and ``page``; both carry the space alias, kind, and a
         snippet. ``page`` always says where the file's passage comes from:

@@ -308,7 +308,8 @@ async def test_recall_returns_passage_and_source(household):
     [hit] = await find.recall(me, "which boiler we have", "boiler")
     async with transaction_scope():
         stored = await get_engram(me.principal, "household", "boiler.md")
-    # Without vectors the passage is the piece that holds the matched words.
+    # Without vectors the passage is the snippet widened; this engram is short,
+    # so that is all of it.
     assert (
         hit.pop("passage")
         == "Boiler\n\nThe boiler is a Vaillant ecoTEC, serviced in May."
