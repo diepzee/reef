@@ -1,3 +1,13 @@
+## [2.4.0](https://github.com/diepzee/reef/compare/v2.3.0...v2.4.0) (2026-11-24)
+
+### Features
+
+* **conversations:** test runs use the command-line tool's sign-in for Codex too (RUG-66) ([#160](https://github.com/diepzee/reef/issues/160)) ([afba60f](https://github.com/diepzee/reef/commit/afba60f2c3d56dc780f53528ad9afb6879dec4b3))
+
+### Bug fixes
+
+* **conversations:** clearer scenarios, one-of tool rules, and runner details (RUG-69) ([#162](https://github.com/diepzee/reef/issues/162)) ([2829046](https://github.com/diepzee/reef/commit/2829046f124cf0c3ef3c1e203dee2e86f4391ac2))
+
 ## [2.3.0](https://github.com/diepzee/reef/compare/v2.2.0...v2.3.0) (2026-11-23)
 
 ### Features
