@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.4.1",
+      "date": "2026-11-24",
+      "changes": [
+        {
+          "kind": "fixed",
+          "text": "Answers from memory now see the part of an engram around what a search matched, not a short excerpt that could cut off the deciding words."
+        }
+      ]
+    },
+    {
       "version": "2.4.0",
       "date": "2026-11-24",
       "changes": [

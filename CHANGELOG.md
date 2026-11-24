@@ -1,3 +1,9 @@
+## [2.4.1](https://github.com/diepzee/reef/compare/v2.4.0...v2.4.1) (2026-11-24)
+
+### Bug fixes
+
+* **search:** widen Postgres's own excerpt into the passage, never shorter than today (RUG-64) ([#163](https://github.com/diepzee/reef/issues/163)) ([07ba47d](https://github.com/diepzee/reef/commit/07ba47d84b50214082803d3c62cf7dabddae6ae5))
+
 ## [2.4.0](https://github.com/diepzee/reef/compare/v2.3.0...v2.4.0) (2026-11-24)
 
 ### Features
