@@ -7,6 +7,7 @@ too late.
 
 import os
 from typing import ClassVar
+from urllib.parse import urlsplit
 
 from reef.config import get_settings
 
@@ -178,9 +179,36 @@ def _restore_environment():
         os.environ.update(saved)
 
 
+def refuse_unless_test_database(current: str, test_url: str) -> None:
+    """Stop the suite when its engine does not point at the test database.
+
+    The ``schema`` fixture drops and recreates every table. ``reef.db``
+    builds its engine when it is first imported, so a test file that imports
+    ``reef`` before this module has set ``DATABASE_URL`` gets an engine on
+    the development database. This check is what stands between that and an
+    empty development database.
+
+    :param current: the name of the database the engine is connected to
+    :param test_url: the connection string of the test database
+    :raises RuntimeError: when the two databases differ; the message names
+        both and holds nothing else of the connection string
+    """
+    wanted = urlsplit(test_url).path.lstrip("/")
+    if current != wanted:
+        raise RuntimeError(
+            f"The tests drop and recreate every table, and the engine points at "
+            f"the database {current!r}, not at the test database {wanted!r}. "
+            f"Nothing was changed. Run the tests with `just test-py`, and never "
+            f"import reef before tests/conftest.py has run."
+        )
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def schema():
     """Build the schema once per session, including RLS policies.
+
+    Only in the test database: it asks the database for its name before any
+    other statement, see :func:`refuse_unless_test_database`.
 
     The policy DDL comes from ``reef.rls``, the same module the real
     migration uses, so production and tests can never apply different
@@ -193,6 +221,9 @@ async def schema():
     fails here, loudly, rather than silently testing something else.
     """
     await DB.start_connection_pool()
+    # Before anything else: every statement below changes the database.
+    current = await DB._run_in_new_connection("SELECT current_database() AS name")
+    refuse_unless_test_database(current[0]["name"], get_settings().database.test_url)
     # Either name counts. Renaming this role is an operator step run out of
     # band, so a cluster is legitimately on either side of it -- the DDL
     # resolves whichever exists, and so does this guard. What must not pass
