@@ -40,6 +40,8 @@ are ORed, so either reading of a word can match.
 import asyncio
 import logging
 import re
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -656,6 +658,44 @@ def fuse(
         score[row] = weight / (k + rank)
     # sorted() is stable, so equal scores keep the keyword ranking's order.
     return sorted(score, key=lambda key: score[key], reverse=True)
+
+
+def spread[T](
+    ranking: list[T], is_file: Callable[[T], bool], files_in_five: int
+) -> list[T]:
+    """Keep files from filling the first results, whatever their scores.
+
+    Places are filled one by one, in blocks of five (places 1 to 5, 6 to 10,
+    and so on). For each place the first row not yet placed is taken, in the
+    ranking's order. If that row is a file, the current block already holds
+    ``files_in_five`` files, and an engram is still unplaced, the first
+    unplaced engram is taken instead. So files wait for the next block only
+    while engrams remain; no place is left empty, and each kind keeps its
+    own order. The function is pure: it returns a new list and changes
+    nothing else.
+
+    :param ranking: rows, best first
+    :param is_file: tells whether a row is a file
+    :param files_in_five: the most files in a block of five, from 0 to 5
+    :returns: the same rows, with files moved back where a block was full
+    """
+    engrams: deque[tuple[int, T]] = deque()
+    files: deque[tuple[int, T]] = deque()
+    for index, row in enumerate(ranking):
+        (files if is_file(row) else engrams).append((index, row))
+    placed: list[T] = []
+    in_block = 0
+    while engrams or files:
+        first_is_engram = not files or (engrams and engrams[0][0] < files[0][0])
+        if first_is_engram or (engrams and in_block >= files_in_five):
+            row = engrams.popleft()[1]
+        else:
+            row = files.popleft()[1]
+            in_block += 1
+        placed.append(row)
+        if len(placed) % 5 == 0:
+            in_block = 0
+    return placed
 
 
 async def _closest(

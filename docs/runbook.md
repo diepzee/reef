@@ -1816,6 +1816,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |
 | search | `REEF_SEARCH_RRF_K` | `60` | The constant of reciprocal rank fusion, from the paper. |
 | search | `REEF_SEARCH_SEMANTIC_WEIGHT` | `2` | Measured. How much a place in the meaning ranking counts, against 1 for a place in the keyword ranking. |
+| search | `REEF_SEARCH_FILES_IN_FIVE` | `3` | With reading on, the most files among every five results. 5 is no limit. |
 | search | `REEF_SEARCH_SURE_WORDS` | `3` | Measured. The longest query in which an engram holding every word keeps its keyword place in the fusion. |
 | embedding | `REEF_EMBEDDING_URL` | (none) | Where the embedding service is. Empty: none, nothing is embedded or queued. Engram text goes there, so it must be a service this deployment runs itself, on a private network. |
 | embedding | `REEF_EMBEDDING_MODEL` | `embeddinggemma:300m` | Which model it serves. Stored with every vector: a change of model re-embeds everything. Must match on app and worker. |
