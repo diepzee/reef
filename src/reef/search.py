@@ -195,7 +195,7 @@ _QUERY_SQL = """
 """
 
 
-def _hits_sql(page: str, files: str) -> str:
+def _hits_sql(page: str, files: str, per_kind: bool = False) -> str:
     """Return the ``hits`` relation: every row that matches by words, ranked.
 
     Rank first, excerpt second. ``ts_headline`` re-parses the whole text, so
@@ -204,21 +204,44 @@ def _hits_sql(page: str, files: str) -> str:
     :param page: what follows an engram's ``at`` column: nothing, or the
         ``page`` column a file hit carries
     :param files: the branch that finds files
+    :param per_kind: False cuts engrams and files together, at one limit.
+        True cuts each branch on its own, in the same order, so the relation
+        holds up to the limit of engrams and up to the limit of files: files
+        that rank higher can no longer push every engram out. The relation
+        then takes the limit twice, first for engrams, then for files.
     :returns: the relation, with ``{engram_filter}`` and ``{file_filter}``
         left to fill in
     """
-    return f"""
-    hits AS (
-        SELECT 'page' AS kind, engrams.id, engrams.space_id,
+    engrams = f"""        SELECT 'page' AS kind, engrams.id, engrams.space_id,
             search_vector @@ (query.english || query.dutch) AS every_word,
             ts_rank(search_vector, query.english_any || query.dutch_any,
                 {_RANK_NORMALIZATION}) AS rank,
             updated_at AS at{page}
         FROM engrams, query
-        WHERE search_vector @@ (query.english_any || query.dutch_any){{engram_filter}}
+        WHERE search_vector @@ (query.english_any || query.dutch_any){{engram_filter}}"""
+    order = "ORDER BY every_word DESC, rank DESC, at DESC"
+    if per_kind:
+        return f"""
+    hits AS (
+        (
+{engrams}
+        {order}
+        LIMIT {{{{}}}}
+        )
+        UNION ALL
+        (
+{files}
+        {order}
+        LIMIT {{{{}}}}
+        )
+    )
+"""
+    return f"""
+    hits AS (
+{engrams}
         UNION ALL
 {files}
-        ORDER BY every_word DESC, rank DESC, at DESC
+        {order}
         LIMIT {{{{}}}}
     )
 """
@@ -270,8 +293,32 @@ _FILE_PAGE_HITS = f"""        SELECT 'file' AS kind, attachments.id, attachments
 _HITS_SQL = _hits_sql("", _FILE_HITS)
 
 #: As :data:`_HITS_SQL`, with the words on a file's pages. Each row carries
-#: ``page``: the page a file was found on, or None.
-_PAGE_HITS_SQL = _hits_sql(", NULL::int AS page", _FILE_PAGE_HITS)
+#: ``page``: the page a file was found on, or None. Engrams and files are cut
+#: each on their own, so it takes the limit twice; see :func:`_hits_params`.
+_PAGE_HITS_SQL = _hits_sql(", NULL::int AS page", _FILE_PAGE_HITS, per_kind=True)
+
+
+def _hits_params(query: str, space_ids: list, limit: int, per_kind: bool) -> list:
+    """Return the values of :data:`_QUERY_SQL` followed by a ``hits`` relation.
+
+    :param query: the search text, given to both readings of the query
+    :param space_ids: the one space to stay inside, or an empty list
+    :param limit: how many hits the relation keeps; with ``per_kind`` how
+        many of each kind
+    :param per_kind: whether the relation is :data:`_PAGE_HITS_SQL`, which
+        takes the limit once for engrams and once for files
+    :returns: the values, in the order of the statement's placeholders
+    """
+    engram_limit = [limit] if per_kind else []
+    return [
+        query,
+        query,
+        *space_ids,
+        *engram_limit,
+        AttachmentStatus.READY.value,
+        *space_ids,
+        limit,
+    ]
 
 
 def _results_sql(order: str, pages: bool = False) -> str:
@@ -538,11 +585,15 @@ _SEMANTIC_SQL = """
 #: vectors of the question's model and length are compared. A file must be
 #: ready, as for a search by words; the join to ``attachments`` also puts its
 #: row security in front of its vectors'. The first parameter is the
-#: question's vector, compared in both halves.
+#: question's vector, compared in both halves. Each half is cut on its own,
+#: the closest engrams at the first limit and the closest files at the
+#: second, so many close files cannot push every engram out. Both are then
+#: ordered together by distance, then id.
 _SEMANTIC_FILES_SQL = """
     WITH question AS (SELECT {}::vector AS vector)
     SELECT closest.kind, closest.id
     FROM (
+        (
         SELECT 'page' AS kind, e.engram_id AS id,
             min(e.embedding <=> question.vector) AS distance
         FROM engram_embeddings e
@@ -550,16 +601,23 @@ _SEMANTIC_FILES_SQL = """
         CROSS JOIN question
         WHERE e.model_id = {} AND e.dims = {}%s
         GROUP BY e.engram_id
+        ORDER BY distance, e.engram_id
+        LIMIT {}
+        )
         UNION ALL
+        (
         SELECT 'file', f.attachment_id, min(f.embedding <=> question.vector)
+            AS distance
         FROM file_embeddings f
         JOIN attachments ON attachments.id = f.attachment_id
         CROSS JOIN question
         WHERE f.model_id = {} AND f.dims = {} AND attachments.status = {}%s
         GROUP BY f.attachment_id
+        ORDER BY distance, f.attachment_id
+        LIMIT {}
+        )
     ) closest
     ORDER BY closest.distance, closest.id
-    LIMIT {}
 """
 
 #: A quoted phrase or an excluded word. Such a query says exactly what an
@@ -698,6 +756,24 @@ def spread[T](
     return placed
 
 
+def _is_file_row(row: dict) -> bool:
+    """Tell whether a result row is a file, for :func:`spread`.
+
+    :param row: a row with a ``kind`` column
+    :returns: True for a file
+    """
+    return row["kind"] == "file"
+
+
+def _is_file_hit(hit: tuple[str, UUID]) -> bool:
+    """Tell whether a ranked kind and id is a file, for :func:`spread`.
+
+    :param hit: kind and id
+    :returns: True for a file
+    """
+    return hit[0] == "file"
+
+
 async def _closest(
     embedded: tuple[str, list[float]], space_ids: list, files: bool
 ) -> list[tuple[str, UUID]]:
@@ -711,8 +787,9 @@ async def _closest(
     :param embedded: the model's name and the query's vector
     :param space_ids: the one space to stay inside, or an empty list
     :param files: rank files by their chunks too, see
-        :data:`_SEMANTIC_FILES_SQL`. False runs the statement search ran
-        before files had text.
+        :data:`_SEMANTIC_FILES_SQL`: up to ``REEF_SEARCH_FUSION_DEPTH``
+        engrams and as many files. False runs the statement search ran
+        before files had text, which keeps that many engrams.
     :returns: kind and id of each row, closest first. Empty when the
         statement failed or nothing visible has a vector of this model.
     """
@@ -727,6 +804,7 @@ async def _closest(
             model_id,
             len(vector),
             *space_ids,
+            depth,
             model_id,
             len(vector),
             AttachmentStatus.READY.value,
@@ -1591,6 +1669,13 @@ async def search_engrams(
     A query with a quoted phrase or an exclusion is neither merged nor read
     again: it stays exact.
 
+    **Room for engrams.** With reading on, engrams and files are taken as
+    candidates each on their own, by words and by meaning, so files that
+    rank higher cannot push every engram out. Every five results then hold
+    at most ``REEF_SEARCH_FILES_IN_FIVE`` files while engrams remain, see
+    :func:`spread`: after the fusion or the keyword ranking, again after
+    the reranker, and on the rows of a search by words alone.
+
     **Never slow because of a model.** The search embeds the query first,
     then reads in one short transaction, then asks the reranker, then reads
     the results in a second short transaction. No database connection
@@ -1631,8 +1716,7 @@ async def search_engrams(
         chunk, and for a file without vectors its best page by words, else
         None. A file's snippet comes from that page.
     :param files: False searches engrams alone, so no file takes the place
-        of an engram. True, the default, runs the statements search has
-        always run.
+        of an engram. True, the default, searches files beside engrams.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -1644,12 +1728,12 @@ async def search_engrams(
     limit = max(1, min(limit, settings.search.max_results))
     exact = _EXACT.search(query) is not None
     file_text = settings.reading.enabled
+    files_in_five = settings.search.files_in_five
     embedded = await embedding.embed_question(query) if semantic and not exact else None
     reread = rerank and not exact and reranking.wanted()
     reading = _Reading(candidates=[])
     async with transaction_scope():
         aliases = await alias_map(principal)
-        ready = AttachmentStatus.READY.value
         space_filter = ""
         space_ids: list = []
         if space is not None:
@@ -1670,13 +1754,11 @@ async def search_engrams(
             # Keyword search, in one statement, as it always was.
             rows = await Engram.raw(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                limit,
+                *_hits_params(query, space_ids, limit, file_text),
             )
+            if file_text:
+                # Up to the limit of each kind: spread, then cut.
+                rows = spread(rows, _is_file_row, files_in_five)[:limit]
             await _record(log, principal, query, rows)
             engram_ids = [row["id"] for row in rows if row["kind"] == "page"]
             texts = await _read_engrams(engram_ids) if passages else []
@@ -1684,12 +1766,12 @@ async def search_engrams(
             model_id, vector = embedded
             keyword = await Engram.raw(
                 hits_sql + _RANKING_SQL,
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                max(limit, settings.search.fusion_depth),
+                *_hits_params(
+                    query,
+                    space_ids,
+                    max(limit, settings.search.fusion_depth),
+                    file_text,
+                ),
                 len(query.split()) <= settings.search.sure_words,
                 model_id,
                 len(vector),
@@ -1700,14 +1782,16 @@ async def search_engrams(
         else:
             keyword = await Engram.raw(
                 hits_sql + _KEYWORD_RANKING_SQL,
-                query,
-                query,
-                *space_ids,
-                ready,
-                *space_ids,
-                max(limit, settings.rerank.candidates),
+                *_hits_params(
+                    query,
+                    space_ids,
+                    max(limit, settings.rerank.candidates),
+                    file_text,
+                ),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
+        if file_text and not words_only:
+            ranking = spread(ranking, _is_file_hit, files_in_five)
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
@@ -1722,6 +1806,9 @@ async def search_engrams(
         scores = await reranking.rerank(query, documents) if documents else None
         if scores is not None:
             ranking = reorder(ranking, len(reading.candidates), owners, scores)
+    if file_text:
+        # The reranker may have moved files up; the rule holds all the same.
+        ranking = spread(ranking, _is_file_hit, files_in_five)
     chosen = ranking[:limit]
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []

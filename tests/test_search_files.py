@@ -5,6 +5,7 @@ by the real embedding path with a fake model, so a chunk is cut exactly as it
 is in production.
 """
 
+import hashlib
 from uuid import UUID, uuid4
 
 import pytest
@@ -630,3 +631,197 @@ async def test_a_failing_read_of_the_closest_chunks_leaves_the_snippet(
     [hit] = _files(await search_engrams(me, "xylophone", passages=True))
     assert hit["page"] == 3
     assert hit["passage"] == hit["snippet"]
+
+
+# --- files leave room for engrams -------------------------------------------------
+
+
+async def test_files_cannot_push_the_right_engram_out_of_the_first_five(
+    tx, household, service
+):
+    """More files than the fusion is deep, all as close to the question as
+    the engram and all holding its word: the engram is still in the first
+    five, which hold at most three files.
+
+    The engrams are long, so every file outranks them by words too: without
+    the rule they fall out of the keyword candidates and the files fill the
+    first five.
+    """
+    me = principal_for(household["wouter"])
+    filler = "word " * 100
+    await _engram(
+        me, service, "personal", "auto.md", f"The vehicle is due in May. {filler}"
+    )
+    await _engram(
+        me,
+        service,
+        "personal",
+        "garage.md",
+        f"The vehicle garage is in Ghent. {filler}",
+    )
+    depth = get_settings().search.fusion_depth
+    for number in range(depth + 5):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert [hit["kind"] for hit in hits].count("file") == 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_by_words_alone_files_leave_room_for_engrams(tx, household):
+    """Without an embedding service, six files that hold the word and two
+    engrams that hold it: the first five hold both engrams."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(6):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight. xylophone xylophone"],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5)
+    assert [hit["kind"] for hit in hits].count("file") == 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_the_rule_holds_after_the_reranker(tx, household, service, reranker):
+    """A reranker that likes every passage the same leaves the order, and the
+    first five still hold at most three files.
+
+    The engrams are as close in meaning as the files but lack the word, so
+    without the rule the files, found both ways, fill the first five.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in for its yearly check, bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5, passages=True)
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_only_files_still_fill_the_results(tx, household, service):
+    """With no engram to show, five files are five results."""
+    me = principal_for(household["wouter"])
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in for its yearly check, bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert [hit["kind"] for hit in hits] == ["file"] * 5
+
+
+async def test_the_setting_decides_how_many_files(tx, household, service, monkeypatch):
+    """With the setting at 5 the files take every place, as before the rule.
+
+    The engram is as close in meaning as the files but lacks the word, so
+    the files, found both ways, outrank it; only the rule could move it up.
+    """
+    monkeypatch.setattr(get_settings().search, "files_in_five", 5)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert [hit["kind"] for hit in hits] == ["file"] * 5
+
+
+async def test_with_reading_off_the_statements_are_as_before(
+    tx, household, reading, service, reranker, monkeypatch
+):
+    """Switched off, search sends neither per-kind statement and never spreads.
+
+    One search goes through the fusion and the reranker, one by words alone,
+    each with files. Neither sends the statement that ranks files by meaning
+    or the hits that hold a file's pages, and neither calls :func:`spread`.
+    """
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The vehicle is due in May.")
+    for number in range(6):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A vehicle bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    monkeypatch.setattr(reading, "enabled", False)
+
+    def refuse(*args, **kwargs):
+        """Fail the test: with reading off nothing is spread.
+
+        :param args: ignored
+        :param kwargs: ignored
+        :raises AssertionError: always
+        """
+        raise AssertionError("spread was called with reading off")
+
+    monkeypatch.setattr(search, "spread", refuse)
+    statements: list[str] = []
+    original = Engram.raw
+
+    def recording(sql: str, *args):
+        """Remember a statement, then send it.
+
+        :param sql: the statement
+        :param args: its values
+        :returns: what :meth:`Engram.raw` returns
+        """
+        statements.append(sql)
+        return original(sql, *args)
+
+    monkeypatch.setattr(Engram, "raw", recording)
+    assert await search_engrams(me, "vehicle", limit=5, files=True)
+    assert await search_engrams(
+        me, "vehicle", limit=5, files=True, semantic=False, rerank=False
+    )
+    page_hits = search._PAGE_HITS_SQL.format(engram_filter="", file_filter="")
+    hits = search._HITS_SQL.format(engram_filter="", file_filter="")
+    assert search._SEMANTIC_FILES_SQL % ("", "") not in statements
+    assert not [
+        sql for sql in statements if sql.startswith(search._QUERY_SQL + page_hits)
+    ]
+    assert [sql for sql in statements if sql.startswith(search._QUERY_SQL + hits)]
+
+
+def test_the_reading_off_statements_keep_their_text():
+    """``_HITS_SQL`` and ``_SEMANTIC_SQL`` are byte for byte what they were
+    before files were spread: their SHA-256, taken before the change."""
+    assert hashlib.sha256(search._HITS_SQL.encode()).hexdigest() == (
+        "1c12883bf5e763ade0a556dc076da74a10e562c6f36b45160e9ace4cf1ac806b"
+    )
+    assert hashlib.sha256(search._SEMANTIC_SQL.encode()).hexdigest() == (
+        "51d5db5dfd71c0ce7403915562ebf1aed63d00a9cccb392ed7843446f3a69b4b"
+    )
