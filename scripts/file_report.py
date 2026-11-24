@@ -12,7 +12,9 @@ kind. A file's kind comes from its stored type and name, without fetching it.
 
 ``--time N`` reads up to N scan pages through the real sandbox and Tesseract,
 stores nothing, and adds the seconds one page took (median and longest), the
-median word confidence, and how many files it could not read and skipped.
+median word confidence, and how many files it could not read and skipped. It
+looks for scans from the newest file on, and leaves a file once a few of its
+pages in a row have a text layer.
 ``--queue`` queues reading for every file that needs it, as the backfill
 does, and adds how many jobs it queued; that needs ``REEF_FILE_TEXT`` set.
 """
@@ -39,6 +41,11 @@ from reef.reading.kinds import likely_kind
 PROBE_LIMIT_PER_PAGE = 20
 """How many pages are opened, per timed scan page, before the search for
 scans gives up. A person's pages may all have a text layer."""
+
+TEXT_PAGES_PER_FILE = 3
+"""How many pages in a row with a text layer make the search leave a file.
+Without it, one long text file would use up the whole search before a scan
+is reached. One text page, such as a cover, does not hide the scans after it."""
 
 _OFFICE = {".docx": FileKind.DOCX, ".xlsx": FileKind.XLSX, ".pptx": FileKind.PPTX}
 
@@ -85,7 +92,8 @@ async def time_scans(
     """Read up to ``limit`` scan pages and time each one. Nothing is stored.
 
     A file that cannot be read is skipped and counted, and the next one is
-    tried: one broken file must not end the report.
+    tried: one broken file must not end the report. A file is also left once
+    :data:`TEXT_PAGES_PER_FILE` of its pages in a row have a text layer.
 
     :param principal: the person
     :param limit: how many scan pages to read
@@ -112,14 +120,19 @@ async def time_scans(
         data = await store.get(row["object_key"])
         try:
             total = min(await local.survey(data, kind), settings.pages_per_file)
+            text_pages = 0
             for number in range(1, total + 1):
                 if len(seconds) >= limit or probes <= 0:
+                    break
+                if text_pages >= TEXT_PAGES_PER_FILE:
                     break
                 probes -= 1
                 started = time.monotonic()
                 opened = await local.open_page(data, kind, number, dpi=settings.dpi)
                 if not isinstance(opened, ScanPage):
+                    text_pages += 1
                     continue
+                text_pages = 0
                 reading = await reader.read(opened)
                 seconds.append(time.monotonic() - started)
                 if reading.confidence is not None:
