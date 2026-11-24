@@ -41,7 +41,6 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Self
 from uuid import UUID
 
 from reef import embedding, filechunks, searchlog, sections
@@ -69,7 +68,7 @@ SEARCH_CONFIGS = ("english", "dutch")
 INDEXED_CHARS = 200_000
 
 #: Snippets bold their matches as Markdown, the format every reader here
-#: speaks. A passage is placed by them too, see :func:`_piece_by_words`.
+#: speaks. A passage is found by them too, see :func:`_widen`.
 _MARK = "**"
 _HEADLINE_OPTIONS = f"StartSel={_MARK}, StopSel={_MARK}, MaxWords=25, MinWords=8"
 
@@ -1103,8 +1102,8 @@ async def _read_best_pieces(
 
     The best piece is the one :func:`_best_anchors` puts first, the same
     choice the reranker reads first. An engram without vectors of the
-    question's model has none; :func:`_passages` finds its best piece by
-    words instead.
+    question's model has none; :func:`_passages` widens its snippet
+    instead.
 
     :param engram_ids: the engrams found
     :param embedded: the model's name and the query's vector, if any
@@ -1116,53 +1115,17 @@ async def _read_best_pieces(
     return best, await _read_engrams(engram_ids)
 
 
-def _spaced(text: str) -> str:
-    """Collapse each run of white space in a text to one space.
-
-    :param text: the text
-    :returns: the text on one line
-    """
-    return " ".join(text.split())
-
-
 def _plain(text: str) -> str:
-    """Return a text as a snippet and a piece are compared in.
+    """Return a text as a snippet is compared with a passage.
 
     Without asterisks, so a mark around a matched word and the body's own
-    emphasis read alike, and with its white space collapsed.
+    emphasis read alike, and with each run of white space collapsed to one
+    space.
 
-    :param text: a snippet or a piece's text
+    :param text: a snippet or a passage
     :returns: the text to compare
     """
-    return _spaced(text.replace("*", ""))
-
-
-def _plain_places(text: str) -> tuple[str, list[int]]:
-    """Return :func:`_plain` of a text, and where each of its characters is.
-
-    Slower than :func:`_plain`, so it is only run on the piece found.
-
-    :param text: a piece's body
-    :returns: the plain text, and for each of its characters its place in
-        ``text``. A collapsed run of white space is placed at the character
-        after it.
-    """
-    chars: list[str] = []
-    places: list[int] = []
-    space = False
-    for place, char in enumerate(text):
-        if char == "*":
-            continue
-        if char.isspace():
-            space = True
-            continue
-        if space and chars:
-            chars.append(" ")
-            places.append(place)
-        space = False
-        chars.append(char)
-        places.append(place)
-    return "".join(chars), places
+    return " ".join(text.replace("*", "").split())
 
 
 #: A letter or a digit. Postgres ends a word at an underscore, so
@@ -1170,266 +1133,124 @@ def _plain_places(text: str) -> tuple[str, list[int]]:
 _WORD = r"[^\W_]"
 
 
-def _pattern(sought: str, flags: int = 0) -> re.Pattern[str]:
-    """Match a text only as whole words: "Krant" is not in "Krantenwinkel".
+def _seeker(plain: str) -> re.Pattern[str]:
+    """Match a plain text where it stands in a body, as whole words.
 
-    :param sought: plain text, see :func:`_plain`
-    :param flags: flags for the pattern, such as :data:`re.IGNORECASE`
+    The body keeps its own white space and asterisks, which :func:`_plain`
+    drops: between two words any run of them that holds white space, inside a
+    word any asterisks. Each run is taken whole, never given back, so a search
+    stays linear however long a run is.
+
+    :param plain: a snippet, plain; see :func:`_plain`
     :returns: the pattern
     """
-    start = f"(?<!{_WORD})" if re.match(_WORD, sought) else ""
-    end = f"(?!{_WORD})" if re.match(_WORD, sought[-1]) else ""
-    return re.compile(start + re.escape(sought) + end, flags)
+    words = (r"\**+".join(map(re.escape, word)) for word in plain.split(" "))
+    start = f"(?<!{_WORD})" if re.match(_WORD, plain) else ""
+    end = f"(?!{_WORD})" if re.match(_WORD, plain[-1]) else ""
+    return re.compile(start + r"\**+\s[\s*]*+".join(words) + end)
 
 
-#: A word Postgres marked in a snippet. It marks whole words, and a word
-#: holds no white space and no asterisk.
-_MARKED_WORD = re.compile(rf"{re.escape(_MARK)}([^*\s]+){re.escape(_MARK)}")
+def _heading_above(body: str, begin: int, title: str) -> str:
+    """Return the nearest Markdown heading above a place in a body.
 
+    A heading on the line that starts there is not above it: it is shown.
+    Neither is a heading that repeats the title, which the passage already
+    starts with.
 
-@dataclass(frozen=True)
-class _Marks:
-    """What a snippet's place is judged by.
-
-    ``lines`` holds each line that is not blank, plain (see :func:`_plain`),
-    with whether it marks a word. ``words`` holds the distinct words it
-    marks, in lower case. Both are read from the lines as Postgres marked
-    them.
+    :param body: the engram's body
+    :param begin: where the passage's body text starts
+    :param title: the engram's title
+    :returns: the heading's text; empty when there is none
     """
-
-    lines: list[tuple[bool, str]]
-    words: frozenset[str]
-
-    @classmethod
-    def of(cls, snippet: str) -> Self:
-        """Read a snippet.
-
-        :param snippet: the engram's snippet
-        :returns: its lines and marked words
-        """
-        lines: list[tuple[bool, str]] = []
-        words: set[str] = set()
-        for line in snippet.splitlines():
-            marked = _MARKED_WORD.findall(line)
-            words.update(word.lower() for word in marked)
-            if plain := _plain(line):
-                lines.append((bool(marked), plain))
-        return cls(lines, frozenset(words))
-
-    @property
-    def marked(self) -> list[str]:
-        """The lines that mark a word, longest first."""
-        return sorted(
-            (line for mark, line in self.lines if mark), key=len, reverse=True
-        )
-
-
-#: A piece the words were found in, and where in its body: start and end.
-type _Found = tuple[sections.Section, int, int]
-
-
-def _place(piece: sections.Section, sought: list[str]) -> _Found | None:
-    """Find where in a piece's body the first of some texts is.
-
-    :param piece: the piece
-    :param sought: plain texts, see :func:`_plain`, the most telling first
-    :returns: the piece, and where the first text its body holds is in it;
-        None when it holds none of them
-    """
-    plain, places = _plain_places(piece.body)
-    for text in sought:
-        if match := _pattern(text).search(plain):
-            return piece, places[match.start()], places[match.end() - 1] + 1
-    return None
-
-
-def _first_holding(
-    sought: str, among: list[sections.Section], texts: list[str]
-) -> _Found | None:
-    """Find the first piece whose body holds a text, as whole words.
-
-    :param sought: plain text, see :func:`_plain`
-    :param among: the pieces, in engram order
-    :param texts: each piece's body, plain
-    :returns: the piece, and where the text is in its body; None if no
-        piece holds it
-    """
-    pattern = _pattern(sought)
-    for piece, text in zip(among, texts, strict=True):
-        if pattern.search(text) and (found := _place(piece, [sought])):
-            return found
-    return None
-
-
-def _best_of(candidates: list[tuple[sections.Section, str]], marks: _Marks) -> _Found:
-    """Choose the piece a snippet came from among several that could hold it.
-
-    Headings repeat, such as a "Kosten" under each trip, and such sections
-    often start the same way. What sets the right one apart is the words
-    Postgres matched: it cut the snippet where most of them are. So the
-    piece that holds the most of the snippet's distinct marked words is
-    chosen, each as a whole word in any case; on a tie, the one that holds
-    more of the snippet's lines; on a further tie, the first.
-
-    :param candidates: the pieces, in engram order, each with its body plain
-    :param marks: the snippet's lines and marked words
-    :returns: the piece, and where in its body its longest marked line is,
-        else its longest line; its start when it holds no line
-    """
-
-    def score(candidate: tuple[sections.Section, str]) -> tuple[int, int]:
-        """Count the marked words, then the lines, a candidate holds.
-
-        :param candidate: a piece, with its body plain
-        :returns: the two counts, to compare in that order
-        """
-        _, text = candidate
-        words = sum(
-            1 for word in marks.words if _pattern(word, re.IGNORECASE).search(text)
-        )
-        lines = sum(1 for _, line in marks.lines if _pattern(line).search(text))
-        return words, lines
-
-    piece, _ = max(candidates, key=score)
-    unmarked = sorted(
-        (line for mark, line in marks.lines if not mark), key=len, reverse=True
-    )
-    return _place(piece, [*marks.marked, *unmarked]) or (piece, 0, 0)
-
-
-def _locate(snippet: str, pieces: list[sections.Section]) -> _Found | None:
-    """Find the piece that holds the words an engram's snippet marks.
-
-    The snippet is the body's own text around the matched words, with marks
-    around them, see :func:`_headline`. It is looked for in this order:
-
-    1. The snippet as a whole, in each section; the first that holds it.
-    2. A line of it that marks a word and is a section's heading. A snippet
-       that starts at a heading is in no section, because a section's text
-       leaves its heading out. Of the sections that carry that heading, at
-       any level, the one :func:`_best_of` ranks first: the one that holds
-       the most of the snippet's distinct marked words, then the most of its
-       lines, then the first.
-    3. Of the sections that hold a line of it that marks a word, the one
-       ranked first the same way. A snippet that runs on past a heading is in
-       no one section, but such a line nearly always is: a section starts
-       after its heading's line, and a long section is cut between
-       paragraphs. Only a paragraph longer than a piece is cut anywhere, so
-       a line in it can be split between two pieces.
-    4. The snippet, then its marked lines, in the whole-engram piece. It
-       holds what no section does: a ``#`` line, such as the engram's title,
-       and words a very long paragraph split between two pieces. The passage
-       then comes from the whole-engram piece, shown around the words as
-       :func:`_window` shows any piece.
-
-    Text is compared as whole words, with asterisks and white space set
-    aside, see :func:`_plain`. The whole-engram piece is otherwise passed
-    over when there are sections: it holds every match, so it would always
-    be first. A snippet with an HTML-like tag in it is not found: Postgres
-    puts a space where the tag was.
-
-    :param snippet: the engram's snippet
-    :param pieces: the engram's pieces, see :func:`reef.sections.split`
-    :returns: the piece, and where the words are in its body; None if no
-        piece holds them
-    """
-    among = pieces[1:] or pieces
-    texts = [_plain(piece.body) for piece in among]
-    whole = _plain(snippet)
-    if whole and (found := _first_holding(whole, among, texts)):
-        return found
-    marks = _Marks.of(snippet)
-    candidates = list(zip(among, texts, strict=True))
-    for mark, line in marks.lines:
-        heading = line.strip("#").strip()
-        under = [
-            (piece, text)
-            for piece, text in candidates
-            if mark and heading and heading in map(_plain, piece.heading_path)
-        ]
-        if under:
-            return _best_of(under, marks)
-    patterns = [_pattern(line) for line in marks.marked]
-    holding = [
-        (piece, text)
-        for piece, text in candidates
-        if any(pattern.search(text) for pattern in patterns)
+    starts = [0]
+    for line in body.splitlines(keepends=True):
+        starts.append(starts[-1] + len(line))
+    above = [
+        text
+        for number, _, text in sections.headings(body)
+        if starts[number] < begin and text != title
     ]
-    if holding:
-        return _best_of(holding, marks)
-    if len(pieces) > 1:
-        start = [_plain(pieces[0].body)]
-        for sought in filter(None, [whole, *marks.marked]):
-            if found := _first_holding(sought, pieces[:1], start):
-                return found
-    return None
+    return above[-1] if above else ""
 
 
-#: Between a piece's title and heading and the paragraph a passage shows.
+#: Between a passage's title and heading and the body text it shows, when
+#: that text does not start at the top of the engram.
 _GAP = "…\n\n"
 
 
-def _window(piece: sections.Section, start: int, end: int) -> str:
-    """Show the words found in a piece within the first passage's length.
+def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
+    """Widen an engram's snippet in place into the text a passage is cut from.
 
-    The piece as it is when they fit there. Otherwise its title and heading,
-    then the body from the start of the paragraph that holds them, or of
-    their line when that paragraph is too long to fit.
+    The snippet is found whole in the body, see :func:`_seeker`; the first
+    place that holds it. When it ends within :data:`PASSAGE_CHARS` of the
+    engram's start, the text is the whole-engram piece, as the engram starts.
+    Otherwise it is the title and the nearest heading above, ``…``, then the
+    body from the start of the paragraph that holds the snippet, or of its
+    line when that paragraph would push it past the cut.
 
-    :param piece: the piece the words were found in
-    :param start: where they start in its body
-    :param end: where they end
-    :returns: the text to cut a passage from; empty when even their line
-        does not bring them within :data:`PASSAGE_CHARS` characters
+    :param snippet: the engram's snippet
+    :param title: the engram's title
+    :param body: the engram's body
+    :param whole: the engram's whole-engram piece, see
+        :func:`reef.sections.split`
+    :returns: the text; empty when the snippet is not in the body, or not
+        even its line brings it within the cut
     """
-    header = piece.text[: len(piece.text) - len(piece.body)]
-    if len(header) + end <= PASSAGE_CHARS:
-        return piece.text
-    paragraph = piece.body.rfind("\n\n", 0, start)
-    line = piece.body.rfind("\n", 0, start) + 1
+    plain = _plain(snippet)
+    body = body.strip()
+    found = _seeker(plain).search(body) if plain else None
+    if found is None:
+        return ""
+    start, end = found.span()
+    front = len(whole.text) - len(whole.body)
+    if end <= len(whole.body) and front + end <= PASSAGE_CHARS:
+        return whole.text
+    paragraph = body.rfind("\n\n", 0, start)
+    line = body.rfind("\n", 0, start) + 1
     for begin in (paragraph + 2 if paragraph >= 0 else 0, line):
-        if len(header) + len(_GAP) + end - begin <= PASSAGE_CHARS:
-            return f"{header}{_GAP}{piece.body[begin:]}"
+        heading = _heading_above(body, begin, title)
+        head = "\n".join(part for part in (title, heading) if part)
+        header = f"{head}\n\n" if head else ""
+        gap = _GAP if begin else ""
+        if len(header) + len(gap) + end - begin <= PASSAGE_CHARS:
+            return f"{header}{gap}{body[begin:]}"
     return ""
 
 
-def _piece_by_words(snippet: str, body: str, pieces: list[sections.Section]) -> str:
-    """Give an engram's best piece by words, as a passage is cut from it.
+def _by_words(snippet: str, title: str, body: str, whole: sections.Section) -> str:
+    """Give an engram's passage by words: its snippet widened in place.
 
-    That is the piece that holds the words its snippet marks, see
-    :func:`_locate`, shown so those words are in the passage, see
-    :func:`_window`. A snippet that marks nothing comes from an engram whose
-    title matched and whose body did not: it is merely the start of the
-    body, and the engram's best piece is its start, the whole-engram piece.
+    See :func:`_widen`. The last step holds every such passage to one rule:
+    it holds the snippet's text in full, see :func:`_plain`, and is at most
+    :data:`PASSAGE_CHARS` long. One that would not is not given, and the hit
+    shows its snippet. So a passage is never less than the snippet.
+
+    A snippet of an engram whose title matched and whose body did not marks
+    nothing: it is the start of the body, and the passage the engram's start.
 
     :param snippet: the engram's snippet
+    :param title: the engram's title
     :param body: the engram's body
-    :param pieces: the engram's pieces, see :func:`reef.sections.split`
-    :returns: the text to cut a passage from; empty when no piece holds
-        the words, or the passage could not show them
+    :param whole: the engram's whole-engram piece
+    :returns: the passage; empty to show the snippet
     """
-    if not pieces:
-        return ""
-    if _spaced(snippet) in _spaced(body):
-        return pieces[0].text
-    found = _locate(snippet, pieces)
-    return _window(*found) if found else ""
+    passage = _widen(snippet, title, body, whole)[:PASSAGE_CHARS]
+    plain = _plain(snippet)
+    return passage if plain and plain in _plain(passage) else ""
 
 
 def _passages(
     best: dict[UUID, str | None], engrams: list[dict], snippets: dict[UUID, str]
 ) -> dict[UUID, str]:
-    """Cut each engram's best piece out of its text, as the reranker reads it.
+    """Cut each engram's passage out of its text.
 
-    The best piece is the one closest in meaning, cut to its start. An
-    engram without one, as is every engram in a search without vectors,
-    gets its best piece by words, shown around the matched words, see
-    :func:`_piece_by_words`. So does an engram edited since it was
-    embedded, which may no longer have the piece closest in meaning. An
-    engram with neither gets none.
-
-    The piece carries its title and heading in front, see
-    :func:`reef.sections.split`. Pure, so it can run in a thread.
+    An engram with a best piece by meaning gets that piece, cut to its start,
+    as the reranker reads it. The piece carries its title and heading in
+    front, see :func:`reef.sections.split`. Every other engram, as is every
+    engram in a search without vectors, gets its snippet widened in place,
+    see :func:`_by_words`. So does an engram edited since it was embedded,
+    which may no longer have the piece closest in meaning. An engram with
+    neither gets none, and shows its snippet. Pure, so it can run in a thread.
 
     :param best: the best anchor by meaning of each engram that has one
     :param engrams: the engrams' text, as :func:`_read_engrams` read it
@@ -1444,7 +1265,8 @@ def _passages(
         if row["id"] in best:
             anchor = best[row["id"]]
             text = next((piece.text for piece in pieces if piece.anchor == anchor), "")
-        text = text or _piece_by_words(snippets.get(row["id"]) or "", body, pieces)
+        if not text and pieces:
+            text = _by_words(snippets.get(row["id"]) or "", title, body, pieces[0])
         if text:
             passages[row["id"]] = text[:PASSAGE_CHARS]
     return passages
@@ -1733,10 +1555,13 @@ async def search_engrams(
         closest to the query, as the reranker reads it, cut to
         :data:`PASSAGE_CHARS` characters. It uses the query's vector the
         search already has, so the query is still embedded once. An engram
-        without vectors, or any engram in a search without them, gets the
-        piece that holds the words its snippet marks; when no piece does,
-        as when only its title matched, its snippet. A file without
-        vectors gets its snippet, and so does every file with reading off.
+        without vectors, or any engram in a search without them, gets its
+        snippet widened in place: the engram's start when the snippet is
+        near it, else the text around the snippet from the start of its
+        paragraph. Such a passage always holds the snippet's text; when it
+        could not, the passage is the snippet. See :func:`_by_words`. A file
+        without vectors gets its snippet, and so does every file with
+        reading off.
     :returns: one dict per hit — engrams carry path and title, files key,
         filename and ``page``; both carry the space alias, kind, and a
         snippet. ``page`` always says where the file's passage comes from:

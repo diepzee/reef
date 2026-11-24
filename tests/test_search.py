@@ -5,9 +5,12 @@ filter returns nothing, not somebody else's memories. The security tests
 here are the point, not an afterthought.
 """
 
+import random
+from uuid import uuid4
+
 import pytest
 
-from reef import sections
+from reef import search, sections
 from reef.access import AccessDenied, Principal, arm
 from reef.config import get_settings
 from reef.engrams import save_engram
@@ -473,6 +476,37 @@ async def _subscriptions(me: Principal, title: str = "Abonnementen") -> None:
     )
 
 
+def plain(text: str) -> str:
+    """Return a text without asterisks and with its white space collapsed.
+
+    :param text: a snippet or a passage
+    :returns: the text as the two are compared
+    """
+    return " ".join(text.replace("*", "").split())
+
+
+def assert_holds_its_snippet(hit: dict) -> None:
+    """Assert what every passage by words keeps: never less than the snippet.
+
+    :param hit: a search hit with a passage
+    """
+    passage, snippet = hit["passage"], hit["snippet"]
+    if passage != snippet:
+        assert len(passage) <= PASSAGE_CHARS
+        assert plain(snippet) in plain(passage)
+
+
+def widened(header: str, body: str, begin: int) -> str:
+    """Return a passage widened from a place in a body.
+
+    :param header: the title and the nearest heading above, one per line
+    :param body: the engram's body
+    :param begin: where in the stripped body the shown text starts
+    :returns: the passage as search gives it
+    """
+    return f"{header}\n\n…\n\n{body.strip()[begin:]}"[:PASSAGE_CHARS]
+
+
 async def test_a_passage_without_vectors_holds_the_rest_of_the_matching_line(
     tx, household
 ):
@@ -487,28 +521,26 @@ async def test_a_passage_without_vectors_holds_the_rest_of_the_matching_line(
     assert "1 oktober 2026" not in hit["snippet"]
     assert "1 oktober 2026" in hit["passage"]
     assert len(hit["passage"]) <= PASSAGE_CHARS
+    assert_holds_its_snippet(hit)
 
 
-async def test_a_passage_without_vectors_is_the_section_that_matched(tx, household):
-    """The section holding the matched words, not the first section."""
+async def test_a_match_near_the_start_gets_the_start_of_the_engram(tx, household):
+    """The snippet ends within a passage's length of the start: the start it is."""
     me = principal_for(household["wouter"])
     await _subscriptions(me)
     [hit] = await search_engrams(me, "krant abonnement opgezegd", passages=True)
-    assert hit["passage"] == subscriptions_piece("kranten")
-    assert "Netflix" not in hit["passage"]
+    assert hit["passage"] == subscriptions_piece(None)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
 
 
-async def test_a_snippet_that_runs_into_the_next_section_finds_its_own(tx, household):
-    """A match at the end of a section is still placed in that section.
-
-    Its snippet runs on past the heading after it, so the whole snippet is in
-    no one section; the line holding the match is.
-    """
+async def test_a_snippet_that_runs_into_the_next_section_is_kept_whole(tx, household):
+    """A snippet that runs on past a heading is shown as it runs."""
     me = principal_for(household["wouter"])
     await _subscriptions(me)
     [hit] = await search_engrams(me, "disney", passages=True)
     assert "Kranten" in hit["snippet"]
-    assert hit["passage"] == subscriptions_piece("streaming")
+    assert hit["passage"] == subscriptions_piece(None)
+    assert_holds_its_snippet(hit)
 
 
 async def test_a_match_only_in_the_title_gets_the_start_of_the_engram(tx, household):
@@ -521,7 +553,7 @@ async def test_a_match_only_in_the_title_gets_the_start_of_the_engram(tx, househ
 
 
 async def test_a_match_in_the_title_line_gets_the_start_of_the_engram(tx, household):
-    """The body's "# Abonnementen" line is the title, which no section holds."""
+    """The body's "# Abonnementen" line opens the engram."""
     me = principal_for(household["wouter"])
     await _subscriptions(me)
     [hit] = await search_engrams(me, "abonnementen", passages=True)
@@ -529,12 +561,8 @@ async def test_a_match_in_the_title_line_gets_the_start_of_the_engram(tx, househ
     assert hit["passage"] == subscriptions_piece(None)
 
 
-async def test_a_heading_named_in_an_overview_finds_its_own_section(tx, household):
-    """The snippet starts at a heading, which no section's text holds.
-
-    The overview names that heading too, but the passage is the section under
-    it, not the overview.
-    """
+async def test_a_heading_named_in_an_overview_keeps_its_section_s_fact(tx, household):
+    """The snippet starts at the heading, not at the overview that names it."""
     me = principal_for(household["wouter"])
     body = (
         "# Abonnementen\n\nOverzicht: Streaming, Kranten, Sport. "
@@ -550,7 +578,8 @@ async def test_a_heading_named_in_an_overview_finds_its_own_section(tx, househol
     await save_engram(me, "personal", "abo.md", body, message="x", title="Abo")
     [hit] = await search_engrams(me, "kranten opgezegd", passages=True)
     assert hit["snippet"].startswith("**Kranten**")
-    assert hit["passage"] == piece_of("Abo", body, "kranten")
+    assert hit["passage"] == piece_of("Abo", body, None)
+    assert "De Mosselkoerier, op 1 oktober 2026" in hit["passage"]
 
 
 async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household):
@@ -570,17 +599,41 @@ async def test_a_heading_word_inside_a_longer_word_does_not_count(tx, household)
     await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")
     [hit] = await search_engrams(me, "krant", passages=True)
     assert hit["snippet"].startswith("**Krant**")
-    assert hit["passage"] == piece_of("Huis", body, "krant")
+    assert hit["passage"] == piece_of("Huis", body, None)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
 
 
 #: The head of a Markdown table of costs.
 TABLE = "| Wat | Bedrag |\n| --- | --- |\n"
 
+#: The fact the trips' second "Kosten" holds.
+ITALY = "Het hotel in Rome kostte 900 euro. "
+
+
+def trips(norway: str, italy: str, filler: int = 14) -> str:
+    """Return a note with two trips, each with a section called "Kosten".
+
+    :param norway: the first "Kosten" text
+    :param italy: the second "Kosten" text
+    :param filler: how many filler sentences follow the first
+    :returns: the body
+    """
+    return (
+        "# Reizen\n\nOnze reizen.\n\n## Noorwegen\n\n"
+        + FILL * 3
+        + f"\n\n## Kosten\n\n{norway}"
+        + FILL * filler
+        + "\n\n## Italie\n\n"
+        + FILL * 3
+        + f"\n\n## Kosten\n\n{italy}"
+        + FILL * 14
+    )
+
 
 @pytest.mark.parametrize(
     ("norway", "italy"),
     [
-        ("De vlucht kostte 300 euro. ", "Het hotel in Rome kostte 900 euro. "),
+        ("De vlucht kostte 300 euro. ", ITALY),
         (
             TABLE + "| Vlucht | 300 euro |\n| Hotel in Oslo | 700 euro |\n\n",
             TABLE + "| Hotel in Rome | 900 euro |\n\n",
@@ -592,38 +645,126 @@ TABLE = "| Wat | Bedrag |\n| --- | --- |\n"
     ],
     ids=["sentence", "same-table-head", "same-first-item"],
 )
-async def test_a_repeated_heading_finds_the_section_the_snippet_came_from(
+async def test_a_repeated_heading_shows_the_place_the_snippet_came_from(
     tx, household, norway, italy
 ):
-    """Two sections called "Kosten": the later one holds the matched words.
+    """Two sections called "Kosten": the passage starts at the later one.
 
-    They may start the same way, so the lines after the heading do not tell
-    them apart; the matched words do.
+    It is past a passage's length, so the passage starts at the paragraph
+    that holds the snippet, under the heading above it.
     """
     me = principal_for(household["wouter"])
-    body = (
-        "# Reizen\n\nOnze reizen.\n\n## Noorwegen\n\n"
-        + FILL * 3
-        + f"\n\n## Kosten\n\n{norway}"
-        + FILL * 14
-        + "\n\n## Italie\n\n"
-        + FILL * 3
-        + f"\n\n## Kosten\n\n{italy}"
-        + FILL * 14
-    )
+    body = trips(norway, italy)
     await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
     [hit] = await search_engrams(me, "kosten hotel rome", passages=True)
     assert hit["snippet"].startswith("**Kosten**")
-    assert hit["passage"] == piece_of("Reizen", body, "kosten-2")
+    begin = body.strip().rindex("## Kosten")
+    assert hit["passage"] == widened("Reizen\nItalie", body, begin)
+    assert "900 euro" in hit["passage"]
+
+
+@pytest.mark.parametrize(
+    "norway",
+    [
+        "De vlucht kostte 300 euro. "
+        + FILL * 4
+        + "De kosten voor eten vielen mee. "
+        + FILL * 4
+        + "Het hotel in Bergen was klein. "
+        + FILL * 4
+        + "Volgend jaar Rome? ",
+        "De vlucht kostte 300 euro. "
+        + FILL * 4
+        + "Kosten voor eten vielen mee. "
+        + FILL * 4
+        + "Het hotel in Bergen was klein. ",
+    ],
+    ids=["A1-every-word-spread", "A3-heading-word-in-prose"],
+)
+async def test_an_earlier_same_named_section_with_the_words_is_not_shown(
+    tx, household, norway
+):
+    """The first "Kosten" holds the query's words too, spread through its prose.
+
+    Ranking same-named sections by the words they hold chose it, and lost
+    "900 euro". The snippet is where Postgres found the words together.
+    """
+    me = principal_for(household["wouter"])
+    body = trips(norway, ITALY, filler=6)
+    await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
+    [hit] = await search_engrams(me, "kosten hotel rome", passages=True)
+    assert "900 euro" in hit["passage"]
+    assert_holds_its_snippet(hit)
+    begin = body.strip().rindex("## Kosten")
+    assert hit["passage"] == widened("Reizen\nItalie", body, begin)
+
+
+async def test_a_repeated_subsection_with_the_words_in_prose_is_not_shown(
+    tx, household
+):
+    """Two "Contract" subsections; the first says "contract" and "opgezegd" apart."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Abonnementen\n\nWat we betalen.\n\n## Telenet\n\n"
+        + FILL * 2
+        + "\n\n### Contract\n\nLoopt tot eind 2027. "
+        + FILL * 4
+        + "Het contract wordt elk jaar stilzwijgend verlengd. "
+        + FILL * 4
+        + "Nog niet opgezegd. "
+        + FILL * 4
+        + "\n\n## Proximus\n\n"
+        + FILL * 2
+        + "\n\n### Contract\n\nOpgezegd op 1 oktober 2026, bevestigd per brief. "
+        + FILL * 12
+    )
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abonnementen")
+    [hit] = await search_engrams(me, "contract opgezegd", passages=True)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
+    assert_holds_its_snippet(hit)
+    begin = body.strip().rindex("### Contract")
+    assert hit["passage"] == widened("Abonnementen\nProximus", body, begin)
+
+
+@pytest.mark.parametrize(
+    "planning",
+    [
+        "We willen naar Rome. " + FILL * 4 + "Een hotel zoeken we nog. " + FILL * 8,
+        FILL * 10,
+    ],
+    ids=["E1-planning-holds-both-words", "E2-baseline"],
+)
+async def test_a_snippet_across_a_heading_keeps_what_follows_it(
+    tx, household, planning
+):
+    """One section ends with "Rome", the next opens with "hotel": the snippet holds both.
+
+    No one section holds the snippet, and an earlier one may hold both words
+    apart. The passage shows the snippet as it runs, with "900 euro".
+    """
+    me = principal_for(household["wouter"])
+    body = (
+        f"# Reizen\n\nIntro.\n\n## Planning\n\n{planning}"
+        + "\n\n## Vervoer\n\n"
+        + FILL * 6
+        + "Met de trein naar Rome."
+        + "\n\n## Verblijf\n\nHet hotel kostte 900 euro. "
+        + FILL * 14
+    )
+    await save_engram(me, "personal", "reizen.md", body, message="x", title="Reizen")
+    [hit] = await search_engrams(me, "rome hotel", passages=True)
+    assert "## Verblijf" in hit["snippet"]
+    assert "Het hotel kostte 900 euro." in hit["passage"]
+    assert_holds_its_snippet(hit)
 
 
 @pytest.mark.parametrize(
     "opening", ["", "Bijgehouden door Wouter.\n"], ids=["plain", "same-opening"]
 )
-async def test_a_repeated_subheading_finds_the_section_the_snippet_came_from(
+async def test_a_repeated_subheading_shows_the_place_the_snippet_came_from(
     tx, household, opening
 ):
-    """Two "Notities" under different years: the later one holds the match."""
+    """Two "Notities" under different years: the passage starts at the later one."""
     me = principal_for(household["wouter"])
     body = (
         "# Huis\n\nWat er in huis gebeurt.\n\n## 2025\n\n"
@@ -639,10 +780,12 @@ async def test_a_repeated_subheading_finds_the_section_the_snippet_came_from(
     await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")
     [hit] = await search_engrams(me, "notities daikin", passages=True)
     assert hit["snippet"].startswith("**Notities**")
-    assert hit["passage"] == piece_of("Huis", body, "2026/notities")
+    begin = body.strip().rindex("### Notities")
+    assert hit["passage"] == widened("Huis\n2026", body, begin)
+    assert "geplaatst op 3 maart" in hit["passage"]
 
 
-async def test_a_match_after_an_underscore_finds_its_section(tx, household):
+async def test_a_match_after_an_underscore_is_found(tx, household):
     """Postgres reads "max_connections" as two words; so does the passage."""
     me = principal_for(household["wouter"])
     body = (
@@ -654,7 +797,8 @@ async def test_a_match_after_an_underscore_finds_its_section(tx, household):
     await save_engram(me, "personal", "config.md", body, message="x", title="Config")
     [hit] = await search_engrams(me, "connections", passages=True)
     assert hit["snippet"].startswith("**connections**")
-    assert hit["passage"] == piece_of("Config", body, "database")
+    assert hit["passage"] == piece_of("Config", body, None)
+    assert "max_connections op 200" in hit["passage"]
 
 
 async def test_a_late_match_in_a_one_piece_engram_is_in_the_passage(tx, household):
@@ -670,7 +814,7 @@ async def test_a_late_match_in_a_one_piece_engram_is_in_the_passage(tx, househol
 
 
 async def test_a_late_match_in_a_long_section_is_in_the_passage(tx, household):
-    """The section's title and heading stay in front of the paragraph."""
+    """The section's heading stays in front, and the text runs on after it."""
     me = principal_for(household["wouter"])
     body = (
         "# Auto\n\nAlles over de auto.\n\n## Verzekering\n\n"
@@ -683,7 +827,9 @@ async def test_a_late_match_in_a_long_section_is_in_the_passage(tx, household):
     assert insurance.text.index("Ethias") > PASSAGE_CHARS
     await save_engram(me, "personal", "auto.md", body, message="x", title="Auto")
     [hit] = await search_engrams(me, "omnium opgezegd", passages=True)
-    assert hit["passage"] == f"Auto\nVerzekering\n\n…\n\n{OMNIUM}"
+    begin = body.strip().index(OMNIUM)
+    assert hit["passage"] == widened("Auto\nVerzekering", body, begin)
+    assert hit["passage"].startswith(f"Auto\nVerzekering\n\n…\n\n{OMNIUM}")
 
 
 async def test_a_late_match_on_one_long_line_keeps_the_snippet(tx, household):
@@ -697,12 +843,153 @@ async def test_a_late_match_on_one_long_line_keeps_the_snippet(tx, household):
     assert hit["passage"] == hit["snippet"]
 
 
-async def test_a_quoted_phrase_gets_the_section_too(tx, household):
-    """An exact query is never ranked by meaning; its passage is still the section."""
+async def test_a_snippet_that_is_not_in_the_body_is_the_passage(tx, household):
+    """Postgres puts a space where an HTML-like tag was, so the snippet is kept."""
+    me = principal_for(household["wouter"])
+    body = "De <b>krant</b> is opgezegd op 1 oktober 2026, zegt de brief."
+    await save_engram(me, "personal", "brief.md", body, message="x", title="Brief")
+    [hit] = await search_engrams(me, "krant", passages=True)
+    assert "<b>" not in hit["snippet"]
+    assert hit["passage"] == hit["snippet"]
+
+
+async def test_a_quoted_phrase_gets_a_passage_too(tx, household):
+    """An exact query is never ranked by meaning; its snippet is still widened."""
     me = principal_for(household["wouter"])
     await _subscriptions(me)
     [hit] = await search_engrams(me, '"de mosselkoerier"', passages=True)
-    assert hit["passage"] == subscriptions_piece("kranten")
+    assert hit["passage"] == subscriptions_piece(None)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
+
+
+# Shapes on which choosing a section by its words was a guess. The passage
+# holds what Postgres's own snippet holds, wherever that is.
+
+
+async def test_when_two_sections_hold_every_word_the_snippet_decides(tx, household):
+    """Both "Notes" sections hold every word of the query; the snippet is in one."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Contracts\n\nBoth providers.\n\n## Telenet\n\n"
+        + FILL * 3
+        + "\n\n### Notes\n\nThe contract runs until 2027. "
+        + FILL * 4
+        + "We cancelled nothing yet. "
+        + FILL * 6
+        + "\n\n## Proximus\n\n"
+        + FILL * 3
+        + "\n\n### Notes\n\nHet contract is opgezegd; cancelled on 1 October 2026. "
+        + FILL * 12
+    )
+    await save_engram(me, "personal", "c.md", body, message="x", title="Contracts")
+    [hit] = await search_engrams(me, "notes contract cancelled", passages=True)
+    assert "1 October" in hit["snippet"]
+    assert hit["passage"] != hit["snippet"]
+    assert_holds_its_snippet(hit)
+
+
+async def test_when_every_section_holds_the_word_the_snippet_decides(tx, household):
+    """Each section says the word once; the passage holds the one the snippet holds."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Huis\n\nIntro.\n\n## A\n\n"
+        + FILL * 3
+        + "De warmtepomp bromt. "
+        + FILL * 10
+        + "\n\n## B\n\n"
+        + FILL * 3
+        + "De warmtepomp is stil. "
+        + FILL * 10
+        + "\n\n## C\n\n"
+        + FILL * 3
+        + "De warmtepomp is nieuw. "
+        + FILL * 10
+    )
+    await save_engram(me, "personal", "huis.md", body, message="x", title="Huis")
+    [hit] = await search_engrams(me, "warmtepomp", passages=True)
+    assert hit["passage"] != hit["snippet"]
+    assert_holds_its_snippet(hit)
+
+
+async def test_when_a_hundred_sections_hold_the_word_the_snippet_decides(tx, household):
+    """A hundred sections say "Rome."; Postgres's snippet is in the first."""
+    me = principal_for(household["wouter"])
+    body = (
+        "# Groot\n\nIntro.\n\n"
+        + "".join(
+            f"## Deel {i}\n\nWe gaan naar Rome. " + FILL * 23 + "\n\n"
+            for i in range(100)
+        )
+        + "## Slot\n\nMet de trein naar Rome.\n\n## Verblijf\n\n"
+        + "Het hotel kostte 900 euro. "
+        + FILL * 5
+    )
+    await save_engram(me, "personal", "groot.md", body, message="x", title="Groot")
+    [hit] = await search_engrams(me, "rome hotel", passages=True)
+    assert hit["passage"] != hit["snippet"]
+    assert_holds_its_snippet(hit)
+
+
+#: Words for generated bodies, some of them matched by the queries below.
+WORDS = [
+    "krant",
+    "opgezegd",
+    "Rome",
+    "hotel",
+    "**vet**",
+    "café",
+    "max_conn",
+    "2026",
+    "x",
+]
+
+#: What separates them: mostly a space, sometimes a line, paragraph or heading.
+SEPARATORS = [" "] * 40 + [
+    "\n",
+    "\n\n",
+    "  ",
+    " * ",
+    "\n\n## Kop\n\n",
+    "\n\n### Sub\n\n",
+]
+
+
+async def test_every_passage_by_words_holds_its_snippet(tx, household):
+    """Generated engrams of every size: each passage is never less than its snippet."""
+    me = principal_for(household["wouter"])
+    rng = random.Random(64)
+    for number in range(12):
+        size = rng.choice([20, 200, 600, 2_000])
+        body = "".join(rng.choice(WORDS) + rng.choice(SEPARATORS) for _ in range(size))
+        await save_engram(me, "personal", f"g{number}.md", body, message="x")
+    for query in ("krant", "rome hotel", "opgezegd 2026", '"max conn"', "vet café"):
+        for hit in await search_engrams(me, query, limit=20, passages=True):
+            assert_holds_its_snippet(hit)
+
+
+def test_a_passage_by_words_never_holds_less_than_its_snippet():
+    """Generated bodies and snippets: a passage holds the snippet, or is none."""
+    rng = random.Random(7)
+    words = [*WORDS, "日本語", "👨‍👩‍👧", "a**b", "**", "#", "-", "l'abo"]
+    spaces = [*SEPARATORS, "\t", " ", "\r\n", "\n```\n", "\n\n# Titel\n\n"]
+    for _ in range(3_000):
+        body = "".join(
+            rng.choice(words) + rng.choice(spaces) for _ in range(rng.randint(1, 600))
+        )
+        title = rng.choice(["", "Titel", "T" * rng.randint(1, 300)])
+        flat = plain(body).split(" ")
+        first = rng.randrange(len(flat))
+        snippet = rng.choice([" ", "\n", "\n\n"]).join(
+            f"**{word}**" if rng.random() < 0.3 else word
+            for word in flat[first : first + rng.randint(1, 25)]
+        )
+        if rng.random() < 0.1:
+            snippet = rng.choice(["not in the body", "", "<b>krant</b>"])
+        row = {"id": uuid4(), "title": title, "description": None, "body": body}
+        passage = search._passages({}, [row], {row["id"]: snippet}).get(row["id"])
+        if passage is not None:
+            assert len(passage) <= PASSAGE_CHARS
+            assert plain(snippet) and plain(snippet) in plain(passage)
 
 
 async def test_without_passages_a_hit_carries_none(tx, household):

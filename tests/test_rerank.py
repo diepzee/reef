@@ -557,7 +557,7 @@ async def test_an_engram_with_no_text_is_read_by_its_title(tx, household, rerank
     assert results[0] in {"empty.md", "answer.md"}
 
 
-async def test_without_vectors_a_reread_hit_gets_the_section_that_matched(
+async def test_without_vectors_a_reread_hit_gets_its_snippet_widened(
     tx, household, reranker
 ):
     """Read again, but with no embedding service: each passage goes by words."""
@@ -576,7 +576,8 @@ async def test_without_vectors_a_reread_hit_gets_the_section_that_matched(
     results = await search_engrams(me, "krant abonnement opgezegd", passages=True)
     assert reranker.calls
     [hit] = [r for r in results if r["path"] == "finance/subscriptions.md"]
-    assert hit["passage"] == subscriptions_piece("kranten")
+    assert hit["passage"] == subscriptions_piece(None)
+    assert "Opgezegd op 1 oktober 2026" in hit["passage"]
 
 
 async def test_scoping_to_one_space_holds_for_the_reranker(tx, household, reranker):
