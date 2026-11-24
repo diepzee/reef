@@ -1496,8 +1496,9 @@ def _closest_file_chunks(
     The chunk carries the filename, the description and its page in front,
     see :func:`_file_sections`. A file read again since it was embedded may no
     longer have that chunk; it gets none, and so does a chunk whose text is
-    only white space. Pure and small, at most one chunk per file found, so
-    it runs inside the transaction that read the files.
+    only white space. Pure. It cuts only the pages that were read for each
+    found file's closest chunk, so it runs inside the transaction that read
+    the files, where the chunks' words are marked next.
 
     :param nearest: each file's closest chunks, best first
     :param files: the files' id, filename and description

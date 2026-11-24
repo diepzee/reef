@@ -1440,9 +1440,9 @@ day's pages are spent, the job ends normally and the file waits six hours
 **In search.** With reading on, every five results hold at most three files
 by default (`REEF_SEARCH_FILES_IN_FIVE` changes it), so files cannot push
 engrams out of the first results. When no engram is left to show, files
-fill the remaining places. A file's passage is cut from the part of the file closest to the
-question: from the paragraph that holds the question's words, or from the
-part's start when it holds none of them.
+fill the remaining places. A file's passage is cut from the part of the
+file closest to the question: from the paragraph that holds the question's
+words, or from the part's start when it holds none of them.
 
 **The sandbox.** The worker never parses a file itself. Each file is read in
 a child process that has an empty environment, runs as the `reader` user when
