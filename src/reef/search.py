@@ -1496,7 +1496,8 @@ def _closest_file_chunks(
     The chunk carries the filename, the description and its page in front,
     see :func:`_file_sections`. A file read again since it was embedded may no
     longer have that chunk; it gets none, and so does a chunk whose text is
-    only white space. Pure, so it can run in a thread.
+    only white space. Pure and small, at most one chunk per file found, so
+    it runs inside the transaction that read the files.
 
     :param nearest: each file's closest chunks, best first
     :param files: the files' id, filename and description
@@ -1589,9 +1590,10 @@ async def _chunk_headlines(
 
     Only a chunk longer than :data:`PASSAGE_CHARS` needs it; when none is,
     no statement is sent. One statement for all, see
-    :data:`_CHUNK_HEADLINES_SQL`, in a short transaction of its own, in a
-    savepoint. It reads no table. On any failure, opening that transaction
-    included, it gives nothing, and each passage is its chunk's start.
+    :data:`_CHUNK_HEADLINES_SQL`, in a savepoint of the transaction that read
+    the files, like :func:`_closest`. It reads no table. On any failure the
+    savepoint is rolled back, it gives nothing, and each passage is its
+    chunk's start.
 
     :param query: the search text
     :param chunks: each file's closest chunk
@@ -1604,30 +1606,23 @@ async def _chunk_headlines(
     ]
     if not long:
         return {}
+    savepoint = await DB.current_transaction.get().savepoint()
     try:
-        async with transaction_scope():
-            # Called inside a transaction, the savepoint keeps a failure from
-            # aborting it; the step's exception is caught below either way.
-            savepoint = await DB.current_transaction.get().savepoint()
-            try:
-                rows = await Engram.raw(
-                    _QUERY_SQL + _CHUNK_HEADLINES_SQL,
-                    query,
-                    query,
-                    [body for _, body in long],
-                )
-            except Exception:
-                await savepoint.rollback_to()
-                raise
-            await savepoint.release()
-    # Broad on purpose: without the headlines, a chunk's start will do. This
-    # covers opening the transaction too: the pool, BEGIN and the savepoint.
+        rows = await Engram.raw(
+            _QUERY_SQL + _CHUNK_HEADLINES_SQL,
+            query,
+            query,
+            [body for _, body in long],
+        )
+    # Broad on purpose: without the headlines, a chunk's start will do.
     except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
         log.warning(
             "search cuts files' passages from their start (%s)",
             type(error).__name__,
         )
         return {}
+    await savepoint.release()
     return {long[row["n"] - 1][0]: row["headline"] for row in rows}
 
 
@@ -1637,28 +1632,24 @@ async def _payloads(
     passages: bool,
     best: dict[UUID, str | None],
     texts: list[dict],
-    nearest: dict[UUID, list[str | None]] | None = None,
-    file_rows: list[dict] | None = None,
-    pages: dict[UUID, _Pages] | None = None,
-    query: str = "",
+    chunks: dict[UUID, sections.Section] | None = None,
+    headlines: dict[UUID, str] | None = None,
 ) -> list[dict]:
     """Shape the result rows, each with its passage when passages were asked for.
 
     Passages are cut in a thread, like the reranker's: cutting long engrams
-    would hold up every other request. A file's closest chunk is cut first,
-    then Postgres marks the question's words in the long ones, then the
-    passages are cut; no connection waits on the cutting.
+    would hold up every other request. A file's passage is cut from its
+    closest chunk around what Postgres marked of it, see
+    :func:`_file_passages`.
 
     :param rows: the result rows, best first
     :param aliases: the caller's space-id-to-alias map
     :param passages: whether passages were asked for
     :param best: the best anchor by meaning of each engram that has one
     :param texts: the engrams' text, as :func:`_read_engrams` read it
-    :param nearest: each file's closest chunks, best first
-    :param file_rows: the files' id, filename and description, for the files
-        with a closest chunk
-    :param pages: what :func:`_read_pages` read of those files
-    :param query: the search text, which a file's passage is cut around, see
+    :param chunks: each found file's closest chunk, see
+        :func:`_closest_file_chunks`
+    :param headlines: what Postgres marked of the long ones, see
         :func:`_chunk_headlines`
     :returns: one payload per row, see :func:`_row_payload`
     """
@@ -1669,12 +1660,8 @@ async def _payloads(
         if texts
         else {}
     )
-    if file_rows:
-        chunks = await asyncio.to_thread(
-            _closest_file_chunks, nearest or {}, file_rows, pages or {}
-        )
-        headlines = await _chunk_headlines(query, chunks)
-        found |= await asyncio.to_thread(_file_passages, chunks, headlines)
+    if chunks:
+        found |= await asyncio.to_thread(_file_passages, chunks, headlines or {})
     return [_row_payload(row, aliases, found) for row in rows]
 
 
@@ -1830,8 +1817,11 @@ async def search_engrams(
 
     **Never slow because of a model.** The search embeds the query first,
     then reads in one short transaction, then asks the reranker, then reads
-    the results in a second short transaction. No database connection
-    waits on a model. Called inside a transaction, it runs in that one.
+    the results in a second short transaction. When passages are asked
+    for, the second also reads what they are cut from and has Postgres mark
+    the question's words in long file chunks; the passages themselves are
+    cut after it, in a thread. No database connection waits on a model.
+    Called inside a transaction, it runs in that one.
 
     Search never fails because of the embedding service or the reranker.
     Without them, or when they are slow or down, the answer is the order
@@ -1970,8 +1960,8 @@ async def search_engrams(
     chosen = ranking[:limit]
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []
-    file_rows: list[dict] = []
-    pages: dict[UUID, _Pages] = {}
+    chunks: dict[UUID, sections.Section] = {}
+    headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
         # Without a vector in sight, no file has a closest chunk.
@@ -1995,6 +1985,7 @@ async def search_engrams(
                     if row["kind"] == "file" and row["id"] in nearest
                 }
             )
-    return await _payloads(
-        rows, aliases, passages, best, texts, nearest, file_rows, pages, query
-    )
+            # Pure and small: at most ``limit`` chunks of pages already read.
+            chunks = _closest_file_chunks(nearest, file_rows, pages)
+            headlines = await _chunk_headlines(query, chunks)
+    return await _payloads(rows, aliases, passages, best, texts, chunks, headlines)

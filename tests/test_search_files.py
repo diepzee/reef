@@ -6,8 +6,6 @@ is in production.
 """
 
 import hashlib
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from uuid import UUID, uuid4
 
 import pytest
@@ -721,6 +719,80 @@ async def test_the_rule_holds_after_the_reranker(tx, household, service, reranke
     assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
 
 
+async def test_the_reranker_reads_an_engram_behind_more_files_than_it_reads(
+    tx, household, service, reranker, monkeypatch
+):
+    """More files in front than the reranker reads: it still reads an engram.
+
+    The reranker reads the first four results. The eight files are found by
+    meaning and by words, the engrams by meaning alone, so by the fusion
+    every file comes first. Only the rule applied before the reranker puts
+    an engram among the four it reads; the rule after it cannot.
+    """
+    monkeypatch.setattr(get_settings().rerank, "candidates", 4)
+    me = principal_for(household["wouter"])
+    await _engram(me, service, "personal", "auto.md", "The car is due in May.")
+    await _engram(me, service, "personal", "garage.md", "The car garage is in Ghent.")
+    for number in range(8):
+        file = await _file(
+            me,
+            household["w_personal"],
+            f"garage-{number}.pdf",
+            "A garage bill.",
+            [f"The vehicle went in, vehicle check, vehicle bill {number}."],
+        )
+        await embedding.embed_file(me, file, service)
+    hits = await search_engrams(me, "vehicle", limit=5)
+    assert any(
+        "due in May" in text or "is in Ghent" in text for text in reranker.documents
+    )
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+
+
+async def test_the_reranker_alone_leaves_room_for_engrams(tx, household, reranker):
+    """Without an embedding service, the reranker alone reads the keyword
+    order: six files and two engrams hold the word, and the first five hold
+    at most three files and both engrams."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(6):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight. xylophone xylophone"],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5)
+    assert reranker.documents
+    assert [hit["kind"] for hit in hits].count("file") <= 3
+    assert {"auto.md", "garage.md"} <= {hit.get("path") for hit in hits}
+
+
+async def test_engrams_alone_by_words_with_reading_on(tx, household):
+    """A search of engrams alone, by words, with reading on: files that hold
+    the word are left out, and the engrams are found."""
+    me = principal_for(household["wouter"])
+    for path in ("auto.md", "garage.md"):
+        await save_engram(
+            me, "personal", path, "The xylophone is due in May.", message="x"
+        )
+    for number in range(3):
+        await _file(
+            me,
+            household["w_personal"],
+            f"recital-{number}.pdf",
+            "A programme.",
+            ["The xylophone recital starts at eight."],
+        )
+    hits = await search_engrams(me, "xylophone", limit=5, files=False)
+    assert all(hit["kind"] == "page" for hit in hits)
+    assert {"auto.md", "garage.md"} == {hit["path"] for hit in hits}
+
+
 class FilesFirstReranker(RecordingReranker):
     """Stands in for a reranker that prefers every file to every engram."""
 
@@ -1057,60 +1129,6 @@ async def test_a_failing_headline_of_the_chunks_leaves_the_start(
     [hit] = _files(
         await search_engrams(me, "vehicle inspection sticker", passages=True)
     )
-    assert hit["passage"].startswith(
-        "papers.pdf\nScanned papers.\npage 2\n\nThe vehicle papers."
-    )
-
-
-async def test_a_failing_start_of_the_headline_step_leaves_the_start(
-    tx, household, service, monkeypatch
-):
-    """When the headline step cannot even open its transaction, the search
-    answers and the passage is the chunk's start.
-
-    Only that step's transaction fails: :func:`search._chunk_headlines` is
-    wrapped so that ``transaction_scope`` raises while it runs, and only
-    then. The search's own two transactions open as usual.
-    """
-    me = principal_for(household["wouter"])
-    file = await _file(
-        me,
-        household["w_personal"],
-        "papers.pdf",
-        "Scanned papers.",
-        [f"Holiday plans. {FILLER}", BURIED],
-    )
-    await embedding.embed_file(me, file, service)
-    opened: list[str] = []
-
-    @asynccontextmanager
-    async def broken() -> AsyncIterator[None]:
-        """Fail as a dropped connection would, before the transaction opens.
-
-        :raises ConnectionError: always
-        """
-        opened.append("headline")
-        raise ConnectionError("no connection")
-        yield
-
-    original = search._chunk_headlines
-
-    async def failing_start(query: str, chunks: dict) -> dict:
-        """Run the headline step with a transaction that cannot open.
-
-        :param query: the search text
-        :param chunks: each file's closest chunk
-        :returns: what the step returns
-        """
-        with monkeypatch.context() as patch:
-            patch.setattr(search, "transaction_scope", broken)
-            return await original(query, chunks)
-
-    monkeypatch.setattr(search, "_chunk_headlines", failing_start)
-    [hit] = _files(
-        await search_engrams(me, "vehicle inspection sticker", passages=True)
-    )
-    assert opened == ["headline"]
     assert hit["passage"].startswith(
         "papers.pdf\nScanned papers.\npage 2\n\nThe vehicle papers."
     )
