@@ -179,10 +179,6 @@ MESSAGES = {
         "An engram already exists at that path in the shared space. Make the "
         "first call again with another to_path."
     ),
-    "share_refused": (
-        "Reef could not share this. Tell the person, and make the first "
-        "call again if they still want it."
-    ),
     "no_such_version": (
         "The engram has no such version. Versions count from 1 up to the "
         "current one. Open the engram to see its current version."
