@@ -28,7 +28,9 @@ private space called `personal` and may be in shared ones.
    ```
 
    It returns passages with where each comes from and a ref. Answer from the
-   passages and name where each claim comes from.
+   passages and name where each claim comes from. Reef also reads the text
+   inside stored files: a passage from inside a file names its page, and its
+   ref ends in `#page=N`.
 3. Open a ref only when its passage is not enough, or before you change an
    engram:
 
@@ -38,7 +40,8 @@ private space called `personal` and may be in shared ones.
    ```
 
    Use `--as-of` when the user asks what was known or planned before something
-   changed. A stored file is `<space>/file/<key>`.
+   changed. A stored file is `<space>/file/<key>`. End that ref in `#page=N`
+   to read a long file from page N on.
 4. For advice or preparation ("advise me", "prepare me for"), use
    `reef brief '<topic>'`. It returns the latest entries of each log and the
    text of other engrams that bear on the topic.
@@ -144,9 +147,27 @@ reef store-file personal ./document.pdf \
   --description 'Signed 2026 rental agreement' --engram housing.md
 ```
 
-Write a concrete description: later retrieval finds the file through it. Read a
-file with `reef open <space>/file/<key>`, which returns its description and a
-short-lived link to its bytes.
+Write a concrete description: later retrieval finds the file through it, and
+it is all Reef has for a file it cannot read.
+
+Reef reads the text inside PDFs, scans and photos, Word, Excel and PowerPoint
+files, web pages and text files. So `recall` also answers from inside a file,
+and names the page. The answer of `store-file` says in `text` whether the file
+is `waiting` to be read or `not_read`, a kind Reef does not read.
+
+Read a file with `reef open`. It returns the description, a short-lived link
+to the bytes, and the text Reef read, every page marked with its number:
+
+```bash
+reef open personal/file/<key>            # the text from the start
+reef open 'personal/file/<key>#page=3'   # from page 3 on
+```
+
+- `text_status` says how far reading got: `waiting`, `read`, `partly_read`,
+  `unreadable` or `not_read`. `pages` is how many pages the file has.
+- A long file is cut at a page, and `text_cut_after_page` names the last page
+  shown. Open the ref again from the next page to read on.
+- When you quote a file, name the page.
 
 ## Maintenance: the tidy-up ritual
 

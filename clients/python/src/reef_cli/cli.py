@@ -348,7 +348,12 @@ def _build_tool_parsers(sub: argparse._SubParsersAction) -> None:
     brief.add_argument("--space", help="look in one space only")
     brief.add_argument("--entries", type=int, default=10)
     open_ = tool("open", "read whole engrams and stored files by ref")
-    open_.add_argument("refs", nargs="+", help="<space>/<path> or <space>/file/<key>")
+    open_.add_argument(
+        "refs",
+        nargs="+",
+        help="<space>/<path> for an engram, <space>/file/<key> for a stored "
+        "file; end a file ref in #page=N to read a long file from page N",
+    )
     open_.add_argument("--as-of", help="ISO-8601 moment to read engrams as of")
     catch_up = tool("catch_up", "list what changed in your spaces")
     catch_up.add_argument("--since", help="ISO-8601 moment; default: last 7 days")
@@ -364,7 +369,11 @@ def _build_tool_parsers(sub: argparse._SubParsersAction) -> None:
     write.add_argument("space")
     write.add_argument("engrams", help="JSON array, @file, or '-' for stdin")
     write.add_argument("--message", required=True)
-    store = tool("store_file", "keep a document or an image with a description")
+    store = tool(
+        "store_file",
+        "keep a document or an image with a description; Reef reads the text "
+        "inside, so recall can find it",
+    )
     store.add_argument("space")
     store.add_argument("file", type=Path)
     store.add_argument("--mime")

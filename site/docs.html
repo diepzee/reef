@@ -493,9 +493,9 @@ reef call open '{"refs":["personal/plans.md"]}'</code></pre>
 <table>
   <tr><th>Tool</th><th>What it does</th></tr>
   <tr><td><code>load_index</code></td><td>Where a conversation starts: the rules an assistant follows, your persona, and the map of every engram and file you may see. No bodies.</td></tr>
-  <tr><td><code>recall</code></td><td>Answers a question with the passages that fit best, and where each comes from.</td></tr>
+  <tr><td><code>recall</code></td><td>Answers a question with the passages that fit best, and where each comes from. That includes the text inside your files, with the page.</td></tr>
   <tr><td><code>brief</code></td><td>Gathers what bears on a topic, to advise or prepare you.</td></tr>
-  <tr><td><code>open</code></td><td>Reads whole engrams and stored files, optionally as they stood at a past date.</td></tr>
+  <tr><td><code>open</code></td><td>Reads whole engrams, optionally as they stood at a past date, and the text of stored files, from any page.</td></tr>
   <tr><td><code>catch_up</code></td><td>What has changed in your spaces, and who changed it.</td></tr>
 </table>
 <p><b>Writing</b></p>
@@ -506,7 +506,7 @@ reef call open '{"refs":["personal/plans.md"]}'</code></pre>
   <tr><td><code>write</code></td><td>Creates or replaces whole engrams.</td></tr>
   <tr><td><code>correct</code></td><td>Replaces one exact passage of an engram.</td></tr>
   <tr><td><code>undo</code></td><td>Restores an earlier version of an engram.</td></tr>
-  <tr><td><code>store_file</code></td><td>Keeps a document or an image, with a description to find it by.</td></tr>
+  <tr><td><code>store_file</code></td><td>Keeps a document or an image, with a description to find it by. Reef then reads the text inside it.</td></tr>
 </table>
 <p><b>Changes that need your yes</b></p>
 <table>

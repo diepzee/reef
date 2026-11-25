@@ -194,6 +194,15 @@ tools_forbidden = ["write", "correct", "remember", "log", "forget"]
 facts = ["18.500"]
 
 [[scenario]]
+id = "quote-page"
+kind = "read"
+needs = ["files", "file_text"]
+messages = ["Open pagina 4 van de offerte van Fleetboard en zeg me wie de contactpersoon bij Schildpadsnel is."]
+tools_required = ["load_index", "open"]
+tools_forbidden = ["write", "correct", "remember", "log", "forget"]
+facts = ["Sabine Leemans"]
+
+[[scenario]]
 id = "dentist-letter"
 kind = "read"
 needs = ["files", "file_text"]
