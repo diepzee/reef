@@ -1695,13 +1695,19 @@ token in memory and gives it to that one Codex process, in the variable
 never printed, logged or written to a file or a report. A Codex sign-in to
 Reef from an earlier setup is not used any more.
 
-**Codex waits for Reef's tools.** The runner passes
-`startup_readiness="catalog"` for the Reef server. Without it, Codex starts a
-turn once the server is connected, even when its tool list has not arrived.
-The model then gets no Reef tool and answers from what it can see, such as
-the name in the home folder. On 25 Nov 2026 this stopped about half of the
-runs at the account check, with "Codex did not read the index", although the
-sign-in was fine.
+**Codex waits for Reef's tools.** The runner marks the Reef server as
+required (`required=true`). Codex gives a server that is not required about
+one second at the start of a turn. After that it starts the turn without the
+server's tools, and the model answers from what it can see, such as the name
+in the home folder. Production's first answers take about a second from
+Belgium, so on 25 Nov 2026 the account check stopped several runs with "Codex
+did not read the index", although the sign-in was fine. A required server is
+waited for. If Reef cannot be reached at all, Codex stops with "required MCP
+servers failed to initialize", and the run reports that.
+
+A first fix that day passed `startup_readiness="catalog"` instead. It changed
+nothing: against a test server that answers slowly, Codex offered the tools
+in none of four runs with that setting and in all four with `required=true`.
 
 ### What the verdicts mean
 

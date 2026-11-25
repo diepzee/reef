@@ -247,10 +247,12 @@ def codex_command(
     command += ["-c", 'approval_policy="never"']
     for setting in server.settings:
         command += ["-c", setting]
-    # By default Codex starts a turn once the server is connected, even when
-    # its tool list has not arrived yet. The model then gets no Reef tool and
-    # answers from what it can see, such as the name in the home folder.
-    command += ["-c", f'mcp_servers.{server.name}.startup_readiness="catalog"']
+    # Codex waits about one second for the tools of a server that is not
+    # required, and then starts the turn without them. The model then gets no
+    # Reef tool and answers from what it can see, such as the name in the
+    # home folder. A required server is waited for; if it cannot start, Codex
+    # stops with an error that says so.
+    command += ["-c", f"mcp_servers.{server.name}.required=true"]
     # The tools ask the person themselves, in two calls, so Codex does not
     # ask as well: in ``exec`` nobody could answer it.
     command += [

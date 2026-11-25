@@ -1131,18 +1131,20 @@ def test_production_codex_command_names_reef_bench():
     assert run.PRODUCTION_SERVER.bearer and not run.local_server("ab" * 32).bearer
 
 
-def test_codex_waits_for_the_tool_list():
-    """Codex starts no turn before Reef's tools have arrived.
+def test_codex_cannot_start_a_turn_without_reef():
+    """Reef is a required server: Codex waits for its tools, or stops.
 
-    Without this setting Codex may start once the server is connected. The
-    model then gets no Reef tool, and answers from what it can see.
+    A server that is not required gets about one second at the start of a
+    turn. After that the model gets no Reef tool and answers from what it can
+    see. ``startup_readiness`` did not change that, so it is not passed.
     """
     for server in (run.PRODUCTION_SERVER, run.local_server("ab" * 32)):
         first = run.codex_command(server, tools=run.PROBE_TOOLS, session_id=None)
         again = run.codex_command(server, tools=None, session_id="t-1")
         for command in (first, again):
-            setting = f'mcp_servers.{server.name}.startup_readiness="catalog"'
+            setting = f"mcp_servers.{server.name}.required=true"
             assert command[command.index(setting) - 1] == "-c"
+            assert not any("startup_readiness" in part for part in command)
 
 
 def test_codex_gets_the_token_only_when_given(monkeypatch):
