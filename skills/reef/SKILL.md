@@ -156,7 +156,8 @@ and names the page. The answer of `store-file` says in `text` whether the file
 is `waiting` to be read or `not_read`, a kind Reef does not read.
 
 Read a file with `reef open`. It returns the description, a short-lived link
-to the bytes, and the text Reef read, every page marked with its number:
+to the bytes, and the text Reef read from the file, every page marked with its
+number:
 
 ```bash
 reef open personal/file/<key>            # the text from the start
@@ -166,7 +167,7 @@ reef open 'personal/file/<key>#page=3'   # from page 3 on
 - `text_status` says how far reading got: `waiting`, `read`, `partly_read`,
   `unreadable` or `not_read`. `pages` is how many pages the file has.
 - A long file is cut at a page, and `text_cut_after_page` names the last page
-  shown. Open the ref again from the next page to read on.
+  shown. Open the file's ref again from the next page to read on.
 - When you quote a file, name the page.
 
 ## Maintenance: the tidy-up ritual
