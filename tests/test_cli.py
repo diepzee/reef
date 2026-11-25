@@ -167,11 +167,81 @@ TOOL_ARGUMENT_CASES: dict[str, tuple[list[str], list[str]]] = {
 }
 
 
-@pytest.mark.parametrize("tool", TOOL_ARGUMENT_CASES)
-@pytest.mark.parametrize("all_options", [False, True], ids=["defaults", "options"])
-async def test_cli_arguments_fit_the_listed_tool_schema(
-    monkeypatch, tmp_path, tool, all_options
-):
+def _cli_argument_cases() -> list[list[str]]:
+    """Exercise defaults, optional values and alternative input sources.
+
+    :returns: command lines for the named tools
+    """
+    cases = []
+    for tool, (required, optional) in TOOL_ARGUMENT_CASES.items():
+        command = tool.replace("_", "-")
+        reason = (
+            [] if tool in {"search", "fetch"} else ["--reason", "Check the contract."]
+        )
+        cases.extend([[command, *required], [command, *required, *optional, *reason]])
+    return cases + [
+        ["forget", "personal", "--file", "attachments/manual", "--confirm", "token"],
+        [
+            "log",
+            "personal",
+            "training-log.md",
+            "--heading",
+            "Day 2",
+            "--entry-file",
+            "{text}",
+        ],
+        [
+            "correct",
+            "personal",
+            "notes.md",
+            "--old-text-file",
+            "{text}",
+            "--new-text-file",
+            "{text}",
+            "--message",
+            "fix",
+        ],
+        [
+            "share",
+            "notes.md",
+            "household",
+            "--section-file",
+            "{text}",
+            "--to-path",
+            "shared.md",
+        ],
+        ["instruct", "--body-file", "{text}"],
+    ]
+
+
+def test_schema_cases_cover_every_tool_command_option():
+    """Every tool option except automatic help is exercised by a schema case."""
+    subparsers = next(
+        action
+        for action in build_parser()._actions
+        if hasattr(action, "choices") and isinstance(action.choices, dict)
+    )
+    cases = _cli_argument_cases()
+    for tool in TOOL_ARGUMENT_CASES:
+        command = tool.replace("_", "-")
+        declared = {
+            option
+            for action in subparsers.choices[command]._actions
+            if action.dest != "help"
+            for option in action.option_strings
+        }
+        exercised = {
+            arg
+            for argv in cases
+            if argv[0] == command
+            for arg in argv[1:]
+            if arg.startswith("--")
+        }
+        assert declared <= exercised, (command, declared - exercised)
+
+
+@pytest.mark.parametrize("argv", _cli_argument_cases())
+async def test_cli_arguments_fit_the_listed_tool_schema(monkeypatch, tmp_path, argv):
     """Validate the arguments the CLI sends against the server's live tool list."""
     async with Client(mcp) as client:
         schemas = {
@@ -180,19 +250,20 @@ async def test_cli_arguments_fit_the_listed_tool_schema(
     assert set(TOOL_ARGUMENT_CASES) == set(schemas)
     file = tmp_path / "manual.pdf"
     file.write_bytes(b"%PDF")
-    required, optional = TOOL_ARGUMENT_CASES[tool]
-    argv = [tool.replace("_", "-"), *required]
-    if all_options:
-        argv.extend(optional)
-        if tool not in {"search", "fetch"}:
-            argv.extend(["--reason", "Check the tool contract."])
-    argv = [str(file) if value == "{file}" else value for value in argv]
+    source = tmp_path / "text.txt"
+    source.write_text("Text supplied from a file.")
+    paths = {"{file}": str(file), "{text}": str(source)}
+    argv = [paths.get(value, value) for value in argv]
+    tool = argv[0].replace("-", "_")
 
     assert await _call(monkeypatch, tmp_path, argv) == 0
 
     called, arguments = FakeClient.calls[-1]
     assert called == tool
     validate(arguments, schemas[called])
+    if tool == "forget" and "--file" in argv:
+        assert arguments["file"] == argv[argv.index("--file") + 1]
+        assert "engram" not in arguments
 
 
 async def test_recall_maps_question_and_options(monkeypatch, tmp_path, capsys):
