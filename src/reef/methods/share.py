@@ -35,7 +35,13 @@ from reef.access import (
 )
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.engrams import PERSONA_PATH, VersionConflict, get_engram, save_engram
+from reef.engrams import (
+    PERSONA_PATH,
+    VersionConflict,
+    get_engram,
+    normalize_path,
+    save_engram,
+)
 from reef.methods import Caller, MethodError, Writer, method, staged
 from reef.methods.refusals import refusals
 from reef.models import Engram, Promotion
@@ -282,7 +288,7 @@ async def _carry_out_share(
                 or source.path != engram
                 or row.section_text != section
                 or row.dest_space_id != dest.id
-                or row.dest_path != (to_path or engram)
+                or normalize_path(row.dest_path) != normalize_path(to_path or engram)
             ):
                 raise MethodError("stale_token")
             done = await confirm_promotion(
