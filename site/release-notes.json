@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.4.2",
+      "date": "2026-11-25",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "Your assistant can now find what is written inside the PDFs, scans and documents you store, and tell you the page."
+        }
+      ]
+    },
+    {
       "version": "2.4.1",
       "date": "2026-11-24",
       "changes": [
