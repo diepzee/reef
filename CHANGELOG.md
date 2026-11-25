@@ -1,3 +1,19 @@
+## [2.4.2](https://github.com/diepzee/reef/compare/v2.4.1...v2.4.2) (2026-11-25)
+
+### Bug fixes
+
+* **files:** the timing run leaves a text file after a few pages (RUG-60) ([#167](https://github.com/diepzee/reef/issues/167)) ([bb17393](https://github.com/diepzee/reef/commit/bb17393dba659bcda09770abfeadbb650f420a5f))
+* **search:** files leave room for engrams, and a file's passage follows the words (RUG-77) ([#168](https://github.com/diepzee/reef/issues/168)) ([265ea9b](https://github.com/diepzee/reef/commit/265ea9b6c6dacb3a1fa9b6b0bd02f90960b8979d))
+
+### Documentation
+
+* **runbook:** record the move to the reef and reef-backups buckets (RUG-72) ([#165](https://github.com/diepzee/reef/issues/165)) ([efce964](https://github.com/diepzee/reef/commit/efce96475d8e80b5dbad6434b4ebde1c1cfd9511))
+* **site:** the privacy page says that reef reads the text inside your files (RUG-60) ([#170](https://github.com/diepzee/reef/issues/170)) ([9fd62fe](https://github.com/diepzee/reef/commit/9fd62fef5fb41bcf1f41910619f77ac180a9a9a4))
+
+### Tests
+
+* the suite builds its schema only in the test database ([#169](https://github.com/diepzee/reef/issues/169)) ([7eada04](https://github.com/diepzee/reef/commit/7eada0404342383c6435b07d7d41dd6cf3e7a212))
+
 ## [2.4.1](https://github.com/diepzee/reef/compare/v2.4.0...v2.4.1) (2026-11-24)
 
 ### Bug fixes
