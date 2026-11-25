@@ -77,7 +77,7 @@ async def member_roster(space_id: UUID) -> list[dict]:
     """Return a space's members, sorted by display name.
 
     Both consent surfaces read through this: ``load_index`` tells a person
-    who is in the room, ``prepare_promotion``'s warning names every reader a
+    who is in the room, the share effect names every reader a
     share is about to reach, and the web members panel needs addresses to key
     removal by.
 

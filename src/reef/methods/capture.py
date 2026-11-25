@@ -38,6 +38,7 @@ from reef.engrams import (
     normalize_path,
     save_engram,
 )
+from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
 from reef.methods import MESSAGES, Caller, MethodError, logs, method
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
@@ -48,14 +49,6 @@ INBOX = "inbox.md"
 
 #: One recorded inbox line. The fact is whatever follows the date stamp.
 _ENTRY_RE = re.compile(r"^- \(\d{4}-\d{2}-\d{2}\) (?P<fact>.*)$")
-
-#: The most engrams :func:`write` writes in one call.
-MAX_BATCH = 20
-
-#: The longest file name and content type :func:`store_file` accepts. The
-#: file name's limit is its column's.
-FILENAME_CHARS = 512
-MIME_CHARS = 255
 
 
 async def _save(

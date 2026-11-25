@@ -378,9 +378,8 @@ async def get_attachment(
 ) -> Attachment | None:
     """Fetch attachment metadata, scoped to a space the principal can see.
 
-    READY only, matching every other reader (the index and the context loader
-    both filter on it). A PENDING row is one whose bytes have not reached the
-    object store yet -- or never did, because the upload failed between the
+    READY only, matching the index. A PENDING row's bytes have not reached
+    the object store yet -- or never did, because the upload failed between the
     two transactions :func:`add_attachment` uses. Handing back a signed URL
     for one produces a link that 404s at the bucket, which reads as reef
     losing a file rather than as an upload that never finished.

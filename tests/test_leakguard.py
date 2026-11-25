@@ -10,9 +10,9 @@ import pytest
 
 from reef.access import Principal, resolve_space
 from reef.db import transaction_scope
-from reef.engrams import PrivateContentLeak, edit_section, get_engram, save_engram
+from reef.engrams import PrivateContentLeak, get_engram, save_engram
 from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
-from reef.methods import Caller, MethodError, capture
+from reef.methods import Caller, MethodError, capture, maintain
 from reef.promotion import confirm_promotion, prepare_promotion
 
 DIARY = (
@@ -92,20 +92,31 @@ async def test_the_co_member_never_sees_it(household):
         assert await get_engram(partner, "household", "leak.md") is None
 
 
-async def test_edit_section_is_guarded_too(household):
-    """Otherwise the guard is one tool call wide."""
+async def test_correct_cannot_copy_private_content_into_a_space(
+    household: dict,
+) -> None:
+    """Guard a small edit and leave the shared engram unchanged on refusal.
+
+    :param household: the seeded people and their personal and shared spaces
+    """
     wouter = principal_for(household["wouter"])
+    partner = principal_for(household["partner"])
     await _seed_private(wouter)
+    body = "# Notes\n\nplaceholder\n"
     async with transaction_scope():
-        await save_engram(
-            wouter, "household", "notes.md", "# Notes\n\nplaceholder\n", message="seed"
+        await save_engram(wouter, "household", "notes.md", body, message="seed")
+
+    caller = Caller(principal=wouter, writer="assistant", session_id=None)
+    with pytest.raises(MethodError) as refused:
+        await maintain.correct(
+            caller, "", "household", "notes.md", "placeholder", DIARY, "edit"
         )
+    assert refused.value.code == "private_content"
 
     async with transaction_scope():
-        with pytest.raises(PrivateContentLeak):
-            await edit_section(
-                wouter, "household", "notes.md", "placeholder", DIARY, message="edit"
-            )
+        shared = await get_engram(partner, "household", "notes.md")
+    assert shared.body == body
+    assert shared.version == 1
 
 
 async def test_remember_cannot_smuggle_a_private_engram_into_a_space(household):

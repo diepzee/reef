@@ -34,17 +34,13 @@ from hashlib import sha256
 from reef.access import arm
 from reef.config import get_settings
 from reef.db import transaction_scope
+from reef.limits import MIN_SECRET_LENGTH
 from reef.methods import Caller, MethodError
 from reef.models import Person
 from reef.sealing import seal, unseal
 
 TOKEN_TTL_SECONDS = 600
 """How long a staged token works: ten minutes, like the share nonce."""
-
-MIN_SECRET_LENGTH = 32
-"""The shortest signing secret that makes a token unforgeable in practice.
-
-The same floor :func:`reef.server.main` holds the session cookie to."""
 
 _PURPOSE = b"reef.methods.staged"
 """What the derived key is for; it keeps staged tokens apart from cookies."""

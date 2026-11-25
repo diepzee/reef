@@ -722,7 +722,7 @@ async def application() -> None:
     from uuid import UUID
 
     from reef.access import Principal, accessible_spaces, resolve_space
-    from reef.context import build_index, load_context
+    from reef.context import build_index
     from reef.db import DB, transaction_scope
     from reef.engrams import get_engram, list_engrams, save_engram
     from reef.search import search_engrams
@@ -760,7 +760,7 @@ async def application() -> None:
             household = await resolve_space(wouter, "household")
             roster = await member_roster(household.id)
             assert {member["avatar_len"] for member in roster} == {None, 4}
-            assert (await load_context(wouter, char_budget=100_000)).engram_count == 3
+            assert sum(len(entry.engrams) for entry in index.spaces) == 3
         try:
             async with transaction_scope():
                 saved = await save_engram(

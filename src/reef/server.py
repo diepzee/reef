@@ -31,6 +31,7 @@ arguments.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -52,6 +53,7 @@ from reef import calllog, telemetry
 from reef.auth import current_principal
 from reef.config import get_settings
 from reef.db import transaction_scope
+from reef.limits import MAX_BATCH, MIN_SECRET_LENGTH
 from reef.methods import Caller, Method, MethodError, capture, connector, find, maintain
 from reef.methods import share as sharing
 from reef.usage import current_session_id
@@ -266,12 +268,15 @@ register_static_routes(mcp)
 _ARGUMENTS: dict[str, TypeAdapter] = {}
 
 
-def _register(title: str, *, read_only: bool, destructive: bool):
+def _register(
+    title: str, *, read_only: bool, destructive: bool, name: str | None = None
+):
     """Register a shell as a tool, with the hints a client decides from.
 
     :param title: the tool's title, as a client shows it
     :param read_only: whether the tool changes nothing
     :param destructive: whether it may replace, move or remove what is there
+    :param name: the public tool name, when different from the function name
     :returns: the decorator, which returns the shell unchanged
     """
     annotations = ToolAnnotations(
@@ -283,8 +288,13 @@ def _register(title: str, *, read_only: bool, destructive: bool):
 
         :param shell: the shell
         :returns: the shell
+        :raises AssertionError: if validation could run a synchronous body
         """
-        tool = FunctionTool.from_function(shell, annotations=annotations)
+        assert inspect.iscoroutinefunction(shell), "tool shell must be async"
+        # Expand the shared limit before FastMCP reads the tool description.
+        if shell.__doc__:
+            shell.__doc__ = shell.__doc__.replace("{MAX_BATCH}", str(MAX_BATCH))
+        tool = FunctionTool.from_function(shell, name=name, annotations=annotations)
         mcp.add_tool(
             tool.model_copy(update={"parameters": _reason_required(tool.parameters)})
         )
@@ -314,13 +324,14 @@ def _reason_required(schema: dict) -> dict:
     }
 
 
-def _read_only(title: str):
+def _read_only(title: str, *, name: str | None = None):
     """Register a tool that changes nothing, so a client may run it unprompted.
 
     :param title: the tool's title, as a client shows it
+    :param name: the public tool name, when different from the function name
     :returns: the decorator
     """
-    return _register(title, read_only=True, destructive=False)
+    return _register(title, read_only=True, destructive=False, name=name)
 
 
 def _additive(title: str):
@@ -471,8 +482,8 @@ async def brief(
     return await _run(find.brief, reason, topic=topic, space=space, entries=entries)
 
 
-@_read_only("Open")
-async def open(
+@_read_only("Open", name="open")
+async def open_refs(
     reason: Reason = "", *, refs: list[str], as_of: str | None = None
 ) -> list[dict]:
     """Read whole engrams and stored files.
@@ -543,7 +554,7 @@ async def log(
 async def write(
     reason: Reason = "", *, space: str, engrams: list[dict], message: str
 ) -> list[dict]:
-    """Create or replace whole engrams, up to 20 in one call, all or nothing.
+    """Create or replace whole engrams, up to {MAX_BATCH} in one call, all or nothing.
 
     Use it for new engrams and for rewriting one completely. For a small
     change use correct; to add to a log use log. When you replace an engram,
@@ -1073,12 +1084,12 @@ def main() -> None:
             print(
                 "REEF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
             )
-        if len(get_settings().web.session_secret) < 32:
+        if len(get_settings().web.session_secret) < MIN_SECRET_LENGTH:
             if not get_settings().dev.insecure:
                 raise RuntimeError(
                     "refusing to serve HTTP with a missing or weak "
                     "REEF_SESSION_SECRET: set it to a random value at least "
-                    "32 characters long"
+                    f"{MIN_SECRET_LENGTH} characters long"
                 )
             print(
                 "REEF_DEV_INSECURE=1 — serving HTTP with a missing/weak "

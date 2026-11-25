@@ -32,6 +32,7 @@ from typing import Concatenate, Literal
 
 from reef import calllog
 from reef.access import Principal
+from reef.limits import FILENAME_CHARS
 from reef.rls import CALL_LOG_MAX_REASON, WRITER_KINDS
 
 type Writer = Literal["assistant", "person", "system"]
@@ -127,7 +128,7 @@ MESSAGES = {
         "whole number."
     ),
     "invalid_filename": (
-        "The file name is empty or longer than 512 characters. Send the "
+        f"The file name is empty or longer than {FILENAME_CHARS} characters. Send the "
         "file's own name, with its extension."
     ),
     "invalid_mime": (
@@ -177,10 +178,6 @@ MESSAGES = {
     "share_target_exists": (
         "An engram already exists at that path in the shared space. Make the "
         "first call again with another to_path."
-    ),
-    "share_refused": (
-        "Reef could not share this. Tell the person, and make the first "
-        "call again if they still want it."
     ),
     "no_such_version": (
         "The engram has no such version. Versions count from 1 up to the "

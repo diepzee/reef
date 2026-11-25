@@ -222,7 +222,6 @@ async def test_disclosure_enumerates_the_destination_members(tx, household):
     await save_engram(me, "personal", "m.md", "x", message="x")
     prepared = await prepare_promotion(me, "m.md", "household")
     assert sorted(prepared["members"]) == ["Partner", "Wouter"]
-    assert "Partner" in prepared["warning"]
 
 
 async def test_share_to_unjoined_or_personal_space_is_refused(tx, household, graph):

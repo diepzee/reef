@@ -11,7 +11,7 @@ the methods.
 import pytest
 
 from reef.access import Principal, ReadOnlyMembership
-from reef.engrams import delete_engram, edit_section, save_engram
+from reef.engrams import delete_engram, save_engram
 from reef.methods import Caller, find
 from reef.search import search_engrams
 from reef.spaces import SpaceError, invite
@@ -64,14 +64,6 @@ async def test_a_viewer_cannot_write_an_engram(tx, household, viewer):
     them = principal_for(viewer)
     with pytest.raises(ReadOnlyMembership):
         await save_engram(them, "household", "note.md", "Hi.", message="x")
-
-
-async def test_a_viewer_cannot_edit_a_section(tx, household, viewer):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "household", "house.md", "The boiler is new.", message="x")
-    them = principal_for(viewer)
-    with pytest.raises(ReadOnlyMembership):
-        await edit_section(them, "household", "house.md", "new", "old", message="x")
 
 
 async def test_a_viewer_cannot_delete_an_engram(tx, household, viewer):

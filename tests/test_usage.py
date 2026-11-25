@@ -11,7 +11,7 @@ from conftest import _login
 from reef import usage
 from reef.access import Principal, arm
 from reef.config import get_settings
-from reef.context import build_index, load_context
+from reef.context import build_index
 from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.export import build_full_dump
@@ -99,12 +99,11 @@ async def test_something_the_person_asked_to_remember_counts_three_times(tx, hou
 
 
 async def test_being_shown_is_not_being_used(tx, household):
-    """Search results, the index and a bulk load record nothing."""
+    """Search results and the index record nothing."""
     me = principal_for(household["wouter"])
     await save_engram(me, "personal", "house.md", "The boiler.", message="x", via=None)
     assert await search_engrams(me, "boiler") != []
     await build_index(me)
-    await load_context(me, char_budget=10_000)
     assert await _log(me) == []
 
 

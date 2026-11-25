@@ -1008,9 +1008,7 @@ budget must come from measurement on the real device, not arithmetic.
    `open` every ref `load_index` lists and report how many engrams it received
    and whether every body arrived intact (the payload is built so a host-side cut
    is detectable — a mismatch means truncation in transit).
-3. Record results in `docs/superpowers/plans/context-limits.md`; set
-   `REEF_CONTEXT_CHAR_BUDGET` on Railway comfortably below the first size that
-   misbehaved; `railway up`.
+3. Record results in `docs/superpowers/plans/context-limits.md`.
 4. Clean up: `scripts/measure_context.py wouter@rugvin.be 0`.
 
 ---
@@ -1797,7 +1795,6 @@ replacement in the answer.
 | `DATABASE_URL` | The **constrained** `rif_app` role — no DDL, subject to RLS. Do not point this back at Railway's injected `${{Postgres.DATABASE_URL}}`: that is the superuser, and it turns every policy off |
 | `REEF_MIGRATION_DATABASE_URL` | The admin role. Used by `scripts/migrate.py` for DDL on boot, and by the backup cron for `pg_dump`. Never read by the server — and since the `env -u` scrub in the Dockerfile CMD, not even *present* in the server's environment: the boot shell execs the server through `env -u`, so after migration finishes no process in the container holds this credential (`/proc/*/environ` included). The variable still lives on the Railway service — that is what re-arms the next boot and what the restore runbook reads via the control plane |
 | `REEF_S3_ENDPOINT` / `REEF_S3_BUCKET` / `REEF_S3_ACCESS_KEY` / `REEF_S3_SECRET_KEY` | R2 for images + backups |
-| `REEF_CONTEXT_CHAR_BUDGET` | Set from Phase 7 measurement |
 | `REEF_OPEN_SEATS` / `REEF_OPEN_UNTIL` | The launch door (see "Opening the door for the launch"). **Both** must be set or it stays shut; seats is an integer, until is `YYYY-MM-DD` and inclusive. Unset either one to close it immediately. Default (unset) = invite-only, which is the steady state |
 | `LOGFIRE_TOKEN` | Write token for the `wouterdurnez/reef` Logfire project (EU instance). **Optional** — unset means telemetry is inert, and a missing token can never fail a request or stop the server booting |
 | `LOGFIRE_BASE_URL` | Only if the Logfire instance moves. Defaults to `https://logfire-eu.pydantic.dev`; the SDK's own default is the US instance, which is the wrong one for this project |
@@ -1828,8 +1825,7 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | database | `REEF_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef` | The database, when Railway's DATABASE_URL is not set. |
 | database | `REEF_TEST_DATABASE_URL` | `postgresql://reef:reef@localhost:5433/reef_test` | The database the test suite empties and fills. |
 | database | `REEF_MIGRATION_DATABASE_URL` | (none) | A role that may change the schema. Empty: the app's own role. See Settings.migration_dsn. |
-| engrams | `REEF_CONTEXT_CHAR_BUDGET` | `150000` | The most text one context load returns. |
-| engrams | `REEF_ENGRAM_MAX_CHARS` | `200000` | The longest engram. Above the context budget on purpose: an engram bigger than the whole budget cannot be loaded in one piece anyway, so this refuses only what was never usable memory. |
+| engrams | `REEF_ENGRAM_MAX_CHARS` | `200000` | The longest engram, in characters. |
 | files | `REEF_S3_ENDPOINT` | (none) | The S3-compatible bucket's address. |
 | files | `REEF_S3_BUCKET` | (none) | The bucket's name. |
 | files | `REEF_S3_ACCESS_KEY` | (none) | The bucket's access key. Secret. |

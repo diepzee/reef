@@ -8,9 +8,7 @@ from reef.context import backfill_index_fields
 from reef.engrams import (
     EngramTooLarge,
     ProtectedPath,
-    SectionNotFound,
     VersionConflict,
-    edit_section,
     get_engram,
     save_engram,
 )
@@ -73,26 +71,6 @@ async def test_household_engrams_are_visible_to_both(tx, household):
     theirs = principal_for(household["partner"])
     await save_engram(mine, "household", "house.md", "boiler", message="x")
     assert (await get_engram(theirs, "household", "house.md")).body == "boiler"
-
-
-async def test_edit_section_replaces_exactly_one_occurrence(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(
-        me, "household", "house.md", "Boiler: Vaillant\nRoof: tiles", message="x"
-    )
-    engram = await edit_section(
-        me,
-        "household",
-        "house.md",
-        "Boiler: Vaillant",
-        "Boiler: Vaillant ecoTEC",
-        message="model number",
-    )
-    assert engram.body == "Boiler: Vaillant ecoTEC\nRoof: tiles"
-    with pytest.raises(SectionNotFound):
-        await edit_section(
-            me, "household", "house.md", "Chimney", "Chimney: swept", message="x"
-        )
 
 
 async def test_meta_paths_are_protected_from_generic_writes(tx, household):
@@ -175,16 +153,6 @@ async def test_editing_an_engram_moves_updated_at_and_leaves_created_at(
     await save_engram(me, "personal", "a.md", "one", message="x", title="A", tags=[])
     await _age("a.md")
     await save_engram(me, "personal", "a.md", message="edit", **change)
-    created, updated = await _stamps("a.md")
-    assert created == LONG_AGO
-    assert updated > LONG_AGO
-
-
-async def test_editing_a_section_moves_updated_at_and_leaves_created_at(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "a.md", "Boiler: old", message="x")
-    await _age("a.md")
-    await edit_section(me, "personal", "a.md", "old", "new", message="fix")
     created, updated = await _stamps("a.md")
     assert created == LONG_AGO
     assert updated > LONG_AGO

@@ -1,5 +1,5 @@
 from reef.access import Principal, arm
-from reef.context import backfill_index_fields, build_index, load_context
+from reef.context import backfill_index_fields, build_index
 from reef.db import transaction_scope
 from reef.engrams import get_engram, save_engram
 from reef.models import Engram, Revision
@@ -7,66 +7,6 @@ from reef.models import Engram, Revision
 
 def principal_for(person) -> Principal:
     return Principal(person_id=person.id, email=person.email)
-
-
-async def test_context_contains_both_spaces_with_full_bodies(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "health.md", "sleeps badly", message="x")
-    await save_engram(me, "household", "house.md", "boiler", message="x")
-    payload = await load_context(me, char_budget=100_000)
-    assert {s.alias for s in payload.spaces} == {"personal", "household"}
-    bodies = [p["body"] for s in payload.spaces for p in s.engrams]
-    assert "sleeps badly" in bodies and "boiler" in bodies
-    assert payload.truncated is False
-    assert payload.engram_count == payload.included_count == 2
-
-
-async def test_context_never_includes_the_other_persons_space(tx, household):
-    mine = principal_for(household["wouter"])
-    theirs = principal_for(household["partner"])
-    await save_engram(theirs, "personal", "hers.md", "her secret", message="x")
-    await save_engram(mine, "personal", "mine.md", "my secret", message="x")
-    bodies = [
-        p["body"]
-        for s in (await load_context(mine, char_budget=100_000)).spaces
-        for p in s.engrams
-    ]
-    assert "my secret" in bodies and "her secret" not in bodies
-
-
-async def test_truncation_prefers_meta_core_and_small_engrams(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(
-        me, "personal", "meta/persona.md", "persona", message="x", allow_protected=True
-    )
-    await save_engram(
-        me,
-        "personal",
-        "allergy.md",
-        "allergic to penicillin",
-        message="x",
-        tags=["core"],
-    )
-    await save_engram(me, "personal", "diary.md", "x" * 5_000, message="x")
-    payload = await load_context(me, char_budget=100)
-    included = {
-        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is not None
-    }
-    omitted = {
-        p["path"] for s in payload.spaces for p in s.engrams if p["body"] is None
-    }
-    assert "meta/persona.md" in included and "allergy.md" in included
-    assert "diary.md" in omitted
-    assert payload.truncated is True and payload.note is not None
-    assert payload.included_count < payload.engram_count
-
-
-async def test_version_reflects_every_space_write(tx, household):
-    me = principal_for(household["wouter"])
-    await save_engram(me, "personal", "a.md", "one", message="x")
-    first = (await load_context(me, char_budget=100_000)).version
-    await save_engram(me, "household", "h.md", "two", message="x")
-    assert (await load_context(me, char_budget=100_000)).version != first
 
 
 async def test_index_lists_engrams_without_bodies(tx, household):
