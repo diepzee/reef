@@ -31,6 +31,7 @@ arguments.
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import time
@@ -287,7 +288,9 @@ def _register(
 
         :param shell: the shell
         :returns: the shell
+        :raises AssertionError: if validation could run a synchronous body
         """
+        assert inspect.iscoroutinefunction(shell), "tool shell must be async"
         # Expand the shared limit before FastMCP reads the tool description.
         if shell.__doc__:
             shell.__doc__ = shell.__doc__.replace("{MAX_BATCH}", str(MAX_BATCH))
