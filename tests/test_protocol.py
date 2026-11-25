@@ -158,16 +158,64 @@ NOT_TOOLS = {
     "to_path",
 }
 
-#: Words in the skill and the plugin commands that are not tools either.
-NOT_TOOLS_OUTSIDE_PROTOCOL = NOT_TOOLS | {
-    "body",
-    "message",
-    "operating_protocol",
-    "reef",
-    "since",
-    "tags",
-    "title",
-}
+#: Words in the skill and the plugin commands that are not tools either. The
+#: second group is what a stored file comes back with once Reef has read it:
+#: three result keys and the values of ``text_status``.
+NOT_TOOLS_OUTSIDE_PROTOCOL = (
+    NOT_TOOLS
+    | {
+        "body",
+        "message",
+        "operating_protocol",
+        "reef",
+        "since",
+        "tags",
+        "title",
+    }
+    | {
+        "pages",
+        "text_cut_after_page",
+        "text_status",
+        "waiting",
+        "read",
+        "partly_read",
+        "unreadable",
+        "not_read",
+    }
+)
+
+#: Where one sentence, list item or code block ends and the next begins.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n\s*\n|\n(?=\s*(?:[-*]|\d+\.)\s)")
+
+
+def pages_not_of_a_file(text: str) -> list[str]:
+    """Find the sentences that say "page" without naming a file.
+
+    "Page" was the old word for an engram and may not come back as that.
+    A stored file does have pages, so the word is allowed in a sentence,
+    list item or code block that also says "file".
+
+    :param text: Markdown
+    :returns: the offending pieces, in lower case
+    """
+    pieces = _SENTENCE_END.split(text.lower())
+    return [
+        piece
+        for piece in pieces
+        if re.search(r"\bpages?\b", piece) and "file" not in piece
+    ]
+
+
+def test_a_page_must_be_a_page_of_a_file():
+    """A sentence about a file's page passes; "page" as a unit of memory does not."""
+    assert not pages_not_of_a_file("A passage from inside a file names its page.")
+    assert not pages_not_of_a_file("Run `reef open 'personal/file/k#page=3'`.")
+    assert pages_not_of_a_file("Open the page. Then read the file.") == [
+        "open the page."
+    ]
+    assert pages_not_of_a_file("- Write one page per topic.\n- Store a file.") == [
+        "- write one page per topic."
+    ]
 
 
 def unknown_names(text: str, extra: set[str]) -> set[str]:
@@ -249,7 +297,8 @@ def test_the_skill_names_only_existing_commands():
     commands = set(re.findall(r"\breef ([a-z][a-z-]*)", text))
     allowed = {tool.replace("_", "-") for tool in TOOLS} | CLI_EXTRAS
     assert commands <= allowed
-    assert not re.search(r"\bcoves?\b|\bpages?\b", text.lower())
+    assert not re.search(r"\bcoves?\b", text.lower())
+    assert not pages_not_of_a_file(text)
 
 
 def test_the_plugin_commands_name_only_existing_tools():
@@ -261,4 +310,5 @@ def test_the_plugin_commands_name_only_existing_tools():
         assert tool in words
         assert not words & RETIRED
         assert not unknown_names(text, NOT_TOOLS_OUTSIDE_PROTOCOL)
-        assert not re.search(r"\bcoves?\b|\bpages?\b", text.lower())
+        assert not re.search(r"\bcoves?\b", text.lower())
+        assert not pages_not_of_a_file(text)

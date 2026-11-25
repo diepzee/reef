@@ -162,6 +162,26 @@ async def test_open_maps_refs_and_as_of(monkeypatch, tmp_path, capsys):
     )
 
 
+async def test_open_passes_a_page_of_a_file_through(monkeypatch, tmp_path):
+    """A file ref that ends in ``#page=N`` reaches the server as it was typed."""
+    status = await _call(
+        monkeypatch, tmp_path, ["open", "personal/file/attachments/k#page=3"], [{}]
+    )
+
+    assert status == 0
+    assert FakeClient.calls[-1] == (
+        "open",
+        {"reason": "", "refs": ["personal/file/attachments/k#page=3"]},
+    )
+
+
+def test_open_help_says_how_to_read_a_file_from_a_page(capsys):
+    """``reef open --help`` names the ``#page=N`` ending of a file ref."""
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["open", "--help"])
+    assert "#page=N" in capsys.readouterr().out
+
+
 async def test_catch_up_and_remember_and_log(monkeypatch, tmp_path):
     """Catch up, remember and log map their arguments."""
     await _call(monkeypatch, tmp_path, ["catch-up", "--since", "2026-08-01"])

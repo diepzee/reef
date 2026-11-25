@@ -7,6 +7,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
 import { parseArgs, UsageError, USAGE } from "./args.js";
 import { CliOAuthProvider, StateFile, configDir } from "./auth.js";
+import { packageVersion } from "./version.js";
 
 function readJsonSource(source: string): unknown {
   let text: string;
@@ -21,7 +22,7 @@ function printJson(value: unknown, compact: boolean): void {
 }
 
 async function connect(url: string, provider: CliOAuthProvider | string): Promise<Client> {
-  const client = new Client({ name: "reef-cli-node", version: "0.1.0" });
+  const client = new Client({ name: "reef-cli-node", version: packageVersion() });
   const options =
     typeof provider === "string"
       ? { requestInit: { headers: { Authorization: `Bearer ${provider}` } } }
