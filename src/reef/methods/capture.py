@@ -43,6 +43,7 @@ from reef.methods import MESSAGES, Caller, MethodError, logs, method
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram
+from reef.sections import HEADING_CHARS
 
 #: The engram :func:`remember` adds facts to, in each space.
 INBOX = "inbox.md"
@@ -307,6 +308,7 @@ def _block(parts: list[Engram], heading: str, entry: str) -> str:
         line and the text
     """
     marks = "#" * logs.entry_level(parts)
+    heading = heading[: HEADING_CHARS - len(marks) - 1]
     return f"\n\n{marks} {heading}\n\n{entry}\n"
 
 

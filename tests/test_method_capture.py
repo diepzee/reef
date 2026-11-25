@@ -10,6 +10,7 @@ import base64
 import pytest
 from conftest import Store, caller_for, save_as
 
+from reef import sections
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
@@ -171,6 +172,24 @@ async def test_log_creates_a_tagged_log(household):
     assert created.body == "### 2026-01-01\n\nFirst session.\n"
     again = await capture.log(me, "", "household", "Climbing Log", "2026-01-02", "x")
     assert again == {"engram": "climbing-log.md", "part": 1, "version": 2}
+
+
+@pytest.mark.parametrize("level", [2, 3])
+@pytest.mark.parametrize("extra", [0, 1, 100])
+async def test_log_caps_headings_so_entries_can_be_read(household, level, extra):
+    """The whole heading line fits the parser's limit at either entry level."""
+    me = caller_for(household["wouter"])
+    marks = "#" * level
+    await save_as(
+        me, "personal", "climbing-log.md", f"{marks} First\n\nClimbed.", tags=["log"]
+    )
+    limit = sections.HEADING_CHARS
+    heading = "é" * (limit - len(marks) - 1 + extra)
+    await capture.log(me, "", "personal", "climbing-log.md", heading, "New entry.")
+    parts = await logs.series(me, "personal", "climbing-log.md")
+    [last] = logs.last_entries(parts, 1)
+    assert last.endswith("New entry.")
+    assert last.splitlines()[0] == f"{marks} {heading}"[:limit]
 
 
 async def test_log_keeps_the_level_of_a_log_with_level_two_entries(household):
