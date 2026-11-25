@@ -3,10 +3,10 @@
 #: The most engrams written in one call.
 MAX_BATCH = 20
 
-#: The longest stored file name, in characters.
+#: File name column width in characters; changing it needs a migration.
 FILENAME_CHARS = 512
 
-#: The longest stored content type, in characters.
+#: Content type column width in characters; changing it needs a migration.
 MIME_CHARS = 255
 
 #: The shortest signing secret for session cookies and staged tokens.
