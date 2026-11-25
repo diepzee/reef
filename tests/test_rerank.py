@@ -146,6 +146,31 @@ async def test_the_reranker_puts_the_answer_first(tx, household, reranker):
     assert len(documents) == 5
 
 
+async def test_reordered_hits_keep_their_own_passages(tx, household, reranker):
+    """Moving the last hit to the front moves its passage with it."""
+    me = principal_for(household["wouter"])
+    await _boilers(me)
+    before = await search_engrams(me, "boiler", rerank=False, passages=True)
+    after = await search_engrams(me, "boiler", passages=True)
+
+    assert reranker.calls
+    assert _paths(before) != _paths(after)
+    assert after[0]["path"] == "answer.md"
+    assert {hit["path"]: hit["passage"] for hit in after} == {
+        hit["path"]: hit["passage"] for hit in before
+    }
+    expected = {f"boiler-{number}.md": f"note {number}" for number in range(4)}
+    expected["answer.md"] = f"the {ANSWER} company"
+    assert {hit["path"] for hit in after} == set(expected)
+    for hit in after:
+        assert expected[hit["path"]] in hit["passage"]
+        assert all(
+            marker not in hit["passage"]
+            for path, marker in expected.items()
+            if path != hit["path"]
+        )
+
+
 async def test_it_is_on_by_default():
     assert RerankSettings.model_fields["enabled"].default is True
 
