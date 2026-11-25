@@ -9,7 +9,9 @@ from urllib.parse import parse_qs
 
 import httpx
 import pytest
+from fastmcp import Client
 from fastmcp.client.auth import OAuth
+from jsonschema import validate
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from reef_cli.cli import JsonTokenStore, build_parser, run
 
@@ -99,6 +101,98 @@ async def _call(monkeypatch, tmp_path, argv, result=None):
     FakeClient.calls = []
     FakeClient.result = {"ok": True} if result is None else result
     return await run(build_parser().parse_args(argv), client_class=FakeClient)
+
+
+# Command arguments only; schemas come from the server's tool list below.
+TOOL_ARGUMENT_CASES: dict[str, tuple[list[str], list[str]]] = {
+    "load_index": ([], []),
+    "recall": (["boiler"], ["--space", "household", "--limit", "3"]),
+    "brief": (["climbing"], ["--space", "personal", "--entries", "2"]),
+    "open": (
+        ["personal/notes.md", "household/file/attachments/key#page=2"],
+        ["--as-of", "2026-01-01T00:00:00Z"],
+    ),
+    "catch_up": ([], ["--since", "2026-01-01T00:00:00Z"]),
+    "remember": (["The boiler is a Vaillant."], ["--space", "household"]),
+    "log": (
+        ["personal", "training-log.md", "--heading", "Day 1", "--entry", "Climbed."],
+        [],
+    ),
+    "write": (
+        [
+            "personal",
+            json.dumps(
+                [
+                    {
+                        "path": "notes.md",
+                        "body": "Notes.",
+                        "title": "Notes",
+                        "tags": ["home"],
+                        "expected_version": 1,
+                        "message": "edit",
+                    }
+                ]
+            ),
+            "--message",
+            "save",
+        ],
+        [],
+    ),
+    "store_file": (
+        ["personal", "{file}", "--description", "Boiler manual."],
+        ["--mime", "application/pdf", "--engram", "notes.md"],
+    ),
+    "correct": (
+        [
+            "personal",
+            "notes.md",
+            "--old-text",
+            "old",
+            "--new-text",
+            "new",
+            "--message",
+            "fix",
+        ],
+        ["--expected-version", "2"],
+    ),
+    "undo": (["personal", "notes.md"], ["--version", "1"]),
+    "forget": (["personal", "--engram", "notes.md"], ["--confirm", "token"]),
+    "share": (
+        ["notes.md", "household"],
+        ["--section", "Boiler notes.", "--to-path", "shared.md", "--confirm", "token"],
+    ),
+    "instruct": (["--body", "Be concise."], ["--confirm", "token"]),
+    "search": (["boiler"], []),
+    "fetch": (["engram:123"], []),
+}
+
+
+@pytest.mark.parametrize("tool", TOOL_ARGUMENT_CASES)
+@pytest.mark.parametrize("all_options", [False, True], ids=["defaults", "options"])
+async def test_cli_arguments_fit_the_listed_tool_schema(
+    monkeypatch, tmp_path, tool, all_options
+):
+    """Validate the arguments the CLI sends against the server's live tool list."""
+    async with Client(mcp) as client:
+        schemas = {
+            listed.name: listed.inputSchema for listed in await client.list_tools()
+        }
+    assert set(TOOL_ARGUMENT_CASES) == set(schemas)
+    file = tmp_path / "manual.pdf"
+    file.write_bytes(b"%PDF")
+    required, optional = TOOL_ARGUMENT_CASES[tool]
+    argv = [tool.replace("_", "-"), *required]
+    if all_options:
+        argv.extend(optional)
+        if tool not in {"search", "fetch"}:
+            argv.extend(["--reason", "Check the tool contract."])
+    argv = [str(file) if value == "{file}" else value for value in argv]
+
+    assert await _call(monkeypatch, tmp_path, argv) == 0
+
+    called, arguments = FakeClient.calls[-1]
+    assert called == tool
+    validate(arguments, schemas[called])
 
 
 async def test_recall_maps_question_and_options(monkeypatch, tmp_path, capsys):
