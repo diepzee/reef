@@ -415,6 +415,39 @@ async def test_recall_finds_nothing_for_nothing(household):
     assert await find.recall(me, "", "boiler") == []
 
 
+@pytest.mark.parametrize("kind", ["engram", "file"])
+@pytest.mark.parametrize("surviving", [False, True])
+async def test_recall_skips_hits_from_a_vanished_space(
+    household, monkeypatch, seed, kind, surviving
+):
+    """A space deleted after the search does not hide hits from other spaces."""
+    me = caller_for(household["wouter"])
+    spaces = ["household", "personal"] if surviving else ["household"]
+    for space in spaces:
+        if kind == "engram":
+            await save_as(me, space, "boiler.md", "The boiler needs servicing.")
+        else:
+            await attach_file(me, space, "Boiler servicing.")
+    search = find.search_engrams
+
+    async def search_then_delete(*args, **kwargs):
+        """Delete the shared space after finding its hits.
+
+        :param args: the search arguments
+        :param kwargs: the search options
+        :returns: the hits found before deletion
+        """
+        hits = await search(*args, **kwargs)
+        assert {hit["cove"] for hit in hits} == set(spaces)
+        await seed.execute("DELETE FROM spaces WHERE id = $1", household["shared"].id)
+        return hits
+
+    monkeypatch.setattr(find, "search_engrams", search_then_delete)
+    hits = await find.recall(me, "", "boiler")
+    assert [hit["space"] for hit in hits] == (["personal"] if surviving else [])
+    assert all(hit["kind"] == kind for hit in hits)
+
+
 # --- open ------------------------------------------------------------------------
 
 

@@ -232,6 +232,7 @@ async def _sources(
     """
     aliases = await alias_map(principal)
     space_ids = {alias: space_id for space_id, alias in aliases.items()}
+    hits = [hit for hit in hits if hit["cove"] in space_ids]
     engrams = [hit for hit in hits if hit["kind"] == "page"]
     files = [hit for hit in hits if hit["kind"] == "file"]
     sources: dict[tuple[str, str, str], tuple[str | None, str]] = {}
