@@ -267,12 +267,15 @@ register_static_routes(mcp)
 _ARGUMENTS: dict[str, TypeAdapter] = {}
 
 
-def _register(title: str, *, read_only: bool, destructive: bool):
+def _register(
+    title: str, *, read_only: bool, destructive: bool, name: str | None = None
+):
     """Register a shell as a tool, with the hints a client decides from.
 
     :param title: the tool's title, as a client shows it
     :param read_only: whether the tool changes nothing
     :param destructive: whether it may replace, move or remove what is there
+    :param name: the public tool name, when different from the function name
     :returns: the decorator, which returns the shell unchanged
     """
     annotations = ToolAnnotations(
@@ -288,7 +291,7 @@ def _register(title: str, *, read_only: bool, destructive: bool):
         # Expand the shared limit before FastMCP reads the tool description.
         if shell.__doc__:
             shell.__doc__ = shell.__doc__.replace("{MAX_BATCH}", str(MAX_BATCH))
-        tool = FunctionTool.from_function(shell, annotations=annotations)
+        tool = FunctionTool.from_function(shell, name=name, annotations=annotations)
         mcp.add_tool(
             tool.model_copy(update={"parameters": _reason_required(tool.parameters)})
         )
@@ -318,13 +321,14 @@ def _reason_required(schema: dict) -> dict:
     }
 
 
-def _read_only(title: str):
+def _read_only(title: str, *, name: str | None = None):
     """Register a tool that changes nothing, so a client may run it unprompted.
 
     :param title: the tool's title, as a client shows it
+    :param name: the public tool name, when different from the function name
     :returns: the decorator
     """
-    return _register(title, read_only=True, destructive=False)
+    return _register(title, read_only=True, destructive=False, name=name)
 
 
 def _additive(title: str):
@@ -475,8 +479,8 @@ async def brief(
     return await _run(find.brief, reason, topic=topic, space=space, entries=entries)
 
 
-@_read_only("Open")
-async def open(
+@_read_only("Open", name="open")
+async def open_refs(
     reason: Reason = "", *, refs: list[str], as_of: str | None = None
 ) -> list[dict]:
     """Read whole engrams and stored files.
