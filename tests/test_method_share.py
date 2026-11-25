@@ -91,6 +91,51 @@ async def test_share_refuses_a_taken_path_at_the_first_call(household):
     assert "correct" not in refused.value.message
 
 
+@pytest.mark.parametrize(
+    ("source", "destination"),
+    [
+        (PERSONA_PATH, None),
+        (PERSONA_PATH, "notes.md"),
+        ("notes.md", PERSONA_PATH),
+        ("meta/settings.md", "notes.md"),
+        ("META/x.md", "notes.md"),
+        ("notes.md", "META/x.md"),
+    ],
+)
+@pytest.mark.parametrize("section", [None, BOILER])
+async def test_share_refuses_protected_paths_at_the_first_call(
+    household, seed, source, destination, section
+):
+    """Neither protected endpoint can be staged for sharing."""
+    me = caller_for(household["wouter"])
+    saved = await save_as(me, "personal", source, BOILER, allow_protected=True)
+    with pytest.raises(MethodError) as refused:
+        await share.share(
+            me, "", source, "household", section=section, to_path=destination
+        )
+    assert refused.value.code == "protected_path"
+    assert refused.value.message == MESSAGES["protected_path"]
+    assert await seed.fetchval("SELECT count(*) FROM promotions") == 0
+    assert (await _read(me, "personal", saved.path)).body == BOILER
+
+
+@pytest.mark.parametrize("destination", ["/meta/x.md", "./meta/x.md"])
+@pytest.mark.parametrize("section", [None, BOILER])
+async def test_share_refuses_invalid_destinations_at_the_first_call(
+    household, seed, destination, section
+):
+    """An invalid destination is refused before creating a promotion."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "notes.md", BOILER)
+    with pytest.raises(MethodError) as refused:
+        await share.share(
+            me, "", "notes.md", "household", section=section, to_path=destination
+        )
+    assert refused.value.code == "invalid_path"
+    assert refused.value.message == MESSAGES["invalid_path"]
+    assert await seed.fetchval("SELECT count(*) FROM promotions") == 0
+
+
 async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     """A section share without a path is refused; with one, the rest stays."""
     me = caller_for(household["wouter"])

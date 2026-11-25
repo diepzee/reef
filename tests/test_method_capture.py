@@ -10,6 +10,7 @@ import base64
 import pytest
 from conftest import Store, caller_for, save_as
 
+from reef import sections
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
@@ -171,6 +172,41 @@ async def test_log_creates_a_tagged_log(household):
     assert created.body == "### 2026-01-01\n\nFirst session.\n"
     again = await capture.log(me, "", "household", "Climbing Log", "2026-01-02", "x")
     assert again == {"engram": "climbing-log.md", "part": 1, "version": 2}
+
+
+@pytest.mark.parametrize("level", [2, 3])
+@pytest.mark.parametrize("extra", [0, 1, 100])
+async def test_log_caps_headings_so_entries_can_be_read(household, level, extra):
+    """The whole heading line fits the parser's limit at either entry level."""
+    me = caller_for(household["wouter"])
+    marks = "#" * level
+    await save_as(
+        me, "personal", "climbing-log.md", f"{marks} First\n\nClimbed.", tags=["log"]
+    )
+    limit = sections.HEADING_CHARS
+    heading = "é" * (limit - len(marks) - 1 + extra)
+    await capture.log(me, "", "personal", "climbing-log.md", heading, "New entry.")
+    parts = await logs.series(me, "personal", "climbing-log.md")
+    [last] = logs.last_entries(parts, 1)
+    assert last.endswith("New entry.")
+    assert last.splitlines()[0] == f"{marks} {heading}"[:limit]
+
+
+@pytest.mark.parametrize("level", [2, 3])
+async def test_log_preserves_every_word_of_a_long_heading(household, level):
+    """Overflow starts the entry text without splitting or losing words."""
+    me = caller_for(household["wouter"])
+    marks = "#" * level
+    await save_as(me, "personal", "trip.md", f"{marks} First\n\nWalked.", tags=["log"])
+    words = [f"destination{number}" for number in range(50)]
+    await capture.log(me, "", "personal", "trip.md", " ".join(words), "Arrived.")
+    parts = await logs.series(me, "personal", "trip.md")
+    [last] = logs.last_entries(parts, 1)
+    line, overflow, entry = last.split("\n\n")
+    assert len(line) <= sections.HEADING_CHARS
+    assert line.removeprefix(f"{marks} ").split() + overflow.split() == words
+    assert entry == "Arrived."
+    assert all(word in parts[0].body.split() for word in words)
 
 
 async def test_log_keeps_the_level_of_a_log_with_level_two_entries(household):
@@ -373,11 +409,12 @@ async def test_two_logs_at_once_both_land(household, exists):
     assert after.version == len(headings) + (1 if exists else 0)
 
 
-async def test_log_refuses_an_empty_heading(household):
+@pytest.mark.parametrize("heading", [" \n ", "#", "##", "  ###  "])
+async def test_log_refuses_an_empty_heading(household, heading):
     """An entry without a heading could not be found again, so it is refused."""
     me = caller_for(household["wouter"])
     with pytest.raises(MethodError) as refused:
-        await capture.log(me, "", "personal", "climbing-log.md", " \n ", "x")
+        await capture.log(me, "", "personal", "climbing-log.md", heading, "x")
     assert refused.value.code == "empty_heading"
     assert await _read(me, "personal", "climbing-log.md") is None
 

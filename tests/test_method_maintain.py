@@ -4,12 +4,15 @@ Like the capture tests, these manage their own transactions: every method
 opens its own, as it does behind the tools.
 """
 
+import asyncio
+
 import pytest
+from asyncpg import LockNotAvailableError
 from conftest import Store, attach_file, caller_for, save_as
 
 from reef.access import arm
 from reef.config import get_settings
-from reef.db import transaction_scope
+from reef.db import DB, transaction_scope
 from reef.engrams import get_engram
 from reef.methods import REGISTRY, Caller, MethodError, find, maintain
 from reef.models import Engram, Revision
@@ -360,6 +363,129 @@ async def test_forget_a_file(household, store):
     with pytest.raises(MethodError) as replay:
         await maintain.forget(me, "", "household", file=key, confirm=staged["token"])
     assert replay.value.code == "not_found"
+
+
+async def test_forget_file_checks_and_deletes_in_one_transaction(
+    household, store, monkeypatch, seed
+):
+    """Check and delete together, committing before the object store is called."""
+    me = caller_for(household["wouter"])
+    key = await attach_file(me, "household", "A policy.")
+    staged = await maintain.forget(me, "", "household", file=key)
+    checks: list[int] = []
+    deletes: list[int] = []
+    run_querystring = DB.run_querystring
+
+    async def track_transactions(engine, querystring, *args, **kwargs):
+        """Record the transactions used for space checks and the row deletion.
+
+        :param engine: the database engine
+        :param querystring: the query to execute
+        :param args: further positional arguments
+        :param kwargs: further keyword arguments
+        :returns: the database result
+        """
+        query, _ = querystring.compile_string(engine_type=engine.engine_type)
+        if 'FROM "spaces"' in query or query.startswith('DELETE FROM "attachments"'):
+            transaction = engine.current_transaction.get()
+            assert transaction is not None
+            identity = await transaction.connection.fetchval("SELECT txid_current()")
+            (deletes if query.startswith("DELETE") else checks).append(identity)
+        return await run_querystring(querystring, *args, **kwargs)
+
+    async def delete_bytes(object_key: str) -> None:
+        """Require the metadata deletion to be committed before deleting bytes.
+
+        :param object_key: the file's storage key
+        """
+        assert object_key == key
+        assert not await seed.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM attachments WHERE object_key = $1)", key
+        )
+        store.deleted.append(key)
+
+    monkeypatch.setattr(type(DB), "run_querystring", track_transactions)
+    monkeypatch.setattr(store, "delete", delete_bytes)
+    await maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+    assert checks and deletes
+    assert len(set(checks + deletes)) == 1
+    assert store.deleted == [key]
+
+
+@pytest.mark.parametrize("with_space_id", [False, True])
+async def test_forget_file_requires_the_staged_space(household, store, with_space_id):
+    """A token missing the matching space identity never deletes a file."""
+    me = caller_for(household["wouter"])
+    key = await attach_file(me, "household", "A policy.")
+    subject = {"space": "household", "file": key}
+    if with_space_id:
+        subject["space_id"] = str(household["w_personal"].id)
+    staged = maintain.staged.stage(me, maintain.FORGET, subject)
+    with pytest.raises(MethodError) as refused:
+        await maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+    assert refused.value.code == "not_found"
+    assert store.deleted == []
+    assert (await find.open(me, "", [f"household/file/{key}"]))[0]["kind"] == "file"
+
+
+async def test_forget_file_locks_the_row_before_deleting(
+    household, store, monkeypatch, seed
+):
+    """A held confirming call locks its row and only one confirmation deletes bytes."""
+    me = caller_for(household["wouter"])
+    key = await attach_file(me, "household", "A policy.")
+    staged = await maintain.forget(me, "", "household", file=key)
+    selected = asyncio.Event()
+    second_read = asyncio.Event()
+    release = asyncio.Event()
+    run_querystring = DB.run_querystring
+
+    async def hold_after_read(engine, querystring, *args, **kwargs):
+        """Hold the first confirming call after it has read the attachment.
+
+        :param engine: the database engine
+        :param querystring: the query to execute
+        :param args: further positional arguments
+        :param kwargs: further keyword arguments
+        :returns: the database result
+        """
+        query, parameters = querystring.compile_string(engine_type=engine.engine_type)
+        attachment_read = (
+            query.startswith("SELECT")
+            and 'FROM "attachments"' in query
+            and key in parameters
+        )
+        if attachment_read and selected.is_set():
+            second_read.set()
+        result = await run_querystring(querystring, *args, **kwargs)
+        if attachment_read and result and not selected.is_set():
+            selected.set()
+            await release.wait()
+        return result
+
+    monkeypatch.setattr(type(DB), "run_querystring", hold_after_read)
+    first = asyncio.create_task(
+        maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+    )
+    await selected.wait()
+    try:
+        with pytest.raises(LockNotAvailableError):
+            async with seed.transaction():
+                await seed.fetchrow(
+                    "SELECT id FROM attachments WHERE object_key = $1 FOR UPDATE NOWAIT",
+                    key,
+                )
+        second = asyncio.create_task(
+            maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+        )
+        await second_read.wait()
+    finally:
+        release.set()
+        await first
+    with pytest.raises(MethodError) as refused:
+        await second
+    assert refused.value.code == "not_found"
+    assert store.deleted == [key]
 
 
 async def test_forget_in_a_personal_space_does_not_name_other_members(household):

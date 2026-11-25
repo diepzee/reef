@@ -35,6 +35,7 @@ from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import (
     PERSONA_PATH,
+    PROTECTED_PREFIX,
     VersionConflict,
     get_engram,
     normalize_path,
@@ -221,7 +222,13 @@ async def _stage_share(
         ``expires_in``
     :raises MethodError: as :func:`share` does
     """
+    if any(
+        path.strip().lower().startswith(PROTECTED_PREFIX)
+        for path in (engram, to_path or engram)
+    ):
+        raise MethodError("protected_path")
     with refusals():
+        normalize_path(to_path or engram)
         async with transaction_scope():
             staged_share = await prepare_promotion(
                 caller.principal, engram, to_space, section=section, dest_path=to_path

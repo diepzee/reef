@@ -27,10 +27,12 @@ Each method opens the short transactions it needs, armed for the caller.
 embedding service or the reranker.
 """
 
+import logging
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from uuid import UUID
 
 from reef import filetext, usage
 from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
@@ -46,6 +48,8 @@ from reef.models import AccessKind, Attachment, Engram, MemberRole, Membership, 
 from reef.protocol import build_instructions
 from reef.search import search_engrams
 from reef.spaces import member_names, space_owner
+
+logger = logging.getLogger(__name__)
 
 #: What follows the space in a reference to a file.
 FILE_PREFIX = "file/"
@@ -225,6 +229,8 @@ async def _sources(
 ) -> dict[tuple[str, str, str], tuple[str | None, str]]:
     """Find who changed each hit last, and when.
 
+    Hits from spaces the caller no longer has are left out.
+
     :param principal: the caller
     :param hits: what the search found
     :returns: by search kind, space and path or key: the author's display
@@ -232,6 +238,10 @@ async def _sources(
     """
     aliases = await alias_map(principal)
     space_ids = {alias: space_id for space_id, alias in aliases.items()}
+    reachable = [hit for hit in hits if hit["cove"] in space_ids]
+    if skipped := len(hits) - len(reachable):
+        logger.info("recall skipped %d hits from unavailable spaces", skipped)
+    hits = reachable
     engrams = [hit for hit in hits if hit["kind"] == "page"]
     files = [hit for hit in hits if hit["kind"] == "file"]
     sources: dict[tuple[str, str, str], tuple[str | None, str]] = {}
@@ -604,28 +614,44 @@ async def brief(
     except AccessDenied:
         raise MethodError("unknown_space") from None
     items: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen_hits: set[tuple[str, str]] = set()
+    seen_series: set[tuple[str, str]] = set()
+    read: set[UUID] = set()
     remaining = BRIEF_BUDGET
+    skipped = 0
     async with transaction_scope():
         for hit in hits:
             if hit["kind"] != "page" or remaining <= 0:
                 continue
-            item = await _brief_item(caller, hit, wanted, remaining)
+            key = (hit["cove"], hit["path"])
+            if key in seen_hits:
+                continue
+            try:
+                item = await _brief_item(
+                    caller, hit, wanted, remaining, seen_series, read
+                )
+            except AccessDenied:
+                skipped += 1
+                continue
+            seen_hits.add(key)
             if item is None:
                 continue
-            key = (item["space"], item["engram"])
-            if key in seen:
-                continue
-            seen.add(key)
             items.append(item)
             remaining -= len(
                 "".join(item["entries"]) if "entries" in item else item["body"]
             )
+    if skipped:
+        logger.info("brief skipped %d hits from unavailable spaces", skipped)
     return {"engrams": items}
 
 
 async def _brief_item(
-    caller: Caller, hit: dict, wanted: int, remaining: int
+    caller: Caller,
+    hit: dict,
+    wanted: int,
+    remaining: int,
+    seen: set[tuple[str, str]],
+    read: set[UUID],
 ) -> dict | None:
     """Read what one hit contributes to a brief.
 
@@ -633,11 +659,26 @@ async def _brief_item(
     :param hit: an engram hit from the search
     :param wanted: how many entries to take from a log
     :param remaining: how many characters the brief may still add
-    :returns: the item, or None when the engram is gone since the search
+    :param seen: the series or plain engrams already included
+    :param read: engrams whose use has already been recorded
+    :returns: the item, or None when it was already included or is gone
     """
     principal = caller.principal
     space, path = hit["cove"], hit["path"]
-    parts = await logs.series(caller, space, path)
+    engram = await get_engram(principal, space, path)
+    if engram is None:
+        return None
+    parts = (
+        await logs.series(caller, space, path)
+        if logs.LOG_TAG in (engram.tags or [])
+        else []
+    )
+    # Nested part names can belong to overlapping series. Only the same
+    # first part means the same item; sharing another part does not.
+    key = (space, parts[0].path if parts else engram.path)
+    if key in seen:
+        return None
+    seen.add(key)
     if parts:
         taken = logs.last_entries(parts, wanted)
         item = {
@@ -648,9 +689,6 @@ async def _brief_item(
             "parts": [part.path for part in parts],
         }
     else:
-        engram = await get_engram(principal, space, path)
-        if engram is None:
-            return None
         parts = [engram]
         item = {
             "space": space,
@@ -660,7 +698,9 @@ async def _brief_item(
             "parts": [engram.path],
         }
     for part in parts:
-        await usage.record(principal, part.id, AccessKind.READ)
+        if part.id not in read:
+            await usage.record(principal, part.id, AccessKind.READ)
+            read.add(part.id)
     return item
 
 

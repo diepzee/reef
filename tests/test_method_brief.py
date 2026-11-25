@@ -3,13 +3,15 @@
 Like the other find tests, these manage their own transactions.
 """
 
+from unittest.mock import AsyncMock
+
 import pytest
 from conftest import attach_file, caller_for, save_as
 
 from reef.access import arm
 from reef.attachments import get_attachment
 from reef.config import get_settings
-from reef.db import transaction_scope
+from reef.db import DB, transaction_scope
 from reef.methods import REGISTRY, MethodError, find, logs
 from reef.models import Engram
 
@@ -82,6 +84,87 @@ async def test_brief_stitches_entries_across_parts(household):
         "### 2026-01-03",
         "### 2026-01-04",
     ]
+
+
+async def test_brief_records_each_log_part_once(household, monkeypatch, seed):
+    """Hits in several parts of one log record one read per part."""
+    me = caller_for(household["wouter"])
+    paths = ["climbing-log.md", "climbing-log-2.md"]
+    for day, path in enumerate(paths, 1):
+        await save_as(me, "personal", path, _entries(day, day), tags=["log"])
+    hits = [{"kind": "page", "cove": "personal", "path": path} for path in paths]
+    monkeypatch.setattr(find, "search_engrams", AsyncMock(return_value=hits[::-1]))
+    [item] = (await find.brief(me, "", "climbing"))["engrams"]
+    assert item["parts"] == paths
+    rows = await seed.fetch(
+        "SELECT engram_id, count(*) AS reads FROM engram_access "
+        "WHERE via = 'read' GROUP BY engram_id"
+    )
+    assert len(rows) == 2
+    assert [row["reads"] for row in rows] == [1, 1]
+
+
+async def test_brief_fetches_a_non_log_only_once(household, monkeypatch, seed):
+    """Repeated hits need one body fetch and one usage row for a plain engram."""
+    me = caller_for(household["wouter"])
+    path = "climbing-plan.md"
+    await save_as(me, "personal", path, "Climb twice.")
+    hit = {"kind": "page", "cove": "personal", "path": path}
+    monkeypatch.setattr(find, "search_engrams", AsyncMock(return_value=[hit, hit]))
+    queries: list[str] = []
+    run_querystring = DB.run_querystring
+
+    async def track_reads(engine, querystring, *args, **kwargs):
+        """Count body fetches while executing each query normally.
+
+        :param engine: the database engine
+        :param querystring: the query to execute
+        :param args: further positional arguments
+        :param kwargs: further keyword arguments
+        :returns: the database result
+        """
+        query, parameters = querystring.compile_string(engine_type=DB.engine_type)
+        if (
+            query.startswith("SELECT")
+            and 'FROM "engrams"' in query
+            and path in parameters
+        ):
+            queries.append(query)
+        return await run_querystring(querystring, *args, **kwargs)
+
+    monkeypatch.setattr(type(DB), "run_querystring", track_reads)
+    [item] = (await find.brief(me, "", "climbing"))["engrams"]
+    assert item["body"] == "Climb twice."
+    assert len(queries) == 1
+    assert (
+        await seed.fetchval("SELECT count(*) FROM engram_access WHERE via = 'read'")
+        == 1
+    )
+
+
+async def test_brief_keeps_overlapping_log_series(household, monkeypatch, seed):
+    """A nested part hit must not suppress entries from its parent's series."""
+    me = caller_for(household["wouter"])
+    for day, path in enumerate(["x.md", "x-2.md", "x-2-2.md"], 1):
+        await save_as(me, "personal", path, _entries(day, day), tags=["log"])
+    hits = [
+        {"kind": "page", "cove": "personal", "path": path}
+        for path in ["x-2-2.md", "x-2.md"]
+    ]
+    monkeypatch.setattr(find, "search_engrams", AsyncMock(return_value=hits))
+    items = (await find.brief(me, "", "climbing"))["engrams"]
+    assert [item["parts"] for item in items] == [
+        ["x-2.md", "x-2-2.md"],
+        ["x.md", "x-2.md"],
+    ]
+    text = "\n".join(entry for item in items for entry in item["entries"])
+    assert all(f"Climbed on day {day}." in text for day in range(1, 4))
+    rows = await seed.fetch(
+        "SELECT engram_id, count(*) AS reads FROM engram_access "
+        "WHERE via = 'read' GROUP BY engram_id"
+    )
+    assert len(rows) == 3
+    assert all(row["reads"] == 1 for row in rows)
 
 
 async def test_brief_stays_within_budget(household):

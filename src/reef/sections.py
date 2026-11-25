@@ -49,7 +49,7 @@ INTRO = "~intro"
 _HEADING = re.compile(r"^(#{1,6})[ \t]+(.*)$")
 
 #: A line longer than this is not a heading, whatever it starts with.
-_HEADING_CHARS = 300
+HEADING_CHARS = 300
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _NOT_SLUG = re.compile(r"[^\w]+", re.UNICODE)
 
@@ -86,7 +86,7 @@ def _heading(line: str) -> tuple[int, str] | None:
     :param line: one line of the engram
     :returns: the level and the heading text, or None
     """
-    if len(line) > _HEADING_CHARS:
+    if len(line) > HEADING_CHARS:
         return None
     match = _HEADING.match(line)
     if match is None:
