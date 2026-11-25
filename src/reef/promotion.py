@@ -15,7 +15,7 @@ from reef.access import (
     resolve_space,
     resolve_writable_space,
 )
-from reef.engrams import get_engram, save_engram
+from reef.engrams import get_engram, normalize_path, save_engram
 from reef.models import Engram, Promotion, Space, utc_now
 from reef.spaces import member_names
 
@@ -109,13 +109,14 @@ async def prepare_promotion(
     # Checked again at confirm time, since the path may be taken in between.
     # Checked here too, so the person is never asked about a share that
     # cannot happen.
-    await _refuse_taken_path(principal, dest_space, dest_path or path)
+    repaired_path = normalize_path(dest_path or path)
+    await _refuse_taken_path(principal, dest_space, repaired_path)
     staged = Promotion(
         person_id=principal.person_id,
         source_engram_id=engram.id,
         source_version=engram.version,
         dest_space_id=dest.id,
-        dest_path=dest_path or path,
+        dest_path=repaired_path,
         section_text=section,
     )
     await staged.save()
@@ -208,6 +209,8 @@ async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -
         await resolve_writable_space(principal, dest_alias)
     except AccessDenied as exc:
         raise PromotionError(str(exc), _access_code(exc)) from exc
+    # A token prepared before path repair may still carry the original spelling.
+    staged.dest_path = normalize_path(staged.dest_path)
     await _refuse_taken_path(principal, dest_alias, staged.dest_path)
 
     if staged.section_text is not None:

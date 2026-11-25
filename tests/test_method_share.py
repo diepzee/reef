@@ -4,6 +4,7 @@ Like the other method tests, these manage their own transactions.
 """
 
 from dataclasses import replace
+from uuid import UUID
 
 import pytest
 from conftest import caller_for, save_as
@@ -11,8 +12,8 @@ from conftest import caller_for, save_as
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import PERSONA_PATH, get_engram
-from reef.methods import REGISTRY, Caller, MethodError, share
-from reef.models import Engram, Revision
+from reef.methods import MESSAGES, REGISTRY, Caller, MethodError, share
+from reef.models import Engram, Promotion, Revision
 
 BOILER = "Vaillant ecoTEC, serviced every autumn."
 
@@ -112,6 +113,159 @@ async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     )
     assert (await _read(partner, "household", "boiler.md")).body == BOILER
     assert "Keep." in (await _read(me, "personal", "notes.md")).body
+
+
+@pytest.mark.parametrize("section", [None, BOILER], ids=["whole", "section"])
+@pytest.mark.parametrize(
+    ("to_path", "stored_path"),
+    [("Boiler.md", "boiler.md"), ("boiler", "boiler.md"), ("Boiler .md", "boiler-.md")],
+)
+@pytest.mark.parametrize(
+    "taken_after_prepare", [False, True], ids=["prepare", "confirm"]
+)
+async def test_share_refuses_a_taken_path_in_another_spelling(
+    household,
+    section: str | None,
+    to_path: str,
+    stored_path: str,
+    taken_after_prepare: bool,
+) -> None:
+    """Both share modes preserve a taken destination and use its usual refusal.
+
+    :param household: people with a shared space
+    :param section: the passage to share, or None for the whole engram
+    :param to_path: the destination spelling the assistant uses
+    :param stored_path: the destination as stored
+    :param taken_after_prepare: whether another write takes the path between calls
+    """
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
+    args = {"section": section, "to_path": to_path}
+    first = None
+    if taken_after_prepare:
+        first = await share.share(me, "", "notes.md", "household", **args)
+    await save_as(me, "household", stored_path, "Joint notes.")
+    before = await _read(me, "household", stored_path)
+    refused = None
+    try:
+        if first is None:
+            first = await share.share(me, "", "notes.md", "household", **args)
+        await share.share(
+            me, "", "notes.md", "household", confirm=first["token"], **args
+        )
+    except MethodError as error:
+        refused = error
+    async with transaction_scope():
+        after = await get_engram(me.principal, "household", stored_path)
+        history = await Revision.objects().where(Revision.engram_id == after.id)
+    # Even on the broken code, the replaced body must remain in history.
+    assert before.body in [revision.body for revision in history]
+    assert (after.body, after.version) == (before.body, before.version)
+    assert refused is not None
+    assert refused.code == "share_target_exists"
+    assert refused.message == MESSAGES["share_target_exists"]
+    if not taken_after_prepare:
+        assert first is None
+
+
+@pytest.mark.parametrize("section", [None, BOILER], ids=["whole", "section"])
+@pytest.mark.parametrize("to_path", ["Boiler.md", "boiler", "Boiler .md"])
+async def test_share_stages_the_path_it_will_save(
+    household, section: str | None, to_path: str
+) -> None:
+    """The disclosure, saved path and repeated confirmation agree.
+
+    :param household: people with a shared space
+    :param section: the passage to share, or None for the whole engram
+    :param to_path: the destination spelling the assistant uses
+    """
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
+    expected = "boiler-.md" if to_path == "Boiler .md" else "boiler.md"
+    if to_path == "Boiler .md":
+        await save_as(me, "household", "boiler.md", "Joint notes.")
+    args = {"section": section, "to_path": to_path}
+    first = await share.share(me, "", "notes.md", "household", **args)
+    async with transaction_scope():
+        await get_engram(me.principal, "personal", "notes.md")
+        staged = (
+            await Promotion.objects()
+            .where(Promotion.id == UUID(first["token"]))
+            .first()
+        )
+    assert staged.dest_path == expected
+    assert f"as {expected}." in first["effect"]
+    done = await share.share(
+        me, "", "notes.md", "household", confirm=first["token"], **args
+    )
+    assert done == {"shared": f"household/{expected}", "already_done": False}
+    assert (await _read(me, "household", expected)).body == (
+        BOILER if section else f"Keep.\n\n{BOILER}"
+    )
+    again = await share.share(
+        me, "", "notes.md", "household", confirm=first["token"], **args
+    )
+    assert again == {**done, "already_done": True}
+    if to_path == "Boiler .md":
+        untouched = await _read(me, "household", "boiler.md")
+        assert (untouched.body, untouched.version) == ("Joint notes.", 1)
+
+
+@pytest.mark.parametrize("section", [None, BOILER], ids=["whole", "section"])
+async def test_share_keeps_the_invalid_path_refusal(
+    household, section: str | None
+) -> None:
+    """A path that cannot be repaired keeps the existing refusal.
+
+    :param household: people with a shared space
+    :param section: the passage to share, or None for the whole engram
+    """
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
+    args = {"section": section, "to_path": "/boiler"}
+    with pytest.raises(MethodError) as refused:
+        first = await share.share(me, "", "notes.md", "household", **args)
+        await share.share(
+            me, "", "notes.md", "household", confirm=first["token"], **args
+        )
+    assert refused.value.code == "invalid_path"
+    assert refused.value.message == MESSAGES["invalid_path"]
+
+
+@pytest.mark.parametrize("section", [None, BOILER], ids=["whole", "section"])
+@pytest.mark.parametrize("taken", [False, True], ids=["free", "taken"])
+async def test_share_confirms_a_path_staged_before_normalization(
+    household, section: str | None, taken: bool
+) -> None:
+    """An older token uses the repaired path and still refuses an occupied one.
+
+    :param household: people with a shared space
+    :param section: the passage to share, or None for the whole engram
+    :param taken: whether the destination is occupied before confirmation
+    """
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "notes.md", f"Keep.\n\n{BOILER}")
+    args = {"section": section, "to_path": "Boiler.md"}
+    first = await share.share(me, "", "notes.md", "household", **args)
+    async with transaction_scope():
+        await get_engram(me.principal, "personal", "notes.md")
+        await Promotion.update({Promotion.dest_path: "Boiler.md"}).where(
+            Promotion.id == UUID(first["token"])
+        )
+    if taken:
+        await save_as(me, "household", "boiler.md", "Joint notes.")
+        with pytest.raises(MethodError) as refused:
+            await share.share(
+                me, "", "notes.md", "household", confirm=first["token"], **args
+            )
+        assert refused.value.code == "share_target_exists"
+        untouched = await _read(me, "household", "boiler.md")
+        assert (untouched.body, untouched.version) == ("Joint notes.", 1)
+    else:
+        done = await share.share(
+            me, "", "notes.md", "household", confirm=first["token"], **args
+        )
+        assert done == {"shared": "household/boiler.md", "already_done": False}
 
 
 async def _last_channel(caller: Caller, space: str, path: str) -> str:
