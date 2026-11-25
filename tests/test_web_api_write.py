@@ -1,13 +1,36 @@
 """Write API: engram saves with optimistic lock, space admin, authz."""
 
-from conftest import _login
+from conftest import _login, caller_for
 
+from reef.db import transaction_scope
+from reef.engrams import get_engram
 from reef.invitations import INVITE_BUDGET
+from reef.models import Revision
 
 # Fixtures `api` and `world` live in tests/conftest.py, shared with
 # test_web_api_read.py.
 
 CSRF = {"X-Rif-Csrf": "1"}
+
+
+async def test_web_saves_record_a_person_on_each_revision(api, world):
+    """Creating and editing through the web API both record a person."""
+    alice, _, _ = world
+    _login(api, alice)
+    for version, body in enumerate(("First text.", "Edited text.")):
+        response = await api.put(
+            "/api/engrams/team/notes/writer.md",
+            json={"body": body, "message": "save", "expected_version": version},
+            headers=CSRF,
+        )
+        assert response.status_code == 200
+    async with transaction_scope():
+        engram = await get_engram(
+            caller_for(alice).principal, "team", "notes/writer.md"
+        )
+        revisions = await Revision.objects().where(Revision.engram_id == engram.id)
+    assert len(revisions) == 2
+    assert {revision.channel for revision in revisions} == {"person"}
 
 
 async def test_put_creates_then_conflicts(api, world):

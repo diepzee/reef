@@ -126,17 +126,21 @@ async def test_remember_into_a_named_space(household):
     assert await _read(me, "personal", "inbox.md") is None
 
 
-async def test_capture_records_who_wrote(household):
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_capture_records_who_wrote(household, writer):
     """The writer kind of the caller is kept on each change."""
     person = Caller(
         principal=caller_for(household["wouter"]).principal,
-        writer="person",
+        writer=writer,
         session_id=None,
     )
     await capture.remember(person, "", "bin day is Tuesday")
     await capture.log(person, "", "personal", "climbing-log.md", "Day 1", "Hung.")
-    assert await _channels(person, "personal", "inbox.md") == ["person"]
-    assert await _channels(person, "personal", "climbing-log.md") == ["person"]
+    await capture.write(
+        person, "", "personal", [{"path": "plan.md", "body": "Hang twice."}], "create"
+    )
+    for path in ("inbox.md", "climbing-log.md", "plan.md"):
+        assert await _channels(person, "personal", path) == [writer]
 
 
 # --- log -------------------------------------------------------------------------

@@ -5,6 +5,7 @@ opens its own, as it does behind the tools.
 """
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from asyncpg import LockNotAvailableError
@@ -101,9 +102,10 @@ def test_the_three_are_methods():
 # --- correct ---------------------------------------------------------------------
 
 
-async def test_correct_replaces_one_passage(household):
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_correct_replaces_one_passage(household, writer):
     """One passage changes; history keeps who changed it and the old text."""
-    me = caller_for(household["wouter"])
+    me = replace(caller_for(household["wouter"]), writer=writer)
     await save_as(me, "household", "car.md", CAR)
     done = await maintain.correct(
         me, "fix colour", "household", "car.md", "blue", "green", "colour was wrong"
@@ -113,7 +115,7 @@ async def test_correct_replaces_one_passage(household):
     assert engram.body == CAR.replace("blue", "green")
     first, second = await _history(me, "household", "car.md")
     assert first.body == CAR
-    assert (second.channel, second.message) == ("assistant", "colour was wrong")
+    assert (second.channel, second.message) == (writer, "colour was wrong")
 
 
 @pytest.mark.parametrize(
@@ -202,9 +204,10 @@ async def test_maintain_refuses_unknown_spaces_and_viewers(household, graph, sto
 # --- undo ------------------------------------------------------------------------
 
 
-async def test_undo_restores_the_previous_version_as_a_new_change(household):
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_undo_restores_the_previous_version_as_a_new_change(household, writer):
     """Body, title and tags come back as version 4; nothing is lost."""
-    me = caller_for(household["wouter"])
+    me = replace(caller_for(household["wouter"]), writer=writer)
     await _versions(me)
     done = await maintain.undo(me, "oops", "household", "car.md")
     assert done == {"space": "household", "engram": "car.md", "version": 4}
@@ -213,7 +216,7 @@ async def test_undo_restores_the_previous_version_as_a_new_change(household):
     history = await _history(me, "household", "car.md")
     assert [r.body for r in history] == ["one", "two", "three", "two"]
     assert history[-1].message == "Undo to version 2"
-    assert history[-1].channel == "assistant"
+    assert history[-1].channel == writer
 
 
 async def test_undo_to_a_given_version(household):

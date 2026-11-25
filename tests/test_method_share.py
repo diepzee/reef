@@ -333,15 +333,16 @@ async def _last_channel(caller: Caller, space: str, path: str) -> str:
 
 
 @pytest.mark.parametrize("section", [None, BOILER])
-async def test_share_keeps_who_shared_on_both_revisions(household, section):
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_share_keeps_who_shared_on_both_revisions(household, section, writer):
     """The shared copy and what stays behind both name the caller's writer kind."""
-    me = replace(caller_for(household["wouter"]), writer="person")
+    me = replace(caller_for(household["wouter"]), writer=writer)
     await save_as(me, "personal", "boiler.md", f"Keep.\n\n{BOILER}")
     args = {"section": section, "to_path": "shared-boiler.md"}
     first = await share.share(me, "", "boiler.md", "household", **args)
     await share.share(me, "", "boiler.md", "household", confirm=first["token"], **args)
-    assert await _last_channel(me, "household", "shared-boiler.md") == "person"
-    assert await _last_channel(me, "personal", "boiler.md") == "person"
+    assert await _last_channel(me, "household", "shared-boiler.md") == writer
+    assert await _last_channel(me, "personal", "boiler.md") == writer
 
 
 async def test_share_token_does_not_act_twice(household):
@@ -406,6 +407,15 @@ async def test_instruct_needs_the_token(household):
     done = await share.instruct(me, "", "Be blunt.", confirm=first["token"])
     assert done == {"path": PERSONA_PATH, "version": 1}
     assert (await _read(me, "personal", PERSONA_PATH)).body == "Be blunt."
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_instruct_keeps_who_wrote_the_revision(household, writer):
+    """A confirmed persona change keeps the caller's writer kind."""
+    me = replace(caller_for(household["wouter"]), writer=writer)
+    first = await share.instruct(me, "", "Be concise.")
+    await share.instruct(me, "", "Be concise.", confirm=first["token"])
+    assert await _last_channel(me, "personal", PERSONA_PATH) == writer
 
 
 async def test_instruct_token_refused_for_a_different_body(household):
