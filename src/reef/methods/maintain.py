@@ -403,12 +403,12 @@ async def _forget_file(
         }
     staged_for = await _take(caller, confirm, [subject])
     with refusals():
-        async with transaction_scope():
-            resolved = await resolve_writable_space(caller.principal, space)
-        if str(resolved.id) != staged_for.get("space_id"):
-            raise MethodError("not_found")
         removed = await delete_attachment(
-            caller.principal, space, key, store=S3ObjectStore()
+            caller.principal,
+            space,
+            key,
+            store=S3ObjectStore(),
+            expected_space_id=staged_for.get("space_id") or "",
         )
     if not removed:
         raise MethodError("not_found")

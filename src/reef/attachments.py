@@ -332,7 +332,12 @@ async def erase_objects(keys: list[str], store: ObjectStore | None = None) -> No
 
 
 async def delete_attachment(
-    principal: Principal, alias: str, key: str, store: ObjectStore
+    principal: Principal,
+    alias: str,
+    key: str,
+    store: ObjectStore,
+    *,
+    expected_space_id: str | None = None,
 ) -> bool:
     """Remove an attachment's row and its bytes.
 
@@ -353,11 +358,16 @@ async def delete_attachment(
     :param alias: ``personal`` or a shared-space slug
     :param key: object key
     :param store: object store to delete the bytes from
+    :param expected_space_id: the space identity a confirmation was issued for,
+        as text; None when no confirmation check is needed
     :returns: True if an attachment was removed, False if it was not found
+        or the space no longer matches the confirmation
     """
     async with transaction_scope():
         await arm(principal)
         space = await resolve_writable_space(principal, alias)
+        if expected_space_id is not None and str(space.id) != expected_space_id:
+            return False
         existing = (
             await Attachment.objects()
             .where(Attachment.space_id == space.id, Attachment.object_key == key)
