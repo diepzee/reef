@@ -1,3 +1,14 @@
+## [2.4.3](https://github.com/diepzee/reef/compare/v2.4.2...v2.4.3) (2026-11-25)
+
+### Bug fixes
+
+* **clients:** the tools and the plugin explain reading inside files (RUG-61) ([#171](https://github.com/diepzee/reef/issues/171)) ([8581231](https://github.com/diepzee/reef/commit/8581231a1e844efdf9442d098f7076bb961c2daa))
+
+### Documentation
+
+* **research:** the fast load_index spike, with where it stands (RUG-47) ([#173](https://github.com/diepzee/reef/issues/173)) ([bacd325](https://github.com/diepzee/reef/commit/bacd325aad6c5a1731a1ab73a3ee69835abc434d))
+* **runbook:** the storage move is finished, and storage variables are plain values (RUG-73) ([#174](https://github.com/diepzee/reef/issues/174)) ([e8abb54](https://github.com/diepzee/reef/commit/e8abb5488f747405dffde3c9b98b96e1dfd4b053))
+
 ## [2.4.2](https://github.com/diepzee/reef/compare/v2.4.1...v2.4.2) (2026-11-25)
 
 ### Bug fixes
