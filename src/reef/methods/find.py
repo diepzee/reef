@@ -27,6 +27,7 @@ Each method opens the short transactions it needs, armed for the caller.
 embedding service or the reranker.
 """
 
+import logging
 import re
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -47,6 +48,8 @@ from reef.models import AccessKind, Attachment, Engram, MemberRole, Membership, 
 from reef.protocol import build_instructions
 from reef.search import search_engrams
 from reef.spaces import member_names, space_owner
+
+logger = logging.getLogger(__name__)
 
 #: What follows the space in a reference to a file.
 FILE_PREFIX = "file/"
@@ -233,7 +236,10 @@ async def _sources(
     """
     aliases = await alias_map(principal)
     space_ids = {alias: space_id for space_id, alias in aliases.items()}
-    hits = [hit for hit in hits if hit["cove"] in space_ids]
+    reachable = [hit for hit in hits if hit["cove"] in space_ids]
+    if skipped := len(hits) - len(reachable):
+        logger.info("recall skipped %d hits from unavailable spaces", skipped)
+    hits = reachable
     engrams = [hit for hit in hits if hit["kind"] == "page"]
     files = [hit for hit in hits if hit["kind"] == "file"]
     sources: dict[tuple[str, str, str], tuple[str | None, str]] = {}
@@ -610,6 +616,7 @@ async def brief(
     seen_series: set[tuple[str, str]] = set()
     read: set[UUID] = set()
     remaining = BRIEF_BUDGET
+    skipped = 0
     async with transaction_scope():
         for hit in hits:
             if hit["kind"] != "page" or remaining <= 0:
@@ -622,6 +629,7 @@ async def brief(
                     caller, hit, wanted, remaining, seen_series, read
                 )
             except AccessDenied:
+                skipped += 1
                 continue
             seen_hits.add(key)
             if item is None:
@@ -630,6 +638,8 @@ async def brief(
             remaining -= len(
                 "".join(item["entries"]) if "entries" in item else item["body"]
             )
+    if skipped:
+        logger.info("brief skipped %d hits from unavailable spaces", skipped)
     return {"engrams": items}
 
 
