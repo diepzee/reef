@@ -31,9 +31,9 @@ from reef.access import AccessDenied, Principal, arm
 from reef.attachments import add_attachment
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.engrams import save_engram
+from reef.engrams import get_engram, save_engram
 from reef.methods import MESSAGES, REGISTRY, find
-from reef.models import CallLog
+from reef.models import CallLog, Revision
 from reef.server import mcp
 
 #: The sixteen tools, exactly.
@@ -187,6 +187,22 @@ async def test_tool_descriptions_have_their_limits_filled_in(client: Client) -> 
     )
     for name, tool in listed.items():
         assert "{" not in tool.description, name
+
+
+async def test_writing_tool_shell_records_assistant_on_the_revision(client, household):
+    """A real MCP tool call stores the shell's assistant writer on its revision."""
+    result = await client.call_tool(
+        "remember", {"reason": "keep a fact", "fact": "The bin day is Tuesday."}
+    )
+    assert not result.is_error
+    async with transaction_scope():
+        engram = await get_engram(
+            principal_for(household["wouter"]), "personal", "inbox.md"
+        )
+        assert "The bin day is Tuesday." in engram.body
+        revisions = await Revision.objects().where(Revision.engram_id == engram.id)
+    assert len(revisions) == 1
+    assert revisions[0].channel == "assistant"
 
 
 async def test_reason_is_required_except_search_and_fetch(client):
