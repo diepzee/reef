@@ -1,5 +1,5 @@
 ---
 kind: fixed
 ---
-Attempts to share protected instructions are refused before you are asked to confirm.
-Long log headings are shortened so their entries remain readable in summaries, and searches keep working when a matching space disappears.
+Log entries keep all the text from long headings, and invalid sharing requests are refused before confirmation.
+When a space is removed during a search, results from your other spaces still appear.
