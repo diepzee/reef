@@ -1197,6 +1197,18 @@ def test_a_body_with_the_mark_character_is_still_followed():
     assert passage == PAPERS_HEADER + "…\n\nThe **sticker** is number QX-7731.\n\nword"
 
 
+def test_a_fragment_that_lost_a_tag_is_still_followed():
+    """Postgres puts a space where an HTML-like tag was. The fragment is
+    found all the same, and the passage keeps the file's own text."""
+    body = "word " * 400 + "\n\nThe sticker<br>is number <b>QX-7731</b>.\n\nword"
+    passage = search._file_passage(
+        _papers_chunk(body), "The **sticker** is number  QX-7731 ."
+    )
+    assert passage == (
+        PAPERS_HEADER + "…\n\nThe sticker<br>is number <b>QX-7731</b>.\n\nword"
+    )
+
+
 def test_a_headline_without_a_mark_leaves_the_chunks_start():
     """Postgres marked nothing: the passage is the chunk's start, even when
     the headline's text lies behind the cut."""

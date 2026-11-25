@@ -1298,6 +1298,52 @@ def _seeker(plain: str) -> re.Pattern[str]:
     return re.compile(start + rf"{mark}*+\s[\s{mark}]*+".join(words) + end)
 
 
+#: An HTML-like tag, such as the ``<br>`` of a Markdown table cell. Postgres
+#: writes one space into a snippet where a tag stood, so a snippet that ran
+#: over a tag is not in the body as it was written.
+_TAG = re.compile(r"<[^<>]*>")
+
+
+def _untagged(text: str) -> str:
+    """Return a text with spaces where its HTML-like tags stood.
+
+    Each character of a tag becomes one space, so a place in the result is
+    the same place in the text.
+
+    :param text: a body or a passage
+    :returns: the text without tags, as long as it was
+    """
+    return _TAG.sub(lambda tag: " " * len(tag.group()), text)
+
+
+def _locate(plain: str, body: str) -> re.Match[str] | None:
+    """Find a plain text in a body: the first place that holds it.
+
+    First in the body as written, see :func:`_seeker`. A snippet that ran
+    over a tag is not there, so then in the body without its tags, see
+    :func:`_untagged`. Either way the place found is a place in the body.
+
+    :param plain: a snippet, plain and not empty; see :func:`_plain`
+    :param body: the text to look in
+    :returns: the match; None when the text is in neither
+    """
+    seeker = _seeker(plain)
+    return seeker.search(body) or seeker.search(_untagged(body))
+
+
+def _holds(plain: str, passage: str) -> bool:
+    """Tell whether a passage holds a plain text in full.
+
+    As written, or with a space where each tag stood: that is how Postgres
+    wrote the snippet the text comes from.
+
+    :param plain: a snippet, plain; see :func:`_plain`
+    :param passage: a passage
+    :returns: whether the text is in the passage
+    """
+    return plain in _plain(passage) or plain in _plain(_untagged(passage))
+
+
 def _heading_above(body: str, begin: int, title: str) -> str:
     """Return the nearest Markdown heading whose section holds a place in a body.
 
@@ -1338,7 +1384,7 @@ _PARAGRAPH_BREAK = re.compile(r"\n(?:[ \t\r]*\n)+")
 def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
     """Widen an engram's snippet in place into the text a passage is cut from.
 
-    The snippet is found whole in the body, see :func:`_seeker`; the first
+    The snippet is found whole in the body, see :func:`_locate`; the first
     place that holds it. When it ends within :data:`PASSAGE_CHARS` of the
     engram's start, the text is the whole-engram piece, as the engram starts.
     Otherwise it is the title and the nearest heading that holds the shown
@@ -1357,7 +1403,7 @@ def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
     """
     plain = _plain(snippet)
     body = body.strip()
-    found = _seeker(plain).search(body) if plain else None
+    found = _locate(plain, body) if plain else None
     if found is None:
         return ""
     start, end = found.span()
@@ -1381,7 +1427,7 @@ def _by_words(snippet: str, title: str, body: str, whole: sections.Section) -> s
     """Give an engram's passage by words: its snippet widened in place.
 
     See :func:`_widen`. The last step holds every such passage to one rule:
-    it holds the snippet's text in full, see :func:`_plain`, and is at most
+    it holds the snippet's text in full, see :func:`_holds`, and is at most
     :data:`PASSAGE_CHARS` long. One that would not is not given, and the hit
     shows its snippet. So a passage is never less than the snippet.
 
@@ -1396,7 +1442,7 @@ def _by_words(snippet: str, title: str, body: str, whole: sections.Section) -> s
     """
     passage = _widen(snippet, title, body, whole)[:PASSAGE_CHARS]
     plain = _plain(snippet)
-    return passage if plain and plain in _plain(passage) else ""
+    return passage if plain and _holds(plain, passage) else ""
 
 
 def _passages(
@@ -1521,7 +1567,7 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
     A chunk of at most :data:`PASSAGE_CHARS` characters is the passage. So
     is the chunk's start when the headline is missing or marks nothing (it
     holds no :data:`_MARK`), when its text is not found whole in the chunk's
-    body (see :func:`_seeker`; the first place that holds it), when it ends
+    body (see :func:`_locate`; the first place that holds it), when it ends
     within :data:`PASSAGE_CHARS` of the chunk's start, and when not even its
     line brings it within the cut.
 
@@ -1530,7 +1576,7 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
     its line when that paragraph would push it past the cut, see
     :data:`_PARAGRAPH_BREAK`; without trailing white space, cut to
     :data:`PASSAGE_CHARS`. It is held to one rule: it holds the headline's
-    text in full, see :func:`_plain`. One that would not gives the chunk's
+    text in full, see :func:`_holds`. One that would not gives the chunk's
     start instead.
 
     Pure, so it can run in a thread.
@@ -1548,7 +1594,7 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
     if not plain or _MARK not in (headline or ""):
         return start
     body = chunk.body
-    found = _seeker(plain).search(body)
+    found = _locate(plain, body)
     if found is None:
         return start
     begin_at, end = found.span()
@@ -1563,7 +1609,7 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
         gap = _GAP if begin else ""
         if len(header) + len(gap) + end - begin <= PASSAGE_CHARS:
             passage = f"{header}{gap}{body[begin:]}".rstrip()[:PASSAGE_CHARS]
-            return passage if plain in _plain(passage) else start
+            return passage if _holds(plain, passage) else start
     return start
 
 

@@ -6,6 +6,7 @@ here are the point, not an afterthought.
 """
 
 import random
+import re
 from uuid import uuid4
 
 import pytest
@@ -485,6 +486,30 @@ def plain(text: str) -> str:
     return " ".join(text.replace("*", "").split())
 
 
+def untagged(text: str) -> str:
+    """Return a text with a space where each HTML-like tag stood.
+
+    Postgres writes a snippet that way, so a snippet is compared with a
+    passage without its tags.
+
+    :param text: a passage
+    :returns: the text without tags
+    """
+    return re.sub(r"<[^<>]*>", " ", text)
+
+
+def holds(passage: str, snippet: str) -> bool:
+    """Tell whether a passage holds a snippet's text in full.
+
+    :param passage: a passage
+    :param snippet: the hit's snippet
+    :returns: whether the snippet's text is in the passage, as written or
+        with a space where each tag stood
+    """
+    wanted = plain(snippet)
+    return wanted in plain(passage) or wanted in plain(untagged(passage))
+
+
 def assert_holds_its_snippet(hit: dict) -> None:
     """Assert what every passage by words keeps: never less than the snippet.
 
@@ -493,7 +518,7 @@ def assert_holds_its_snippet(hit: dict) -> None:
     passage, snippet = hit["passage"], hit["snippet"]
     if passage != snippet:
         assert len(passage) <= PASSAGE_CHARS
-        assert plain(snippet) in plain(passage)
+        assert holds(passage, snippet)
 
 
 def widened(header: str, body: str, begin: int) -> str:
@@ -921,13 +946,53 @@ async def test_a_heading_that_opens_the_passage_ends_the_sections_above(tx, hous
     )
 
 
-async def test_a_snippet_that_is_not_in_the_body_is_the_passage(tx, household):
-    """Postgres puts a space where an HTML-like tag was, so the snippet is kept."""
+async def test_a_snippet_that_lost_a_tag_is_still_widened(tx, household):
+    """Postgres puts a space where an HTML-like tag was; the passage keeps the tag."""
     me = principal_for(household["wouter"])
     body = "De <b>krant</b> is opgezegd op 1 oktober 2026, zegt de brief."
     await save_engram(me, "personal", "brief.md", body, message="x", title="Brief")
     [hit] = await search_engrams(me, "krant", passages=True)
     assert "<b>" not in hit["snippet"]
+    assert hit["passage"] == piece_of("Brief", body, None)
+    assert "<b>krant</b>" in hit["passage"]
+    assert_holds_its_snippet(hit)
+
+
+#: A table row whose deciding fact stands behind a ``<br>``, further on than
+#: the few words a snippet holds.
+ROW = (
+    "| De Mosselkoerier | krant, digitaal<br>9 euro per maand, betaald via "
+    "domiciliering bij de bank van het gezin sinds drie jaar en nooit eerder "
+    "aangepast in prijs of looptijd<br>opgezegd op 1 oktober 2026 |"
+)
+
+
+async def test_a_table_cell_with_a_line_break_tag_keeps_its_fact(tx, household):
+    """The row holds ``<br>``, as Markdown table cells do: the passage is the
+    row, not the few words of the snippet. Seen in a probe, where the snippet
+    lost "1 oktober 2026" (RUG-71)."""
+    me = principal_for(household["wouter"])
+    body = f"# Abonnementen\n\n{LONG}\n\n| Wat | Details |\n|---|---|\n{ROW}\n"
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abonnementen")
+    [hit] = await search_engrams(me, "mosselkoerier krant", passages=True)
+    assert "<br>" not in hit["snippet"]
+    assert "1 oktober 2026" not in hit["snippet"]
+    assert hit["passage"] != hit["snippet"]
+    assert ROW in hit["passage"]
+    assert len(hit["passage"]) <= PASSAGE_CHARS
+    assert_holds_its_snippet(hit)
+
+
+async def test_a_snippet_that_is_not_in_the_body_is_the_passage(tx, household):
+    """A tag that holds ``>`` inside quotes is one tag to Postgres. Reef ends
+    it at the first ``>``, so a snippet that runs over it is not found and is
+    kept as it is."""
+    me = principal_for(household["wouter"])
+    body = 'De brief over de <a href="x>y">krant</a> is opgezegd op 1 oktober 2026.'
+    await save_engram(me, "personal", "brief.md", body, message="x", title="Brief")
+    [hit] = await search_engrams(me, "brief krant", passages=True)
+    assert "href" not in hit["snippet"]
+    assert plain(hit["snippet"]).startswith("brief over de krant")
     assert hit["passage"] == hit["snippet"]
 
 
@@ -1068,6 +1133,57 @@ def test_a_passage_by_words_never_holds_less_than_its_snippet():
         if passage is not None:
             assert len(passage) <= PASSAGE_CHARS
             assert plain(snippet) and plain(snippet) in plain(passage)
+
+
+#: Tags as notes hold them, and text that only looks like one.
+TAGS = ["<br>", "<br/>", "</td><td>", "<b>", "</b>", '<a href="x">', "<!-- n -->"]
+
+
+async def test_every_passage_by_words_holds_its_snippet_around_tags(tx, household):
+    """Generated engrams with HTML-like tags between the words: each passage
+    is never less than its snippet, and tags do not stop the widening."""
+    me = principal_for(household["wouter"])
+    rng = random.Random(71)
+    for number in range(12):
+        size = rng.choice([20, 200, 600, 2_000])
+        body = "".join(
+            rng.choice(WORDS) + rng.choice([*SEPARATORS, *TAGS, "<", " > ", " < "])
+            for _ in range(size)
+        )
+        await save_engram(me, "personal", f"t{number}.md", body, message="x")
+    widened_past_a_tag = 0
+    for query in ("krant", "rome hotel", "opgezegd 2026", '"max conn"', "vet café"):
+        for hit in await search_engrams(me, query, limit=20, passages=True):
+            assert_holds_its_snippet(hit)
+            if hit["passage"] != hit["snippet"]:
+                widened_past_a_tag += plain(hit["snippet"]) not in plain(hit["passage"])
+    assert widened_past_a_tag
+
+
+def test_a_passage_by_words_never_holds_less_than_its_snippet_around_tags():
+    """Generated bodies with tags, and snippets as Postgres writes them (a
+    space for each tag): a passage holds the snippet, or is none."""
+    rng = random.Random(71)
+    spaces = [*SEPARATORS, *TAGS, "\t", "\r\n", "<", ">", "<<", "<>", " < ", "\n<br>\n"]
+    found = 0
+    for _ in range(3_000):
+        body = "".join(
+            rng.choice(WORDS) + rng.choice(spaces) for _ in range(rng.randint(1, 600))
+        )
+        title = rng.choice(["", "Titel", "T" * rng.randint(1, 300)])
+        flat = plain(untagged(body)).split(" ")
+        first = rng.randrange(len(flat))
+        snippet = " ".join(
+            f"**{word}**" if rng.random() < 0.3 else word
+            for word in flat[first : first + rng.randint(1, 25)]
+        )
+        row = {"id": uuid4(), "title": title, "description": None, "body": body}
+        passage = search._passages({}, [row], {row["id"]: snippet}).get(row["id"])
+        if passage is not None:
+            found += 1
+            assert len(passage) <= PASSAGE_CHARS
+            assert plain(snippet) and holds(passage, snippet)
+    assert found > 2_000
 
 
 async def test_without_passages_a_hit_carries_none(tx, household):
