@@ -91,6 +91,24 @@ async def test_share_refuses_a_taken_path_at_the_first_call(household):
     assert "correct" not in refused.value.message
 
 
+@pytest.mark.parametrize(
+    ("source", "destination"),
+    [(PERSONA_PATH, None), (PERSONA_PATH, "notes.md"), ("notes.md", PERSONA_PATH)],
+)
+async def test_share_refuses_protected_paths_at_the_first_call(
+    household, seed, source, destination
+):
+    """Neither protected endpoint can be staged for sharing."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", source, BOILER, allow_protected=True)
+    with pytest.raises(MethodError) as refused:
+        await share.share(me, "", source, "household", to_path=destination)
+    assert refused.value.code == "protected_path"
+    assert refused.value.message == MESSAGES["protected_path"]
+    assert await seed.fetchval("SELECT count(*) FROM promotions") == 0
+    assert (await _read(me, "personal", source)).body == BOILER
+
+
 async def test_share_section_needs_a_path_and_moves_only_the_section(household):
     """A section share without a path is refused; with one, the rest stays."""
     me = caller_for(household["wouter"])
