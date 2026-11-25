@@ -617,8 +617,13 @@ async def brief(
             key = (hit["cove"], hit["path"])
             if key in seen_hits:
                 continue
+            try:
+                item = await _brief_item(
+                    caller, hit, wanted, remaining, seen_series, read
+                )
+            except AccessDenied:
+                continue
             seen_hits.add(key)
-            item = await _brief_item(caller, hit, wanted, remaining, seen_series, read)
             if item is None:
                 continue
             items.append(item)
