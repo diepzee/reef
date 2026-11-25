@@ -496,6 +496,46 @@ def assert_holds_its_snippet(hit: dict) -> None:
         assert plain(snippet) in plain(passage)
 
 
+#: The token type of a tag in Postgres's text parser.
+TAG_TOKEN = 13
+
+#: Token types that repeat the tokens after them: a whole URL and a whole
+#: hyphenated word. Postgres leaves them out of a snippet as well.
+WHOLE_TOKENS = (5, 15, 16, 17)
+
+
+async def as_postgres_writes_it(text: str) -> str:
+    """Return a text as Postgres writes it into a snippet.
+
+    With one space where each tag stood. Postgres's own parser says what a
+    tag is, so this does not share a rule with the code under test.
+
+    :param text: a passage
+    :returns: the text without its tags
+    """
+    rows = await Engram.raw(
+        "SELECT tokid, token FROM ts_parse('default', {}) "
+        "WITH ORDINALITY AS parsed(tokid, token, place) ORDER BY place",
+        text,
+    )
+    return "".join(
+        " " if row["tokid"] == TAG_TOKEN else row["token"]
+        for row in rows
+        if row["tokid"] not in WHOLE_TOKENS
+    )
+
+
+async def assert_holds_its_snippet_past_tags(hit: dict) -> None:
+    """Assert that a passage holds its snippet, as Postgres reads the passage.
+
+    :param hit: a search hit with a passage
+    """
+    passage, snippet = hit["passage"], hit["snippet"]
+    if passage != snippet:
+        assert len(passage) <= PASSAGE_CHARS
+        assert plain(snippet) in plain(await as_postgres_writes_it(passage))
+
+
 def widened(header: str, body: str, begin: int) -> str:
     """Return a passage widened from a place in a body.
 
@@ -921,14 +961,227 @@ async def test_a_heading_that_opens_the_passage_ends_the_sections_above(tx, hous
     )
 
 
-async def test_a_snippet_that_is_not_in_the_body_is_the_passage(tx, household):
-    """Postgres puts a space where an HTML-like tag was, so the snippet is kept."""
+async def test_a_snippet_that_lost_a_tag_is_still_widened(tx, household):
+    """Postgres puts a space where an HTML-like tag was; the passage keeps the tag."""
     me = principal_for(household["wouter"])
     body = "De <b>krant</b> is opgezegd op 1 oktober 2026, zegt de brief."
     await save_engram(me, "personal", "brief.md", body, message="x", title="Brief")
     [hit] = await search_engrams(me, "krant", passages=True)
     assert "<b>" not in hit["snippet"]
-    assert hit["passage"] == hit["snippet"]
+    assert hit["passage"] == piece_of("Brief", body, None)
+    assert "<b>krant</b>" in hit["passage"]
+    await assert_holds_its_snippet_past_tags(hit)
+
+
+#: A table row whose deciding fact stands behind a ``<br>``, further on than
+#: the few words a snippet holds.
+ROW = (
+    "| De Mosselkoerier | krant, digitaal<br>9 euro per maand, betaald via "
+    "domiciliering bij de bank van het gezin sinds drie jaar en nooit eerder "
+    "aangepast in prijs of looptijd<br>opgezegd op 1 oktober 2026 |"
+)
+
+
+async def test_a_table_cell_with_a_line_break_tag_keeps_its_fact(tx, household):
+    """The row holds ``<br>``, as Markdown table cells do: the passage is the
+    row, not the few words of the snippet. Seen in a probe, where the snippet
+    lost "1 oktober 2026" (RUG-71)."""
+    me = principal_for(household["wouter"])
+    body = f"# Abonnementen\n\n{LONG}\n\n| Wat | Details |\n|---|---|\n{ROW}\n"
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abonnementen")
+    [hit] = await search_engrams(me, "mosselkoerier krant", passages=True)
+    assert "<br>" not in hit["snippet"]
+    assert "1 oktober 2026" not in hit["snippet"]
+    assert hit["passage"] != hit["snippet"]
+    assert ROW in hit["passage"]
+    await assert_holds_its_snippet_past_tags(hit)
+
+
+async def test_a_tag_that_holds_an_angle_bracket_in_quotes_is_one_tag(tx, household):
+    """Postgres reads ``<a href="x>y">`` as one tag, and so does Reef."""
+    me = principal_for(household["wouter"])
+    body = 'De brief over de <a href="x>y">krant</a> is opgezegd op 1 oktober 2026.'
+    await save_engram(me, "personal", "brief.md", body, message="x", title="Brief")
+    [hit] = await search_engrams(me, "brief krant", passages=True)
+    assert "href" not in hit["snippet"]
+    assert hit["passage"] == piece_of("Brief", body, None)
+    await assert_holds_its_snippet_past_tags(hit)
+
+
+#: A paragraph that holds a tag in the words a snippet takes.
+TAGGED = "De krant De Mosselkoerier is<br>opgezegd op <b>1 oktober 2026</b>, per brief."
+
+
+async def test_tags_before_the_match_do_not_shift_the_passage(tx, household):
+    """Sixty paragraphs with tags stand before the match. The passage starts
+    exactly at the paragraph that holds it: taking the tags out moves no
+    place in the body."""
+    me = principal_for(household["wouter"])
+    before = "\n\n".join(f"Regel {n}<br/>met <i>opmaak</i>. {FILL}" for n in range(60))
+    body = f"# Abo\n\n{before}\n\n{TAGGED}\n\nEn nog een regel."
+    await save_engram(me, "personal", "abo.md", body, message="x", title="Abo")
+    [hit] = await search_engrams(me, "mosselkoerier opgezegd", passages=True)
+    assert "<br>" not in hit["snippet"]
+    assert hit["passage"] == widened("Abo", body, body.index(TAGGED))
+
+
+def test_text_that_only_looks_like_a_tag_is_not_skipped():
+    """``< is niet … >`` is no tag to Postgres, so the snippet cannot have
+    come from the first paragraph. The passage is the second paragraph, which
+    says what the snippet says. Found in review (RUG-71)."""
+    first = (
+        "De krant < is niet, zoals eerder aan iedereen werd gemeld, > opgezegd "
+        "op 1 oktober 2026 door ons gezin."
+    )
+    second = "De krant<br>opgezegd op 1 oktober 2026 door ons gezin."
+    body = f"{first}\n\n{LONG}\n\n{second}"
+    snippet = "**krant** opgezegd op 1 oktober 2026 door ons **gezin**"
+    row = {"id": uuid4(), "title": "Brief", "description": None, "body": body}
+    passage = search._passages({}, [row], {row["id"]: snippet})[row["id"]]
+    assert passage == f"Brief\n\n…\n\n{second}"
+
+
+#: Tags as Postgres reads them, each with what it is.
+REAL_TAGS = [
+    "<br>",
+    "<br/>",
+    "<br />",
+    "</td>",
+    "</td >",
+    "<B>",
+    "<h1>",
+    "<_x>",
+    "<:x>",
+    "<a.b-c:d_e>",
+    '<a href="x">',
+    '<a href="x>y">',
+    "<a b='c>d'>",
+    '<a b="c\\"d>e">',
+    '<a b="<br>">',
+    '<a\nhref="x">',
+    "<b c=d/>",
+    "<!-- note -->",
+    "<!-- a <br> b -->",
+    "<!---->",
+    "<!DOCTYPE html>",
+    "<?xml v?>",
+]
+
+#: Text that only looks like a tag: Postgres keeps it in a snippet.
+NO_TAGS = [
+    "a < b > c",
+    "< b>",
+    "<2026-10-01>",
+    "<1h>",
+    "<name@example.com>",
+    "<https://example.com>",
+    "<String, Int>",
+    "<b a,b>",
+    "<b é>",
+    "<b*>",
+    "<b/c>",
+    "<br/ >",
+    "</ td>",
+    "</_x>",
+    "<b '>",
+    '<b ">',
+    "<b\\>",
+    "<?php x ?>",
+    "<!- x -->",
+    "<!--->",
+    "<b unterminated",
+    "<>",
+]
+
+
+@pytest.mark.parametrize("tag", REAL_TAGS)
+def test_reef_reads_a_tag_as_one_tag(tag):
+    """Each of these is one tag, whole, wherever it stands."""
+    text = f"voor {tag} na"
+    assert list(search._tag_spans(text)) == [(5, 5 + len(tag))]
+    assert search._untagged(text) == f"voor {' ' * len(tag)} na"
+
+
+@pytest.mark.parametrize("text", NO_TAGS)
+def test_reef_leaves_what_only_looks_like_a_tag(text):
+    """None of these is a tag, so the text stays as written."""
+    assert list(search._tag_spans(f"voor {text} na")) == []
+    assert search._untagged(f"voor {text} na") == f"voor {text} na"
+
+
+def test_a_comment_that_never_ends_is_no_comment():
+    """The tags after its start count by themselves, as Postgres reads them."""
+    assert search._untagged("a <!-- b <br> c") == "a <!-- b      c"
+    assert search._untagged("<!--<!--x-->-->") == " " * 12 + "-->"
+
+
+#: Characters and pieces that generated texts are made of: what tags are made
+#: of, and what breaks one.
+TAG_PIECES = [
+    *"<<<<<<>>>>>>//!!??----==\"\"'' \n\t\r\u00a0abZzxDd19.:_#&%~@éß日+;$[],(*|\\\\",
+    "<br>",
+    "</td>",
+    '<a href="x">',
+    "<!--",
+    "-->",
+    "<?xml",
+    "http://a.be/",
+    "x@y.be",
+    "&amp;",
+]
+
+
+async def test_what_reef_takes_for_a_tag_is_a_tag_to_postgres(tx):
+    """Generated texts, read by Postgres's own parser and by Reef.
+
+    Reef may miss a tag: the hit then shows its snippet. It may never take
+    text for a tag that Postgres keeps, because that text is in the snippet
+    and would be skipped in the body. Postgres reads no further after some
+    broken tags; what it did not read is in no snippet and is not compared.
+    """
+    rng = random.Random(71)
+    texts = [
+        "".join(rng.choice(TAG_PIECES) for _ in range(rng.randint(1, 60)))
+        for _ in range(4_000)
+    ]
+    texts += [f"voor {tag} na" for tag in (*REAL_TAGS, *NO_TAGS)]
+    rows = await Engram.raw(
+        "SELECT texts.number, parsed.tokid, parsed.token "
+        "FROM unnest({}::text[]) WITH ORDINALITY AS texts(body, number), "
+        "LATERAL ts_parse('default', texts.body) "
+        "WITH ORDINALITY AS parsed(tokid, token, place) "
+        "ORDER BY texts.number, parsed.place",
+        texts,
+    )
+    read = [0] * len(texts)
+    theirs: list[set[tuple[int, int]]] = [set() for _ in texts]
+    for row in rows:
+        number = row["number"] - 1
+        if row["tokid"] in WHOLE_TOKENS:
+            continue
+        if row["tokid"] == TAG_TOKEN:
+            theirs[number].add((read[number], read[number] + len(row["token"])))
+        read[number] += len(row["token"])
+    found = 0
+    for text, seen, tags in zip(texts, read, theirs, strict=True):
+        ours = {span for span in search._tag_spans(text) if span[0] < seen}
+        assert ours <= tags, text
+        found += len(ours)
+    assert found > 4_000
+
+
+@pytest.mark.parametrize(
+    "piece",
+    ["<", "<>", "<a ", "<!--", "<a '", '<a "x', "<a b=", "</", "<?x ", "-->", "<br>"],
+)
+def test_a_crafted_body_cannot_occupy_the_search(piece):
+    """However many tags a body starts and never ends, it is read once."""
+    import time
+
+    evil = piece * (300_000 // len(piece))
+    started = time.monotonic()
+    assert len(search._untagged(evil)) == len(evil)
+    assert time.monotonic() - started < 1.0
 
 
 async def test_a_quoted_phrase_gets_a_passage_too(tx, household):
@@ -1068,6 +1321,46 @@ def test_a_passage_by_words_never_holds_less_than_its_snippet():
         if passage is not None:
             assert len(passage) <= PASSAGE_CHARS
             assert plain(snippet) and plain(snippet) in plain(passage)
+
+
+#: What stands between the words of a generated engram with tags: real tags,
+#: and text that only looks like one.
+TAGGED_SEPARATORS = [
+    *SEPARATORS,
+    "<br>",
+    "<br/>",
+    "</td><td>",
+    "<b>",
+    "</b>",
+    '<a href="x>y">',
+    "<!-- n -->",
+    " < ",
+    " > ",
+    "<",
+    "<>",
+    " <2> ",
+]
+
+
+async def test_every_passage_by_words_holds_its_snippet_around_tags(tx, household):
+    """Generated engrams with tags between the words: each passage is never
+    less than its snippet, as Postgres reads it, and tags do not stop the
+    widening."""
+    me = principal_for(household["wouter"])
+    rng = random.Random(71)
+    for number in range(24):
+        size = rng.choice([20, 200, 600, 2_000])
+        body = "".join(
+            rng.choice(WORDS) + rng.choice(TAGGED_SEPARATORS) for _ in range(size)
+        )
+        await save_engram(me, "personal", f"t{number}.md", body, message="x")
+    widened_past_a_tag = 0
+    for query in ("krant", "rome hotel", "opgezegd 2026", '"max conn"', "vet café"):
+        for hit in await search_engrams(me, query, limit=30, passages=True):
+            await assert_holds_its_snippet_past_tags(hit)
+            if hit["passage"] != hit["snippet"]:
+                widened_past_a_tag += plain(hit["snippet"]) not in plain(hit["passage"])
+    assert widened_past_a_tag > 10
 
 
 async def test_without_passages_a_hit_carries_none(tx, household):
