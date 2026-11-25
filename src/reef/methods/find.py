@@ -229,6 +229,8 @@ async def _sources(
 ) -> dict[tuple[str, str, str], tuple[str | None, str]]:
     """Find who changed each hit last, and when.
 
+    Hits from spaces the caller no longer has are left out.
+
     :param principal: the caller
     :param hits: what the search found
     :returns: by search kind, space and path or key: the author's display
