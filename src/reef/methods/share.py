@@ -13,10 +13,8 @@
 **The persona is personal.** :func:`write_persona` is the one sanctioned
 bypass of the ``meta/`` write guard, and it only ever writes the caller's own
 persona. ``build_instructions`` reads the persona from the caller's personal
-space alone, so a ``meta/`` engram in a shared space would steer nobody,
-while the context loader ranks ``meta/`` first and would put
-instruction-shaped text at the top of every other member's context.
-:func:`instruct` has no space argument for that reason.
+space alone; shared ``meta/`` engrams do not contribute instructions.
+:func:`instruct` has no space argument, so persona changes stay personal.
 
 **Privacy.** Nothing the caller sent -- a body, a section, a path, a reason
 -- is logged. The effect names paths and people, never text. Only
