@@ -176,6 +176,19 @@ async def test_exactly_sixteen_tools(client):
     assert set(await _listed(client)) == SIXTEEN
 
 
+async def test_tool_descriptions_have_their_limits_filled_in(client: Client) -> None:
+    """Keep the write description exact and placeholders out of every tool.
+
+    :param client: the connected client
+    """
+    listed = await _listed(client)
+    assert listed["write"].description.startswith(
+        "Create or replace whole engrams, up to 20 in one call, all or nothing."
+    )
+    for name, tool in listed.items():
+        assert "{" not in tool.description, name
+
+
 async def test_reason_is_required_except_search_and_fetch(client):
     """Every method but the connector pair asks why; the pair keep their schemas.
 
