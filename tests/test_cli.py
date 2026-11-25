@@ -11,6 +11,8 @@ import httpx
 import pytest
 from fastmcp import Client
 from fastmcp.client.auth import OAuth
+
+# Declared fastmcp brings jsonschema through fastmcp-slim and mcp.
 from jsonschema import validate
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from reef_cli.cli import JsonTokenStore, build_parser, run
