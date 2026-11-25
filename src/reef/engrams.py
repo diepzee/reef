@@ -43,10 +43,6 @@ def _now() -> datetime:
     return TimestampNow().python()
 
 
-class SectionNotFound(Exception):
-    """Raised when a surgical edit cannot find the text it must replace."""
-
-
 class VersionConflict(Exception):
     """Raised when expected_version does not match the current engram version."""
 
@@ -397,52 +393,6 @@ async def save_engram(
         await usage.record(principal, engram.id, via)
     await embedding.request(principal, engram.id)
     return engram
-
-
-async def edit_section(
-    principal: Principal,
-    alias: str,
-    path: str,
-    old_text: str,
-    new_text: str,
-    *,
-    message: str,
-    expected_version: int | None = None,
-    allow_protected: bool = False,
-    allow_private_copy: bool = False,
-) -> Engram:
-    """Replace an exact, unique span of an engram, leaving the rest untouched.
-
-    :param principal: the authenticated person
-    :param alias: ``personal`` or a shared-space slug
-    :param path: engram path
-    :param old_text: exact text to replace; must occur exactly once
-    :param new_text: replacement text
-    :param message: why this write happened
-    :param expected_version: optimistic lock passed through to save_engram
-    :param allow_protected: permit edits under ``meta/``
-    :raises SectionNotFound: if the engram is missing or the span absent/ambiguous
-    :returns: the saved engram
-    """
-    engram = await get_engram(principal, alias, path)
-    if engram is None:
-        raise SectionNotFound(f"no engram at {path!r}")
-    occurrences = engram.body.count(old_text)
-    if occurrences != 1:
-        raise SectionNotFound(
-            f"expected exactly one occurrence in {path!r}, found {occurrences}"
-        )
-    return await save_engram(
-        principal,
-        alias,
-        path,
-        engram.body.replace(old_text, new_text),
-        message=message,
-        expected_version=expected_version
-        if expected_version is not None
-        else engram.version,
-        allow_protected=allow_protected,
-    )
 
 
 class EngramNotFound(Exception):

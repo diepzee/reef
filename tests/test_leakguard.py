@@ -10,7 +10,7 @@ import pytest
 
 from reef.access import Principal, resolve_space
 from reef.db import transaction_scope
-from reef.engrams import PrivateContentLeak, edit_section, get_engram, save_engram
+from reef.engrams import PrivateContentLeak, get_engram, save_engram
 from reef.leakguard import SHINGLE_WORDS, overlaps, shingles
 from reef.methods import Caller, MethodError, capture
 from reef.promotion import confirm_promotion, prepare_promotion
@@ -90,22 +90,6 @@ async def test_the_co_member_never_sees_it(household):
 
     async with transaction_scope():
         assert await get_engram(partner, "household", "leak.md") is None
-
-
-async def test_edit_section_is_guarded_too(household):
-    """Otherwise the guard is one tool call wide."""
-    wouter = principal_for(household["wouter"])
-    await _seed_private(wouter)
-    async with transaction_scope():
-        await save_engram(
-            wouter, "household", "notes.md", "# Notes\n\nplaceholder\n", message="seed"
-        )
-
-    async with transaction_scope():
-        with pytest.raises(PrivateContentLeak):
-            await edit_section(
-                wouter, "household", "notes.md", "placeholder", DIARY, message="edit"
-            )
 
 
 async def test_remember_cannot_smuggle_a_private_engram_into_a_space(household):
