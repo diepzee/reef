@@ -38,7 +38,7 @@ export default function NewEngram() {
         initialTitle=""
         initialTags={[]}
         initialBody=""
-        initialVersion={null}
+        initialVersion={0}
       />
     );
   }

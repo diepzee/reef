@@ -73,7 +73,7 @@ interface EngramEditorProps {
   initialTitle: string;
   initialTags: string[];
   initialBody: string;
-  /** The engram's current version in edit mode; `null` for a brand-new engram. */
+  /** The engram's current version in edit mode; `0` requires creation. */
   initialVersion: number | null;
 }
 
@@ -86,7 +86,7 @@ interface Conflict {
 /**
  * The editing form shared by "edit an existing engram" and "create a new engram".
  *
- * On a 409 (`version_conflict`) the draft is left exactly as the author
+ * In edit mode, on a 409 (`version_conflict`) the draft is left exactly as the author
  * left it — no silent merge, no discarded typing — while the latest saved
  * body is fetched and shown read-only for comparison. `expectedVersion` is
  * advanced to the latest version so the next Save applies cleanly once the
@@ -140,6 +140,10 @@ export function EngramEditor({
       navigate(`/s/${space}/engram/${path}`);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
+        if (mode === "create") {
+          setSaveError("an engram with this name already exists");
+          return;
+        }
         try {
           const latest = await apiGet<Engram>(`/api/engrams/${space}/${path}`);
           setConflict({ version: latest.version, body: latest.body });
