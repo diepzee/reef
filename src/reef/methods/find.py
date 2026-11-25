@@ -610,13 +610,12 @@ async def brief(
         for hit in hits:
             if hit["kind"] != "page" or remaining <= 0:
                 continue
+            if (hit["cove"], hit["path"]) in seen:
+                continue
             item = await _brief_item(caller, hit, wanted, remaining)
             if item is None:
                 continue
-            key = (item["space"], item["engram"])
-            if key in seen:
-                continue
-            seen.add(key)
+            seen.update((item["space"], path) for path in item["parts"])
             items.append(item)
             remaining -= len(
                 "".join(item["entries"]) if "entries" in item else item["body"]
@@ -637,7 +636,14 @@ async def _brief_item(
     """
     principal = caller.principal
     space, path = hit["cove"], hit["path"]
-    parts = await logs.series(caller, space, path)
+    engram = await get_engram(principal, space, path)
+    if engram is None:
+        return None
+    parts = (
+        await logs.series(caller, space, path)
+        if logs.LOG_TAG in (engram.tags or [])
+        else []
+    )
     if parts:
         taken = logs.last_entries(parts, wanted)
         item = {
@@ -648,9 +654,6 @@ async def _brief_item(
             "parts": [part.path for part in parts],
         }
     else:
-        engram = await get_engram(principal, space, path)
-        if engram is None:
-            return None
         parts = [engram]
         item = {
             "space": space,
