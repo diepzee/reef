@@ -102,10 +102,9 @@ def test_the_three_are_methods():
 # --- correct ---------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
-async def test_correct_replaces_one_passage(household, writer):
-    """One passage changes; history keeps who changed it and the old text."""
-    me = replace(caller_for(household["wouter"]), writer=writer)
+async def test_correct_replaces_one_passage(household):
+    """One passage changes; history keeps the old text and the change message."""
+    me = caller_for(household["wouter"])
     await save_as(me, "household", "car.md", CAR)
     done = await maintain.correct(
         me, "fix colour", "household", "car.md", "blue", "green", "colour was wrong"
@@ -115,7 +114,18 @@ async def test_correct_replaces_one_passage(household, writer):
     assert engram.body == CAR.replace("blue", "green")
     first, second = await _history(me, "household", "car.md")
     assert first.body == CAR
-    assert (second.channel, second.message) == (writer, "colour was wrong")
+    assert second.message == "colour was wrong"
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_correct_records_the_writer_on_the_revision(household, writer):
+    """A correction stores the caller's writer kind on the new revision."""
+    me = replace(caller_for(household["wouter"]), writer=writer)
+    await save_as(me, "household", "car.md", CAR)
+    await maintain.correct(me, "", "household", "car.md", "blue", "green", "fix")
+    history = await _history(me, "household", "car.md")
+    assert len(history) == 2
+    assert history[-1].channel == writer
 
 
 @pytest.mark.parametrize(
@@ -204,10 +214,9 @@ async def test_maintain_refuses_unknown_spaces_and_viewers(household, graph, sto
 # --- undo ------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
-async def test_undo_restores_the_previous_version_as_a_new_change(household, writer):
+async def test_undo_restores_the_previous_version_as_a_new_change(household):
     """Body, title and tags come back as version 4; nothing is lost."""
-    me = replace(caller_for(household["wouter"]), writer=writer)
+    me = caller_for(household["wouter"])
     await _versions(me)
     done = await maintain.undo(me, "oops", "household", "car.md")
     assert done == {"space": "household", "engram": "car.md", "version": 4}
@@ -216,6 +225,16 @@ async def test_undo_restores_the_previous_version_as_a_new_change(household, wri
     history = await _history(me, "household", "car.md")
     assert [r.body for r in history] == ["one", "two", "three", "two"]
     assert history[-1].message == "Undo to version 2"
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_undo_records_the_writer_on_the_revision(household, writer):
+    """An undo stores the caller's writer kind on the restored revision."""
+    me = replace(caller_for(household["wouter"]), writer=writer)
+    await _versions(me)
+    await maintain.undo(me, "", "household", "car.md")
+    history = await _history(me, "household", "car.md")
+    assert len(history) == 4
     assert history[-1].channel == writer
 
 
