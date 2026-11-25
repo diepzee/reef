@@ -41,7 +41,7 @@ import asyncio
 import logging
 import re
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -1298,37 +1298,102 @@ def _seeker(plain: str) -> re.Pattern[str]:
     return re.compile(start + rf"{mark}*+\s[\s{mark}]*+".join(words) + end)
 
 
-#: An HTML-like tag, such as the ``<br>`` of a Markdown table cell. Postgres
-#: writes one space into a snippet where a tag stood, so a snippet that ran
-#: over a tag is not in the body as it was written.
-_TAG = re.compile(r"<[^<>]*>")
+#: What may stand inside a tag after its name: these characters, white space
+#: and quoted text. In quoted text a backslash keeps the next character.
+_IN_TAG = (
+    r"(?:[A-Za-z0-9=\-_\#/:.&?%~ \t\n\r\f\v]++"
+    r'|"(?:[^"\\]|\\.)*+"'
+    r"|'(?:[^'\\]|\\.)*+')*+"
+)
+
+#: An HTML-like tag as Postgres's text parser reads one, or the start of a
+#: comment. Postgres writes one space into a snippet where a tag stood, such
+#: as the ``<br>`` of a Markdown table cell, so a snippet that ran over a tag
+#: is not in the body as it was written.
+#:
+#: The pattern follows Postgres's rules and never takes more than Postgres
+#: does: text that only looks like a tag (``a < b > c``, ``<2026-10-01>``,
+#: ``<name@example.com>``) stays in a snippet, so it has to stay in the body
+#: Reef looks in. ``tests/test_search.py`` holds the pattern against the
+#: parser itself. A comment is ended by hand, see :func:`_tag_spans`.
+_TAG = re.compile(
+    r"<(?:"
+    r"!--"  # a comment starts
+    r"|(?:[A-Za-z:_]|/[A-Za-z])[\w:.\-]*+"  # a tag's name
+    rf"(?:/|[ \t\n\r\f\v]{_IN_TAG})?>"  # "<br/>", or what follows the name
+    rf"|(?:\?x|![Dd]){_IN_TAG}>"  # "<?xml ...>" and "<!DOCTYPE ...>"
+    r")",
+    re.DOTALL,
+)
+
+
+def _tag_spans(text: str) -> Iterator[tuple[int, int]]:
+    """Find the HTML-like tags of a text, as Postgres's parser reads them.
+
+    A comment runs from ``<!--`` to the first ``-->`` after it, and is one
+    tag with everything in it. One that never ends is no comment: the tags
+    after its start count by themselves. Once no ``-->`` follows, none can
+    follow later either, so the text is read once however many comments
+    start in it.
+
+    :param text: a body or a passage
+    :returns: where each tag starts and ends, in order
+    """
+    at = 0
+    may_end = True
+    while (found := _TAG.search(text, at)) is not None:
+        start, end = found.span()
+        if found.group() == "<!--":
+            close = text.find("-->", end) if may_end else -1
+            if close < 0:
+                may_end = False
+                at = start + 1
+                continue
+            end = close + 3
+        yield start, end
+        at = end
 
 
 def _untagged(text: str) -> str:
     """Return a text with spaces where its HTML-like tags stood.
 
-    Each character of a tag becomes one space, so a place in the result is
-    the same place in the text.
+    Each character of a tag becomes one space, so the result is exactly as
+    long as the text and a place in it is the same place in the text.
 
     :param text: a body or a passage
-    :returns: the text without tags, as long as it was
+    :returns: the text without its tags; the text itself when it holds none
     """
-    return _TAG.sub(lambda tag: " " * len(tag.group()), text)
+    if "<" not in text:
+        return text
+    parts: list[str] = []
+    at = 0
+    for start, end in _tag_spans(text):
+        parts += (text[at:start], " " * (end - start))
+        at = end
+    if not parts:
+        return text
+    parts.append(text[at:])
+    return "".join(parts)
 
 
-def _locate(plain: str, body: str) -> re.Match[str] | None:
+def _locate(plain: str, body: str) -> tuple[int, int] | None:
     """Find a plain text in a body: the first place that holds it.
 
     First in the body as written, see :func:`_seeker`. A snippet that ran
     over a tag is not there, so then in the body without its tags, see
-    :func:`_untagged`. Either way the place found is a place in the body.
+    :func:`_untagged`. Either way the place is a place in the body.
 
     :param plain: a snippet, plain and not empty; see :func:`_plain`
     :param body: the text to look in
-    :returns: the match; None when the text is in neither
+    :returns: where the text starts and ends in the body; None when the
+        body does not hold it
     """
     seeker = _seeker(plain)
-    return seeker.search(body) or seeker.search(_untagged(body))
+    found = seeker.search(body)
+    if found is None:
+        bare = _untagged(body)
+        found = seeker.search(bare) if bare is not body else None
+    return found.span() if found else None
 
 
 def _holds(plain: str, passage: str) -> bool:
@@ -1406,7 +1471,7 @@ def _widen(snippet: str, title: str, body: str, whole: sections.Section) -> str:
     found = _locate(plain, body) if plain else None
     if found is None:
         return ""
-    start, end = found.span()
+    start, end = found
     front = len(whole.text) - len(whole.body)
     if end <= len(whole.body) and front + end <= PASSAGE_CHARS:
         return whole.text
@@ -1597,7 +1662,7 @@ def _file_passage(chunk: sections.Section, headline: str | None) -> str:
     found = _locate(plain, body)
     if found is None:
         return start
-    begin_at, end = found.span()
+    begin_at, end = found
     front = len(chunk.text) - len(body)
     if front + end <= PASSAGE_CHARS:
         return start
