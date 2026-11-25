@@ -1,3 +1,10 @@
+## [2.4.4](https://github.com/diepzee/reef/compare/v2.4.3...v2.4.4) (2026-11-25)
+
+### Bug fixes
+
+* **conversations:** Codex waits for Reef's tools before a turn ([#175](https://github.com/diepzee/reef/issues/175)) ([1be0919](https://github.com/diepzee/reef/commit/1be091908702fbe02c4e3f0831d594c543cfa590))
+* **search:** a snippet that ran over a tag is still widened (RUG-71) ([#177](https://github.com/diepzee/reef/issues/177)) ([08c88ef](https://github.com/diepzee/reef/commit/08c88efd00b841ef131eba8a25986a92707a0722))
+
 ## [2.4.3](https://github.com/diepzee/reef/compare/v2.4.2...v2.4.3) (2026-11-25)
 
 ### Bug fixes
