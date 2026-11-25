@@ -551,3 +551,33 @@ async def test_forget_token_is_refused_when_the_name_points_elsewhere(household,
     assert refused.value.code == "not_found"
     assert (await _read(me, "household", "car.md")).body == "Club car."
     assert club.id
+
+
+@pytest.mark.parametrize("target", ["engram", "file"])
+@pytest.mark.parametrize("loss", ["viewer", "removed"])
+async def test_forget_rechecks_permission_at_confirm(
+    household, graph, store, target, loss
+):
+    """Losing write access after staging preserves the target and its history."""
+    person = household["partner"]
+    me = caller_for(person)
+    owner = caller_for(household["wouter"])
+    saved = await save_as(me, "household", "car.md", CAR)
+    key = await attach_file(me, "household", "Car insurance.")
+    args = {target: "car.md" if target == "engram" else key}
+    first = await maintain.forget(me, "", "household", **args)
+    if loss == "viewer":
+        await graph.set_role(person, household["shared"], "viewer")
+    else:
+        await graph.drop_membership(person, household["shared"])
+
+    with pytest.raises(MethodError) as refused:
+        await maintain.forget(me, "", "household", confirm=first["token"], **args)
+
+    assert refused.value.code == ("read_only" if loss == "viewer" else "unknown_space")
+    current = await _read(owner, "household", "car.md")
+    assert (current.id, current.body, current.version) == (saved.id, CAR, 1)
+    assert len(await _history(owner, "household", "car.md")) == 1
+    [file] = await find.open(owner, "", [f"household/file/{key}"])
+    assert "error" not in file
+    assert store.deleted == []

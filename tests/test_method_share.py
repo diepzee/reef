@@ -9,6 +9,7 @@ from uuid import UUID
 import pytest
 from conftest import caller_for, save_as
 
+from reef.access import arm
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import PERSONA_PATH, get_engram
@@ -494,3 +495,34 @@ async def test_instruct_refuses_a_body_over_the_limit(household, monkeypatch):
     with pytest.raises(MethodError) as refused:
         await share.instruct(me, "", "too long a persona")
     assert refused.value.code == "engram_too_large"
+
+
+@pytest.mark.parametrize("section", [None, BOILER])
+@pytest.mark.parametrize("loss", ["viewer", "removed"])
+async def test_share_rechecks_permission_at_confirm(household, graph, section, loss):
+    """Losing access after staging leaves the source and shared space untouched."""
+    person = household["partner"]
+    me = caller_for(person)
+    owner = caller_for(household["wouter"])
+    body = f"Keep this private.\n\n{BOILER}"
+    original = await save_as(me, "personal", "boiler.md", body)
+    args = {"section": section, "to_path": "shared-boiler.md"}
+    first = await share.share(me, "", "boiler.md", "household", **args)
+    if loss == "viewer":
+        await graph.set_role(person, household["shared"], "viewer")
+    else:
+        await graph.drop_membership(person, household["shared"])
+
+    with pytest.raises(MethodError) as refused:
+        await share.share(
+            me, "", "boiler.md", "household", confirm=first["token"], **args
+        )
+
+    assert refused.value.code == ("read_only" if loss == "viewer" else "unknown_space")
+    current = await _read(me, "personal", "boiler.md")
+    assert (current.id, current.body, current.version) == (original.id, body, 1)
+    async with transaction_scope():
+        await arm(me.principal)
+        revisions = await Revision.objects().where(Revision.engram_id == original.id)
+    assert len(revisions) == 1
+    assert await _read(owner, "household", "shared-boiler.md") is None
