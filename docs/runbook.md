@@ -79,15 +79,16 @@ assumed: it has no command for cron schedules or start commands)
 - [x] **R2 lifecycle rule for `backups/`.** Verified 24 Nov 2026:
       `reef-backups` deletes `backups/` after 45 days, later than its 30-day
       lock, as it must be or the delete will not happen. See `docs/restore.md`.
-- [ ] **Remove the temporary rule on `reef`.** The move copied old dumps into
-      `reef/backups/`; the rule `remove-copied-backups` deletes them after one
-      day. Once that folder is empty, remove the rule
-      (`wrangler r2 bucket lifecycle remove reef --name remove-copied-backups -J eu`).
-- [ ] **Delete the objects in `reef` that no file record points to.** 110 on
-      24 Nov 2026: files that were forgotten while `rif`'s lock refused the
-      delete, copied along in the move.
-- [ ] **Revoke the key `reef-app` used for `rif`.** Nothing in Reef uses it
-      since 24 Nov 2026. Check first that no other project does.
+- [x] **Remove the temporary rule on `reef`.** Done 25 Nov 2026. The move
+      copied old dumps into `reef/backups/`, and the rule
+      `remove-copied-backups` deleted them after one day. The folder was empty
+      on 25 Nov, and the rule is removed.
+- [x] **Delete the objects in `reef` that no file record points to.** Done
+      24 Nov 2026: 110 objects, files that were forgotten while `rif`'s lock
+      refused the delete, copied along in the move. Recount: 641 objects for
+      641 file records.
+- [x] **Revoke the key `reef-app` used for `rif`.** Done 24 Nov 2026: the
+      token is deleted in Cloudflare. No other project used it.
 - [ ] **Re-check the `postgresql-client-18` pin** whenever Railway upgrades
       its Postgres. `pg_dump` aborts against a newer server, so a server
       upgrade silently breaks every backup until the image catches up.
@@ -98,7 +99,10 @@ assumed: it has no command for cron schedules or start commands)
 the separate 7 Aug dump restored with `memberships` intact. Daily off-platform
 dumps were observed through 10 Sep, with uploaded size checks only, and a
 manual run on 24 Nov 2026 landed in the new backups bucket. R2 locks and expiry
-were verified that day. Railway managed backups remain unverified.
+were verified that day. The nightly run of 25 Nov 2026 failed on an empty
+storage address (see "Storage variables are plain values" below); it was fixed
+that morning and a manual run landed. Railway managed backups remain
+unverified.
 
 ---
 
@@ -424,6 +428,23 @@ Each service reads four variables: `REEF_S3_ENDPOINT`, `REEF_S3_BUCKET`,
 `REEF_S3_ACCESS_KEY` and `REEF_S3_SECRET_KEY`. To replace a key, create a new
 token with the same limits, set the two key variables on that one service,
 redeploy it, then delete the old token.
+
+**Storage variables are plain values.** Set all four on each service as plain
+text, never as a reference to another service (`${{reef-app.NAME}}`). Before
+you remove any variable from a service:
+
+1. Open each other service's variables in the Railway dashboard and look for
+   a reference to it. The `railway` command shows the resolved value, so a
+   reference looks like plain text there.
+2. Remove the variable.
+3. Run each job that could depend on it once. For `reef-backup`: "Run now" on
+   its Cron Runs page.
+
+Why: on 24 Nov 2026 the old `RIF_S3_*` variables were removed from `reef-app`.
+`reef-backup`'s `REEF_S3_ENDPOINT` was a reference to one of them. A reference
+to a removed variable becomes empty text, without an error. The nightly backup
+of 25 Nov failed with `Invalid endpoint:` and made no dump. The check run of
+24 Nov had been done before the removal, so it did not catch this.
 
 **Why files and backups are apart.** A lock and "forget" cannot share a
 prefix. `rif` locked `attachments/` indefinitely, because file bytes are never
