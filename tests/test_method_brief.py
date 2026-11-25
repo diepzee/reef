@@ -142,6 +142,31 @@ async def test_brief_fetches_a_non_log_only_once(household, monkeypatch, seed):
     )
 
 
+async def test_brief_keeps_overlapping_log_series(household, monkeypatch, seed):
+    """A nested part hit must not suppress entries from its parent's series."""
+    me = caller_for(household["wouter"])
+    for day, path in enumerate(["x.md", "x-2.md", "x-2-2.md"], 1):
+        await save_as(me, "personal", path, _entries(day, day), tags=["log"])
+    hits = [
+        {"kind": "page", "cove": "personal", "path": path}
+        for path in ["x-2-2.md", "x-2.md"]
+    ]
+    monkeypatch.setattr(find, "search_engrams", AsyncMock(return_value=hits))
+    items = (await find.brief(me, "", "climbing"))["engrams"]
+    assert [item["parts"] for item in items] == [
+        ["x-2.md", "x-2-2.md"],
+        ["x.md", "x-2.md"],
+    ]
+    text = "\n".join(entry for item in items for entry in item["entries"])
+    assert all(f"Climbed on day {day}." in text for day in range(1, 4))
+    rows = await seed.fetch(
+        "SELECT engram_id, count(*) AS reads FROM engram_access "
+        "WHERE via = 'read' GROUP BY engram_id"
+    )
+    assert len(rows) == 3
+    assert all(row["reads"] == 1 for row in rows)
+
+
 async def test_brief_stays_within_budget(household):
     me = caller_for(household["wouter"])
     for number in range(5):

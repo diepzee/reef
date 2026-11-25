@@ -31,6 +31,7 @@ import re
 from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime
+from uuid import UUID
 
 from reef import filetext, usage
 from reef.access import AccessDenied, Principal, accessible_spaces, alias_map
@@ -605,18 +606,21 @@ async def brief(
     except AccessDenied:
         raise MethodError("unknown_space") from None
     items: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen_hits: set[tuple[str, str]] = set()
+    seen_series: set[tuple[str, str]] = set()
+    read: set[UUID] = set()
     remaining = BRIEF_BUDGET
     async with transaction_scope():
         for hit in hits:
             if hit["kind"] != "page" or remaining <= 0:
                 continue
-            if (hit["cove"], hit["path"]) in seen:
+            key = (hit["cove"], hit["path"])
+            if key in seen_hits:
                 continue
-            item = await _brief_item(caller, hit, wanted, remaining)
+            seen_hits.add(key)
+            item = await _brief_item(caller, hit, wanted, remaining, seen_series, read)
             if item is None:
                 continue
-            seen.update((item["space"], path) for path in item["parts"])
             items.append(item)
             remaining -= len(
                 "".join(item["entries"]) if "entries" in item else item["body"]
@@ -625,7 +629,12 @@ async def brief(
 
 
 async def _brief_item(
-    caller: Caller, hit: dict, wanted: int, remaining: int
+    caller: Caller,
+    hit: dict,
+    wanted: int,
+    remaining: int,
+    seen: set[tuple[str, str]],
+    read: set[UUID],
 ) -> dict | None:
     """Read what one hit contributes to a brief.
 
@@ -633,7 +642,9 @@ async def _brief_item(
     :param hit: an engram hit from the search
     :param wanted: how many entries to take from a log
     :param remaining: how many characters the brief may still add
-    :returns: the item, or None when the engram is gone since the search
+    :param seen: the series or plain engrams already included
+    :param read: engrams whose use has already been recorded
+    :returns: the item, or None when it was already included or is gone
     """
     principal = caller.principal
     space, path = hit["cove"], hit["path"]
@@ -645,6 +656,12 @@ async def _brief_item(
         if logs.LOG_TAG in (engram.tags or [])
         else []
     )
+    # Nested part names can belong to overlapping series. Only the same
+    # first part means the same item; sharing another part does not.
+    key = (space, parts[0].path if parts else engram.path)
+    if key in seen:
+        return None
+    seen.add(key)
     if parts:
         taken = logs.last_entries(parts, wanted)
         item = {
@@ -664,7 +681,9 @@ async def _brief_item(
             "parts": [engram.path],
         }
     for part in parts:
-        await usage.record(principal, part.id, AccessKind.READ)
+        if part.id not in read:
+            await usage.record(principal, part.id, AccessKind.READ)
+            read.add(part.id)
     return item
 
 
