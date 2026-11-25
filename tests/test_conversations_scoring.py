@@ -1131,6 +1131,20 @@ def test_production_codex_command_names_reef_bench():
     assert run.PRODUCTION_SERVER.bearer and not run.local_server("ab" * 32).bearer
 
 
+def test_codex_waits_for_the_tool_list():
+    """Codex starts no turn before Reef's tools have arrived.
+
+    Without this setting Codex may start once the server is connected. The
+    model then gets no Reef tool, and answers from what it can see.
+    """
+    for server in (run.PRODUCTION_SERVER, run.local_server("ab" * 32)):
+        first = run.codex_command(server, tools=run.PROBE_TOOLS, session_id=None)
+        again = run.codex_command(server, tools=None, session_id="t-1")
+        for command in (first, again):
+            setting = f'mcp_servers.{server.name}.startup_readiness="catalog"'
+            assert command[command.index(setting) - 1] == "-c"
+
+
 def test_codex_gets_the_token_only_when_given(monkeypatch):
     """A token goes into the child's environment; none from the shell ever does."""
     monkeypatch.setenv(run.TOKEN_VARIABLE, "stale-from-the-shell")

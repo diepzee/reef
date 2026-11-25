@@ -1695,6 +1695,14 @@ token in memory and gives it to that one Codex process, in the variable
 never printed, logged or written to a file or a report. A Codex sign-in to
 Reef from an earlier setup is not used any more.
 
+**Codex waits for Reef's tools.** The runner passes
+`startup_readiness="catalog"` for the Reef server. Without it, Codex starts a
+turn once the server is connected, even when its tool list has not arrived.
+The model then gets no Reef tool and answers from what it can see, such as
+the name in the home folder. On 25 Nov 2026 this stopped about half of the
+runs at the account check, with "Codex did not read the index", although the
+sign-in was fine.
+
 ### What the verdicts mean
 
 | Verdict | Meaning | What to do |
