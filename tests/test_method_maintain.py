@@ -4,7 +4,10 @@ Like the capture tests, these manage their own transactions: every method
 opens its own, as it does behind the tools.
 """
 
+import asyncio
+
 import pytest
+from asyncpg import LockNotAvailableError
 from conftest import Store, attach_file, caller_for, save_as
 
 from reef.access import arm
@@ -423,6 +426,66 @@ async def test_forget_file_requires_the_staged_space(household, store, with_spac
     assert refused.value.code == "not_found"
     assert store.deleted == []
     assert (await find.open(me, "", [f"household/file/{key}"]))[0]["kind"] == "file"
+
+
+async def test_forget_file_locks_the_row_before_deleting(
+    household, store, monkeypatch, seed
+):
+    """A held confirming call locks its row and only one confirmation deletes bytes."""
+    me = caller_for(household["wouter"])
+    key = await attach_file(me, "household", "A policy.")
+    staged = await maintain.forget(me, "", "household", file=key)
+    selected = asyncio.Event()
+    second_read = asyncio.Event()
+    release = asyncio.Event()
+    run_querystring = DB.run_querystring
+
+    async def hold_after_read(engine, querystring, *args, **kwargs):
+        """Hold the first confirming call after it has read the attachment.
+
+        :param engine: the database engine
+        :param querystring: the query to execute
+        :param args: further positional arguments
+        :param kwargs: further keyword arguments
+        :returns: the database result
+        """
+        query, parameters = querystring.compile_string(engine_type=engine.engine_type)
+        attachment_read = (
+            query.startswith("SELECT")
+            and 'FROM "attachments"' in query
+            and key in parameters
+        )
+        if attachment_read and selected.is_set():
+            second_read.set()
+        result = await run_querystring(querystring, *args, **kwargs)
+        if attachment_read and result and not selected.is_set():
+            selected.set()
+            await release.wait()
+        return result
+
+    monkeypatch.setattr(type(DB), "run_querystring", hold_after_read)
+    first = asyncio.create_task(
+        maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+    )
+    await selected.wait()
+    try:
+        with pytest.raises(LockNotAvailableError):
+            async with seed.transaction():
+                await seed.fetchrow(
+                    "SELECT id FROM attachments WHERE object_key = $1 FOR UPDATE NOWAIT",
+                    key,
+                )
+        second = asyncio.create_task(
+            maintain.forget(me, "", "household", file=key, confirm=staged["token"])
+        )
+        await second_read.wait()
+    finally:
+        release.set()
+        await first
+    with pytest.raises(MethodError) as refused:
+        await second
+    assert refused.value.code == "not_found"
+    assert store.deleted == [key]
 
 
 async def test_forget_in_a_personal_space_does_not_name_other_members(household):

@@ -371,6 +371,7 @@ async def delete_attachment(
         existing = (
             await Attachment.objects()
             .where(Attachment.space_id == space.id, Attachment.object_key == key)
+            .lock_rows()
             .first()
         )
         if existing is None:
