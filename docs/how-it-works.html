@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rif — how it works</title>
+<title>Reef — how it works</title>
 <style>
   :root {
     --bg: #f2f6f6;
@@ -168,9 +168,9 @@
 <div class="wrap">
 
 <header>
-  <span class="eyebrow">diepzee / rif · companion to the runbook</span>
+  <span class="eyebrow">diepzee / reef · companion to the runbook</span>
   <h1>How it works</h1>
-  <p class="lede">rif is one memory service for two assistants — yours and
+  <p class="lede">Reef is one memory service for two assistants — yours and
   hers. This page explains four things: <strong>where knowledge lives, who can
   see what, what happens during a conversation,</strong> and <strong>why some
   popular features were left out on purpose.</strong></p>
@@ -178,7 +178,7 @@
 
 <section id="topology">
   <h2>The big picture</h2>
-  <p>rif is a small Python service with no user interface. It stores pages in
+  <p>Reef is a small Python service with no user interface. It stores engrams in
   a Postgres database. It stores image files in R2. It offers its tools over
   HTTPS using MCP — the protocol Claude uses to call external tools.</p>
   <p>Every surface is a client of the same tools: her Claude app, your Claude
@@ -186,7 +186,7 @@
   place where access is enforced.</p>
 
   <figure>
-    <svg viewBox="0 0 640 320" role="img" aria-label="Topology: two clients connect over MCP to rif on Railway. rif owns Postgres and R2. WorkOS answers who is this. A manual export writes markdown files as the exit.">
+    <svg viewBox="0 0 640 320" role="img" aria-label="Topology: two clients connect over MCP to Reef on Railway. Reef owns Postgres and R2. WorkOS answers who is this. A manual export writes markdown files as the exit.">
       <defs>
         <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -199,15 +199,15 @@
       <rect class="box" x="20" y="150" width="150" height="44" rx="3"/>
       <text class="lbl" x="95" y="168" text-anchor="middle">your surfaces</text>
       <text class="sm" x="95" y="183" text-anchor="middle">Claude Code · phone</text>
-      <!-- rif -->
+      <!-- Reef -->
       <rect class="hot box" x="260" y="96" width="150" height="76" rx="3"/>
-      <text class="lbl" x="335" y="122" text-anchor="middle" font-weight="600">rif</text>
+      <text class="lbl" x="335" y="122" text-anchor="middle" font-weight="600">Reef</text>
       <text class="sm" x="335" y="138" text-anchor="middle">FastMCP · Railway</text>
       <text class="sm" x="335" y="153" text-anchor="middle">decides access</text>
       <!-- stores -->
       <rect class="box" x="500" y="70" width="120" height="44" rx="3"/>
       <text class="lbl" x="560" y="88" text-anchor="middle">Postgres</text>
-      <text class="sm" x="560" y="103" text-anchor="middle">pages · history</text>
+      <text class="sm" x="560" y="103" text-anchor="middle">engrams · history</text>
       <rect class="box" x="500" y="150" width="120" height="44" rx="3"/>
       <text class="lbl" x="560" y="168" text-anchor="middle">R2</text>
       <text class="sm" x="560" y="183" text-anchor="middle">image bytes</text>
@@ -230,29 +230,29 @@
       <text class="lbl" x="335" y="268" text-anchor="middle">markdown files</text>
       <text class="sm" x="335" y="283" text-anchor="middle">the exit, always</text>
       <line class="dashed" x1="335" y1="172" x2="335" y2="246" marker-end="url(#arr)"/>
-      <text class="sm" x="345" y="215" text-anchor="start">python -m rif.export</text>
+      <text class="sm" x="345" y="215" text-anchor="start">python -m reef.export</text>
     </svg>
     <figcaption>All clients use the same tools. WorkOS only answers "who is
-    this?" — rif decides what they may see. The export path is one-way:
+    this?" — Reef decides what they may see. The export path is one-way:
     nothing reads from the markdown files back into the store.</figcaption>
   </figure>
 </section>
 
-<section id="coves">
-  <h2>Your cove, and the coves you share</h2>
-  <p>Knowledge lives in <strong>coves</strong>. Every person gets exactly one
-  personal cove, created automatically the first time they sign in. Beyond
-  that, a <strong>cove is a named group of people</strong> — a household, a
+<section id="spaces">
+  <h2>Your space, and the spaces you share</h2>
+  <p>Knowledge lives in <strong>spaces</strong>. Every person gets exactly one
+  personal space, created automatically the first time they sign in. Beyond
+  that, a <strong>space is a named group of people</strong> — a household, a
   school run, a small project — started by whoever needs it and addressed by
   a short slug, like <code>school</code>.</p>
-  <p>A membership table records who may enter which cove. Every reader's
-  access is one row in that table: their name, and the cove. The privacy
+  <p>A membership table records who may enter which space. Every reader's
+  access is one row in that table: their name, and the space. The privacy
   model is simple to state, and the database — not the application code —
-  enforces it: <strong>a cove's pages are readable by exactly its members,
+  enforces it: <strong>a space's engrams are readable by exactly its members,
   and by no one else.</strong></p>
 
   <figure>
-    <svg viewBox="0 0 640 230" role="img" aria-label="Example membership graph: Wouter connects to his personal cove and to the shared cove school. She connects to her personal cove and to school too. No edge crosses between the two personal coves.">
+    <svg viewBox="0 0 640 230" role="img" aria-label="Example membership graph: Wouter connects to his personal space and to the shared space school. She connects to her personal space and to school too. No edge crosses between the two personal spaces.">
       <defs>
         <marker id="arr2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -263,7 +263,7 @@
       <text class="lbl" x="170" y="44" text-anchor="middle">W</text>
       <circle cx="470" cy="40" r="22" fill="none" stroke="currentColor" stroke-width="1.3"/>
       <text class="lbl" x="470" y="44" text-anchor="middle">her</text>
-      <!-- coves -->
+      <!-- spaces -->
       <rect class="box" x="40" y="140" width="160" height="52" rx="3"/>
       <text class="lbl" x="120" y="161" text-anchor="middle">his personal</text>
       <text class="sm" x="120" y="177" text-anchor="middle">health · work · taste</text>
@@ -282,26 +282,26 @@
       <!-- absence -->
       <text class="sm" x="320" y="218" text-anchor="middle" fill="var(--gate)">presence is the whole model: a row grants access, its absence denies it — enforced by the database</text>
     </svg>
-    <figcaption>One example, not the whole world: two people, three coves,
-    four membership rows. A cove can have more members, and a person can
-    belong to any number of shared coves — the model is the same either
-    way, one row per person per cove. Neither assistant can reach the
-    other's personal cove, and neither person can even name it directly:
-    tools address coves by <code>personal</code> or by slug, resolved per
-    person. Internal cove identifiers never leave the server.</figcaption>
+    <figcaption>One example, not the whole world: two people, three spaces,
+    four membership rows. A space can have more members, and a person can
+    belong to any number of shared spaces — the model is the same either
+    way, one row per person per space. Neither assistant can reach the
+    other's personal space, and neither person can even name it directly:
+    tools address spaces by <code>personal</code> or by slug, resolved per
+    person. Internal space identifiers never leave the server.</figcaption>
   </figure>
 </section>
 
 <section id="joining">
-  <h2>Joining a cove</h2>
-  <p>The owner of a shared cove invites people in by email — there is no
+  <h2>Joining a space</h2>
+  <p>The owner of a shared space invites people in by email — there is no
   other door. Inviting an unknown address creates that person's record on the
-  spot, plus a membership row joining them to the cove, before they have
+  spot, plus a membership row joining them to the space, before they have
   ever signed in.</p>
-  <p>The first time someone signs in with that exact, verified email, rif
+  <p>The first time someone signs in with that exact, verified email, Reef
   recognizes the standing invite and finishes onboarding in the same
-  transaction: their own personal cove appears, with two starter pages
-  waiting — a protocol page and a persona page for them to fill in. There are
+  transaction: their own personal space appears, with two starter engrams
+  waiting — a protocol engram and a persona engram for them to fill in. There are
   no invite links to click and no open signup form. An email nobody invited
   is denied, exactly as before.</p>
 </section>
@@ -310,13 +310,13 @@
   <h2>What happens in a conversation</h2>
   <ol class="flow">
     <li><strong>Log in once.</strong> The Claude app finds WorkOS through
-      rif's metadata and runs the login flow. WorkOS answers who she is. The
+      Reef's metadata and runs the login flow. WorkOS answers who she is. The
       two-row <code>persons</code> table decides whether she is allowed in.
       A stranger with a valid login is still denied.</li>
     <li><strong>Load the index.</strong> The assistant's first call is
-      <code>load_index</code>. It returns the map: every page she can see,
+      <code>load_index</code>. It returns the map: every engram she can see,
       with its title, tags, and a one-line description, plus image
-      descriptions. No page bodies. The description comes from the page's own
+      descriptions. No engram bodies. The description comes from the engram's own
       opening summary, so the map is curated, not clipped at random.</li>
     <li><strong>Fetch what matters.</strong> The assistant reads the map,
       asks <code>recall</code> for the passages that answer the question, and
@@ -325,33 +325,33 @@
       The rule in the protocol: never answer from the index's descriptions
       alone.</li>
     <li><strong>Remember.</strong> New facts go through
-      <code>remember(fact)</code>. Its default target is the private cove —
+      <code>remember(fact)</code>. Its default target is the private space —
       the default is in the function signature, not in a guideline. Only
       clearly shared facts (joint things, joint decisions, shared duties) go
-      to a shared cove. Anything unclear stays private.</li>
+      to a shared space. Anything unclear stays private.</li>
     <li><strong>Compile.</strong> Lasting edits go through
       <code>correct</code>: small, precise changes with a version
-      check. Entries added to a journal or log go through <code>log</code>. Every write records who wrote it, why, and the full page state.
+      check. Entries added to a journal or log go through <code>log</code>. Every write records who wrote it, why, and the full engram state.
       That record is permanent.</li>
   </ol>
   <p class="mut">This is the original wiki discipline — read the index, open
   only what you need — run by the service instead of by convention. Maintenance
-  jobs that need every page read the index and then call <code>open</code> on
+  jobs that need every engram read the index and then call <code>open</code> on
   the refs they need.</p>
 </section>
 
 <section id="boundary">
   <h2>The privacy boundary</h2>
-  <p>The rule: her sessions can never read your private pages, and yours can
+  <p>The rule: her sessions can never read your private engrams, and yours can
   never read hers.</p>
   <p>Application code does not enforce this rule. The database does. Postgres
   <strong>row-level security</strong> (RLS) filters every query on the content
-  tables: it returns only rows that belong to a cove the current person is a
-  member of. The policies run in FORCE mode, which means they also bind rif's
+  tables: it returns only rows that belong to a space the current person is a
+  member of. The policies run in FORCE mode, which means they also bind Reef's
   own database account.</p>
 
   <figure>
-    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the cove, which sets the transaction-local principal. All SQL then passes through RLS policies, which return only rows in that person's coves. A query with no principal set returns zero rows.">
+    <svg viewBox="0 0 640 210" role="img" aria-label="Request path: a tool call resolves the space, which sets the transaction-local principal. All SQL then passes through RLS policies, which return only rows in that person's spaces. A query with no principal set returns zero rows.">
       <defs>
         <marker id="arr3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -361,7 +361,7 @@
       <text class="lbl" x="80" y="61" text-anchor="middle">tool call</text>
       <text class="sm" x="80" y="77" text-anchor="middle">authenticated person</text>
       <rect class="box" x="184" y="40" width="150" height="52" rx="3"/>
-      <text class="lbl" x="259" y="61" text-anchor="middle">resolve_cove</text>
+      <text class="lbl" x="259" y="61" text-anchor="middle">resolve_space</text>
       <text class="mono" x="259" y="77" text-anchor="middle">SET app.person_id</text>
       <rect class="hot box" x="374" y="40" width="130" height="52" rx="3"/>
       <text class="lbl" x="439" y="61" text-anchor="middle">RLS policies</text>
@@ -399,22 +399,22 @@
 
 <section id="sharing">
   <h2>Sharing cannot be undone</h2>
-  <p>Sharing moves content from your personal cove to a shared cove you
+  <p>Sharing moves content from your personal space to a shared space you
   belong to. Once its members could have read it, taking it back means
   nothing. So there is no unshare tool, and sharing takes two steps. One step
   would not be enough: a model can pass <code>confirm=true</code> on its own,
   and that proves nothing about what you agreed to.</p>
-  <p>You can share one section instead of a whole page. The service
-  <strong>extracts</strong> the section: it becomes its own small page in the
-  destination cove, and the source page keeps a marker where it was. What
-  you approve is exactly the text that moves. The rest of the page — and its
+  <p>You can share one section instead of a whole engram. The service
+  <strong>extracts</strong> the section: it becomes its own small engram in the
+  destination space, and the source engram keeps a marker where it was. What
+  you approve is exactly the text that moves. The rest of the engram — and its
   full edit history — stays private. Extraction also forces the shared text
   to stand alone, so no private context around it travels along. The
-  disclosure names every current member of the destination cove, so you
+  disclosure names every current member of the destination space, so you
   confirm <em>who</em> will see it, not only where it goes.</p>
 
   <figure>
-    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: the first share call returns the exact text and a one-time code. After the human agrees, the second call copies the content to the destination cove, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
+    <svg viewBox="0 0 640 190" role="img" aria-label="Two-step sharing: the first share call returns the exact text and a one-time code. After the human agrees, the second call copies the content to the destination space, stubs the original, and uses up the code. A retry of confirm finds the code used and does nothing.">
       <defs>
         <marker id="arr4" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 z" fill="currentColor"/>
@@ -433,8 +433,8 @@
       <line x1="156" y1="56" x2="212" y2="56" marker-end="url(#arr4)"/>
       <line x1="356" y1="56" x2="412" y2="56" marker-end="url(#arr4)"/>
       <!-- guards -->
-      <text class="sm" x="86" y="115" text-anchor="middle">tied to the exact page</text>
-      <text class="sm" x="86" y="130" text-anchor="middle">version — if the page</text>
+      <text class="sm" x="86" y="115" text-anchor="middle">tied to the exact engram</text>
+      <text class="sm" x="86" y="130" text-anchor="middle">version — if the engram</text>
       <text class="sm" x="86" y="145" text-anchor="middle">changed, start over</text>
       <text class="sm" x="486" y="115" text-anchor="middle">the destination must not exist —</text>
       <text class="sm" x="486" y="130" text-anchor="middle">never a silent overwrite;</text>
@@ -443,8 +443,8 @@
     </svg>
     <figcaption>The code works once and is tied to the exact content you saw.
     After sharing, the private copy becomes a stub that points to the
-    destination page. The private drafting history stays private: history
-    belongs to the personal page, not to the moved text.</figcaption>
+    destination engram. The private drafting history stays private: history
+    belongs to the personal engram, not to the moved text.</figcaption>
   </figure>
 </section>
 
@@ -455,7 +455,7 @@
   database table. A table can be queried: "what did we know about the boiler
   in March?" is one <code>WHERE</code> clause. To restore an old version, the
   assistant writes it again. History only grows.</p>
-  <p class="mut">Each cove also has a version counter. Every write increases
+  <p class="mut">Each space also has a version counter. Every write increases
   it. A client can ask "did anything change?" at almost no cost. A future
   <code>changes_since</code> tool can use it to open her conversations with:
   "Since yesterday, Wouter noted the boiler service is booked."</p>
@@ -468,7 +468,7 @@
   description travels with every context load — for example: "the boiler's
   model plate, reading Vaillant ecoTEC VU 246/5-5." The image itself is
   fetched only when the pixels matter, through a link that expires after five
-  minutes and is issued only after the same cove check as any page.</p>
+  minutes and is issued only after the same space check as any engram.</p>
 </section>
 
 <section id="safety">
@@ -476,16 +476,16 @@
   <ol class="flow">
     <li><strong>Railway's managed backups</strong> — automatic database
       backups by the hosting provider.</li>
-    <li><strong>A daily dump to R2</strong> — rif's own backup, stored with a
+    <li><strong>A daily dump to R2</strong> — Reef's own backup, stored with a
       different provider than the database. It runs under a database role that
       may bypass RLS, because the boundary works so well that a normal backup
       run reads nothing.</li>
     <li><strong>R2 object versioning</strong> — old versions of image files
       survive deletion. No database dump contains the files, so this is their
       only net.</li>
-    <li><strong>The export</strong> — <code>python -m rif.export</code> writes
-      every cove back to plain markdown files. The format matches the
-      importer, so a lost database can be rebuilt from it. If rif dies or you
+    <li><strong>The export</strong> — <code>python -m reef.export</code> writes
+      every space back to plain markdown files. The format matches the
+      importer, so a lost database can be rebuilt from it. If Reef dies or you
       change your mind, the knowledge leaves as files. The store never holds
       it hostage.</li>
   </ol>
@@ -498,10 +498,10 @@
     <tr><th>Left out</th><th>Why</th></tr>
     <tr><td>Full-text search</td><td>The index is small enough to read whole, and its descriptions are the retrieval surface. The model retrieves by reading the map, not by querying an engine.</td></tr>
     <tr><td>Vector database</td><td>A retrieval tool for corpora far too big for an index. Its failure is silent: the assistant does not know something it was told, and does not know that it does not know. An index the model reads in full fails visibly instead.</td></tr>
-    <tr><td>Knowledge graph</td><td>Same reason. The wiki already is a graph — pages are nodes, links are edges — and it keeps nuance in prose instead of losing it in extracted facts.</td></tr>
+    <tr><td>Knowledge graph</td><td>Same reason. The wiki already is a graph — engrams are nodes, links are edges — and it keeps nuance in prose instead of losing it in extracted facts.</td></tr>
     <tr><td>Unsharing</td><td>Cannot exist honestly. Once readable, read. The only real gate is before sharing. That is why that gate is heavy.</td></tr>
     <tr><td>Notion, or any two-way sync</td><td>Two writable copies of the truth create conflicts forever. The export is one-way on purpose.</td></tr>
-    <tr><td>A web interface</td><td>Both of you talk to assistants. The assistants talk to rif. An interface with no users is the feature most worth not building.</td></tr>
+    <tr><td>A web interface</td><td>Both of you talk to assistants. The assistants talk to Reef. An interface with no users is the feature most worth not building.</td></tr>
   </table>
   </div>
 </section>
@@ -527,7 +527,7 @@
 </section>
 
 <footer>
-  rif — how it works. Companion to <a href="runbook.html">the go-live
+  Reef — how it works. Companion to <a href="runbook.html">the go-live
   runbook</a>. Store: Postgres + RLS · Surface: the Claude app · Exit: always
   markdown.
 </footer>
