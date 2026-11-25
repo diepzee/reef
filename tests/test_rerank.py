@@ -163,6 +163,7 @@ async def test_reordered_hits_keep_their_own_passages(tx, household, reranker):
     expected["answer.md"] = f"the {ANSWER} company"
     assert {hit["path"] for hit in after} == set(expected)
     for hit in after:
+        assert hit["passage"] != hit["snippet"]
         assert expected[hit["path"]] in hit["passage"]
         assert all(
             marker not in hit["passage"]
