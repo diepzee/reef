@@ -79,13 +79,10 @@ class DatabaseSettings(BaseSettings):
 
 
 class EngramSettings(BaseSettings):
-    """How big engrams and what an assistant loads may be."""
+    """How big an engram may be."""
 
     model_config = _group(PREFIX)
 
-    context_char_budget: int = Field(
-        150_000, ge=1_000, description="The most text one context load returns."
-    )
     max_chars: int = Field(
         200_000,
         ge=1_000,
@@ -94,11 +91,7 @@ class EngramSettings(BaseSettings):
         validation_alias=AliasChoices(
             f"{PREFIX}ENGRAM_MAX_CHARS", f"{PREFIX}PAGE_MAX_CHARS"
         ),
-        description=(
-            "The longest engram. Above the context budget on purpose: an engram "
-            "bigger than the whole budget cannot be loaded in one piece "
-            "anyway, so this refuses only what was never usable memory."
-        ),
+        description="The longest engram, in characters.",
     )
 
 

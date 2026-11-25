@@ -131,11 +131,6 @@ def validate_body(path: str, body: str) -> None:
     and loaded whole by anything that reads the engram, so one oversized engram
     is paid for by every member who opens it.
 
-    The ceiling is deliberately above ``context_char_budget`` -- an engram
-    larger than the whole context budget cannot be loaded in one piece
-    anyway, so anything at that size is already past the point of being
-    useful memory.
-
     :param path: the engram path, for the message
     :param body: the full markdown body
     :raises EngramTooLarge: if the body exceeds ``REEF_ENGRAM_MAX_CHARS``

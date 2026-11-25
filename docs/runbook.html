@@ -523,9 +523,7 @@ railway up</code></pre></li>
       <code>included_count</code>, and whether every non-null body arrived
       intact — a mismatch means truncation in transit, by design
       detectable.</li>
-    <li>Record in <code>docs/superpowers/plans/context-limits.md</code>; set
-      <code>REEF_CONTEXT_CHAR_BUDGET</code> comfortably below the first size
-      that misbehaved; <code>railway up</code>.</li>
+    <li>Record in <code>docs/superpowers/plans/context-limits.md</code>.</li>
     <li>Clean up: <code>scripts/measure_context.py wouter@rugvin.be 0</code>.</li>
   </ol>
 </section>
@@ -543,7 +541,6 @@ railway up</code></pre></li>
     <tr><td><code>REEF_BASE_URL</code></td><td>Public root URL, no path — drives advertised resource URL + token audience</td></tr>
     <tr><td><code>DATABASE_URL</code></td><td>Injected by Railway Postgres (app role)</td></tr>
     <tr><td><code>REEF_S3_*</code></td><td>R2: endpoint, bucket, access key, secret — images + backups</td></tr>
-    <tr><td><code>REEF_CONTEXT_CHAR_BUDGET</code></td><td>Set from phase 7 measurement</td></tr>
     <tr><td><code>PORT</code></td><td>Set by Railway; presence = HTTP mode = auth required</td></tr>
   </table>
   </div>

@@ -1,7 +1,7 @@
-"""Index-first retrieval, plus the whole-corpus bulk path.
+"""Index-first retrieval.
 
-Both entry points assume they run inside :func:`reef.db.transaction_scope`;
-:func:`reef.access.accessible_spaces` arms RLS before either reads anything.
+Entry points assume they run inside :func:`reef.db.transaction_scope`;
+:func:`reef.access.accessible_spaces` arms RLS before reading anything.
 """
 
 from dataclasses import dataclass
@@ -24,33 +24,6 @@ from reef.spaces import display_names
 
 # The field names below are the wire format: these payloads reach the
 # methods, the MCP tools and the web API as they are, through ``asdict``.
-
-
-@dataclass
-class SpaceContext:
-    """Everything the principal may see in one space."""
-
-    alias: str
-    version: int
-    engrams: list[dict]
-    attachments: list[dict]
-
-
-@dataclass
-class ContextPayload:
-    """The whole corpus a principal may see, plus loading metadata.
-
-    ``engram_count`` and ``included_count`` let a client detect host-side
-    truncation of the serialized result: if the engrams it can see do not add up,
-    the payload was cut in transit.
-    """
-
-    version: str
-    truncated: bool
-    note: str | None
-    engram_count: int
-    included_count: int
-    spaces: list[SpaceContext]
 
 
 @dataclass
@@ -325,103 +298,4 @@ async def build_index(principal: Principal) -> IndexPayload:
     )
     return IndexPayload(
         version=f"{principal.person_id}:{version}", spaces=list(by_space.values())
-    )
-
-
-def _priority(engram: Engram) -> tuple:
-    """Return the inclusion sort key: meta first, core-tagged second, small third.
-
-    :param engram: the engram to rank
-    :returns: sort key, ascending
-    """
-    return (
-        0 if engram.path.startswith("meta/") else 1,
-        0 if "core" in engram.tags else 1,
-        len(engram.body),
-    )
-
-
-async def load_context(principal: Principal, *, char_budget: int) -> ContextPayload:
-    """Return every engram in every space the principal can see.
-
-    Bodies are included by priority until the character budget is spent;
-    everything else still appears with ``body=None`` so omission is visible,
-    never silent.
-
-    :param principal: the authenticated person
-    :param char_budget: approximate ceiling on total body characters
-    :returns: the assembled context payload
-    """
-    spaces = await accessible_spaces(principal)
-    aliases = await alias_map(principal)
-    space_ids = [space.id for space in spaces]
-    engrams = await Engram.objects().where(Engram.space_id.is_in(space_ids))
-    attachments = await Attachment.objects().where(
-        Attachment.space_id.is_in(space_ids),
-        Attachment.status == AttachmentStatus.READY.value,
-    )
-
-    spent = 0
-    body_by_engram: dict[object, str | None] = {}
-    engram_path_by_id = {engram.id: engram.path for engram in engrams}
-    for engram in sorted(engrams, key=_priority):
-        if spent + len(engram.body) <= char_budget:
-            body_by_engram[engram.id] = engram.body
-            spent += len(engram.body)
-        else:
-            body_by_engram[engram.id] = None
-
-    included = sum(1 for body in body_by_engram.values() if body is not None)
-    truncated = included < len(engrams)
-    note = (
-        f"{len(engrams) - included} engram(s) exceeded the context budget and are "
-        "listed with body=null. Open them with open when relevant."
-        if truncated
-        else None
-    )
-
-    by_space = {
-        space.id: SpaceContext(
-            alias=aliases[space.id],
-            version=space.version,
-            engrams=[],
-            attachments=[],
-        )
-        for space in spaces
-    }
-    for engram in sorted(engrams, key=lambda p: p.path):
-        by_space[engram.space_id].engrams.append(
-            {
-                "path": engram.path,
-                "title": engram.title,
-                "tags": list(engram.tags),
-                "updated": engram.updated_at.isoformat(),
-                "size": len(engram.body),
-                "version": engram.version,
-                "body": body_by_engram[engram.id],
-            }
-        )
-    for attachment in attachments:
-        by_space[attachment.space_id].attachments.append(
-            {
-                "key": attachment.object_key,
-                "filename": attachment.filename
-                or attachment.object_key.rsplit("/", 1)[-1],
-                "mime": attachment.mime,
-                "size": attachment.byte_size,
-                "description": attachment.description,
-                "engram_path": engram_path_by_id.get(attachment.engram_id),
-            }
-        )
-
-    version = (
-        ";".join(f"{ctx.alias}={ctx.version}" for ctx in by_space.values()) or "empty"
-    )
-    return ContextPayload(
-        version=version,
-        truncated=truncated,
-        note=note,
-        engram_count=len(engrams),
-        included_count=included,
-        spaces=list(by_space.values()),
     )
