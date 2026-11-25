@@ -15,6 +15,7 @@ from reef.export import (
     render_engram,
 )
 from reef.filetext import StoredPage, read_by
+from reef.methods.share import write_persona
 from reef.models import Attachment, AttachmentStatus, Engram
 
 
@@ -71,25 +72,81 @@ async def test_export_schema_2(tx, household):
 
 
 async def test_schema_2_round_trips_through_the_private_loader(tx, household):
-    """Read a real account export through the supported private-set loader."""
+    """Preserve engram metadata, linked files and persona, then load current text."""
     me = principal_for(household["wouter"])
-    originals = []
-    for space, title, body in (
-        ("personal", "Café notes", "Private café notes.\n\nSecond paragraph."),
-        ("household", "", "Shared notes, at the same path."),
+    saved_engrams = {}
+    for space, title, body, tags in (
+        (
+            "personal",
+            "Café notes",
+            "Private café notes.\n\nSecond paragraph.",
+            ["log", "café"],
+        ),
+        ("household", "", "Shared notes, at the same path.", ["home"]),
     ):
         saved = await save_engram(
-            me, space, "notes/day.md", body, message="create", title=title
+            me, space, "notes/day.md", body, message="create", title=title, tags=tags
         )
-        originals.append(
-            evalkit.EvalEngram(
-                path=f"{space}/{saved.path}", title=saved.title or "", body=saved.body
-            )
+        saved_engrams[space, saved.path] = await save_engram(
+            me,
+            space,
+            saved.path,
+            body + "\nUpdated.",
+            message="edit",
+            expected_version=1,
         )
+    persona = await write_persona(me, "Be concise.", "set preferences")
+    saved_engrams["personal", persona.path] = persona
+    linked = saved_engrams["personal", "notes/day.md"]
+    file = Attachment(
+        space_id=household["w_personal"].id,
+        engram_id=linked.id,
+        object_key="attachments/cafe-menu",
+        filename="café menu.pdf",
+        mime="application/pdf",
+        byte_size=20,
+        description="The café menu kept with the daily notes.",
+        status=AttachmentStatus.READY.value,
+    )
+    await file.save()
 
     payload = json.loads(await build_json_export(me))
 
     assert payload["schema_version"] == 2
+    exported = {
+        (space["alias"], engram["path"]): engram
+        for space in payload["spaces"]
+        for engram in space["engrams"]
+    }
+    assert set(exported) == set(saved_engrams)
+    for key, saved in saved_engrams.items():
+        assert exported[key] == {
+            "path": saved.path,
+            "title": saved.title,
+            "body": saved.body,
+            "tags": list(saved.tags),
+            "version": saved.version,
+            "created": saved.created_at.isoformat(),
+            "updated": saved.updated_at.isoformat(),
+        }
+    files = {
+        (space["alias"], entry["key"]): entry
+        for space in payload["spaces"]
+        for entry in space["files"]
+    }
+    assert set(files) == {("personal", file.object_key)}
+    entry = files["personal", file.object_key]
+    assert (entry["filename"], entry["description"], entry["engram_path"]) == (
+        file.filename,
+        file.description,
+        linked.path,
+    )
+    originals = [
+        evalkit.EvalEngram(
+            path=f"{space}/{path}", title=saved.title or "", body=saved.body
+        )
+        for (space, path), saved in saved_engrams.items()
+    ]
     assert evalkit.private_engrams(payload) == sorted(
         originals, key=lambda engram: engram.path
     )
