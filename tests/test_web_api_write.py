@@ -69,6 +69,42 @@ async def test_put_without_version_replaces_an_existing_engram(api, world, path)
     assert replacement.json() == saved.json()
 
 
+@pytest.mark.parametrize("path", ["boiler.md", "Boiler.md"])
+async def test_put_creation_refuses_a_taken_name_without_changes(api, world, path):
+    """Creation refuses both spellings and leaves the saved engram unchanged."""
+    alice, _bob, _ = world
+    _login(api, alice)
+    original = await api.put(
+        "/api/engrams/team/boiler.md",
+        json={
+            "body": "Keep this text.",
+            "title": "Boiler",
+            "tags": ["home"],
+            "message": "create",
+            "expected_version": 0,
+        },
+        headers=CSRF,
+    )
+    assert original.status_code == 200
+    assert original.json()["version"] == 1
+
+    refused = await api.put(
+        f"/api/engrams/team/{path}",
+        json={
+            "body": "New draft.",
+            "title": "",
+            "tags": [],
+            "message": "",
+            "expected_version": 0,
+        },
+        headers=CSRF,
+    )
+    assert refused.status_code == 409
+    assert refused.json()["error"] == "version_conflict"
+    saved = await api.get("/api/engrams/team/boiler.md")
+    assert saved.json() == original.json()
+
+
 async def test_put_creates_then_conflicts(api, world):
     """A first PUT creates version 1; a stale expected_version 409s."""
     alice, _bob, _ = world

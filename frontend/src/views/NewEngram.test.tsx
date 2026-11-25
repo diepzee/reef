@@ -27,6 +27,12 @@ import {
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 let sent: Array<{ method: string; path: string; body?: unknown }> = [];
+let rejectSave = false;
+
+class FakeApiError extends Error {
+  status = 409;
+  code = "version_conflict";
+}
 
 // Every mock of `../api` must present its whole surface. `mock.module`
 // replaces the module for the entire `bun test` run, so a partial mock here
@@ -34,10 +40,14 @@ let sent: Array<{ method: string; path: string; body?: unknown }> = [];
 // with "Export named 'apiDownload' not found" — a long way from the file
 // that caused it. Unused entries below are deliberate.
 mock.module("../api", () => ({
-  ApiError: class extends Error {},
-  apiGet: () => Promise.resolve({}),
+  ApiError: FakeApiError,
+  apiGet: (path: string) => {
+    sent.push({ method: "GET", path });
+    return Promise.resolve({ version: 7, body: "saved text" });
+  },
   apiSend: (method: string, path: string, body?: unknown) => {
     sent.push({ method, path, body });
+    if (rejectSave) return Promise.reject(new FakeApiError());
     return Promise.resolve({});
   },
   apiDownload: () => Promise.resolve(),
@@ -71,6 +81,7 @@ function submit(): HTMLButtonElement {
 
 beforeEach(() => {
   sent = [];
+  rejectSave = false;
 });
 
 afterEach(cleanup);
@@ -124,6 +135,42 @@ test("the engram is saved under the normalized path, not what was typed", async 
   fireEvent.click(screen.getByText("Save"));
   await waitFor(() => expect(sent.length).toBeGreaterThan(0));
   expect(sent[0]!.path).toBe("/api/engrams/trip/packing-list.md");
-  // A brand-new engram has no version to expect.
-  expect(sent[0]!.body).toMatchObject({ expected_version: null });
+  // Version zero requires that the name is not already taken.
+  expect(sent[0]!.body).toMatchObject({ expected_version: 0 });
+});
+
+test("a taken name keeps the draft and every retry asks only for creation", async () => {
+  rejectSave = true;
+  renderNewEngram();
+  type("Boiler.md");
+  fireEvent.click(submit());
+  fireEvent.change(screen.getByLabelText("Body"), {
+    target: { value: "my unsaved text" },
+  });
+  fireEvent.click(screen.getByText("Save"));
+
+  await waitFor(() =>
+    expect(screen.getByText("an engram with this name already exists")).toBeDefined(),
+  );
+  expect((screen.getByLabelText("Body") as HTMLTextAreaElement).value).toBe(
+    "my unsaved text",
+  );
+  expect(screen.queryByLabelText("Latest version (read-only)")).toBeNull();
+
+  fireEvent.click(screen.getByText("Save"));
+  await waitFor(() => expect(sent.length).toBe(2));
+  expect(sent).toEqual([
+    {
+      method: "PUT",
+      path: "/api/engrams/trip/boiler.md",
+      body: {
+        body: "my unsaved text",
+        title: "",
+        tags: [],
+        message: "",
+        expected_version: 0,
+      },
+    },
+    sent[0]!,
+  ]);
 });
