@@ -109,18 +109,19 @@ footer a { color: var(--muted); }
     This page says plainly what it stores, where that lives, who can read it,
     and how to get it back or delete it.
   </p>
-  <p class="updated">Last updated 23 November 2026.</p>
+  <p class="updated">Last updated 25 November 2026.</p>
 
   <h2>What <span class="reef-name">reef</span> stores</h2>
   <table>
     <tr><th>What</th><th>Why</th></tr>
     <tr><td>The engrams you write — text, titles, tags</td><td>This is the product. It is the memory itself.</td></tr>
-    <tr><td>Images you add</td><td>Attached to engrams you or your space members write.</td></tr>
+    <tr><td>Files and images you add</td><td>To keep documents and pictures with your memory, on their own or attached to an engram.</td></tr>
+    <tr><td>The text inside those files — PDFs, scans and photos, Word, Excel and PowerPoint files, web pages and text files</td><td>So your assistant can find what is written inside a file and tell you the page. <span class="reef-name">reef</span> reads each file itself, on its own servers. The text is as private as its file: only people who can open the file can find it. See below.</td></tr>
     <tr><td>Your email address and display name</td><td>To let you in, and to show members who else is in a space.</td></tr>
     <tr><td>An identifier from your sign-in provider</td><td>The durable way to recognise you. Emails change; this does not.</td></tr>
     <tr><td>Engram history — who changed what, when, and whether you or your assistant made the change</td><td>So a shared memory can be traced and corrected.</td></tr>
     <tr><td>Which engrams you open or write, and when</td><td>So your assistant can bring up the engrams you use most. Only you can see this, also in a shared space.</td></tr>
-    <tr><td>Search vectors of your engrams — lists of numbers made from each engram's text</td><td>So search can find an engram by what it means, not only by its words. A vector is as private as its engram: only people who can read the engram can find it this way.</td></tr>
+    <tr><td>Search vectors of your engrams and files — lists of numbers made from each engram's text, and from each file's description and text</td><td>So search can find an engram or a file by what it means, not only by its words. A vector is as private as its engram or file: only people who can read that can find it this way.</td></tr>
     <tr><td>What you search for, and which engrams came back</td><td>To measure how well search works and to improve it. Only you can see this. Deleted after 90 days. See below.</td></tr>
     <tr><td>Which action your assistant took, the reason it gave, when, and how it ended</td><td>To learn which of <span class="reef-name">reef</span>'s tools assistants use, and what they ask for that <span class="reef-name">reef</span> cannot do yet, so we can improve <span class="reef-name">reef</span>. The record also includes calls <span class="reef-name">reef</span> turned away before doing anything (an old tool name, or details that did not fit), without anything your assistant sent with them. Only you can see your record. It is in the copy of your data you can download. Deleted after 90 days. See below.</td></tr>
   </table>
@@ -138,11 +139,21 @@ footer a { color: var(--muted); }
     or the reasons their assistant gave, and that includes us.
   </p>
   <p>
-    <span class="reef-name">reef</span> has no advertising and no trackers. It reads what your engrams say
-    for one purpose: to search them for you. Two models that <span class="reef-name">reef</span> runs
-    itself do this. One turns each engram into search vectors. The other reads
-    your question next to the best matches and puts them in order. Neither
-    sends your text to another company, and neither learns from it.
+    <strong>About reading files.</strong> It has been on since
+    25 November 2026. <span class="reef-name">reef</span> reads the text inside each file you store, once,
+    and keeps it next to your engrams. Files you stored before that date are
+    read in the days after you next use <span class="reef-name">reef</span>. A file it cannot read stays
+    findable by its name and description. Nobody reads the text of another
+    person's files, and that includes us.
+  </p>
+  <p>
+    <span class="reef-name">reef</span> has no advertising and no trackers. It reads what your engrams and
+    files say for one purpose: to search them for you. Software that <span class="reef-name">reef</span>
+    runs itself does this. One program reads the text inside your files,
+    scans included. One model turns each engram and each file into search
+    vectors. Another model reads your question next to the best matches and
+    puts them in order. None of them sends your text to another company, and
+    none learns from it.
     The only email you can receive is a sign-in code, sent by WorkOS at the
     moment you ask to sign in with one. Nothing else is ever sent — no
     invitation emails, no notifications, no newsletters. An invitation reaches
@@ -180,9 +191,9 @@ footer a { color: var(--muted); }
   <h2>Where it lives</h2>
   <ul>
     <li><strong>Engrams, accounts and history</strong> — a PostgreSQL database hosted by Railway, in the United States.</li>
-    <li><strong>Search vectors</strong> — in the same database as your engrams. The two models that read your engrams for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network. They will also read your file descriptions and the text read from your files. Not switched on yet.</li>
-    <li><strong>Text read from your files</strong> — in the same database as your engrams. The files stay in Cloudflare R2, in the European Union. Not switched on yet.</li>
-    <li><strong>Images and backups</strong> — Cloudflare R2, in the European Union.</li>
+    <li><strong>Search vectors</strong> — in the same database as your engrams. The two models that read your engrams for search run on <span class="reef-name">reef</span>'s own servers at Railway, on a private network. They also read your file descriptions and the text read from your files.</li>
+    <li><strong>Text read from your files</strong> — in the same database as your engrams, at Railway in the United States. The files themselves stay in Cloudflare R2, in the European Union.</li>
+    <li><strong>Files, images and backups</strong> — Cloudflare R2, in the European Union.</li>
     <li><strong>Sign-in</strong> — handled by WorkOS, either with a Google account or with a six-digit code sent to your address. <span class="reef-name">reef</span> never sees a password; it only learns your verified email address.</li>
     <li><strong>Traffic</strong> — served through Cloudflare.</li>
   </ul>
@@ -202,10 +213,12 @@ footer a { color: var(--muted); }
   </p>
   <p>
     The search vectors of an engram are deleted with the engram, and made again
-    when it changes. A logged search is deleted after 90 days. A logged call is
+    when it changes. The text read from a file, and its search vectors, are
+    deleted with the file. A logged search is deleted after 90 days. A logged call is
     deleted after 90 days. The record of which engrams you opened stays until
     you delete your account or ask us to remove it. All three are in the copy
-    of your data you can download, and all three go when your account goes.
+    of your data you can download, and so is the text read from your files.
+    All of it goes when your account goes.
   </p>
 
   <h2>Getting in, and getting out</h2>
