@@ -289,7 +289,7 @@ async def log(
         ``invalid_path``, ``protected_path`` or ``private_content``
     """
     heading = " ".join(heading.split())
-    if not heading:
+    if not heading.rstrip("#").rstrip():
         raise MethodError("empty_heading")
     try:
         return await _log(caller, space, engram, heading, entry)

@@ -409,11 +409,12 @@ async def test_two_logs_at_once_both_land(household, exists):
     assert after.version == len(headings) + (1 if exists else 0)
 
 
-async def test_log_refuses_an_empty_heading(household):
+@pytest.mark.parametrize("heading", [" \n ", "#", "##", "  ###  "])
+async def test_log_refuses_an_empty_heading(household, heading):
     """An entry without a heading could not be found again, so it is refused."""
     me = caller_for(household["wouter"])
     with pytest.raises(MethodError) as refused:
-        await capture.log(me, "", "personal", "climbing-log.md", " \n ", "x")
+        await capture.log(me, "", "personal", "climbing-log.md", heading, "x")
     assert refused.value.code == "empty_heading"
     assert await _read(me, "personal", "climbing-log.md") is None
 
