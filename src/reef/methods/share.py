@@ -228,6 +228,7 @@ async def _stage_share(
     ):
         raise MethodError("protected_path")
     with refusals():
+        normalize_path(to_path or engram)
         async with transaction_scope():
             staged_share = await prepare_promotion(
                 caller.principal, engram, to_space, section=section, dest_path=to_path
