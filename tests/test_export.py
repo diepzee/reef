@@ -2,6 +2,7 @@ import json
 from io import BytesIO
 from zipfile import ZipFile
 
+import evalkit
 import pytest
 
 from reef.access import Principal
@@ -67,6 +68,31 @@ async def test_export_schema_2(tx, household):
     assert payload["schema_version"] == 2
     assert "spaces" in payload and "engrams" in payload["spaces"][0]
     assert "coves" not in payload and "pages" not in payload["spaces"][0]
+
+
+async def test_schema_2_round_trips_through_the_private_loader(tx, household):
+    """Read a real account export through the supported private-set loader."""
+    me = principal_for(household["wouter"])
+    originals = []
+    for space, title, body in (
+        ("personal", "Café notes", "Private café notes.\n\nSecond paragraph."),
+        ("household", "", "Shared notes, at the same path."),
+    ):
+        saved = await save_engram(
+            me, space, "notes/day.md", body, message="create", title=title
+        )
+        originals.append(
+            evalkit.EvalEngram(
+                path=f"{space}/{saved.path}", title=saved.title or "", body=saved.body
+            )
+        )
+
+    payload = json.loads(await build_json_export(me))
+
+    assert payload["schema_version"] == 2
+    assert evalkit.private_engrams(payload) == sorted(
+        originals, key=lambda engram: engram.path
+    )
 
 
 async def test_markdown_archive_neutralizes_engram_path_traversal(tx, household):
