@@ -301,6 +301,10 @@ async def log(
 def _block(parts: list[Engram], heading: str, entry: str) -> str:
     """Write the text one entry adds at the end of a log.
 
+    A heading that exceeds the parser's line limit is split at the last
+    word boundary that fits, or at the limit when there is none. The rest
+    starts the entry's text, so no heading text is lost.
+
     :param parts: the log's parts, first to last; none for a new log
     :param heading: the entry's heading, on one line
     :param entry: the entry's text
@@ -308,7 +312,12 @@ def _block(parts: list[Engram], heading: str, entry: str) -> str:
         line and the text
     """
     marks = "#" * logs.entry_level(parts)
-    heading = heading[: HEADING_CHARS - len(marks) - 1]
+    limit = HEADING_CHARS - len(marks) - 1
+    if len(heading) > limit:
+        boundary = heading.rfind(" ", 0, limit + 1)
+        cut = boundary if boundary > 0 else limit
+        entry = f"{heading[cut:].lstrip()}\n\n{entry}"
+        heading = heading[:cut]
     return f"\n\n{marks} {heading}\n\n{entry}\n"
 
 

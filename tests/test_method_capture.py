@@ -192,6 +192,23 @@ async def test_log_caps_headings_so_entries_can_be_read(household, level, extra)
     assert last.splitlines()[0] == f"{marks} {heading}"[:limit]
 
 
+@pytest.mark.parametrize("level", [2, 3])
+async def test_log_preserves_every_word_of_a_long_heading(household, level):
+    """Overflow starts the entry text without splitting or losing words."""
+    me = caller_for(household["wouter"])
+    marks = "#" * level
+    await save_as(me, "personal", "trip.md", f"{marks} First\n\nWalked.", tags=["log"])
+    words = [f"destination{number}" for number in range(50)]
+    await capture.log(me, "", "personal", "trip.md", " ".join(words), "Arrived.")
+    parts = await logs.series(me, "personal", "trip.md")
+    [last] = logs.last_entries(parts, 1)
+    line, overflow, entry = last.split("\n\n")
+    assert len(line) <= sections.HEADING_CHARS
+    assert line.removeprefix(f"{marks} ").split() + overflow.split() == words
+    assert entry == "Arrived."
+    assert all(word in parts[0].body.split() for word in words)
+
+
 async def test_log_keeps_the_level_of_a_log_with_level_two_entries(household):
     """A log of ``##`` entries gets a ``##`` entry, and brief still reads them all.
 
