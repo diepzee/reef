@@ -34,6 +34,7 @@ from piccolo.columns.defaults.timestamptz import TimestamptzNow
 from piccolo.table import Table
 
 from reef.db import DB
+from reef.limits import FILENAME_CHARS, MIME_CHARS
 
 
 def utc_now() -> datetime:
@@ -238,8 +239,8 @@ class Attachment(Table, tablename="attachments", db=DB):
     space_id = ForeignKey(Space, index=True)
     engram_id = ForeignKey(Engram, null=True, default=None, on_delete=OnDelete.set_null)
     object_key = Varchar(unique=True)
-    filename = Varchar(length=512, default="")
-    mime = Varchar()
+    filename = Varchar(length=FILENAME_CHARS, default="")
+    mime = Varchar(length=MIME_CHARS)
     byte_size = Integer()
     description = Varchar(length=None)
     status = Varchar(choices=AttachmentStatus, default=AttachmentStatus.PENDING)

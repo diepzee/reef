@@ -52,6 +52,7 @@ from reef import calllog, telemetry
 from reef.auth import current_principal
 from reef.config import get_settings
 from reef.db import transaction_scope
+from reef.limits import MAX_BATCH
 from reef.methods import Caller, Method, MethodError, capture, connector, find, maintain
 from reef.methods import share as sharing
 from reef.usage import current_session_id
@@ -284,6 +285,9 @@ def _register(title: str, *, read_only: bool, destructive: bool):
         :param shell: the shell
         :returns: the shell
         """
+        # Expand the shared limit before FastMCP reads the tool description.
+        if shell.__doc__:
+            shell.__doc__ = shell.__doc__.replace("{MAX_BATCH}", str(MAX_BATCH))
         tool = FunctionTool.from_function(shell, annotations=annotations)
         mcp.add_tool(
             tool.model_copy(update={"parameters": _reason_required(tool.parameters)})
@@ -543,7 +547,7 @@ async def log(
 async def write(
     reason: Reason = "", *, space: str, engrams: list[dict], message: str
 ) -> list[dict]:
-    """Create or replace whole engrams, up to 20 in one call, all or nothing.
+    """Create or replace whole engrams, up to {MAX_BATCH} in one call, all or nothing.
 
     Use it for new engrams and for rewriting one completely. For a small
     change use correct; to add to a log use log. When you replace an engram,
