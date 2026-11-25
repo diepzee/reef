@@ -8,3 +8,6 @@ FILENAME_CHARS = 512
 
 #: The longest stored content type, in characters.
 MIME_CHARS = 255
+
+#: The shortest signing secret for session cookies and staged tokens.
+MIN_SECRET_LENGTH = 32

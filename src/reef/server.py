@@ -52,7 +52,7 @@ from reef import calllog, telemetry
 from reef.auth import current_principal
 from reef.config import get_settings
 from reef.db import transaction_scope
-from reef.limits import MAX_BATCH
+from reef.limits import MAX_BATCH, MIN_SECRET_LENGTH
 from reef.methods import Caller, Method, MethodError, capture, connector, find, maintain
 from reef.methods import share as sharing
 from reef.usage import current_session_id
@@ -1077,12 +1077,12 @@ def main() -> None:
             print(
                 "REEF_DEV_INSECURE=1 — serving HTTP without auth; local development only"
             )
-        if len(get_settings().web.session_secret) < 32:
+        if len(get_settings().web.session_secret) < MIN_SECRET_LENGTH:
             if not get_settings().dev.insecure:
                 raise RuntimeError(
                     "refusing to serve HTTP with a missing or weak "
                     "REEF_SESSION_SECRET: set it to a random value at least "
-                    "32 characters long"
+                    f"{MIN_SECRET_LENGTH} characters long"
                 )
             print(
                 "REEF_DEV_INSECURE=1 — serving HTTP with a missing/weak "
