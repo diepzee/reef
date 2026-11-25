@@ -126,17 +126,47 @@ async def test_remember_into_a_named_space(household):
     assert await _read(me, "personal", "inbox.md") is None
 
 
-async def test_capture_records_who_wrote(household):
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_capture_records_who_wrote(household, writer):
     """The writer kind of the caller is kept on each change."""
     person = Caller(
         principal=caller_for(household["wouter"]).principal,
-        writer="person",
+        writer=writer,
         session_id=None,
     )
     await capture.remember(person, "", "bin day is Tuesday")
     await capture.log(person, "", "personal", "climbing-log.md", "Day 1", "Hung.")
-    assert await _channels(person, "personal", "inbox.md") == ["person"]
-    assert await _channels(person, "personal", "climbing-log.md") == ["person"]
+    await capture.write(
+        person, "", "personal", [{"path": "plan.md", "body": "Hang twice."}], "create"
+    )
+    for path in ("inbox.md", "climbing-log.md", "plan.md"):
+        assert await _channels(person, "personal", path) == [writer]
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_log_keeps_writer_on_appends_and_the_next_part(
+    household, small_cap, writer
+):
+    """Appending, closing a full part and starting its successor keep the writer."""
+    caller = Caller(
+        principal=caller_for(household["wouter"]).principal,
+        writer=writer,
+        session_id=None,
+    )
+    await capture.log(caller, "", "personal", "training-log.md", "Day 1", "a" * 300)
+    appended = await capture.log(
+        caller, "", "personal", "training-log.md", "Day 2", "b" * 300
+    )
+    assert appended == {"engram": "training-log.md", "part": 1, "version": 2}
+    assert await _channels(caller, "personal", "training-log.md") == [writer, writer]
+
+    continued = await capture.log(
+        caller, "", "personal", "training-log.md", "Day 3", "c" * 400
+    )
+
+    assert continued == {"engram": "training-log-2.md", "part": 2, "version": 1}
+    assert await _channels(caller, "personal", "training-log.md") == [writer] * 3
+    assert await _channels(caller, "personal", "training-log-2.md") == [writer]
 
 
 # --- log -------------------------------------------------------------------------

@@ -167,6 +167,38 @@ async def test_brief_keeps_overlapping_log_series(household, monkeypatch, seed):
     assert all(row["reads"] == 1 for row in rows)
 
 
+async def test_brief_starts_from_a_hit_only_in_part_two(household):
+    """A match in part two brings back the base and entries from both parts."""
+    me = caller_for(household["wouter"])
+    await save_as(
+        me,
+        "personal",
+        "training-log.md",
+        _entries(1, 3),
+        title="Training",
+        tags=["log"],
+    )
+    latest = "### 2026-01-04\nPractised dynos."
+    await save_as(
+        me,
+        "personal",
+        "training-log-2.md",
+        latest,
+        title="Training continued",
+        tags=["log"],
+    )
+    hits = await find.search_engrams(me.principal, "dynos")
+    assert [hit["path"] for hit in hits] == ["training-log-2.md"]
+
+    [item] = (await find.brief(me, "prepare a session", "dynos", entries=3))["engrams"]
+
+    assert item["engram"] == "training-log.md"
+    assert item["title"] == "Training"
+    assert item["space"] == "personal"
+    assert item["parts"] == ["training-log.md", "training-log-2.md"]
+    assert item["entries"] == [_entries(2, 2).strip(), _entries(3, 3).strip(), latest]
+
+
 async def test_brief_stays_within_budget(household):
     me = caller_for(household["wouter"])
     for number in range(5):

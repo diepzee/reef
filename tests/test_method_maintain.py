@@ -5,6 +5,7 @@ opens its own, as it does behind the tools.
 """
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from asyncpg import LockNotAvailableError
@@ -102,7 +103,7 @@ def test_the_three_are_methods():
 
 
 async def test_correct_replaces_one_passage(household):
-    """One passage changes; history keeps who changed it and the old text."""
+    """One passage changes; history keeps the old text and the change message."""
     me = caller_for(household["wouter"])
     await save_as(me, "household", "car.md", CAR)
     done = await maintain.correct(
@@ -113,7 +114,18 @@ async def test_correct_replaces_one_passage(household):
     assert engram.body == CAR.replace("blue", "green")
     first, second = await _history(me, "household", "car.md")
     assert first.body == CAR
-    assert (second.channel, second.message) == ("assistant", "colour was wrong")
+    assert second.message == "colour was wrong"
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_correct_records_the_writer_on_the_revision(household, writer):
+    """A correction stores the caller's writer kind on the new revision."""
+    me = replace(caller_for(household["wouter"]), writer=writer)
+    await save_as(me, "household", "car.md", CAR)
+    await maintain.correct(me, "", "household", "car.md", "blue", "green", "fix")
+    history = await _history(me, "household", "car.md")
+    assert len(history) == 2
+    assert history[-1].channel == writer
 
 
 @pytest.mark.parametrize(
@@ -213,7 +225,17 @@ async def test_undo_restores_the_previous_version_as_a_new_change(household):
     history = await _history(me, "household", "car.md")
     assert [r.body for r in history] == ["one", "two", "three", "two"]
     assert history[-1].message == "Undo to version 2"
-    assert history[-1].channel == "assistant"
+
+
+@pytest.mark.parametrize("writer", ["assistant", "person", "system"])
+async def test_undo_records_the_writer_on_the_revision(household, writer):
+    """An undo stores the caller's writer kind on the restored revision."""
+    me = replace(caller_for(household["wouter"]), writer=writer)
+    await _versions(me)
+    await maintain.undo(me, "", "household", "car.md")
+    history = await _history(me, "household", "car.md")
+    assert len(history) == 4
+    assert history[-1].channel == writer
 
 
 async def test_undo_to_a_given_version(household):
@@ -548,3 +570,33 @@ async def test_forget_token_is_refused_when_the_name_points_elsewhere(household,
     assert refused.value.code == "not_found"
     assert (await _read(me, "household", "car.md")).body == "Club car."
     assert club.id
+
+
+@pytest.mark.parametrize("target", ["engram", "file"])
+@pytest.mark.parametrize("loss", ["viewer", "removed"])
+async def test_forget_rechecks_permission_at_confirm(
+    household, graph, store, target, loss
+):
+    """Losing write access after staging preserves the target and its history."""
+    person = household["partner"]
+    me = caller_for(person)
+    owner = caller_for(household["wouter"])
+    saved = await save_as(me, "household", "car.md", CAR)
+    key = await attach_file(me, "household", "Car insurance.")
+    args = {target: "car.md" if target == "engram" else key}
+    first = await maintain.forget(me, "", "household", **args)
+    if loss == "viewer":
+        await graph.set_role(person, household["shared"], "viewer")
+    else:
+        await graph.drop_membership(person, household["shared"])
+
+    with pytest.raises(MethodError) as refused:
+        await maintain.forget(me, "", "household", confirm=first["token"], **args)
+
+    assert refused.value.code == ("read_only" if loss == "viewer" else "unknown_space")
+    current = await _read(owner, "household", "car.md")
+    assert (current.id, current.body, current.version) == (saved.id, CAR, 1)
+    assert len(await _history(owner, "household", "car.md")) == 1
+    [file] = await find.open(owner, "", [f"household/file/{key}"])
+    assert "error" not in file
+    assert store.deleted == []

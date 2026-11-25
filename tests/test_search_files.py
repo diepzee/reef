@@ -552,6 +552,53 @@ async def test_the_reranker_reads_a_files_best_chunks(tx, household, service, re
     assert any("page 2" in text and "The vehicle went in" in text for text in mine)
 
 
+async def test_reordered_file_hits_keep_their_own_passages(
+    tx, household, service, reranker, monkeypatch
+):
+    """Reranking read files preserves their passages without falling back to snippets."""
+    me = principal_for(household["wouter"])
+    expected = {}
+    for colour in ("blue", "red"):
+        filename = f"{colour}.pdf"
+        body = (
+            f"The vehicle needs {colour} paint. "
+            + "Prepare each panel carefully. " * 15
+        )
+        file = await _file(
+            me, household["w_personal"], filename, "Paint notes.", [body]
+        )
+        await embedding.embed_file(me, file, service)
+        expected[filename] = body.strip()
+    before = await search_engrams(me, "vehicle", rerank=False, passages=True)
+    assert {hit["filename"] for hit in before} == set(expected)
+    wanted = before[-1]["filename"]
+
+    async def prefer_last(query: str, documents: list[str]) -> list[float]:
+        """Rank the last file first and record what the reranker reads.
+
+        :param query: the question
+        :param documents: candidate passages
+        :returns: scores favouring the previously last file
+        """
+        reranker.documents.extend(documents)
+        return [10.0 if text.startswith(wanted) else 0.0 for text in documents]
+
+    monkeypatch.setattr(reranker, "score", prefer_last)
+    after = await search_engrams(me, "vehicle", passages=True)
+
+    assert reranker.documents
+    assert [hit["filename"] for hit in after] == [
+        hit["filename"] for hit in reversed(before)
+    ]
+    assert {hit["filename"]: hit["passage"] for hit in after} == {
+        hit["filename"]: hit["passage"] for hit in before
+    }
+    for hit in after:
+        assert hit["kind"] == "file"
+        assert hit["passage"] != hit["snippet"]
+        assert expected[hit["filename"]] in hit["passage"]
+
+
 async def test_a_file_without_vectors_is_reread_by_its_start(
     tx, household, service, reranker
 ):
