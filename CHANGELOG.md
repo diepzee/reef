@@ -1,3 +1,25 @@
+## [2.4.5](https://github.com/diepzee/reef/compare/v2.4.4...v2.4.5) (2026-11-26)
+
+### Bug fixes
+
+* **conversations:** Reef is a required server for Codex (RUG-82) ([#182](https://github.com/diepzee/reef/issues/182)) ([a3f6c10](https://github.com/diepzee/reef/commit/a3f6c10209884143642ae97b133dc64326dcf9cb)), closes [#175](https://github.com/diepzee/reef/issues/175)
+* **share:** a path that is taken in another spelling is refused (RUG-83) ([#183](https://github.com/diepzee/reef/issues/183)) ([da03aba](https://github.com/diepzee/reef/commit/da03abae03f68591be9af521ccfa03e481947dbc))
+* **tools:** five edge cases in share, log, brief, recall and forget (RUG-46) ([#180](https://github.com/diepzee/reef/issues/180)) ([ea56bbe](https://github.com/diepzee/reef/commit/ea56bbec73a44aed28715fb0f9a2bbf7d72b0e79))
+* **web:** a new engram never replaces one that is already there (RUG-84) ([#186](https://github.com/diepzee/reef/issues/186)) ([7cda337](https://github.com/diepzee/reef/commit/7cda33799bc5afeb8774086d6fb975030a8a65a7))
+
+### Documentation
+
+* **runbook:** Phase 7 points to the spike that replaced it (RUG-46) ([#185](https://github.com/diepzee/reef/issues/185)) ([49e265c](https://github.com/diepzee/reef/commit/49e265cbcaed4fb16cc111bac4f6700c06b0dd74))
+* the how-it-works page says space, engram and Reef (RUG-46) ([#178](https://github.com/diepzee/reef/issues/178)) ([e00e1c2](https://github.com/diepzee/reef/commit/e00e1c211795822e483c7f6ec228bae17358de00))
+
+### Chores
+
+* remove unused code and keep each limit in one place (RUG-46) ([#179](https://github.com/diepzee/reef/issues/179)) ([49315f6](https://github.com/diepzee/reef/commit/49315f67fb3dfcd2ae617b70e14b19131eb943d5))
+
+### Tests
+
+* cover the export, writer kinds, confirm checks, brief and the CLI's arguments (RUG-46) ([#181](https://github.com/diepzee/reef/issues/181)) ([5f96f86](https://github.com/diepzee/reef/commit/5f96f869e67919adde1bbdbb5f5f08ae27137ed0))
+
 ## [2.4.4](https://github.com/diepzee/reef/compare/v2.4.3...v2.4.4) (2026-11-25)
 
 ### Bug fixes
