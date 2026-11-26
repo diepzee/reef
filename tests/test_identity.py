@@ -41,7 +41,7 @@ async def test_the_identity_functions_are_owned_by_the_bypassing_role():
         assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE)
         assert row["rolbypassrls"] is True
         assert row["prosecdef"] is True
-        assert "search_path=public, pg_catalog" in (row["proconfig"] or [])
+        assert "search_path=pg_catalog, public, pg_temp" in (row["proconfig"] or [])
 
 
 async def test_they_are_closed_to_public():

@@ -192,7 +192,7 @@ async def test_the_claim_function_can_return_nothing_but_ids():
         "job_subject_ids uuid[], job_attempts integer)"
     )
     assert row["prosecdef"] is True
-    assert "search_path=public, pg_catalog" in row["proconfig"]
+    assert "search_path=pg_catalog, public, pg_temp" in row["proconfig"]
     assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE)
 
 

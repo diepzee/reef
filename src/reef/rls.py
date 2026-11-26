@@ -195,6 +195,17 @@ _REVISION_WRITE_PREDICATE = "engram_id IN (SELECT id FROM engrams WHERE space_id
 _PROMOTION_PREDICATE = f"person_id = {PRINCIPAL}"
 
 
+HELPER_SEARCH_PATH = "pg_catalog, public, pg_temp"
+"""Where a helper function looks names up, in this order.
+
+The system catalog comes first, so an object in ``public`` cannot stand in
+for a built-in such as ``current_setting``. Temporary tables come last and
+are named on purpose: left out, Postgres searches them *first*, and a
+session's own temporary ``memberships`` table would answer for the real one.
+``tests/test_helper_search_path.py`` shows both.
+"""
+
+
 def _function_ddl(
     name: str,
     body: str,
@@ -209,8 +220,9 @@ def _function_ddl(
 
     Each function is created, handed to :data:`AUTHZ_ROLE`, closed to the
     public, and opened to whichever executor roles exist. ``SET search_path``
-    is fixed so a caller cannot shadow the tables the body names, which is
-    mandatory for ``SECURITY DEFINER``.
+    is fixed to :data:`HELPER_SEARCH_PATH`, so a caller cannot shadow the
+    tables or the built-ins the body names, which is mandatory for
+    ``SECURITY DEFINER``.
 
     ``GRANT`` on the tables the body touches is not redundant with
     ``BYPASSRLS``: that attribute suspends *row security*, not table
@@ -231,7 +243,7 @@ def _function_ddl(
         (
             f"CREATE OR REPLACE FUNCTION {name} RETURNS {returns} "
             f"LANGUAGE {language} {volatility} SECURITY DEFINER "
-            f"SET search_path = public, pg_catalog AS $reef${body}$reef$"
+            f"SET search_path = {HELPER_SEARCH_PATH} AS $reef${body}$reef$"
         ),
         _for_authz(f"ALTER FUNCTION {name} OWNER TO %I"),
         f"REVOKE ALL ON FUNCTION {name} FROM PUBLIC",
