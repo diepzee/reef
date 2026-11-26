@@ -1,3 +1,9 @@
+## [2.5.0](https://github.com/diepzee/reef/compare/v2.4.5...v2.5.0) (2026-11-26)
+
+### Features
+
+* **searchlog:** totals of search misses across everyone, and nothing else (RUG-89) ([#187](https://github.com/diepzee/reef/issues/187)) ([97d6be0](https://github.com/diepzee/reef/commit/97d6be0eeb30abd1a1e3102dae198528cf5e4688))
+
 ## [2.4.5](https://github.com/diepzee/reef/compare/v2.4.4...v2.4.5) (2026-11-26)
 
 ### Bug fixes
