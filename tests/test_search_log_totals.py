@@ -65,6 +65,7 @@ async def _access(
     via: str = "read",
     other_person: UUID | None = None,
     other_session: str | None = None,
+    without_session: bool = False,
 ) -> None:
     """Store an access relative to one search.
 
@@ -75,12 +76,14 @@ async def _access(
     :param via: how the engram was used
     :param other_person: another reader, when testing a mismatch
     :param other_session: another conversation, when testing a mismatch
+    :param without_session: omit the read's session label
     """
     await connection.execute(
         "INSERT INTO engram_access (id, person_id, engram_id, via, weight, "
         "session_id, accessed_at) SELECT gen_random_uuid(), "
         "coalesce($2::uuid, person_id), $3, $4, 1, "
-        "coalesce($5::text, session_id), searched_at + $6::interval "
+        "CASE WHEN $7 THEN NULL ELSE coalesce($5::text, session_id) END, "
+        "searched_at + $6::interval "
         "FROM search_log WHERE id = $1",
         search,
         other_person,
@@ -88,6 +91,7 @@ async def _access(
         via,
         other_session,
         after,
+        without_session,
     )
 
 
@@ -252,9 +256,17 @@ async def test_misses_agree_with_distinct_searches_in_the_persons_log(
     counting those stored reads without exposing them to the caller.
     """
     engram = await _seed_searches(seed, household)
+    person = household["wouter"]
+    async with transaction_scope():
+        second_engram = await save_engram(
+            Principal(person.id, person.email),
+            "household",
+            "second.md",
+            "Another private engram.",
+            message="seed",
+        )
     await seed.execute("DELETE FROM search_log")
     await seed.execute("DELETE FROM engram_access")
-    person = household["wouter"]
     cases = (
         ({}, {"after": timedelta(0)}, True),
         ({}, {"after": timedelta(minutes=59, seconds=59)}, True),
@@ -264,6 +276,7 @@ async def test_misses_agree_with_distinct_searches_in_the_persons_log(
         ({}, {"other_person": household["partner"].id}, False),
         ({}, {"other_session": "elsewhere"}, False),
         ({"session": None}, {}, False),
+        ({}, {"without_session": True}, False),
         ({"returned": (engram,)}, {}, False),
     )
     expected = set()
@@ -278,11 +291,17 @@ async def test_misses_agree_with_distinct_searches_in_the_persons_log(
         await _access(seed, search, engram, **access_options)
         if missed:
             await _access(seed, search, engram, **access_options)
+            await _access(seed, search, second_engram.id, **access_options)
             expected.add(query)
     async with transaction_scope():
         rows = await searchlog.misses(Principal(person.id, person.email))
     assert {row["query"] for row in rows} == expected
-    assert len(rows) == 2 * len(expected)
+    assert len(rows) == 3 * len(expected)
+    for query in expected:
+        assert {row["engram_id"] for row in rows if row["query"] == query} == {
+            engram,
+            second_engram.id,
+        }
     distinct_searches = {(row["query"], row["searched_at"]) for row in rows}
     assert tuple(await probe.fetchrow("SELECT * FROM reef_search_log_totals(7)")) == (
         len(cases),
