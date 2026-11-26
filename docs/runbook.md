@@ -886,16 +886,10 @@ privacy page promises that.
   nothing else.
 - **To switch it off again,** unset the variable. Rows already stored age
   out. To remove them at once: `TRUNCATE search_log;` as a superuser.
-- **To count misses across everybody** without reading a query, as a
-  superuser:
-
-```sql
-SELECT count(*) FROM search_log s JOIN page_access a
-  ON a.person_id = s.person_id AND a.session_id = s.session_id
- AND a.via = 'read' AND a.accessed_at >= s.searched_at
- AND a.accessed_at < s.searched_at + interval '1 hour'
-WHERE NOT (a.page_id = ANY (s.page_ids));
-```
+- **To count misses across everybody,** use `just search-totals [days]`
+  (30 by default), through the app's own role. See **Search totals, never
+  rows** beside the call log's totals below. Do not read either private log
+  as a superuser.
 
 **Stopping it** is safe at any moment. On a deploy it finishes the job in
 hand and exits. If it is killed mid-job, that job's work rolls back and
@@ -1422,6 +1416,30 @@ today's calls count from tomorrow. Print them with
 `railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/call_totals.py --days 30`.
 Do not read `call_log` itself as a superuser: the privacy page promises
 nobody reads another person's calls.
+
+**Search totals, never rows.** `reef_search_log_totals(p_days)` is the only
+way to count search misses across people. It returns how many searches
+and how many of them missed at least one read. No query, person, engram,
+session or time, and not how many people. It counts whole days in UTC, from
+the start of the day `p_days` days ago to the start of today, and refuses
+fewer than 7 days or more than 90. The caller's `TimeZone` setting does not
+move these bounds: `searched_at` holds UTC clock time and is compared as it
+is. So no window can be aimed at one moment, and today's searches count
+from tomorrow. Flagged test accounts are left out, as in the call totals.
+Print them with `just search-totals [days]` (30 by default). In production,
+run it inside `reef-app`, so it uses the app's own role:
+`railway ssh -s reef-app -- uv run --frozen --no-dev python scripts/search_totals.py --days 30`.
+
+The function reads both `search_log` and `engram_access` inside the database
+and returns only the two numbers. A miss follows the same rule as
+`searchlog.misses`: the same person, the same non-null session, a `read`
+at or after the search and less than one hour later, of an engram the
+search did not return. Several matching reads count a search once. The
+period selects searches; their full following hour counts, even when a
+matching read falls after midnight today. The Python `searchlog.totals`
+wrapper and the script receive only the counts. Do not read either log as
+a superuser: the privacy page promises nobody reads another person's
+searches.
 
 **Off by default.** Nothing is recorded until `REEF_CALL_LOG=1` is set on
 `reef-app`. **Before you set it**, update the privacy page and tell the
