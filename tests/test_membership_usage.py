@@ -16,6 +16,22 @@ from reef.spaces import delete_space, leave_space, remove_member
 from reef.usage import refresh_activation
 
 
+async def test_member_cannot_delete_membership_directly(household: dict, probe) -> None:
+    """A direct DELETE cannot bypass the privileged cleanup function."""
+    async with probe.transaction():
+        await probe.execute(
+            "SELECT set_config('app.person_id', $1, true)",
+            str(household["partner"].id),
+        )
+        assert (
+            await probe.fetch(
+                "DELETE FROM memberships WHERE space_id = $1 RETURNING id",
+                household["shared"].id,
+            )
+            == []
+        )
+
+
 async def test_departure_waits_for_ownership_transfer(household: dict) -> None:
     """Observe the lock itself, then ensure departure sees committed ownership."""
     owner = await asyncpg.connect(get_settings().database.test_url)

@@ -9,8 +9,10 @@ is pg_catalog, public, pg_temp.
 
 Grants the existing function owner SELECT on engrams and SELECT, DELETE on
 engram_access and engram_heat. No application role gains access to another
-person's rows. Table definitions, indexes, row policies, other functions and
-search_log are left alone. The SQL is fixed text and runs atomically, safely twice.
+person's rows. Drops memberships_self_delete, so application callers must
+use the helper to end a membership and cannot skip usage cleanup. Table
+definitions, indexes, other row policies, other functions and search_log
+are left alone. The SQL is fixed text and runs atomically, safely twice.
 
 This deletes data: existing engram_access and engram_heat rows whose person
 is neither a member nor the owner of the engram's space. Production had
@@ -105,6 +107,7 @@ BEGIN
     PERFORM set_config('role', previous_role, true);
 END
 $cleanup$""",
+    "DROP POLICY IF EXISTS memberships_self_delete ON memberships",
 ]
 
 

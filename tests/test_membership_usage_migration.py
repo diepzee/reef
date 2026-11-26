@@ -161,6 +161,21 @@ def test_fixed_helper_matches_current_declaration() -> None:
     )
 
 
+async def test_migration_blocks_direct_membership_deletion(connection) -> None:
+    """Existing databases also require the helper for self-departure."""
+    _owner, member, space = await seed_usage(connection)
+    await connection.execute("SET LOCAL ROLE reef")
+    await connection.execute(
+        "SELECT set_config('app.person_id', $1, true)", str(member)
+    )
+    assert (
+        await connection.fetch(
+            "DELETE FROM memberships WHERE space_id = $1 RETURNING id", space
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("way", ["removed", "member_leaves", "owner_leaves"])
 async def test_migrated_helper_erases_only_departing_usage(
     connection: asyncpg.Connection, way: str

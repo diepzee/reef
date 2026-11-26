@@ -484,10 +484,8 @@ def identity_policy_statements() -> list[str]:
             "CREATE POLICY memberships_insert ON memberships FOR INSERT "
             "WITH CHECK (reef_owns_space(space_id))"
         ),
-        (
-            f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
-            f"USING (person_id = {PRINCIPAL})"
-        ),
+        # Membership departure must run the privileged usage cleanup.
+        "DROP POLICY IF EXISTS memberships_self_delete ON memberships",
         # Renaming a space is editing your own membership, and nobody else's.
         # The row scope is here; the *column* scope is a grant, because row
         # security cannot say "alias but not role" -- without that half this
