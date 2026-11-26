@@ -1,6 +1,24 @@
 {
   "entries": [
     {
+      "version": "2.4.5",
+      "date": "2026-11-26",
+      "changes": [
+        {
+          "kind": "fixed",
+          "text": "Sharing refuses a name that is already taken, even when you use different capitalization or leave off “.md”, keeping the existing engram unchanged."
+        },
+        {
+          "kind": "fixed",
+          "text": "Log entries keep all the text from long headings, and invalid sharing requests are refused before confirmation. When a space is removed during a search, results from your other spaces still appear."
+        },
+        {
+          "kind": "fixed",
+          "text": "Creating a new engram keeps an existing engram with the same name safe. If the name is taken, Reef tells you and keeps your draft."
+        }
+      ]
+    },
+    {
       "version": "2.4.4",
       "date": "2026-11-25",
       "changes": [
