@@ -1,3 +1,13 @@
+## [2.6.0](https://github.com/diepzee/reef/compare/v2.5.1...v2.6.0) (2026-11-26)
+
+### Features
+
+* **usage:** a correction counts three times, like "remember this" (RUG-23) ([#193](https://github.com/diepzee/reef/issues/193)) ([71cf552](https://github.com/diepzee/reef/commit/71cf5527e92c3e0f4f9a7ce3a1052cf537f8777e))
+
+### Bug fixes
+
+* **usage:** a person's usage rows end with their membership (RUG-23) ([#194](https://github.com/diepzee/reef/issues/194)) ([222e702](https://github.com/diepzee/reef/commit/222e702939670981b8fb13fb451b3fc3c662bdb4))
+
 ## [2.5.1](https://github.com/diepzee/reef/compare/v2.5.0...v2.5.1) (2026-11-26)
 
 ### Bug fixes
