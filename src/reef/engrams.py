@@ -302,6 +302,8 @@ async def validate_save(
     :raises ProtectedPath: when the caller cannot write under meta/
     :raises PrivateContentLeak: when the write copies private text
     :raises VersionConflict: when the current version differs
+    :raises reef.relations.InvalidRelations: ``relation_block_in_body`` when
+        the body could be read as a leading relation block
     """
     validate_body(path, body)
     refuse_stored_block(body)
@@ -360,6 +362,13 @@ async def save_engram(
     :raises InvalidPath: when a new engram's path cannot be normalized
     :raises EngramTooLarge: for a body over the per-engram ceiling
     :raises VersionConflict: when expected_version is stale
+    :raises reef.relations.InvalidRelations: ``relation_block_in_body`` for
+        a stored relation block, ``relation_invalid`` for an unknown kind,
+        or ``relation_too_many`` for more than twenty targets of a kind
+    :raises RelationRefused: ``relation_target_missing``,
+        ``relation_into_personal``, ``relation_to_itself``,
+        ``relation_needs_write``, ``relation_circle`` or
+        ``relation_needs_confirmation`` when a typed link cannot be saved
     :returns: the saved engram
     """
     validate_body(path, body)

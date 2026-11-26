@@ -26,7 +26,9 @@ a person to use by hand.
 1. A person, or an assistant on a person's word, can mark an engram as
    replacing another one.
 2. A replaced engram stays readable and findable, ranks below engrams that
-   are not replaced, and names its replacement wherever it is shown.
+   are not replaced, and names its readable replacements in read results
+   and the index. The connector's `search` changes only its order; its
+   `fetch` carries the note.
 3. The other three relations can be written and are shown when an engram is
    opened. They change no ranking.
 4. A memory without typed links behaves exactly as it does today.
@@ -100,7 +102,8 @@ a person to use by hand.
 
 ### 1. Writing a relation
 
-A body may start with a front matter block:
+A body may start with a front matter block, after any whitespace or
+byte-order mark. Taking the block out preserves that prefix:
 
 ```markdown
 ---
@@ -118,7 +121,8 @@ The new contract runs from 1 January 2027.
 - **Values:** one or more wiki links, on the key's line separated by
   commas, or as a list with one link per line. A wiki link names an engram
   exactly as it does in a body: `[[x.md]]`, `[[family:x.md]]`,
-  `[[personal:x.md]]`.
+  `[[personal:x.md]]`. A link may have a label and may be enclosed in
+  matching single or double quotes, as in `about: "[[x.md]]"`.
 - **What Reef takes out:** relation lines of these four keys. Every other line
   of the block stays where it is, as text. A block that is empty afterwards
   is removed with its two `---` lines. A body without such a block, or
@@ -132,6 +136,10 @@ The new contract runs from 1 January 2027.
 
 - **No stored body may start with a block holding a relation line.**
   `save_engram` refuses it, whatever the caller, including `undo`.
+  The refusal asks the same parser about the original body and about a
+  view with line separators normalized. Whitespace or a byte-order mark
+  before the block does not hide it. It gives `relation_block_in_body`
+  and asks for a rewrite with `write`; `share` refuses at its first call.
 - **A new `replaces` needs a person or their yes.** `save_engram` itself
   checks that the writer is a person or the caller confirms their yes.
 - **The target must exist** and the writer must be able to read it. If it
@@ -142,8 +150,8 @@ The new contract runs from 1 January 2027.
   The database enforces this rule, not only the code above it.
 - **No link to itself, and no visible circle of `replaces`.** A replaces B
   and B replaces A is refused when the saver can read both links. A circle
-  through unreadable links can be stored; lookup ends and treats a circle
-  as not replaced.
+  through unreadable links can be stored. Lookup ends; a circular branch
+  supplies no end, but ordinary replacements on other branches still count.
 - **At most 20 links per key.**
 - **The existing rule stands:** no link from a shared space into a
   personal one.
@@ -242,15 +250,17 @@ same one, there are two, and the one whose link is newest comes first.
 
 ## Done when
 
-- A body with a block is stored without the four keys' lines, and with
-  every other line unchanged.
+- A body with a block is stored without its recognized relation lines,
+  with its prefix and every other line unchanged. A key with ordinary
+  text, such as `about: quarterly review`, stays in the body.
 - The rules of part 2 each have a test, with the refusal a person can
   understand.
 - An assistant's `replaces` writes nothing on the first call and everything
   on the second; a person's save in the web app writes at once.
-- In search, a replaced engram ranks below the others and names its
-  replacement; for a reader who cannot read the replacement, nothing
-  changes.
+- In search, a replaced engram ranks below the others. Read results name
+  readable replacements, and inserted hits name the old hits they stand
+  in for. The connector's `search` keeps its fixed shape and changes only
+  order; `fetch` supplies its note. An unreadable replacement changes nothing.
 - The private question set and the benchmark give the same scores as
   before the change. They hold no typed links, so any difference is a
   fault.
@@ -307,8 +317,18 @@ or unclear. These points replace what the parts above say.
    `url`); only its order changes. `fetch` carries the note.
 8. **A known limit:** the check against a circle sees only links the saver
    can read. A circle through other people's links can be stored. The
-   lookup of replacements ends anyway, and such engrams count as not
-   replaced.
+   lookup of replacements ends anyway. A circular branch supplies no end,
+   but an ordinary replacement on another branch still counts.
+9. **One parser, two views for the storage guard:** the parser reads LF
+   line endings, with an optional CR before LF. It recognizes a block
+   after whitespace or a byte-order mark and preserves that prefix.
+   The guard asks that parser about the original body, and about a view
+   with Python's other line separators turned into LF: lone CR, U+2028,
+   U+2029, U+0085, form feed, vertical tab and U+001C through U+001E.
+   Either a relation or a parser refusal in either view refuses storage.
+   Only the guard uses the normalized view; `write` and the web route
+   parse the original body. A key with a quoted wiki link is a relation
+   line too.
 
 ## Calls I made (check these while reading)
 
@@ -337,9 +357,6 @@ or unclear. These points replace what the parts above say.
 
 - The exact grammar of the block and the refusal texts, in the style of
   the existing messages in `src/reef/methods/__init__.py`.
-- Where in the search pipeline the replaced hits are moved, so that the
-  rule of RUG-77 for files still holds and the reranker's order inside
-  each group is kept.
 - How the chain of replacements is read without one query per hit.
 - Whether `tests/test_protocol.py` needs new allowed words for the tool
   description and the protocol text.

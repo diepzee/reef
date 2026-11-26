@@ -1,5 +1,11 @@
 # Typed links and replaced engrams: implementation plan
 
+The design's **Changes after review** replaces parts of this plan: Task 1
+(parsing), Task 3 (storage checks and counts), Task 4 (confirmation and web
+saves), Task 5 (search order and replacement lookup), Task 6 (read payloads
+and the connector), and Task 7 (conversation checks). Read those amendments
+before these steps; Task 2's migration is unchanged.
+
 > **For agentic workers:** build this task by task, in order. Each task ends
 > with its tests passing and one commit per step group. Steps use checkbox
 > (`- [ ]`) syntax for tracking.

@@ -18,7 +18,7 @@ _VALUE = re.compile(r"\[\[([^\[\]\r\n]+)\]\]")
 
 
 class InvalidRelations(ValueError):
-    """A relation line cannot be read or contains too many links."""
+    """A relation is invalid, exceeds the limit, or cannot remain in stored text."""
 
     def __init__(self, code: str = "relation_invalid") -> None:
         """Keep the refusal code for callers.
@@ -163,7 +163,8 @@ def refuse_stored_block(body: str) -> None:
     """Refuse text a later editor save could turn into a relation.
 
     :param body: the body that would be stored
-    :raises InvalidRelations: when its first block holds a relation line
+    :raises InvalidRelations: ``relation_block_in_body`` when either the
+        original or normalized view has a relation or cannot be parsed
     """
     # Editors may normalize other separators. This view is only a guard;
     # write and the web route always parse the original text.
