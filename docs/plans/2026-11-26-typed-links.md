@@ -313,7 +313,7 @@ in the task named.
     `{"space", "path", "title"}` in the reader's names. Hits that are not
     replaced do not carry the key.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - `demote` alone: the order rule; files keep their positions; insertion;
     no insertion when the replacement is not in `insertable`; an empty
     `replaced` returns the ranking itself;
@@ -332,15 +332,15 @@ in the task named.
   - generated: with no `supersedes` link anywhere, the ranking for 20
     queries is identical to the ranking before this task (compare against
     `search_engrams` with `demote` patched to return its input).
-- [ ] **Step 2: Run** them. Expected: fail.
-- [ ] **Step 3: Implement.** Apply `demote` to the ranking after the
+- [x] **Step 2: Run** them. Expected: fail.
+- [x] **Step 3: Implement.** Apply `demote` to the ranking after the
   reranker and before the last `spread` and the cut to `limit`. Ask
   `replacements` once, for the engram ids in the ranking. `insertable` is
   the replacements that lie in the searched spaces.
-- [ ] **Step 4: Run** `just test-py tests/test_search_replaced.py
+- [x] **Step 4: Run** `just test-py tests/test_search_replaced.py
   tests/test_search.py tests/test_search_files.py tests/test_search_spread.py
   tests/test_rerank.py tests/test_search_hybrid.py`. Expected: pass.
-- [ ] **Step 5: Commit** `feat(search): a replaced engram ranks after the others and names its replacement (RUG-36)`.
+- [x] **Step 5: Commit** `feat(search): a replaced engram ranks after the others and names its replacement (RUG-36)`.
 
 ---
 

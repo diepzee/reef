@@ -51,6 +51,7 @@ from reef.access import Principal, alias_map, arm, resolve_space
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.indexfields import summary
+from reef.links import replacements
 from reef.models import AttachmentStatus, Engram
 
 log = logging.getLogger(__name__)
@@ -681,9 +682,101 @@ def _row_payload(
         }
     else:
         payload = {**common, "path": row["path"], "title": row["title"]}
+        if row.get("replaced_by"):
+            payload["replaced_by"] = row["replaced_by"]
     if passages is not None:
         payload["passage"] = passages.get(row["id"]) or row["snippet"]
     return payload
+
+
+def demote(
+    ranking: list[tuple[str, UUID]],
+    replaced: dict[UUID, list[UUID]],
+    insertable: set[UUID],
+) -> list[tuple[str, UUID]]:
+    """Move replaced engrams after current ones, keeping each group's order.
+
+    Files retain their slots during the reorder. Inserting a missing
+    replacement adds a slot directly before its replaced engram.
+
+    :param ranking: the original kind and id pairs
+    :param replaced: each replaced engram's terminal replacements
+    :param insertable: replacements in the spaces being searched
+    :returns: the adjusted ranking, or the original list when unchanged
+    """
+    if not replaced:
+        return ranking
+    engrams = [hit for hit in ranking if hit[0] == "page"]
+    ordered = iter(
+        [hit for hit in engrams if hit[1] not in replaced]
+        + [hit for hit in engrams if hit[1] in replaced]
+    )
+    reordered = [
+        next(ordered) if kind == "page" else (kind, row_id) for kind, row_id in ranking
+    ]
+    present = {row_id for kind, row_id in ranking if kind == "page"}
+    result: list[tuple[str, UUID]] = []
+    for kind, row_id in reordered:
+        ends = replaced.get(row_id, []) if kind == "page" else []
+        if ends and not present.intersection(ends):
+            replacement = next((end for end in ends if end in insertable), None)
+            if replacement is not None:
+                result.append(("page", replacement))
+                present.add(replacement)
+        result.append((kind, row_id))
+    return result
+
+
+async def _replacement_order(
+    ranking: list[tuple[str, UUID]], space_ids: list[UUID], aliases: dict[UUID, str]
+) -> tuple[list[tuple[str, UUID]], dict[UUID, list[dict]]]:
+    """Adjust one ranking and name its visible replacements in a batch.
+
+    :param ranking: candidates after the reranker, or the keyword hits
+    :param space_ids: searched spaces; empty means all readable spaces
+    :param aliases: the reader's names for spaces
+    :returns: the ranking and each replaced engram's references
+    """
+    replaced = await replacements(
+        [row_id for kind, row_id in ranking if kind == "page"]
+    )
+    ends = {end for targets in replaced.values() for end in targets}
+    details = (
+        {
+            row["id"]: row
+            for row in await Engram.select(
+                Engram.id, Engram.space_id, Engram.path, Engram.title
+            ).where(Engram.id.is_in(list(ends)))
+        }
+        if ends
+        else {}
+    )
+    replaced = {
+        source: [
+            end
+            for end in targets
+            if end in details and details[end]["space_id"] in aliases
+        ]
+        for source, targets in replaced.items()
+    }
+    replaced = {source: targets for source, targets in replaced.items() if targets}
+    notes = {
+        source: [
+            {
+                "space": aliases[details[end]["space_id"]],
+                "path": details[end]["path"],
+                "title": details[end]["title"],
+            }
+            for end in targets
+        ]
+        for source, targets in replaced.items()
+    }
+    insertable = {
+        end
+        for end, row in details.items()
+        if not space_ids or row["space_id"] in space_ids
+    }
+    return demote(ranking, replaced, insertable), notes
 
 
 def fuse(
@@ -2016,9 +2109,26 @@ async def search_engrams(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
                 *_hits_params(query, space_ids, limit, file_text),
             )
+            ranking, notes = await _replacement_order(
+                [(row["kind"], row["id"]) for row in rows], space_ids, aliases
+            )
+            by_id = {(row["kind"], row["id"]): row for row in rows}
+            missing = [hit for hit in ranking if hit not in by_id]
+            if missing:
+                by_id.update(
+                    {
+                        (row["kind"], row["id"]): row
+                        for row in await _chosen_rows(query, missing, file_text, {})
+                    }
+                )
+            rows = [by_id[hit] for hit in ranking if hit in by_id]
+            for row in rows:
+                if row["kind"] == "page" and row["id"] in notes:
+                    row["replaced_by"] = notes[row["id"]]
             if file_text:
                 # Up to the limit of each kind: spread, then cut.
-                rows = spread(rows, _is_file_row, files_in_five)[:limit]
+                rows = spread(rows, _is_file_row, files_in_five)
+            rows = rows[:limit]
             await _record(log, principal, query, rows)
             engram_ids = [row["id"] for row in rows if row["kind"] == "page"]
             texts = await _read_engrams(engram_ids) if passages else []
@@ -2066,16 +2176,16 @@ async def search_engrams(
         scores = await reranking.rerank(query, documents) if documents else None
         if scores is not None:
             ranking = reorder(ranking, len(reading.candidates), owners, scores)
-    if file_text:
-        # The reranker may have moved files up; the rule holds all the same.
-        ranking = spread(ranking, _is_file_hit, files_in_five)
-    chosen = ranking[:limit]
     best: dict[UUID, str | None] = {}
     texts: list[dict] = []
     chunks: dict[UUID, sections.Section] = {}
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
+        ranking, notes = await _replacement_order(ranking, space_ids, aliases)
+        if file_text:
+            ranking = spread(ranking, _is_file_hit, files_in_five)
+        chosen = ranking[:limit]
         # Without a vector in sight, no file has a closest chunk.
         nearest = (
             await _best_chunks(
@@ -2085,6 +2195,9 @@ async def search_engrams(
             else {}
         )
         rows = await _chosen_rows(query, chosen, file_text, nearest) if chosen else []
+        for row in rows:
+            if row["kind"] == "page" and row["id"] in notes:
+                row["replaced_by"] = notes[row["id"]]
         await _record(log, principal, query, rows)
         if passages:
             best, texts = await _read_best_pieces(

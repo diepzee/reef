@@ -475,3 +475,37 @@ async def pending_replacements(
         for target, (_, alias, target_path) in wanted.items()
         if target not in active
     )
+
+
+async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+    """Find the ends of visible replacement chains in one recursive query.
+
+    Paths are sorted by the newest direct link first, then by the next link
+    along a chain. Repeated ends appear once. A visited-id array stops bad
+    imported data from making the query loop.
+
+    :param engram_ids: the engrams to check for the armed reader
+    :returns: replaced ids and their terminal replacements in order
+    """
+    if not engram_ids:
+        return {}
+    rows = await Link.raw(
+        "WITH RECURSIVE chain(root, id, seen, times) AS ("
+        "SELECT l.to_engram_id, l.from_engram_id, ARRAY[l.to_engram_id, l.from_engram_id], "
+        "ARRAY[l.recorded_at] FROM links l WHERE l.to_engram_id = ANY({}::uuid[]) "
+        "AND l.kind = 'supersedes' AND l.status = 'active' "
+        "UNION ALL SELECT c.root, l.from_engram_id, c.seen || l.from_engram_id, "
+        "c.times || l.recorded_at FROM chain c JOIN links l ON l.to_engram_id = c.id "
+        "WHERE l.kind = 'supersedes' AND l.status = 'active' "
+        "AND NOT l.from_engram_id = ANY(c.seen)) "
+        "SELECT c.root, c.id FROM chain c WHERE NOT EXISTS (SELECT 1 FROM links l "
+        "WHERE l.to_engram_id = c.id AND l.kind = 'supersedes' AND l.status = 'active') "
+        "ORDER BY c.root, c.times DESC, c.id",
+        [str(engram_id) for engram_id in engram_ids],
+    )
+    result: dict[UUID, list[UUID]] = {}
+    for row in rows:
+        ends = result.setdefault(row["root"], [])
+        if row["id"] not in ends:
+            ends.append(row["id"])
+    return result
