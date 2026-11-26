@@ -300,6 +300,7 @@ def _declared(pattern: str) -> set[str]:
         link_statements,
         open_door_statements,
         person_column_grant_statements,
+        search_log_statements,
         session_epoch_statements,
         test_account_statements,
         usage_statements,
@@ -316,6 +317,7 @@ def _declared(pattern: str) -> set[str]:
         + open_door_statements()
         + person_column_grant_statements()
         + call_log_statements()
+        + search_log_statements()
         + file_text_statements()
         + test_account_statements()
     )
