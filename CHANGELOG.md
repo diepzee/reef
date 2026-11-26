@@ -1,3 +1,14 @@
+## [2.5.1](https://github.com/diepzee/reef/compare/v2.5.0...v2.5.1) (2026-11-26)
+
+### Bug fixes
+
+* **db:** helper functions look in the system catalog first, and in temporary tables last (RUG-85) ([#192](https://github.com/diepzee/reef/issues/192)) ([fd2ab98](https://github.com/diepzee/reef/commit/fd2ab98e2d9dd073bbbd377d8f10f752fa52d6fd))
+* **logs:** the purges ignore the caller's time zone, and call totals stop at 89 days (RUG-85) ([#190](https://github.com/diepzee/reef/issues/190)) ([65b276d](https://github.com/diepzee/reef/commit/65b276dad12878ba2a6e3057b4e96a8826e849e3))
+
+### Performance
+
+* **jobs:** an index for held-back files, and a stable order (RUG-85) ([#189](https://github.com/diepzee/reef/issues/189)) ([c75aed7](https://github.com/diepzee/reef/commit/c75aed7d79523a132d6b95794c1f214ac6341891))
+
 ## [2.5.0](https://github.com/diepzee/reef/compare/v2.4.5...v2.5.0) (2026-11-26)
 
 ### Features
