@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 from mcp.server.streamable_http import StreamableHTTPServerTransport
+from mcp.server.transport_security import TransportSecurityMiddleware
 
 from reef import server, telemetry
 from reef.config import get_settings
@@ -233,12 +234,6 @@ async def test_success_and_other_statuses_are_not_rejection_diagnostics(
         )
         assert response.status_code == 406
         response = await client.post(
-            "/mcp", content="{}", headers={"content-type": "text/plain"}
-        )
-        assert (
-            response.status_code == 400
-        )  # SDK security middleware, outside the four cases
-        response = await client.post(
             "/mcp", json=PING, headers={"mcp-session-id": "expired-832"}
         )
         assert response.status_code == 404
@@ -262,3 +257,63 @@ async def test_a_client_can_initialize_after_a_missing_session_rejection(
         assert [r.getMessage() for r in records] == [
             "MCP request rejected: missing_session_id"
         ]
+
+
+@pytest.mark.parametrize("content_type", [None, "text/plain; note=ordinary-header-472"])
+@pytest.mark.parametrize("with_session", [False, True])
+async def test_content_type_rejection_is_one_safe_diagnostic(
+    transport,
+    captured,
+    caplog,
+    monkeypatch,
+    content_type,
+    with_session,
+):
+    async with transport() as client:
+        session = await initialize(client) if with_session else None
+        client.headers.pop("content-type")
+        if content_type is not None:
+            client.headers["content-type"] = content_type
+        caplog.clear()
+        captured.spans.clear()
+        # Also malformed JSON: security rejects first, with just one category.
+        body = json.dumps({**PING, "params": {"note": CONTENT}})[:-1]
+        response = await client.post("/mcp", content=body)
+        assert response.status_code == 400
+        assert response.content == b"Invalid Content-Type header"
+        records = [r for r in caplog.records if r.name == LOGGER]
+        assert len(records) == 1
+        [record] = records
+        assert record.getMessage() == "MCP request rejected: invalid_content_type"
+        assert record.args == ("invalid_content_type",)
+        assert record.exc_info is None
+        assert record.stack_info is None
+        diagnostics = [
+            s for s in captured.spans if s.name.startswith("MCP request rejected:")
+        ]
+        assert len(diagnostics) == int(telemetry.is_configured())
+        blob = repr(vars(record)) + repr(
+            [(s.name, dict(s.attributes or {}), s.events) for s in diagnostics]
+        )
+        for private in (
+            CONTENT,
+            IDENTIFIER,
+            TOKEN,
+            TOKEN.removeprefix("Bearer "),
+            "ordinary-header-472",
+            body,
+            "Invalid Content-Type header",
+        ):
+            assert private not in blob
+        if session:
+            assert session not in blob
+        original = TransportSecurityMiddleware.validate_request.__wrapped__
+        with monkeypatch.context() as patch:
+            patch.setattr(TransportSecurityMiddleware, "validate_request", original)
+            baseline = await client.post("/mcp", content=body)
+        assert (response.status_code, response.content, response.headers) == (
+            baseline.status_code,
+            baseline.content,
+            baseline.headers,
+        )
+        assert len([r for r in caplog.records if r.name == LOGGER]) == 1

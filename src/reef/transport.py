@@ -1,9 +1,9 @@
-"""Reason-only diagnostics for the SDK's four MCP request rejections.
+"""Reason-only diagnostics for the SDK's MCP request rejections.
 
 These happen before FastMCP's tool middleware. Observe the SDK's error
-response factory instead of parsing requests a second time or changing its
-validation order. No request, response text, exception or identifier is
-passed to the logger, including in structured attributes.
+response factory and security result instead of parsing requests a second
+time or changing validation order. No request, response text, exception or
+identifier is passed to the logger, including in structured attributes.
 """
 
 import logging
@@ -11,6 +11,7 @@ from functools import wraps
 from http import HTTPStatus
 
 from mcp.server.streamable_http import StreamableHTTPServerTransport
+from mcp.server.transport_security import TransportSecurityMiddleware
 from mcp.types import INVALID_PARAMS, INVALID_REQUEST, PARSE_ERROR
 
 from reef import telemetry
@@ -54,4 +55,19 @@ def log_rejections() -> None:
         return response
 
     StreamableHTTPServerTransport._create_error_response = with_diagnostic
+
+    # Security rejects content types before the transport's error factory.
+    # Its only 400 is this failure (host/origin failures use 421/403). The
+    # transport returns it immediately, so the two hooks cannot report the
+    # same rejection. Observe only the status, never headers or body text.
+    original_security = TransportSecurityMiddleware.validate_request
+
+    @wraps(original_security)
+    async def with_security_diagnostic(self, request, is_post=False):
+        response = await original_security(self, request, is_post=is_post)
+        if response is not None and response.status_code == HTTPStatus.BAD_REQUEST:
+            logger.warning("MCP request rejected: %s", "invalid_content_type")
+        return response
+
+    TransportSecurityMiddleware.validate_request = with_security_diagnostic
     StreamableHTTPServerTransport._reef_rejection_logging = True

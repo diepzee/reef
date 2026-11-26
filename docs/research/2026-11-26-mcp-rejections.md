@@ -34,21 +34,22 @@ come from the retained deployment access log, not that empty query.
 These counts independently confirm the ten refusals and continued successful
 traffic. They do not establish which successful request belongs to which
 refusal: traffic is interleaved, and no client or session identifiers were
-used for this analysis. The historical record cannot distinguish the four
+used for this analysis. The historical record cannot distinguish the rejection
 reasons. It therefore cannot prove that Claude reconnected without a session
-ID, or rule out invalid JSON, an invalid JSON-RPC envelope or an unsupported
-protocol version.
+ID, or rule out invalid JSON, an invalid JSON-RPC envelope, an unsupported
+protocol version or an invalid/missing content type.
 
 ## What the change establishes
 
-The HTTP startup installs one diagnostic at the MCP SDK's error-response
-factory. Every matching rejection writes one warning to `reef.transport`:
+The HTTP startup observes the MCP SDK's error-response factory and security
+validation result. Every matching rejection writes one warning to `reef.transport`:
 
 ```text
 MCP request rejected: missing_session_id
 MCP request rejected: unsupported_protocol_version
 MCP request rejected: unparseable_json
 MCP request rejected: invalid_json_rpc
+MCP request rejected: invalid_content_type
 ```
 
 Only the fixed category is a log argument. The logger is forwarded to Logfire
@@ -61,15 +62,22 @@ The SDK already decides which request to reject. Its JSON-RPC error codes
 identify parse and validation failures; a fixed message or fixed prefix
 distinguishes the two header failures. The response is returned unchanged.
 FastMCP has no callback for these pre-tool rejections, so the implementation
-uses a small, idempotent private SDK hook, as Reef already does for the request
+uses small, idempotent SDK hooks, as Reef already does for the request
 body limit. Transport tests guard the dependency boundary when the SDK changes.
 
-The four cases describe the ticket's scope, not every possible HTTP 400:
-the SDK security middleware also returns 400 for a wrong content type. That
-response is left alone and is not mislabeled as one of these four categories.
+Review identified a fifth path missing from the original ticket: the SDK
+security middleware returns 400 for a missing or unsupported content type,
+before the error factory runs. The extra hook reads only that validation
+result's status, never request headers or response content. It logs
+`invalid_content_type` and returns the original response. The SDK immediately
+returns a security rejection, so the factory cannot report it again. Tests
+combine a bad content type with malformed JSON and a missing session to
+verify that only the first rejection is diagnosed. Existing SDK logging is
+unchanged; only `reef.transport`, whose records are category-only, is forwarded
+by this change.
 
 Synthetic tests enter Reef's HTTP startup, run the actual FastMCP app lifespan
-and session manager, and send HTTP requests through ASGI. They cover all four
+and session manager, and send HTTP requests through ASGI. They cover all five
 POST rejections, header failures on GET and DELETE, telemetry on/off, repeated
 installation, byte-for-byte error bodies and unchanged headers (apart from
 new random session IDs), successful initialization/notification/ping, and
@@ -85,7 +93,7 @@ explanation plausible; it is not evidence of what Claude actually sent.
 ## Resolve the remaining observation on the next occurrence
 
 After this change is deployed through the normal release process, select a
-short incident window and count the four fixed diagnostic messages. Each
+short incident window and count the five fixed diagnostic messages. Each
 Logfire diagnostic is a child of the existing request span, so its category
 can be associated with an HTTP 400 without adding a session ID or request body
 to the diagnostic. Use only category/status totals and timing in reports.
