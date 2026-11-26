@@ -867,6 +867,8 @@ END
             "reef_transfer_space_ownership(p_space uuid, p_successor uuid)",
             f"""
 BEGIN
+  -- Take the same first lock as removal, before checking the successor.
+  PERFORM 1 FROM spaces WHERE id = p_space FOR UPDATE;
   IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
                  AND owner_person_id = {PRINCIPAL}) THEN
     RETURN false;

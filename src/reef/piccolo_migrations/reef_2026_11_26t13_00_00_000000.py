@@ -1,15 +1,17 @@
 """Erase private usage when a membership ends.
 
-Replaces reef_remove_member(uuid, uuid) so members can leave and owners can
-remove them, deleting their engram_access and engram_heat rows in one
-function call within one transaction. It locks the space before checking
-ownership; the current owner must transfer ownership before leaving.
-The helper keeps its owner and execution grants, including rif_authz and
-rif_app on databases whose roles still have the old names. Its search path
-is pg_catalog, public, pg_temp.
+Replaces two functions: reef_remove_member(uuid, uuid) so members can leave
+and owners can remove them, deleting their engram_access and engram_heat
+rows in one function call within one transaction; and
+reef_transfer_space_ownership(uuid, uuid) so transfer and removal both lock
+the space first, before checking ownership or membership. The current owner
+must transfer ownership before leaving. Both helpers keep their owners and
+execution grants, including rif_authz and rif_app on databases whose roles
+still have the old names. Their search path is pg_catalog, public, pg_temp.
+The transfer helper needs no new rights.
 
-Grants the existing function owner SELECT on engrams and SELECT, DELETE on
-engram_access and engram_heat. No application role gains access to another
+Grants the removal function's existing owner SELECT on engrams and SELECT,
+DELETE on engram_access and engram_heat. No application role gains access to another
 person's rows. Drops memberships_self_delete, so application callers must
 use the helper to end a membership and cannot skip usage cleanup. Table
 definitions, indexes, other row policies, other functions and search_log
@@ -109,11 +111,32 @@ BEGIN
 END
 $cleanup$""",
     "DROP POLICY IF EXISTS memberships_self_delete ON memberships",
+    """CREATE OR REPLACE FUNCTION reef_transfer_space_ownership(p_space uuid, p_successor uuid) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public, pg_temp AS $reef$
+BEGIN
+  -- Take the same first lock as removal, before checking the successor.
+  PERFORM 1 FROM spaces WHERE id = p_space FOR UPDATE;
+  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+                 AND owner_person_id = NULLIF(current_setting('app.person_id', true), '')::uuid) THEN
+    RETURN false;
+  END IF;
+  -- The successor must already belong to the space. Without this an owner
+  -- could hand a space to any uuid that satisfies the foreign key, including
+  -- somebody who has never seen it.
+  IF NOT EXISTS (SELECT 1 FROM memberships WHERE space_id = p_space
+                 AND person_id = p_successor) THEN
+    RETURN false;
+  END IF;
+  UPDATE memberships SET role = 'member'
+   WHERE space_id = p_space AND person_id = p_successor AND role <> 'member';
+  UPDATE spaces SET owner_person_id = p_successor WHERE id = p_space;
+  RETURN true;
+END
+$reef$""",
 ]
 
 
 async def forwards() -> MigrationManager:
-    """Replace the membership helper, grant its rights and erase old orphans.
+    """Replace both helpers, grant cleanup rights and erase old orphans.
 
     :returns: configured migration manager
     """

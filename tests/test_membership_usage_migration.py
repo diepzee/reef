@@ -27,15 +27,16 @@ async def apply_migration(connection: asyncpg.Connection) -> None:
             await connection.execute(statement)
 
 
-async def function_rights(connection: asyncpg.Connection) -> asyncpg.Record:
-    """Read the membership helper's owner, rights and settings.
+async def function_rights(connection: asyncpg.Connection) -> list[asyncpg.Record]:
+    """Read both membership helpers' owners, rights and settings.
 
     :param connection: the database connection
-    :returns: its security settings
+    :returns: their security settings, ordered by name
     """
-    return await connection.fetchrow(
-        "SELECT proowner, proacl, prosecdef, proconfig, provolatile "
-        "FROM pg_proc WHERE oid = 'reef_remove_member(uuid,uuid)'::regprocedure"
+    return await connection.fetch(
+        "SELECT proname, proowner, proacl, prosecdef, proconfig, provolatile "
+        "FROM pg_proc WHERE oid IN ('reef_remove_member(uuid,uuid)'::regprocedure, "
+        "'reef_transfer_space_ownership(uuid,uuid)'::regprocedure) ORDER BY proname"
     )
 
 
@@ -152,12 +153,16 @@ async def stored_usage(
     }
 
 
-def test_fixed_helper_matches_current_declaration() -> None:
+@pytest.mark.parametrize(
+    "name", ["reef_remove_member", "reef_transfer_space_ownership"]
+)
+def test_fixed_helper_matches_current_declaration(name: str) -> None:
     """The deployed helper and the helper used by behaviour tests agree."""
-    assert MIGRATION.STATEMENTS[0] == next(
-        statement
-        for statement in mutation_statements()
-        if statement.startswith("CREATE OR REPLACE FUNCTION reef_remove_member(")
+    prefix = f"CREATE OR REPLACE FUNCTION {name}("
+    assert next(
+        statement for statement in MIGRATION.STATEMENTS if statement.startswith(prefix)
+    ) == next(
+        statement for statement in mutation_statements() if statement.startswith(prefix)
     )
 
 
@@ -253,11 +258,18 @@ async def test_migration_preserves_former_role_ownership_and_grants(
     await connection.execute(
         "GRANT SELECT, DELETE ON memberships, persons TO rif_authz"
     )
+    await connection.execute("GRANT UPDATE ON memberships TO rif_authz")
     await connection.execute(
         "ALTER FUNCTION reef_remove_member(uuid,uuid) OWNER TO rif_authz"
     )
     await connection.execute(
         "GRANT EXECUTE ON FUNCTION reef_remove_member(uuid,uuid) TO rif_app"
+    )
+    await connection.execute(
+        "ALTER FUNCTION reef_transfer_space_ownership(uuid,uuid) OWNER TO rif_authz"
+    )
+    await connection.execute(
+        "GRANT EXECUTE ON FUNCTION reef_transfer_space_ownership(uuid,uuid) TO rif_app"
     )
     before = await function_rights(connection)
     owner, member, space = await seed_usage(connection)
@@ -266,6 +278,16 @@ async def test_migration_preserves_former_role_ownership_and_grants(
         await apply_migration(connection)
         assert await function_rights(connection) == before
     await connection.execute("SET LOCAL ROLE rif_app")
+    await connection.execute("SELECT set_config('app.person_id', $1, true)", str(owner))
+    assert await connection.fetchval(
+        "SELECT reef_transfer_space_ownership($1, $2)", space, member
+    )
+    await connection.execute(
+        "SELECT set_config('app.person_id', $1, true)", str(member)
+    )
+    assert await connection.fetchval(
+        "SELECT reef_transfer_space_ownership($1, $2)", space, owner
+    )
     await connection.execute("SELECT set_config('app.person_id', $1, true)", str(owner))
     assert tuple(
         await connection.fetchrow(
