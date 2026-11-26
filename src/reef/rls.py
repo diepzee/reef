@@ -1621,6 +1621,7 @@ BEGIN
         WHERE a.person_id = s.person_id AND a.session_id = s.session_id
           AND a.via = 'read' AND a.accessed_at >= s.searched_at
           AND a.accessed_at < s.searched_at + interval '1 hour'
+          AND a.accessed_at < {_TODAY_UTC}
           AND NOT (a.engram_id = ANY (s.engram_ids))
     ))
     FROM search_log s
@@ -1670,8 +1671,10 @@ def search_log_statements() -> list[str]:
     both ``search_log`` and ``engram_access``, but returns only those two
     numbers. A miss follows the same rule as :func:`reef.searchlog.misses`;
     the parity test in ``tests/test_search_log_totals.py`` keeps them aligned.
-    Multiple missed reads count a search once. The period selects searches,
-    and their full following hour is checked, even across midnight.
+    Multiple missed reads count a search once. Both searches and matching
+    reads must be before the start of today. A search in the last hour of
+    a day may therefore be counted as not missed: this is the price of
+    whole days, so today's reads cannot change yesterday's count.
     Like the call totals, it accepts 7 to 90 whole UTC days ending at the
     start of today, skips flagged test accounts, and grants no access to
     another person's rows. It needs ``test_accounts`` to exist.

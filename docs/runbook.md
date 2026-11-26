@@ -1435,8 +1435,10 @@ and returns only the two numbers. A miss follows the same rule as
 `searchlog.misses`: the same person, the same non-null session, a `read`
 at or after the search and less than one hour later, of an engram the
 search did not return. Several matching reads count a search once. The
-period selects searches; their full following hour counts, even when a
-matching read falls after midnight today. The Python `searchlog.totals`
+period selects searches and excludes reads at or after the start of today.
+A search in the last hour of a day may therefore be counted as not missed:
+this is the price of whole days, so today's reads cannot change yesterday's
+count. The Python `searchlog.totals`
 wrapper and the script receive only the counts. Do not read either log as
 a superuser: the privacy page promises nobody reads another person's
 searches.

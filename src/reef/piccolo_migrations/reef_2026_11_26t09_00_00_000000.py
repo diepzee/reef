@@ -2,7 +2,7 @@
 
 Reads search_log and engram_access, with the miss rule in searchlog.misses.
 Each search counts once, even when several reads were missed. The period
-selects searches; a matching read can fall in their following hour today.
+selects searches and excludes reads at or after the start of today.
 Like call totals: 7 to 90 whole UTC days ending at the start of today,
 flagged test accounts excluded, authz ownership and app execution only.
 
@@ -33,6 +33,7 @@ BEGIN
         WHERE a.person_id = s.person_id AND a.session_id = s.session_id
           AND a.via = 'read' AND a.accessed_at >= s.searched_at
           AND a.accessed_at < s.searched_at + interval '1 hour'
+          AND a.accessed_at < date_trunc('day', now() AT TIME ZONE 'UTC')
           AND NOT (a.engram_id = ANY (s.engram_ids))
     ))
     FROM search_log s

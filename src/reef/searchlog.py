@@ -116,7 +116,10 @@ async def totals(days: int) -> Total:
     From the start of the day ``days`` days ago to the start of today, in
     UTC. The database function reads both private logs and returns only
     two numbers. Each search counts once, even if several reads qualify
-    under :func:`misses`' rule. Needs no principal.
+    under :func:`misses`' rule. Reads at or after the start of today are
+    excluded. A search in the last hour of a day may be counted as not
+    missed: this is the price of whole days, so today's reads cannot change
+    yesterday's count. Needs no principal.
 
     :param days: how many whole days to count, from
         :data:`~reef.rls.SEARCH_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`

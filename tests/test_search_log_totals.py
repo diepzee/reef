@@ -294,21 +294,35 @@ async def test_identical_searches_are_still_separate_searches(household, seed, p
     )
 
 
-async def test_a_read_after_midnight_can_match_yesterdays_search(
-    household, seed, probe
+@pytest.mark.parametrize(
+    ("after", "missed"),
+    [
+        (timedelta(minutes=9, seconds=59), 1),
+        (timedelta(minutes=10), 0),
+        (timedelta(minutes=15), 0),
+    ],
+)
+async def test_todays_reads_cannot_change_yesterdays_totals(
+    household, seed, probe, after, missed
 ):
-    """The period selects searches; their full following hour still counts."""
+    """Only reads before midnight count, in every caller time zone."""
     engram = await _seed_searches(seed, household)
     await seed.execute("DELETE FROM search_log")
     await seed.execute("DELETE FROM engram_access")
     search = await _search(
-        seed, household["wouter"].id, before_today=timedelta(seconds=1)
+        seed, household["wouter"].id, before_today=timedelta(minutes=10)
     )
-    await _access(seed, search, engram, after=timedelta(seconds=1))
     assert tuple(await probe.fetchrow("SELECT * FROM reef_search_log_totals(7)")) == (
         1,
-        1,
+        0,
     )
+    await _access(seed, search, engram, after=after)
+    async with probe.transaction():
+        for zone in ("UTC", "<-5754>+57:54", "Pacific/Chatham"):
+            await probe.execute("SELECT set_config('TimeZone', $1, true)", zone)
+            assert tuple(
+                await probe.fetchrow("SELECT * FROM reef_search_log_totals(7)")
+            ) == (1, missed)
 
 
 async def _script(*arguments: str) -> tuple[str, str, int]:
