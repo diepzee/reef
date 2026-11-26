@@ -12,6 +12,7 @@ import signal
 from types import SimpleNamespace
 from uuid import UUID
 
+import asyncpg
 import pytest
 from conftest import MemoryStore, caller_for, store_as
 from filefixtures import (
@@ -919,6 +920,58 @@ async def test_a_file_out_of_processes_is_tried_again_a_day_later(
         await build_index(me.principal)
     assert await drain("test") == 2
     assert await _status(me.principal, held.id) == ("read", 1, None)
+
+
+@pytest.mark.parametrize("reverse_insert", [False, True])
+@pytest.mark.parametrize("highest_fault", [False, True])
+@pytest.mark.parametrize("request_only", [False, True])
+async def test_tied_reading_jobs_choose_the_highest_id(
+    household: dict,
+    seed: asyncpg.Connection,
+    reverse_insert: bool,
+    highest_fault: bool,
+    request_only: bool,
+) -> None:
+    """Both backfill paths choose the same job when creation times tie.
+
+    Insert in both orders and force equal timestamps, so heap order cannot
+    stand in for the id tiebreaker. Repeat after removing only queued jobs
+    to check the same completed history each time.
+
+    :param household: two people with personal and shared spaces
+    :param seed: the connection used to write completed job history
+    :param reverse_insert: whether the larger id is inserted first
+    :param highest_fault: whether the larger id should hold the file back
+    :param request_only: whether to ask for backfill or run it directly
+    """
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "tied.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute("DELETE FROM jobs WHERE person_id = $1", me.principal.person_id)
+    ids = [UUID(int=1), UUID(int=2)]
+    for job_id in reversed(ids) if reverse_insert else ids:
+        fault = highest_fault if job_id == ids[1] else not highest_fault
+        await seed.execute(
+            "INSERT INTO jobs (id, person_id, kind, subject_ids, status, error, "
+            "created_at, finished_at) VALUES ($1, $2, $3, $4, 'failed', $5, "
+            "TIMESTAMP '2026-01-01 12:00:00', LOCALTIMESTAMP)",
+            job_id,
+            me.principal.person_id,
+            READ_FILE,
+            [file.id],
+            "OutOfProcesses" if fault else "SandboxUnavailable",
+        )
+    for _ in range(3):
+        async with transaction_scope():
+            result = await (
+                filetext.request_backfill(me.principal)
+                if request_only
+                else filetext.backfill(me.principal)
+            )
+        assert result == (0 if highest_fault else 1)
+        await seed.execute(
+            "DELETE FROM jobs WHERE person_id = $1 AND status = 'queued'",
+            me.principal.person_id,
+        )
 
 
 async def test_a_file_whose_job_is_running_does_not_ask_for_the_backfill(

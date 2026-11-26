@@ -82,7 +82,7 @@ failed for good with :class:`~reef.reading.OutOfProcesses`."""
 _WORKER_FAULT = (
     "EXISTS (SELECT 1 FROM (SELECT j.status, j.error, j.finished_at FROM jobs j "
     "WHERE j.person_id = {} AND j.kind = {} AND j.subject_ids = ARRAY[a.id] "
-    "ORDER BY j.created_at DESC LIMIT 1) latest "
+    "ORDER BY j.created_at DESC, j.id DESC LIMIT 1) latest "
     "WHERE latest.status = 'failed' AND latest.error = {} "
     "AND latest.finished_at > LOCALTIMESTAMP - make_interval(secs => {}))"
 )
@@ -93,7 +93,9 @@ fixed literal, spliced into SQL; its values come from
 
 Both :func:`request_backfill` and :func:`backfill` use this query to hold
 back a file. It scans the person's jobs of one kind, newest first, and
-checks the file's subject ids before choosing the latest job.
+checks the file's subject ids before choosing the latest job. Equal creation
+times are settled by the larger id, so the choice does not depend on the
+order in which PostgreSQL happens to read rows.
 
 Such a file stays ``waiting`` and is not healed on every index load. The
 worker was short of processes, which a hostile file can cause on every
