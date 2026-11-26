@@ -50,6 +50,7 @@ OK = "ok"
 
 MESSAGES = {
     "relation_invalid": "Write each relation as wiki links, such as about: [[house.md]]. Use each key once.",
+    "relation_block_in_body": "The engram's text starts with a block of relation lines. Rewrite the engram with write, which reads the block.",
     "relation_too_many": "A relation key may name at most 20 engrams. Split this list.",
     "relation_target_missing": "This link names no engram the person can read. Check its space and path.",
     "relation_into_personal": "An engram in a shared space cannot link into a personal space.",

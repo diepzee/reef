@@ -56,7 +56,10 @@ def refusals(path: str | None = None) -> Iterator[None]:
             error.code, f"{error.target}: {MESSAGES[error.code]}"
         ) from None
     except InvalidRelations as error:
-        raise MethodError(error.code) from None
+        message = MESSAGES[error.code]
+        raise MethodError(
+            error.code, f"{path}: {message}" if path else message
+        ) from None
     except tuple(ENGRAM_REFUSALS) as error:
         code = ENGRAM_REFUSALS[type(error)]
         message = MESSAGES[code] if path is None else f"{path}: {MESSAGES[code]}"

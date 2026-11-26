@@ -164,6 +164,6 @@ def refuse_stored_block(body: str) -> None:
         try:
             _, relations = take_block(view)
         except InvalidRelations:
-            raise InvalidRelations() from None
+            raise InvalidRelations("relation_block_in_body") from None
         if not relations.empty:
-            raise InvalidRelations()
+            raise InvalidRelations("relation_block_in_body")

@@ -32,7 +32,7 @@ async def test_write_refuses_two_leading_relation_blocks(
             ],
             "save",
         )
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
 
 
 async def test_correct_cannot_plant_a_block(household) -> None:
@@ -43,7 +43,7 @@ async def test_correct_cannot_plant_a_block(household) -> None:
         await maintain.correct(
             me, "", "personal", "new.md", "Original.", BLOCK + "new", "fix"
         )
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
 
 
 async def test_shared_section_cannot_plant_a_block(household, monkeypatch) -> None:
@@ -53,20 +53,32 @@ async def test_shared_section_cannot_plant_a_block(household, monkeypatch) -> No
     monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
     me = caller_for(household["wouter"])
     await save_as(me, "personal", "notes.md", "Keep.\n\n" + BLOCK + "section")
-    first = await share.share(
-        me, "", "notes.md", "household", section=BLOCK + "section", to_path="new.md"
+    with pytest.raises(MethodError) as caught:
+        await share.share(
+            me, "", "notes.md", "household", section=BLOCK + "section", to_path="new.md"
+        )
+    assert caught.value.code == "relation_block_in_body"
+    assert "rewrite" in caught.value.message.lower()
+    assert "write" in caught.value.message
+
+
+@pytest.mark.parametrize("section", [None, "Safe section."])
+async def test_share_refuses_a_legacy_block_before_staging(
+    household, seed, section
+) -> None:
+    """A legacy source needs a rewrite before either kind of share can proceed."""
+    me = caller_for(household["wouter"])
+    source = await save_as(me, "personal", "notes.md", "Original.")
+    await seed.execute(
+        "UPDATE engrams SET body = $1 WHERE id = $2", BLOCK + "Safe section.", source.id
     )
     with pytest.raises(MethodError) as caught:
         await share.share(
-            me,
-            "",
-            "notes.md",
-            "household",
-            section=BLOCK + "section",
-            to_path="new.md",
-            confirm=first["token"],
+            me, "", "notes.md", "household", section=section, to_path="shared.md"
         )
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
+    assert "rewrite" in caught.value.message.lower()
+    assert await seed.fetchval("SELECT count(*) FROM promotions") == 0
 
 
 @pytest.mark.parametrize("operation", ["write", "correct"])
@@ -193,7 +205,7 @@ async def test_editor_line_normalization_cannot_activate_a_block(
             )
         else:
             await save_as(me, "personal", "new.md", body)
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
     async with transaction_scope():
         assert (
             await get_engram(me.principal, "personal", "new.md")
@@ -217,7 +229,7 @@ async def test_trimming_a_prefix_cannot_activate_a_block(
             )
         else:
             await save_as(me, "personal", "new.md", prefix + BLOCK)
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
 
 
 async def test_refused_plant_cannot_become_a_link_on_web_save(api, world, seed) -> None:

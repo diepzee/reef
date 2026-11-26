@@ -60,7 +60,7 @@ async def test_common_save_refuses_a_relation_block(household) -> None:
 
     caller = caller_for(household["wouter"])
     await save_as(caller, "personal", "old.md", "old")
-    with pytest.raises(InvalidRelations, match="relation_invalid"):
+    with pytest.raises(InvalidRelations, match="relation_block_in_body"):
         await save_as(caller, "personal", "new.md", "---\nabout: [[old.md]]\n---\nnew")
 
 

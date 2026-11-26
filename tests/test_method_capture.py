@@ -219,7 +219,9 @@ async def test_passage_changes_do_not_read_relation_blocks(
             await capture.log(me, "", "personal", path, "Today", "New entry.")
         else:
             await maintain.undo(me, "", "personal", path)
-    assert caught.value.code == "relation_invalid"
+    assert caught.value.code == "relation_block_in_body"
+    assert "rewrite" in caught.value.message.lower()
+    assert "write" in caught.value.message
     assert (
         await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
     )

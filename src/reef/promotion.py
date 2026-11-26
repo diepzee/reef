@@ -17,6 +17,7 @@ from reef.access import (
 )
 from reef.engrams import get_engram, normalize_path, save_engram
 from reef.models import Engram, Promotion, Space, utc_now
+from reef.relations import refuse_stored_block
 from reef.spaces import member_names
 
 NONCE_TTL = timedelta(minutes=10)
@@ -83,6 +84,7 @@ async def prepare_promotion(
     engram = await get_engram(principal, "personal", path)
     if engram is None:
         raise PromotionError("not_found")
+    refuse_stored_block(engram.body)
     if section is not None:
         if dest_path is None:
             raise PromotionError("share_needs_path")
@@ -91,6 +93,7 @@ async def prepare_promotion(
             raise PromotionError(
                 "passage_not_found" if occurrences == 0 else "passage_ambiguous"
             )
+        refuse_stored_block(section)
     # Checked again at confirm time, since the path may be taken in between.
     # Checked here too, so the person is never asked about a share that
     # cannot happen.
