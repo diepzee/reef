@@ -537,10 +537,11 @@ async def leave_space(principal: Principal, slug: str) -> dict:
             successor_id=successor.person_id,
         )
 
-    await Membership.delete().where(
-        Membership.space_id == space.id,
-        Membership.person_id == principal.person_id,
+    outcome = await Membership.raw(
+        "SELECT * FROM reef_remove_member({}, {})", space.id, principal.person_id
     )
+    if not outcome or not outcome[0]["removed"]:
+        raise SpaceError(f"could not leave {slug!r}; nothing was changed")
     return {"cove": slug, "left": True, "handed_to": handed_to}
 
 

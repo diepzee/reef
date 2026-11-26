@@ -823,13 +823,16 @@ DECLARE
 BEGIN
   removed := false;
   person_erased := false;
-  -- Only the space's owner, and never on themselves: an owner removing
-  -- themselves would leave the space with no accountable person.
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
-                 AND owner_person_id = {PRINCIPAL}) THEN
+  -- A member may leave, or the owner may remove them. The current owner
+  -- must hand ownership on before leaving.
+  IF {PRINCIPAL} IS NULL OR
+     (p_person IS DISTINCT FROM {PRINCIPAL} AND
+      NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+                  AND owner_person_id = {PRINCIPAL})) THEN
     RETURN;
   END IF;
-  IF p_person = {PRINCIPAL} THEN
+  IF EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+             AND owner_person_id = p_person) THEN
     RETURN;
   END IF;
   DELETE FROM memberships WHERE space_id = p_space AND person_id = p_person;
@@ -838,6 +841,12 @@ BEGIN
     RETURN;
   END IF;
   removed := true;
+  DELETE FROM engram_access a USING engrams e
+   WHERE a.engram_id = e.id AND e.space_id = p_space
+     AND a.person_id = p_person;
+  DELETE FROM engram_heat h USING engrams e
+   WHERE h.engram_id = e.id AND e.space_id = p_space
+     AND h.person_id = p_person;
   -- An invitation that was never taken up: no provider subject bound, and
   -- now no membership anywhere. Erasing it is the typo-repair path.
   IF EXISTS (SELECT 1 FROM persons WHERE id = p_person AND subject IS NULL)
@@ -849,10 +858,11 @@ END
 """,
             returns="record",
             writes=("memberships", "persons"),
-            reads=("spaces",),
+            reads=("spaces", "engrams"),
             volatility="VOLATILE",
             language="plpgsql",
         ),
+        _for_authz("GRANT SELECT, DELETE ON engram_access, engram_heat TO %I"),
         *_function_ddl(
             "reef_transfer_space_ownership(p_space uuid, p_successor uuid)",
             f"""
@@ -1545,21 +1555,19 @@ def usage_statements() -> list[str]:
     Not part of :func:`enable_statements`, for the reason
     :func:`appearance_statements` gives.
 
-    Both tables are private to one person. Nothing looks across people, so
-    there is no helper function here at all.
+    Both tables are private to one person. The membership removal helper
+    deletes the departing person's rows with its owner's rights, because
+    the person removing them cannot see those private rows.
 
     ``engram_access`` is a log: a person may add to it, read it and delete
     from it, but there is no ``UPDATE`` policy, so a row cannot be
     rewritten. Deleting is allowed because a person may remove what Reef
     recorded about them.
 
-    **A known gap.** Rows about an engram the person can no longer read are
-    hidden from them, and a row that cannot be seen cannot be deleted
-    either. So after leaving a space, a person's usage of its engrams stays
-    stored, invisible to everyone, until the engram or their account is
-    deleted. Showing them those rows instead would let a former member
-    watch which of a space's engrams still exist. The proper fix is to remove
-    the rows when the membership ends.
+    Rows about an unreadable engram are hidden. Membership removal and
+    leaving both call ``reef_remove_member``, which deletes these rows in
+    the same statement as the membership. Account and engram deletion
+    already erase them through foreign keys.
 
     ``engram_heat`` is derived from that log and is replaced whenever it is
     recomputed, so its one policy covers every command.
