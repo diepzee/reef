@@ -12,7 +12,7 @@ from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.models import Space
-from reef.spaces import delete_space, leave_space, remove_member
+from reef.spaces import SpaceError, delete_space, leave_space, remove_member
 from reef.usage import refresh_activation
 
 
@@ -122,7 +122,9 @@ async def usage_rows(seed: asyncpg.Connection) -> dict[str, list[asyncpg.Record]
     }
 
 
-@pytest.mark.parametrize("way", ["removed", "member_leaves", "owner_leaves"])
+@pytest.mark.parametrize(
+    "way", ["removed", "member_leaves", "owner_leaves", "viewer_leaves"]
+)
 async def test_membership_end_erases_only_departing_usage(
     household: dict,
     used_spaces: dict[str, Principal],
@@ -131,6 +133,12 @@ async def test_membership_end_erases_only_departing_usage(
 ) -> None:
     """Each departure removes every shared usage row, preserving all others."""
     departing = used_spaces["wouter" if way == "owner_leaves" else "partner"]
+    if way == "viewer_leaves":
+        await seed.execute(
+            "UPDATE memberships SET role = 'viewer' WHERE person_id = $1 AND space_id = $2",
+            departing.person_id,
+            household["shared"].id,
+        )
     before = await usage_rows(seed)
     async with transaction_scope():
         if way == "removed":
@@ -149,6 +157,24 @@ async def test_membership_end_erases_only_departing_usage(
         ]
         assert len(rows) - len(expected) == 2
         assert after[table] == expected
+
+
+async def test_personal_space_cannot_be_left(household, used_spaces, seed) -> None:
+    """Both the application and helper refuse departure from one's personal space."""
+    person = used_spaces["partner"]
+    before = await usage_rows(seed)
+    with pytest.raises(SpaceError, match="personal space cannot be left"):
+        async with transaction_scope():
+            await leave_space(person, "personal")
+    async with transaction_scope():
+        await arm(person)
+        result = await Space.raw(
+            "SELECT * FROM reef_remove_member({}, {})",
+            household["p_personal"].id,
+            person.person_id,
+        )
+        assert result == [{"removed": False, "person_erased": False}]
+    assert await usage_rows(seed) == before
 
 
 async def test_transfer_alone_keeps_both_members_usage(

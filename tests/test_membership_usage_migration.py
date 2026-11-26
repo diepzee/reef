@@ -315,3 +315,86 @@ async def test_migration_erases_old_orphans_and_keeps_members_and_owners(
         for table, rows in untouched.items():
             assert await connection.fetch(f"SELECT * FROM {table} ORDER BY id") == rows
     assert any(row["person_id"] == owner for row in expected["engram_access"])
+
+
+async def test_plain_member_cannot_remove_another_plain_member(connection) -> None:
+    """A third, non-owner member cannot remove either existing member."""
+    _owner, member, space = await seed_usage(connection)
+    third = uuid4()
+    await connection.execute(
+        "INSERT INTO persons (id, email, display_name) VALUES ($1, 'third@example.test', 'Third')",
+        third,
+    )
+    await connection.execute(
+        "INSERT INTO memberships (person_id, space_id, role, alias) VALUES ($1, $2, 'member', 'shared')",
+        third,
+        space,
+    )
+    before = await stored_usage(connection)
+    memberships = await connection.fetch("SELECT * FROM memberships ORDER BY id")
+    await connection.execute("SET LOCAL ROLE reef_probe")
+    await connection.execute("SELECT set_config('app.person_id', $1, true)", str(third))
+    assert tuple(
+        await connection.fetchrow(
+            "SELECT * FROM reef_remove_member($1, $2)", space, member
+        )
+    ) == (False, False)
+    await connection.execute("RESET ROLE")
+    assert await stored_usage(connection) == before
+    assert (
+        await connection.fetch("SELECT * FROM memberships ORDER BY id") == memberships
+    )
+
+
+async def test_nonmember_self_departure_keeps_even_hidden_usage(connection) -> None:
+    """A no-op departure must not become a way to delete unrelated stored rows."""
+    _owner, member, space = await seed_usage(connection)
+    await connection.execute(
+        "DELETE FROM memberships WHERE person_id = $1 AND space_id = $2", member, space
+    )
+    before = await stored_usage(connection)
+    memberships = await connection.fetch("SELECT * FROM memberships ORDER BY id")
+    await connection.execute("SET LOCAL ROLE reef_probe")
+    await connection.execute(
+        "SELECT set_config('app.person_id', $1, true)", str(member)
+    )
+    assert tuple(
+        await connection.fetchrow(
+            "SELECT * FROM reef_remove_member($1, $2)", space, member
+        )
+    ) == (False, False)
+    await connection.execute("RESET ROLE")
+    assert await stored_usage(connection) == before
+    assert (
+        await connection.fetch("SELECT * FROM memberships ORDER BY id") == memberships
+    )
+
+
+@pytest.mark.parametrize(
+    "null_space,null_person", [(True, False), (False, True), (True, True)]
+)
+@pytest.mark.parametrize("as_owner", [False, True])
+async def test_null_arguments_change_nothing(
+    connection, null_space, null_person, as_owner
+) -> None:
+    """Null targets are harmless for both an owner and a member leaving."""
+    owner, member, space = await seed_usage(connection)
+    before = await stored_usage(connection)
+    memberships = await connection.fetch("SELECT * FROM memberships ORDER BY id")
+    await connection.execute("SET LOCAL ROLE reef_probe")
+    await connection.execute(
+        "SELECT set_config('app.person_id', $1, true)",
+        str(owner if as_owner else member),
+    )
+    assert tuple(
+        await connection.fetchrow(
+            "SELECT * FROM reef_remove_member($1, $2)",
+            None if null_space else space,
+            None if null_person else member,
+        )
+    ) == (False, False)
+    await connection.execute("RESET ROLE")
+    assert await stored_usage(connection) == before
+    assert (
+        await connection.fetch("SELECT * FROM memberships ORDER BY id") == memberships
+    )
