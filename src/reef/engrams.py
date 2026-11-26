@@ -16,8 +16,14 @@ from reef.access import AccessDenied, Principal, resolve_space, resolve_writable
 from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
-from reef.links import Resolver, connect_waiting_links, sync_wiki_links
+from reef.links import (
+    Resolver,
+    connect_waiting_links,
+    sync_typed_links,
+    sync_wiki_links,
+)
 from reef.models import AccessKind, Attachment, Engram, Revision, Space, SpaceKind
+from reef.relations import Relations, take_block
 
 PROTECTED_PREFIX = "meta/"
 
@@ -280,6 +286,7 @@ async def save_engram(
     allow_private_copy: bool = False,
     via: AccessKind | None = AccessKind.WRITE,
     channel: str = "assistant",
+    relations: Relations | None = None,
 ) -> Engram:
     """Create or overwrite an engram: snapshot a revision, bump engram and space versions.
 
@@ -300,6 +307,8 @@ async def save_engram(
         the engram
     :param channel: who made the change, kept on the revision: ``assistant``
         for a call over MCP, ``person`` for the website
+    :param relations: already-read relations; when absent, read the leading
+        block here. Passage changes pass empty relations to keep their text.
     :raises PrivateContentLeak: for personal text written into a space
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new engram's path cannot be normalized
@@ -307,6 +316,8 @@ async def save_engram(
     :raises VersionConflict: when expected_version is stale
     :returns: the saved engram
     """
+    if relations is None:
+        body, relations = take_block(body)
     validate_body(path, body)
     _refuse_protected(path, allow_protected)
     space = await resolve_writable_space(principal, alias)
@@ -387,6 +398,8 @@ async def save_engram(
     # ones reads the targets it now stores.
     resolver = await Resolver.for_person(principal)
     await sync_wiki_links(resolver, engram.id, space.id, engram.reference_targets)
+    if not relations.empty:
+        await sync_typed_links(resolver, engram.id, space.id, relations)
     if created:
         await connect_waiting_links(resolver, engram.id, space.id, engram.path)
     if via is not None:

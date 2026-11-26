@@ -35,12 +35,14 @@ from reef.indexfields import index_fields
 from reef.models import (
     Engram,
     Link,
+    LinkKind,
     LinkStatus,
     MemberRole,
     Membership,
     Space,
     SpaceKind,
 )
+from reef.relations import MAX_RELATIONS, RELATION_KEYS, InvalidRelations, Relations
 
 
 def parse_target(target: str) -> tuple[str | None, str]:
@@ -161,6 +163,7 @@ async def sync_wiki_links(
         for row in await Link.select(Link.to_engram_id).where(
             Link.from_engram_id == engram_id,
             Link.status == LinkStatus.ACTIVE.value,
+            Link.kind == LinkKind.REFERENCES.value,
         )
     }
     for row in candidates:
@@ -329,3 +332,146 @@ async def backfill_links(principal: Principal) -> int:
         )
         updated += 1
     return updated
+
+
+class RelationRefused(Exception):
+    """A typed link cannot be saved with this writer's rights."""
+
+    def __init__(self, code: str, target: str) -> None:
+        """Keep the reason and written target, without any engram text.
+
+        :param code: the reason the link was refused
+        :param target: the link as written
+        """
+        self.code = code
+        self.target = target
+        super().__init__(f"{code}: {target}")
+
+
+async def _relation_targets(
+    resolver: Resolver, space_id: UUID, path: str, relations: Relations
+) -> dict[LinkKind, dict[UUID, tuple[str, str, str]]]:
+    """Resolve and check the targets of all given kinds.
+
+    :param resolver: the writer's spaces and rights
+    :param space_id: the source space
+    :param path: the source path
+    :param relations: the given kinds
+    :returns: each kind's target ids, with written text, space name and path
+    :raises RelationRefused: when a target or a replacement chain is invalid
+    :raises InvalidRelations: for an unknown kind or too many targets
+    """
+    result: dict[LinkKind, dict[UUID, tuple[str, str, str]]] = {}
+    aliases = {sid: alias for alias, sid in resolver.space_by_alias.items()}
+    for kind, targets in relations.given.items():
+        if kind not in RELATION_KEYS.values():
+            raise InvalidRelations()
+        if len(targets) > MAX_RELATIONS:
+            raise InvalidRelations("relation_too_many")
+        result[kind] = {}
+        for text in targets:
+            alias, target_path = parse_target(text)
+            target_space = (
+                space_id if alias is None else resolver.space_by_alias.get(alias)
+            )
+            if target_space is None or not target_path:
+                raise RelationRefused("relation_target_missing", text)
+            if target_space == space_id and target_path == path:
+                raise RelationRefused("relation_to_itself", text)
+            if (
+                resolver.spaces[space_id].kind != SpaceKind.PERSONAL.value
+                and resolver.spaces[target_space].kind == SpaceKind.PERSONAL.value
+            ):
+                raise RelationRefused("relation_into_personal", text)
+            target = (
+                await Engram.objects()
+                .where(Engram.space_id == target_space, Engram.path == target_path)
+                .first()
+            )
+            if target is None:
+                raise RelationRefused("relation_target_missing", text)
+            if kind == LinkKind.SUPERSEDES and target_space not in resolver.writable:
+                raise RelationRefused("relation_needs_write", text)
+            result[kind][target.id] = (text, aliases[target_space], target_path)
+    supersedes = result.get(LinkKind.SUPERSEDES, {})
+    if supersedes:
+        circles = await Link.raw(
+            "WITH RECURSIVE chain(root, id) AS ("
+            "SELECT id, id FROM engrams WHERE id = ANY({}::uuid[]) "
+            "UNION SELECT c.root, l.to_engram_id FROM chain c JOIN links l "
+            "ON l.from_engram_id = c.id WHERE l.kind = 'supersedes' AND l.status = 'active') "
+            "SELECT c.root FROM chain c JOIN engrams e ON e.id = c.id "
+            "WHERE e.space_id = {} AND e.path = {}",
+            [str(target) for target in supersedes],
+            space_id,
+            path,
+        )
+        if circles:
+            raise RelationRefused("relation_circle", supersedes[circles[0]["root"]][0])
+    return result
+
+
+async def sync_typed_links(
+    resolver: Resolver, engram_id: UUID, space_id: UUID, relations: Relations
+) -> None:
+    """Replace given kinds, retaining unseen links and unchanged rows.
+
+    :param resolver: the writer's spaces and rights
+    :param engram_id: the saved source engram
+    :param space_id: its space
+    :param relations: the kinds to replace
+    :raises RelationRefused: when a link cannot be written
+    """
+    # Serialize graph changes before checking circles, including concurrent
+    # saves of different sources. The lock lasts for the enclosing save.
+    await Link.raw("SELECT pg_advisory_xact_lock(7360036)")
+    source = await Engram.objects().get(Engram.id == engram_id)
+    targets = await _relation_targets(resolver, space_id, source.path, relations)
+    for kind, wanted in targets.items():
+        await Link.raw(
+            "SELECT reef_retire_typed_links({}, {}, {}::uuid[])",
+            engram_id,
+            kind.value,
+            [str(target) for target in wanted],
+        )
+        for target_id, (text, _, _) in wanted.items():
+            await Link.raw(
+                "INSERT INTO links (id, from_engram_id, to_engram_id, target_text, "
+                "author_id, kind, source) VALUES ({}, {}, {}, {}, {}, {}, 'author') "
+                "ON CONFLICT DO NOTHING",
+                uuid4(),
+                engram_id,
+                target_id,
+                text,
+                resolver.principal.person_id,
+                kind.value,
+            )
+
+
+async def pending_replacements(
+    resolver: Resolver, space_id: UUID, path: str, relations: Relations
+) -> list[tuple[str, str]]:
+    """Find newly added replacements, checking the whole relation block.
+
+    :param resolver: the writer's spaces and rights
+    :param space_id: the source space
+    :param path: the source path, which may not exist yet
+    :param relations: the given kinds
+    :returns: new targets as sorted space-name and path pairs
+    :raises RelationRefused: when a link cannot be written
+    """
+    wanted = (await _relation_targets(resolver, space_id, path, relations)).get(
+        LinkKind.SUPERSEDES, {}
+    )
+    rows = await Link.raw(
+        "SELECT l.to_engram_id FROM links l JOIN engrams e ON e.id = l.from_engram_id "
+        "WHERE e.space_id = {} AND e.path = {} AND l.kind = 'supersedes' AND l.status = 'active'",
+        space_id,
+        path,
+    )
+    active = {row["to_engram_id"] for row in rows}
+    return sorted(
+        (alias, target_path)
+        for target, (_, alias, target_path) in wanted.items()
+        if target not in active
+    )

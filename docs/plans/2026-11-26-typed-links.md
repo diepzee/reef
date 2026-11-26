@@ -209,7 +209,7 @@ in the task named.
     and `relation_too_many`. `refusals` maps `RelationRefused` and
     `InvalidRelations` to `MethodError`.
 
-- [ ] **Step 1: Write the failing tests** against `save_engram`:
+- [x] **Step 1: Write the failing tests** against `save_engram`:
   - each kind becomes one active row with that kind and `source =
     'author'`; `links_of` shows it with its kind;
   - a save without `relations`, or with a kind absent, leaves existing
@@ -223,16 +223,16 @@ in the task named.
   - two engrams may replace the same one;
   - `relations` never touch wiki links, and a body change never touches
     typed links.
-- [ ] **Step 2: Run** them. Expected: fail, `save_engram` has no
+- [x] **Step 2: Run** them. Expected: fail, `save_engram` has no
   `relations`.
-- [ ] **Step 3: Implement.** Resolve targets with `Resolver` and
+- [x] **Step 3: Implement.** Resolve targets with `Resolver` and
   `parse_target`; unlike `wanted`, a target that is missing or not allowed
   is refused, not skipped. Find a circle with one recursive query over the
   active `supersedes` links the caller can read. Insert with `kind` and
   `source`; retire through `reef_retire_typed_links` with the ids to keep.
-- [ ] **Step 4: Run** `just test-py tests/test_typed_links.py
+- [x] **Step 4: Run** `just test-py tests/test_typed_links.py
   tests/test_links.py tests/test_engrams.py`. Expected: pass.
-- [ ] **Step 5: Commit** `feat(links): store typed links when an engram is saved (RUG-36)`.
+- [x] **Step 5: Commit** `feat(links): store typed links when an engram is saved (RUG-36)`.
 
 ---
 

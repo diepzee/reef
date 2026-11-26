@@ -16,8 +16,10 @@ from reef.engrams import (
     ProtectedPath,
     VersionConflict,
 )
+from reef.links import RelationRefused
 from reef.methods import MESSAGES, MethodError
 from reef.promotion import PromotionError
+from reef.relations import InvalidRelations
 
 #: The code for each refusal of an engram write.
 ENGRAM_REFUSALS: dict[type[Exception], str] = {
@@ -48,6 +50,12 @@ def refusals(path: str | None = None) -> Iterator[None]:
     except AccessDenied:
         raise MethodError("unknown_space") from None
     except PromotionError as error:
+        raise MethodError(error.code) from None
+    except RelationRefused as error:
+        raise MethodError(
+            error.code, f"{error.target}: {MESSAGES[error.code]}"
+        ) from None
+    except InvalidRelations as error:
         raise MethodError(error.code) from None
     except tuple(ENGRAM_REFUSALS) as error:
         code = ENGRAM_REFUSALS[type(error)]
