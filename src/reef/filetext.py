@@ -91,6 +91,10 @@ _WORKER_FAULT = (
 fixed literal, spliced into SQL; its values come from
 :func:`_worker_fault_values`.
 
+Both :func:`request_backfill` and :func:`backfill` use this query to hold
+back a file. It scans the person's jobs of one kind, newest first, and
+checks the file's subject ids before choosing the latest job.
+
 Such a file stays ``waiting`` and is not healed on every index load. The
 worker was short of processes, which a hostile file can cause on every
 read, and its failed attempts roll back and cost nothing: healing it at
