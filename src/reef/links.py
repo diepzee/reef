@@ -27,10 +27,13 @@ outright, here and again by the database.
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
+import logging
+from collections import deque
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from reef.access import Principal, accessible_spaces, alias_map
+from reef.db import DB
 from reef.indexfields import index_fields
 from reef.models import (
     Engram,
@@ -486,37 +489,66 @@ async def pending_replacements(
 
 
 async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
-    """Find the ends of visible replacement chains in one recursive query.
+    """Find visible chain ends, visiting each reachable engram once.
 
-    Paths are sorted by the newest direct link first, then by the next link
-    along a chain. Repeated ends appear once. A visited-id array stops bad
-    imported data from making the query loop.
+    One recursive query collects nodes, not paths through forks. Ends are
+    built from the leaves back toward the hits, keeping newest links first.
+    Cycles and nodes leading into them never finish and count as not replaced.
+    A failed query rolls back its savepoint and leaves the original ranking.
 
     :param engram_ids: the engrams to check for the armed reader
     :returns: replaced ids and their terminal replacements in order
     """
     if not engram_ids:
         return {}
-    rows = await Link.raw(
-        "WITH RECURSIVE chain(root, id, seen, times) AS ("
-        "SELECT l.to_engram_id, l.from_engram_id, ARRAY[l.to_engram_id, l.from_engram_id], "
-        "ARRAY[l.recorded_at] FROM links l WHERE l.to_engram_id = ANY({}::uuid[]) "
-        "AND l.kind = 'supersedes' AND l.status = 'active' "
-        "UNION ALL SELECT c.root, l.from_engram_id, c.seen || l.from_engram_id, "
-        "c.times || l.recorded_at FROM chain c JOIN links l ON l.to_engram_id = c.id "
-        "WHERE l.kind = 'supersedes' AND l.status = 'active' "
-        "AND NOT l.from_engram_id = ANY(c.seen)) "
-        "SELECT c.root, c.id FROM chain c WHERE NOT EXISTS (SELECT 1 FROM links l "
-        "WHERE l.to_engram_id = c.id AND l.kind = 'supersedes' AND l.status = 'active') "
-        "ORDER BY c.root, c.times DESC, c.id",
-        [str(engram_id) for engram_id in engram_ids],
-    )
-    result: dict[UUID, list[UUID]] = {}
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Link.raw(
+            "WITH RECURSIVE reachable(id) AS ("
+            "SELECT unnest({}::uuid[]) UNION "
+            "SELECT l.from_engram_id FROM links l JOIN reachable r "
+            "ON l.to_engram_id = r.id "
+            "WHERE l.kind = 'supersedes' AND l.status = 'active') "
+            "SELECT l.to_engram_id, l.from_engram_id FROM links l "
+            "JOIN reachable r ON l.to_engram_id = r.id "
+            "WHERE l.kind = 'supersedes' AND l.status = 'active' "
+            "ORDER BY l.recorded_at DESC, l.from_engram_id",
+            [str(engram_id) for engram_id in engram_ids],
+        )
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        logging.getLogger(__name__).warning(
+            "replacement lookup keeps the original order (%s)", type(error).__name__
+        )
+        return {}
+    await savepoint.release()
+    children: dict[UUID, list[UUID]] = {}
+    parents: dict[UUID, set[UUID]] = {}
+    nodes: set[UUID] = set()
     for row in rows:
-        ends = result.setdefault(row["root"], [])
-        if row["id"] not in ends:
-            ends.append(row["id"])
-    return result
+        old, new = row["to_engram_id"], row["from_engram_id"]
+        nodes.update((old, new))
+        targets = children.setdefault(old, [])
+        if new not in targets:
+            targets.append(new)
+        parents.setdefault(new, set()).add(old)
+    remaining = {node: len(children.get(node, [])) for node in nodes}
+    ready = deque(node for node in nodes if not remaining[node])
+    ends: dict[UUID, list[UUID]] = {}
+    while ready:
+        node = ready.popleft()
+        ends[node] = (
+            list(dict.fromkeys(end for child in children[node] for end in ends[child]))
+            if node in children
+            else [node]
+        )
+        for parent in parents.get(node, set()):
+            remaining[parent] -= 1
+            if not remaining[parent]:
+                ready.append(parent)
+    return {
+        root: ends[root] for root in engram_ids if root in children and root in ends
+    }
 
 
 async def replacement_refs(

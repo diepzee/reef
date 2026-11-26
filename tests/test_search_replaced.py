@@ -11,7 +11,7 @@ from reef import embedding
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.links import replacements
-from reef.models import LinkKind
+from reef.models import Link, LinkKind
 from reef.relations import Relations
 from reef.search import demote, search_engrams
 
@@ -158,6 +158,49 @@ async def test_chain_ends_and_newest_replacement_first(household) -> None:
     hits = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
     hit = next(hit for hit in hits if hit["path"] == "c.md")
     assert [ref["path"] for ref in hit["replaced_by"]] == ["split.md", "a.md"]
+
+
+async def test_failed_replacement_query_keeps_search_working(
+    household, monkeypatch, caplog
+) -> None:
+    """A failed graph query rolls back only its savepoint and logs no content."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "contract")
+    await replace(me, "new.md", "old.md", "renewal")
+    original = Link.raw
+
+    def broken(statement, *params):
+        """Make only the replacement lookup fail in PostgreSQL."""
+        return (
+            original("SELECT 1 / 0 /* private content */")
+            if statement.startswith("WITH RECURSIVE")
+            else original(statement, *params)
+        )
+
+    monkeypatch.setattr(Link, "raw", broken)
+    hits = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
+    assert [hit["path"] for hit in hits] == ["old.md"]
+    assert "replaced_by" not in hits[0]
+    assert "DivisionByZeroError" in caplog.text
+    assert "private content" not in caplog.text
+
+
+async def test_seeded_circle_ends_and_is_not_replaced(household, seed) -> None:
+    """A circle from imported data cannot loop or mark its members replaced."""
+    me = caller_for(household["wouter"])
+    a = await save_as(me, "personal", "a.md", "contract")
+    b = await save_as(me, "personal", "b.md", "contract")
+    for source, target in ((a, b), (b, a)):
+        await seed.execute(
+            "INSERT INTO links (id, from_engram_id, to_engram_id, author_id, kind, source) VALUES ($1, $2, $3, $4, 'supersedes', 'author')",
+            uuid4(),
+            source.id,
+            target.id,
+            me.principal.person_id,
+        )
+    hits = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
+    assert {hit["path"] for hit in hits} == {"a.md", "b.md"}
+    assert all("replaced_by" not in hit for hit in hits)
 
 
 async def test_missing_replacement_is_inserted_and_limit_holds(household) -> None:
