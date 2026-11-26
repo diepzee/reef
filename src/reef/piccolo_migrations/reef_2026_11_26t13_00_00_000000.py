@@ -24,7 +24,7 @@ from piccolo.apps.migrations.auto.migration_manager import MigrationManager
 
 from reef.db import run_ddl_atomically
 
-ID = "2026-11-26T12:00:00:000000"
+ID = "2026-11-26T13:00:00:000000"
 VERSION = "1.36.0"
 DESCRIPTION = "erase private usage when membership ends"
 

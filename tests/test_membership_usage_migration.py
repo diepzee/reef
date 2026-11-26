@@ -12,7 +12,7 @@ from test_migration_chain import _admin_dsn, build_by_migrating, drop_database
 from reef.rls import mutation_statements
 
 MIGRATION = importlib.import_module(
-    "reef.piccolo_migrations.reef_2026_11_26t12_00_00_000000"
+    "reef.piccolo_migrations.reef_2026_11_26t13_00_00_000000"
 )
 DATABASE = "reef_membership_usage_drill"
 
