@@ -40,16 +40,18 @@ async def test_connector_fetch_names_only_visible_replacements(household) -> Non
     )
     mine = await connector.fetch(writer, "", "page:household/old.md")
     theirs = await connector.fetch(reader, "", "page:household/old.md")
-    assert mine["metadata"]["replaced_by"] == [
-        {"space": "personal", "path": "new.md", "title": "new"}
-    ]
+    [replacement] = mine["metadata"]["replaced_by"]
+    assert replacement["id"] == "page:personal/new.md"
+    fetched = await connector.fetch(writer, "", replacement["id"])
+    assert fetched["text"] == "renewal"
+    assert replacement["url"] == fetched["url"]
     assert "replaced_by" not in theirs["metadata"]
     hits = (await connector.search(writer, "", "contract"))["results"]
     assert [hit["id"] for hit in hits[1:]] == [
         "page:personal/new.md",
         "page:household/old.md",
     ]
-    assert hits[-1]["replaced_by"] == mine["metadata"]["replaced_by"]
+    assert all(set(hit) == {"id", "title", "url"} for hit in hits)
 
 
 def principal_for(person) -> Principal:

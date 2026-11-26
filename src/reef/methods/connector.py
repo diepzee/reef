@@ -118,18 +118,7 @@ async def search(caller: Caller, reason: str, query: str) -> dict:
             identifier = _connector_id("page", hit["cove"], hit["path"])
             title = hit["title"] or hit["path"]
             url = _app_url(hit["cove"], hit["path"])
-        results.append(
-            {
-                "id": identifier,
-                "title": title,
-                "url": url,
-                **(
-                    {"replaced_by": hit["replaced_by"]}
-                    if hit.get("replaced_by")
-                    else {}
-                ),
-            }
-        )
+        results.append({"id": identifier, "title": title, "url": url})
     return {"results": results}
 
 
@@ -279,6 +268,14 @@ async def _engram(principal: Principal, id: str, space: str, path: str) -> dict 
         return None
     await usage.record(principal, engram.id, AccessKind.READ)
     replaced = await replacement_refs(principal, [engram.id])
+    refs = [
+        {
+            **ref,
+            "id": _connector_id("page", ref["space"], ref["path"]),
+            "url": _app_url(ref["space"], ref["path"]),
+        }
+        for ref in replaced.get(engram.id, [])
+    ]
     return {
         "id": id,
         "title": engram.title or path,
@@ -288,6 +285,6 @@ async def _engram(principal: Principal, id: str, space: str, path: str) -> dict 
             "cove": space,
             "path": path,
             "kind": "page",
-            **({"replaced_by": replaced[engram.id]} if engram.id in replaced else {}),
+            **({"replaced_by": refs} if refs else {}),
         },
     }
