@@ -7,7 +7,7 @@ session or time, and not how many people.
 
 Run as ``python scripts/call_totals.py [--days N]``, or ``just call-totals``.
 It counts the last 30 whole days in UTC, ending at the start of today, unless
-told otherwise; from 7 to 90 days. Against production, run it inside
+told otherwise; from 7 to 89 days. Against production, run it inside
 ``reef-app``, so it uses the app's own database role::
 
     railway ssh -s reef-app -- uv run --frozen --no-dev \\
@@ -17,8 +17,12 @@ told otherwise; from 7 to 90 days. Against production, run it inside
 import argparse
 import asyncio
 
-from reef.calllog import RETENTION_DAYS, Total, totals
-from reef.rls import CALL_LOG_TOTALS_COLUMNS, CALL_LOG_TOTALS_MIN_DAYS
+from reef.calllog import Total, totals
+from reef.rls import (
+    CALL_LOG_TOTALS_COLUMNS,
+    CALL_LOG_TOTALS_MAX_DAYS,
+    CALL_LOG_TOTALS_MIN_DAYS,
+)
 
 
 def render(rows: list[Total]) -> str:
@@ -61,13 +65,13 @@ def main() -> None:
         default=30,
         help=(
             f"how many whole days to count, from {CALL_LOG_TOTALS_MIN_DAYS} "
-            f"to {RETENTION_DAYS} (30)"
+            f"to {CALL_LOG_TOTALS_MAX_DAYS} (30)"
         ),
     )
     days = parser.parse_args().days
-    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= RETENTION_DAYS:
+    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= CALL_LOG_TOTALS_MAX_DAYS:
         parser.error(
-            f"--days must be from {CALL_LOG_TOTALS_MIN_DAYS} to {RETENTION_DAYS}"
+            f"--days must be from {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_TOTALS_MAX_DAYS}"
         )
     print(asyncio.run(report(days)))
 
