@@ -12,6 +12,11 @@ engram text, and not the files returned.
 memory, so the log is private to them: row security enforces that, and
 nothing here reads across people. Across people this module only counts.
 
+**Totals across everybody.** :func:`totals` returns only how many searches
+and how many of them missed at least one read. Whole UTC days, from 7 to 90,
+ending at the start of today, as for the call log. Flagged test accounts
+are left out. No query, person, engram, session or time leaves the function.
+
 **How long.** :data:`RETENTION_DAYS` days. :func:`purge` deletes older rows
 for everybody, through a database function that takes no argument and
 returns a number. A person's account deletion takes their rows with it.
@@ -30,13 +35,14 @@ Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
 import logging
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB
 from reef.models import SearchLog
-from reef.rls import SEARCH_LOG_DAYS, SEARCH_LOG_MAX_QUERY
+from reef.rls import SEARCH_LOG_DAYS, SEARCH_LOG_MAX_QUERY, SEARCH_LOG_TOTALS_MIN_DAYS
 from reef.usage import current_session_id
 
 log = logging.getLogger("reef.searchlog")
@@ -91,6 +97,40 @@ async def purge() -> int:
     """
     rows = await SearchLog.raw("SELECT reef_purge_search_log() AS removed")
     return rows[0]["removed"]
+
+
+@dataclass(frozen=True)
+class Total:
+    """How many searches and missed searches there were, across everybody."""
+
+    searches: int
+    """How many searches fell in the period."""
+
+    misses: int
+    """How many of those searches missed at least one read."""
+
+
+async def totals(days: int) -> Total:
+    """Count searches and missed searches without reading anybody's log.
+
+    From the start of the day ``days`` days ago to the start of today, in
+    UTC. The database function reads both private logs and returns only
+    two numbers. Each search counts once, even if several reads qualify
+    under :func:`misses`' rule. Needs no principal.
+
+    :param days: how many whole days to count, from
+        :data:`~reef.rls.SEARCH_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`
+    :returns: searches and searches that missed, including zeroes
+    :raises ValueError: when ``days`` is out of that range
+    """
+    if not SEARCH_LOG_TOTALS_MIN_DAYS <= days <= SEARCH_LOG_DAYS:
+        raise ValueError(
+            f"search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_DAYS} days"
+        )
+    [row] = await SearchLog.raw(
+        "SELECT searches, misses FROM reef_search_log_totals({})", days
+    )
+    return Total(**row)
 
 
 async def misses(principal: Principal) -> list[dict]:
