@@ -41,7 +41,7 @@ async def test_the_disclosure_functions_are_owned_by_the_bypassing_role():
         # is that a BYPASSRLS role owns these, not what it is called.
         assert row["owner"] in (AUTHZ_ROLE, FORMER_AUTHZ_ROLE), row["proname"]
         assert row["prosecdef"] is True, row["proname"]
-        assert "search_path=public, pg_catalog" in (row["proconfig"] or [])
+        assert "search_path=pg_catalog, public, pg_temp" in (row["proconfig"] or [])
 
 
 async def test_an_owner_sees_member_emails(tx, household):

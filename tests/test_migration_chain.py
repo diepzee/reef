@@ -33,6 +33,7 @@ import pytest_asyncio
 from conftest import seed_dsn
 
 from reef.config import get_settings
+from reef.rls import HELPER_SEARCH_PATH
 
 #: Built and dropped per run. Named so a leftover after a hard kill is
 #: obviously debris rather than something anybody's data lives in.
@@ -350,6 +351,29 @@ async def test_the_chain_creates_every_function_reef_rls_declares(drilled):
         "declared in reef.rls but no migration creates them: "
         f"{sorted(declared - present)}"
     )
+
+
+async def test_the_chain_leaves_every_helper_with_the_safe_search_path(drilled):
+    """Earlier migrations create helpers with the old setting, in fixed text
+    that is never edited. The last word must be the safe one: after the whole
+    chain, every function in ``public`` that runs with its owner's rights
+    looks in the system catalog first and in temporary tables last."""
+    connection = await asyncpg.connect(drilled)
+    try:
+        rows = await connection.fetch(
+            "SELECT p.oid::regprocedure::text AS name, p.proconfig AS config "
+            "FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
+            "WHERE n.nspname = 'public' AND p.prosecdef"
+        )
+    finally:
+        await connection.close()
+    assert "reef_space_ids()" in {row["name"] for row in rows}
+    wrong = {
+        row["name"]: row["config"]
+        for row in rows
+        if row["config"] != [f"search_path={HELPER_SEARCH_PATH}"]
+    }
+    assert wrong == {}
 
 
 async def test_the_chain_creates_every_policy_reef_rls_declares(drilled):

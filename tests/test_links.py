@@ -316,7 +316,7 @@ async def test_the_retire_function_is_owned_closed_and_returns_nothing():
     )
     assert row["result"] == "void"
     assert row["prosecdef"] is True
-    assert "search_path=public, pg_catalog" in row["proconfig"]
+    assert "search_path=pg_catalog, public, pg_temp" in row["proconfig"]
     assert row["open"] is False
 
 

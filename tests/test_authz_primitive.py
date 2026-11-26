@@ -52,7 +52,7 @@ async def test_the_functions_are_security_definer_with_a_fixed_search_path():
     )
     for row in rows:
         assert row["prosecdef"] is True, f"{row['proname']} must be SECURITY DEFINER"
-        assert "search_path=public, pg_catalog" in (row["proconfig"] or [])
+        assert "search_path=pg_catalog, public, pg_temp" in (row["proconfig"] or [])
 
 
 async def test_the_functions_are_closed_to_public(tx, household):

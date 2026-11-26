@@ -170,7 +170,7 @@ async def test_only_app_roles_can_call_the_fixed_function(seed):
     assert row["prosecdef"] is True
     assert row["owner"] in ("reef_authz", "rif_authz")
     assert row["provolatile"] == "s"
-    assert row["proconfig"] == ["search_path=public, pg_catalog"]
+    assert row["proconfig"] == ["search_path=pg_catalog, public, pg_temp"]
     assert not [grant for grant in row["acl"] if grant.startswith("=")]
     assert {grant.split("=")[0] for grant in row["acl"]} <= {
         "reef_authz",
