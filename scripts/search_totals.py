@@ -6,8 +6,11 @@ No query, person, engram, session or time, and not how many people.
 
 Run as ``python scripts/search_totals.py [--days N]``, or ``just search-totals``.
 It counts the last 30 whole days in UTC, ending at the start of today, unless
-told otherwise; from 7 to 89 days. Use the app's own database role, as for
-``scripts/call_totals.py``.
+told otherwise; from 7 to 89 days. Against production, run it inside
+``reef-app``, so it uses the app's own database role::
+
+    railway ssh -s reef-app -- uv run --frozen --no-dev \\
+      python scripts/search_totals.py --days 30
 """
 
 import argparse
