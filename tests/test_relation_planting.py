@@ -96,3 +96,51 @@ async def test_web_preserves_ordinary_key_text(api, world) -> None:
     )
     assert response.status_code == 200
     assert response.json()["body"] == ORDINARY
+
+
+async def test_write_checks_size_before_reading_block(household, monkeypatch) -> None:
+    """Removing a large block cannot bypass the input size limit."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    monkeypatch.setattr(get_settings().engrams, "max_chars", 80)
+    body = "---\nabout: [[old.md]]" + " " * 100 + "\n---\nnew"
+    with pytest.raises(MethodError) as caught:
+        await capture.write(
+            me, "", "personal", [{"path": "new.md", "body": body}], "save"
+        )
+    assert caught.value.code == "engram_too_large"
+
+
+async def test_web_checks_size_before_reading_block(api, world, monkeypatch) -> None:
+    """The web editor applies the same raw body size limit."""
+    _login(api, world[0])
+    headers = {"X-Rif-Csrf": "1"}
+    await api.put(
+        "/api/engrams/team/old.md",
+        json={"body": "old", "message": "save"},
+        headers=headers,
+    )
+    monkeypatch.setattr(get_settings().engrams, "max_chars", 80)
+    body = "---\nabout: [[old.md]]" + " " * 100 + "\n---\nnew"
+    response = await api.put(
+        "/api/engrams/team/new.md",
+        json={"body": body, "message": "save"},
+        headers=headers,
+    )
+    assert response.status_code == 400
+
+
+async def test_save_counts_repeated_targets_once(household) -> None:
+    """Explicit callers have the same distinct-target limit as block writers."""
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    await save_as(
+        me,
+        "personal",
+        "new.md",
+        "new",
+        relations=Relations({LinkKind.ABOUT: ("old.md",) * 21}),
+    )

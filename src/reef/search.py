@@ -732,7 +732,7 @@ async def _replacement_order(
 ) -> tuple[list[tuple[str, UUID]], dict[UUID, list[dict]]]:
     """Adjust one ranking and name its visible replacements in a batch.
 
-    :param ranking: candidates after the reranker, or the keyword hits
+    :param ranking: hits already cut to the asked length
     :param space_ids: searched spaces; empty means all readable spaces
     :param aliases: the reader's names for spaces
     :returns: the ranking and each replaced engram's references
@@ -2027,6 +2027,13 @@ async def search_engrams(
     the question's words in long file chunks; the passages themselves are
     cut after it, in a thread. No database connection waits on a model.
     Called inside a transaction, it runs in that one.
+
+    **Replacements.** Cut to the asked length, then move replaced engram
+    hits after current ones. A hit's readable chain ends are named in
+    ``replaced_by``. If none is present, insert the first end in a searched
+    space directly before the old hit. Spread files again and cut again;
+    an inserted replacement can push its old hit out. A failed replacement
+    query keeps the original order and adds no notes.
 
     Search never fails because of the embedding service or the reranker.
     Without them, or when they are slow or down, the answer is the order

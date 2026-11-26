@@ -37,6 +37,7 @@ from reef.engrams import (
     get_engram,
     normalize_path,
     save_engram,
+    validate_body,
     validate_save,
 )
 from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
@@ -667,13 +668,20 @@ async def write(
     If any engram is refused, none is written. The persona is refused: it
     changes only through ``instruct``.
 
+    Only this tool reads relation blocks. Adding a replacement first returns
+    its effect and a token without writing. After the person's yes, repeat
+    the call with that token; it names the target ids and source versions.
+    Other relations and removal write at once. A retry with no new replacement
+    writes normally. Every save check runs before confirmation is requested.
+
     :param caller: who is calling
     :param reason: why, in the caller's words
     :param space: the caller's name for the space
     :param engrams: the engrams to write
     :param message: why they change, for each engram without its own message
     :param confirm: the token from the first call, after the person's yes
-    :returns: one ``{engram, version}`` per engram written, in order
+    :returns: one ``{engram, version}`` per engram written, or the effect,
+        token and expiry when confirmation is needed
     :raises MethodError: ``use_instruct`` for the persona, ``empty_batch``,
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
         ``read_only``, ``version_conflict``, ``protected_path``,
@@ -685,7 +693,11 @@ async def write(
             async with transaction_scope():
                 resolved = await resolve_writable_space(caller.principal, space)
                 resolver = await Resolver.for_person(caller.principal)
-                parsed = [(item, *take_block(item["body"])) for item in engrams]
+                parsed: list[tuple[dict, str, Relations]] = []
+                for item in engrams:
+                    with refusals(item["path"]):
+                        validate_body(item["path"], item["body"])
+                        parsed.append((item, *take_block(item["body"])))
                 if any(not relations.empty for _, _, relations in parsed):
                     await lock_typed_links()
                 prepared: list[tuple[dict, Relations]] = []

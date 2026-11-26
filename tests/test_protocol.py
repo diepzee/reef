@@ -145,7 +145,6 @@ def backticked(text: str) -> set[str]:
 
 #: Backticked words that are not tools: arguments, result keys, spaces and tags.
 NOT_TOOLS = {
-    "---",
     "replaces",
     "contradicts",
     "about",
@@ -328,5 +327,15 @@ def test_protocol_explains_relations_and_the_persons_yes() -> None:
     for key in ("replaces", "contradicts", "about", "part_of"):
         assert key in body
     assert "replaces: [[contract-2026.md]]" in body
-    assert "person's yes" in body
-    assert "out of date" in body
+    plain = " ".join(body.split())
+    assert (
+        "Adding `replaces` through `write` takes two calls and the person's yes."
+        in plain
+    )
+    assert "Answer from its replacement." in plain
+    assert "Add new facts there." in plain
+    assert "Only `write` reads a relation block among the tools." in plain
+    assert (
+        "Four tools act in two steps: `share`, `forget`, `instruct` and `write`."
+        in plain
+    )

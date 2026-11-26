@@ -39,6 +39,7 @@ from reef.engrams import (
     delete_engram,
     get_engram,
     save_engram,
+    validate_body,
 )
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
 from reef.identity import person_by_email, person_session_epoch
@@ -572,6 +573,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
     title = _optional_str(payload, "title")
     tags = _optional_tags(payload)
     expected_version = _optional_int(payload, "expected_version")
+    validate_body(path, body)
     body, relations = take_block(body)
     engram = await save_engram(
         principal,

@@ -57,9 +57,12 @@ def _targets(value: str) -> list[str]:
     targets: list[str] = []
     while value:
         match = _VALUE.match(value)
-        if match is None or not match[1].strip():
+        if match is None:
             raise InvalidRelations()
-        targets.append(match[1].strip())
+        target = match[1].split("|", 1)[0].strip()
+        if not target:
+            raise InvalidRelations()
+        targets.append(target)
         value = value[match.end() :].strip()
         if not value:
             break
@@ -111,9 +114,10 @@ def take_block(body: str) -> tuple[str, Relations]:
                 raise InvalidRelations()
             targets.extend(listed)
             index += 1
-        if len(targets) > MAX_RELATIONS:
+        unique = tuple(dict.fromkeys(targets))
+        if len(unique) > MAX_RELATIONS:
             raise InvalidRelations("relation_too_many")
-        given[kind] = tuple(dict.fromkeys(targets))
+        given[kind] = unique
     if not given:
         return body, Relations({})
     remaining = lines[0] + "".join(kept) + lines[end] if kept else ""

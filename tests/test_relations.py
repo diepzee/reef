@@ -110,6 +110,14 @@ def test_unrecognized_bodies_are_unchanged() -> None:
         assert relations.empty
 
 
+def test_limit_counts_distinct_targets_and_accepts_labels() -> None:
+    """Labels name the same target and repeats consume only one link."""
+    value = ", ".join(["[[a.md|label]]", "[[a.md]]"] * 21)
+    body, relations = take_block(f"---\nabout: {value}\n---\nx")
+    assert body == "x"
+    assert relations.given == {LinkKind.ABOUT: ("a.md",)}
+
+
 @pytest.mark.parametrize("item", ["", "[[a.md]], [[b.md]]"])
 def test_each_list_item_names_exactly_one_link(item: str) -> None:
     """An empty or multi-link list item is not the promised list syntax.

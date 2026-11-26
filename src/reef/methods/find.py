@@ -194,7 +194,9 @@ async def recall(
     Ranked by the same search the search tools use, by words and by meaning,
     and read again by the reranker for a large memory. See
     :func:`reef.search.search_engrams`. A described file is found by its
-    name and description.
+    name and description. Within the asked hits, replaced engrams rank last;
+    a missing replacement from a searched space may stand in for its old hit.
+    Replaced hits carry readable replacements in ``replaced_by``.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -335,6 +337,10 @@ async def open(
     reading of files switched on, a file also comes with the text Reef read
     from it, every page marked with its number, cut at a page when it
     passes the engram size cap (``REEF_ENGRAM_MAX_CHARS``).
+
+    Current and historical engrams carry ``replaced_by`` when a replacement
+    is readable now. Historical bodies retain their original text; the note
+    points to the current end of the replacement chain.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -604,6 +610,9 @@ async def brief(
     to :data:`BRIEF_BUDGET` characters: items fill in rank order, the one
     that would pass the budget is cut to what remains, and later ones are
     left out. A log drops its oldest entries first, a body is cut at its end.
+
+    Replaced items carry ``replaced_by`` with the readable ends of their
+    chains. A combined log names replacements of any of its returned parts.
 
     :param caller: who is calling
     :param reason: why, in the caller's words

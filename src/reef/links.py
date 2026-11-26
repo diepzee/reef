@@ -47,6 +47,10 @@ from reef.models import (
 )
 from reef.relations import MAX_RELATIONS, RELATION_KEYS, InvalidRelations, Relations
 
+#: Advisory-lock key for typed link changes. Arbitrary, but fixed: saves and
+#: confirmation checks must share it to prevent concurrent replacement circles.
+_TYPED_LINK_LOCK_KEY = 7360036
+
 
 def parse_target(target: str) -> tuple[str | None, str]:
     """Split a written wiki-link target into a space name and an engram path.
@@ -55,6 +59,7 @@ def parse_target(target: str) -> tuple[str | None, str]:
     :returns: the space name, or None for a same-space target, and the path
         without any ``#section`` part
     """
+    target = target.split("|", 1)[0].strip()
     alias: str | None = None
     path = target
     if ":" in target:
@@ -367,6 +372,7 @@ async def _relation_targets(
     result: dict[LinkKind, dict[UUID, tuple[str, str, str]]] = {}
     aliases = {sid: alias for alias, sid in resolver.space_by_alias.items()}
     for kind, targets in relations.given.items():
+        targets = tuple(dict.fromkeys(targets))
         if kind not in RELATION_KEYS.values():
             raise InvalidRelations()
         if len(targets) > MAX_RELATIONS:
@@ -421,7 +427,7 @@ async def lock_typed_links() -> None:
     a circle check cannot race another link change. Taking it first avoids
     a deadlock when two sources replace each other across spaces.
     """
-    await Link.raw("SELECT pg_advisory_xact_lock(7360036)")
+    await Link.raw("SELECT pg_advisory_xact_lock({})", _TYPED_LINK_LOCK_KEY)
 
 
 async def sync_typed_links(
