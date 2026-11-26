@@ -2,7 +2,7 @@
 
 > **For agentic workers:** build this task by task, in order. Each task ends
 > with its tests passing and one commit per step group. Steps use checkbox
-> (`- [x]`) syntax for tracking.
+> (`- [ ]`) syntax for tracking.
 
 **Goal:** an engram can say it replaces, contradicts, is about or is part of
 another one, and a replaced engram ranks lower in search and names its
@@ -386,19 +386,19 @@ in the task named.
   an old and a new one, and the fixture's version), `changes/`
 - Test: `tests/test_conversations_scoring.py`, the fixture's tests
 
-- [ ] **Step 1: Add the scenario** `replace-contract`, kind `write`: the
+- [x] **Step 1: Add the scenario** `replace-contract`, kind `write`: the
   person says the new engram replaces the old one and asks to record it;
   then says yes; then asks a question whose answer differs between the two
   engrams. `tools_required` holds `write`; the fact is the new engram's.
   Follow the scenarios `forget-confirmed` and `share-schedule` for a tool
   that asks twice.
-- [ ] **Step 2: Run** `just test-py tests/test_conversations_scoring.py`
+- [x] **Step 2: Run** `just test-py tests/test_conversations_scoring.py`
   and the fixture's tests. Expected: pass.
-- [ ] **Step 3: Add** `changes/feat-rug-36-typed-links.md`, kind `added`,
+- [x] **Step 3: Add** `changes/feat-rug-36-typed-links.md`, kind `added`,
   for a person who uses Reef: an engram can replace another one, the old
   one stays and ranks lower.
-- [ ] **Step 4: Run** `just test-py` and `just lint`. Expected: both pass.
-- [ ] **Step 5: Commit** `test(conversations): a person replaces one engram by another (RUG-36)`.
+- [x] **Step 4: Run** `just test-py` and `just lint`. Expected: both pass.
+- [x] **Step 5: Commit** `test(conversations): a person replaces one engram by another (RUG-36)`.
 
 Not for the worker: the private question set and the benchmark are run by
 the coordinator after the build, before and after the change, and must give

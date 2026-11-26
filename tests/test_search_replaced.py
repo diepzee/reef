@@ -45,6 +45,13 @@ def test_demote_inserts_only_a_missing_searchable_replacement() -> None:
     assert demote(ranking, {old: [new]}, set()) == [("page", other), ("page", old)]
 
 
+def test_demote_does_not_substitute_for_an_out_of_scope_first_replacement() -> None:
+    """The design says to insert the first replacement, or keep only the note."""
+    old, newest, older = [uuid4() for _ in range(3)]
+    ranking = [("page", old)]
+    assert demote(ranking, {old: [newest, older]}, {older}) == ranking
+
+
 async def replace(caller, path: str, target: str, body: str = "contract"):
     """Write a personal replacement with the caller's authority.
 

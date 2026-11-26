@@ -719,8 +719,8 @@ def demote(
     for kind, row_id in reordered:
         ends = replaced.get(row_id, []) if kind == "page" else []
         if ends and not present.intersection(ends):
-            replacement = next((end for end in ends if end in insertable), None)
-            if replacement is not None:
+            replacement = ends[0]
+            if replacement in insertable:
                 result.append(("page", replacement))
                 present.add(replacement)
         result.append((kind, row_id))

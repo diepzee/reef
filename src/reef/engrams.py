@@ -19,6 +19,7 @@ from reef.leakguard import overlaps
 from reef.links import (
     Resolver,
     connect_waiting_links,
+    lock_typed_links,
     sync_typed_links,
     sync_wiki_links,
 )
@@ -321,6 +322,8 @@ async def save_engram(
     validate_body(path, body)
     _refuse_protected(path, allow_protected)
     space = await resolve_writable_space(principal, alias)
+    if not relations.empty:
+        await lock_typed_links()
     # An existing engram is addressed by exactly the name it already carries.
     # reef stored arbitrary paths before normalize_path existed, and
     # normalizing unconditionally would not *rename* such an engram -- it would

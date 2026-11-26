@@ -411,6 +411,16 @@ async def _relation_targets(
     return result
 
 
+async def lock_typed_links() -> None:
+    """Serialize graph changes before taking any engram row lock.
+
+    Saves and confirmation checks share this transaction-scoped lock so
+    a circle check cannot race another link change. Taking it first avoids
+    a deadlock when two sources replace each other across spaces.
+    """
+    await Link.raw("SELECT pg_advisory_xact_lock(7360036)")
+
+
 async def sync_typed_links(
     resolver: Resolver, engram_id: UUID, space_id: UUID, relations: Relations
 ) -> None:
@@ -422,9 +432,7 @@ async def sync_typed_links(
     :param relations: the kinds to replace
     :raises RelationRefused: when a link cannot be written
     """
-    # Serialize graph changes before checking circles, including concurrent
-    # saves of different sources. The lock lasts for the enclosing save.
-    await Link.raw("SELECT pg_advisory_xact_lock(7360036)")
+    await lock_typed_links()
     source = await Engram.objects().get(Engram.id == engram_id)
     targets = await _relation_targets(resolver, space_id, source.path, relations)
     for kind, wanted in targets.items():

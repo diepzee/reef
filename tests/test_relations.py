@@ -104,3 +104,14 @@ def test_unrecognized_bodies_are_unchanged() -> None:
         plain, relations = take_block(body)
         assert plain == body
         assert relations.empty
+
+
+@pytest.mark.parametrize("item", ["", "[[a.md]], [[b.md]]"])
+def test_each_list_item_names_exactly_one_link(item: str) -> None:
+    """An empty or multi-link list item is not the promised list syntax.
+
+    :param item: the text after an indented list marker
+    """
+    with pytest.raises(InvalidRelations) as caught:
+        take_block(f"---\nabout:\n  - {item}\n---\nx")
+    assert caught.value.code == "relation_invalid"

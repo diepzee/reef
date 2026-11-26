@@ -321,6 +321,19 @@ def test_scenarios_are_well_formed():
             assert scenario["after"], scenario["id"]
 
 
+def test_replace_contract_scenario_asks_then_confirms_then_reads() -> None:
+    """The scripted conversation changes a relation and asks for the new fact."""
+    scenario = next(
+        scenario for scenario in load(SCENARIOS) if scenario["id"] == "replace-contract"
+    )
+    assert scenario["kind"] == "write"
+    assert "write" in scenario["tools_required"]
+    assert len(scenario["messages"]) == 3
+    assert scenario["messages"][1].startswith("Ja")
+    assert scenario["facts"] == [["12 uur", "twaalf uur"]]
+    assert len(scenario["after"]) == 2
+
+
 def test_report_drops_tokens(tmp_path):
     """The report keeps the answer but not a staged token, a nonce or a signed link."""
     token = seal({"action": "forget"}, secret="s" * 32, ttl_seconds=600)

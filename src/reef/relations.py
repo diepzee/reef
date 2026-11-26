@@ -106,7 +106,10 @@ def take_block(body: str) -> tuple[str, Relations]:
             item = _ITEM.fullmatch(lines[index].rstrip("\r\n"))
             if item is None:
                 break
-            targets.extend(_targets(item[1]))
+            listed = _targets(item[1])
+            if len(listed) != 1:
+                raise InvalidRelations()
+            targets.extend(listed)
             index += 1
         if len(targets) > MAX_RELATIONS:
             raise InvalidRelations("relation_too_many")

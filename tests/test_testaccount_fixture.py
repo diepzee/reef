@@ -33,6 +33,18 @@ def test_fixture_reads() -> None:
     )
 
 
+def test_contract_fixture_has_two_different_answers_without_a_relation() -> None:
+    """The conversation must write the relation before it can rely on it."""
+    fixture = read_fixture()
+    engrams = {engram.path: engram for engram in fixture.engrams}
+    old = engrams["work/contract-2026.md"]
+    new = engrams["work/contract-2027.md"]
+    assert "48 uur" in old.body
+    assert "12 uur" in new.body
+    assert "replaces:" not in old.body + new.body
+    assert fixture.version >= 3
+
+
 def test_fixture_paths_are_valid() -> None:
     """Every path is already normal and every body is acceptable."""
     fixture = read_fixture()

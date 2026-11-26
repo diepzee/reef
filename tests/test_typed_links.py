@@ -1,5 +1,7 @@
 """Relations are versioned with a save and obey the writer's rights."""
 
+import asyncio
+
 import pytest
 from conftest import caller_for, save_as
 
@@ -8,6 +10,46 @@ from reef.engrams import get_engram
 from reef.links import links_of
 from reef.models import Link, LinkKind
 from reef.relations import RELATION_KEYS, Relations
+
+
+async def test_concurrent_opposite_replacements_refuse_the_circle(
+    household, graph, seed
+) -> None:
+    """Concurrent changes to separate spaces cannot commit a circle or deadlock."""
+    from reef.links import RelationRefused
+
+    person = household["wouter"]
+    caller = caller_for(person)
+    for space in ("alpha", "beta"):
+        await graph.shared_space(space, person)
+        await save_as(caller, space, "note.md", space)
+    results = await asyncio.gather(
+        save_as(
+            caller,
+            "alpha",
+            "note.md",
+            "alpha changed",
+            relations=Relations({LinkKind.SUPERSEDES: ("beta:note.md",)}),
+        ),
+        save_as(
+            caller,
+            "beta",
+            "note.md",
+            "beta changed",
+            relations=Relations({LinkKind.SUPERSEDES: ("alpha:note.md",)}),
+        ),
+        return_exceptions=True,
+    )
+    errors = [result for result in results if isinstance(result, Exception)]
+    assert len(errors) == 1
+    assert isinstance(errors[0], RelationRefused)
+    assert errors[0].code == "relation_circle"
+    assert (
+        await seed.fetchval(
+            "SELECT count(*) FROM links WHERE kind = 'supersedes' AND status = 'active'"
+        )
+        == 1
+    )
 
 
 async def test_common_save_reads_the_block(household) -> None:

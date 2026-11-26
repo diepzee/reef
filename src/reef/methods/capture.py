@@ -39,7 +39,7 @@ from reef.engrams import (
     save_engram,
 )
 from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
-from reef.links import Resolver, pending_replacements
+from reef.links import Resolver, lock_typed_links, pending_replacements
 from reef.methods import MESSAGES, Caller, MethodError, logs, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
@@ -682,19 +682,29 @@ async def write(
             async with transaction_scope():
                 resolved = await resolve_writable_space(caller.principal, space)
                 resolver = await Resolver.for_person(caller.principal)
+                parsed = [(item, *take_block(item["body"])) for item in engrams]
+                if any(not relations.empty for _, _, relations in parsed):
+                    await lock_typed_links()
                 prepared: list[tuple[dict, Relations]] = []
                 pairs: list[list[str]] = []
                 paths: list[str] = []
-                for item in engrams:
-                    body, relations = take_block(item["body"])
+                for item, body, relations in parsed:
                     existing = (
                         await Engram.objects()
                         .where(
                             Engram.space_id == resolved.id, Engram.path == item["path"]
                         )
+                        .lock_rows()
                         .first()
                     )
                     path = existing.path if existing else normalize_path(item["path"])
+                    if existing is None:
+                        await (
+                            Engram.objects()
+                            .where(Engram.space_id == resolved.id, Engram.path == path)
+                            .lock_rows()
+                            .first()
+                        )
                     paths.append(path)
                     targets = await pending_replacements(
                         resolver, resolved.id, path, relations

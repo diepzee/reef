@@ -307,6 +307,26 @@ ref = "personal/notes/gift-ideas.md"
 absent = true
 
 [[scenario]]
+id = "replace-contract"
+kind = "write"
+messages = [
+  "Het contract met Archiefhaven voor 2027 vervangt dat van 2026. Leg dat vast bij het nieuwe contract.",
+  "Ja, doe maar.",
+  "Binnen hoeveel uur moet Archiefhaven volgens het nieuwe contract reageren op een storing?",
+]
+tools_required = ["load_index", "write"]
+facts = [["12 uur", "twaalf uur"]]
+
+[[scenario.after]]
+ref = "personal/work/contract-2026.md"
+contains = ["48 uur"]
+
+[[scenario.after]]
+ref = "personal/work/contract-2027.md"
+contains = ["12 uur"]
+absent = ["replaces:"]
+
+[[scenario]]
 id = "forget-declined"
 kind = "write"
 messages = ["Verwijder mijn notitie met cadeau-ideeën.", "Nee, laat maar."]
