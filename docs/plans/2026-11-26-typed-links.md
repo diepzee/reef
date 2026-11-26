@@ -155,7 +155,7 @@ in the task named.
     caller is in. It does nothing unless the caller may change `p_engram`
     (same check as `reef_retire_links`). It returns nothing.
 
-- [ ] **Step 1: Write the failing tests**, through the `probe` connection
+- [x] **Step 1: Write the failing tests**, through the `probe` connection
   (the stand-in for the app role), armed as a person:
   - a `supersedes` row to an engram in a space where the caller is only a
     viewer is refused; the same row with `kind = 'about'` is accepted;
@@ -167,16 +167,16 @@ in the task named.
   - called by someone who may not change the engram, it changes nothing;
   - it leaves a link whose target is in a space the caller is not in
     (set that up with a second member, read the result through `seed`).
-- [ ] **Step 2: Run** them. Expected: fail (function missing, policy
+- [x] **Step 2: Run** them. Expected: fail (function missing, policy
   accepts the viewer case).
-- [ ] **Step 3: Change `reef.rls`** and write the migration: drop and
+- [x] **Step 3: Change `reef.rls`** and write the migration: drop and
   recreate `links_insert`, create the function with its owner and grants as
   `reef_retire_links` has them. Say in the migration's docstring what it
   changes.
-- [ ] **Step 4: Run** `just test-py tests/test_typed_links_db.py
+- [x] **Step 4: Run** `just test-py tests/test_typed_links_db.py
   tests/test_migration_chain.py tests/test_helper_search_path.py`.
   Expected: pass.
-- [ ] **Step 5: Commit** `feat(links): database rules for typed links (RUG-36)`.
+- [x] **Step 5: Commit** `feat(links): database rules for typed links (RUG-36)`.
 
 ---
 

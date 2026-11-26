@@ -256,6 +256,34 @@ async def test_the_chain_runs_against_a_database_created_empty(drilled):
     assert drilled
 
 
+async def test_typed_link_migration_can_run_twice(drilled) -> None:
+    """Reapplying the fixed SQL preserves the policy and helper definition.
+
+    :param drilled: the database built by the migration chain
+    """
+    from reef.piccolo_migrations.reef_2026_11_26t15_00_00_000000 import STATEMENTS
+
+    before = await _shape(drilled)
+    connection = await asyncpg.connect(drilled)
+    try:
+        for _ in range(2):
+            async with connection.transaction():
+                for statement in STATEMENTS:
+                    await connection.execute(statement)
+        row = await connection.fetchrow(
+            "SELECT prosecdef, proconfig, pg_get_function_result(oid) AS result, "
+            "has_function_privilege('public', oid, 'EXECUTE') AS public "
+            "FROM pg_proc WHERE proname = 'reef_retire_typed_links'"
+        )
+        assert row["prosecdef"]
+        assert row["proconfig"] == ["search_path=pg_catalog, public, pg_temp"]
+        assert row["result"] == "void"
+        assert not row["public"]
+    finally:
+        await connection.close()
+    assert await _shape(drilled) == before
+
+
 @pytest.mark.parametrize("part", ["columns", "policies", "update_grants"])
 async def test_the_migrated_schema_matches_the_one_the_suite_builds(drilled, part):
     """Migrations and the fixture must converge, or the suite proves nothing.

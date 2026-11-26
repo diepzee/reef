@@ -1447,6 +1447,8 @@ _LINK_WRITE = (
     "from_engram_id IN (SELECT id FROM engrams "
     "WHERE space_id IN (SELECT reef_member_space_ids())) "
     "AND to_engram_id IN (SELECT id FROM engrams) "
+    "AND (kind <> 'supersedes' OR to_engram_id IN (SELECT id FROM engrams "
+    "WHERE space_id IN (SELECT reef_member_space_ids()))) "
     f"AND author_id = {PRINCIPAL} "
     # Never from a shared space into a personal one. The reader rule above
     # would hide such a link from the other members anyway; this keeps it
@@ -1469,6 +1471,26 @@ _RETIRE_LINKS = f"""
       AND l.source = 'wikilink'
       AND l.status = 'active'
       AND NOT (l.target_text = ANY (COALESCE(p.reference_targets, '{{}}')))
+"""
+
+
+_RETIRE_TYPED_LINKS = f"""
+    UPDATE links l SET status = 'superseded', superseded_at = LOCALTIMESTAMP
+    FROM engrams p
+    WHERE p.id = p_engram
+      AND l.from_engram_id = p.id
+      AND p.space_id IN (
+          SELECT space_id FROM memberships
+          WHERE person_id = {PRINCIPAL} AND role = 'member'
+      )
+      AND l.source = 'author'
+      AND l.kind = p_kind
+      AND l.status = 'active'
+      AND NOT (l.to_engram_id = ANY (COALESCE(p_keep, '{{}}'::uuid[])))
+      AND l.to_engram_id IN (
+          SELECT e.id FROM engrams e JOIN memberships m ON m.space_id = e.space_id
+          WHERE m.person_id = {PRINCIPAL}
+      )
 """
 
 
@@ -1536,6 +1558,14 @@ def link_statements() -> list[str]:
         *_function_ddl(
             "reef_retire_links(p_engram uuid)",
             _RETIRE_LINKS,
+            returns="void",
+            reads=("engrams", "memberships"),
+            writes=("links",),
+            volatility="VOLATILE",
+        ),
+        *_function_ddl(
+            "reef_retire_typed_links(p_engram uuid, p_kind text, p_keep uuid[])",
+            _RETIRE_TYPED_LINKS,
             returns="void",
             reads=("engrams", "memberships"),
             writes=("links",),
