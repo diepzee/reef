@@ -247,6 +247,15 @@ same one, there are two, and the one whose link is newest comes first.
 - The whole suite passes, and the change is live in production. It needs
   no switch: it does nothing until somebody writes a typed link.
 
+## Decided by Wouter (26 November 2026)
+
+- The design is approved.
+- An assistant's `replaces` becomes valid through two calls and the
+  person's yes.
+- In the web app's editor the block disappears after a save and nothing
+  shows the relation. That is accepted until the web app is redone
+  (RUG-59). `open` shows the links to an assistant.
+
 ## Calls I made (check these while reading)
 
 - The word in the block is `replaces`, not `supersedes`.
