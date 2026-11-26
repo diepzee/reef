@@ -373,7 +373,8 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     if person_id == principal.person_id:
         raise SpaceError("the owner cannot remove themselves from their own space")
 
-    # The removal and the orphan check are one statement in the database.
+    # Removal and the orphan check run in one function call within one
+    # transaction.
     # Deciding here whether the departing person still belongs anywhere would
     # need a person-wide membership count, and the remover has no right to
     # see memberships in spaces they are not in -- so the count would come

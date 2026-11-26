@@ -1565,9 +1565,9 @@ def usage_statements() -> list[str]:
     recorded about them.
 
     Rows about an unreadable engram are hidden. Membership removal and
-    leaving both call ``reef_remove_member``, which deletes these rows in
-    the same statement as the membership. Account and engram deletion
-    already erase them through foreign keys.
+    leaving both call ``reef_remove_member``, which deletes these rows and
+    the membership in one function call within one transaction. Account and
+    engram deletion already erase them through foreign keys.
 
     A concurrent usage insert can still commit after membership cleanup and
     leave a hidden row, because cleanup cannot see an uncommitted insert.
@@ -1710,6 +1710,9 @@ def search_log_statements() -> list[str]:
     numbers. The match uses the same rule as :func:`reef.searchlog.misses`.
     Membership departure deletes the person's usage for that space, so
     neither count retains those reads. Their search rows stay unchanged.
+    The miss count for past days can therefore fall after someone leaves,
+    as it already can when an engram is deleted; the number of searches
+    does not change.
     Multiple missed reads count a search once. Both searches and matching
     reads must be before the start of today. A search in the last hour of
     a day may therefore be counted as not missed: this is the price of

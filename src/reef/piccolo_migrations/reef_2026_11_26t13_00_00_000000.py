@@ -1,8 +1,9 @@
 """Erase private usage when a membership ends.
 
 Replaces reef_remove_member(uuid, uuid) so members can leave and owners can
-remove them, deleting their engram_access and engram_heat rows in the same
-statement. The current owner must transfer ownership before leaving.
+remove them, deleting their engram_access and engram_heat rows in one
+function call within one transaction. It locks the space before checking
+ownership; the current owner must transfer ownership before leaving.
 The helper keeps its owner and execution grants, including rif_authz and
 rif_app on databases whose roles still have the old names. Its search path
 is pg_catalog, public, pg_temp.

@@ -37,7 +37,6 @@ from functools import partial
 from uuid import UUID
 
 from reef.db import after_commit
-
 from reef.telemetry import is_configured
 
 # The complete set. Adding one is a deliberate act: it means either a new way
