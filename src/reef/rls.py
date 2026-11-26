@@ -1639,7 +1639,7 @@ DECLARE
     removed integer;
 BEGIN
     DELETE FROM search_log
-    WHERE searched_at < LOCALTIMESTAMP - make_interval(days => {SEARCH_LOG_DAYS});
+    WHERE searched_at < (now() AT TIME ZONE 'UTC') - make_interval(days => {SEARCH_LOG_DAYS});
     GET DIAGNOSTICS removed = ROW_COUNT;
     RETURN removed;
 END
@@ -1752,7 +1752,7 @@ DECLARE
     removed integer;
 BEGIN
     DELETE FROM call_log
-    WHERE called_at < LOCALTIMESTAMP - make_interval(days => {CALL_LOG_DAYS});
+    WHERE called_at < (now() AT TIME ZONE 'UTC') - make_interval(days => {CALL_LOG_DAYS});
     GET DIAGNOSTICS removed = ROW_COUNT;
     RETURN removed;
 END
@@ -1766,11 +1766,14 @@ CALL_LOG_TOTALS_MIN_DAYS = 7
 """The fewest whole days the call log's totals cover. A shorter window could
 be aimed at one call."""
 
+CALL_LOG_TOTALS_MAX_DAYS = CALL_LOG_DAYS - 1
+"""Leave the oldest retention day out: its rows expire during the day."""
+
 _CALL_LOG_TOTALS = f"""
 BEGIN
     IF p_days IS NULL
-       OR p_days NOT BETWEEN {CALL_LOG_TOTALS_MIN_DAYS} AND {CALL_LOG_DAYS} THEN
-        RAISE EXCEPTION 'call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_DAYS} days'
+       OR p_days NOT BETWEEN {CALL_LOG_TOTALS_MIN_DAYS} AND {CALL_LOG_TOTALS_MAX_DAYS} THEN
+        RAISE EXCEPTION 'call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_TOTALS_MAX_DAYS} days'
             USING ERRCODE = 'invalid_parameter_value';
     END IF;
     RETURN QUERY
@@ -1809,8 +1812,9 @@ def call_log_statements() -> list[str]:
     time leaves it, and not how many people either. It counts whole days in
     UTC, from the start of the day ``p_days`` days ago to the start of today,
     and refuses fewer than :data:`CALL_LOG_TOTALS_MIN_DAYS` days or more than
-    :data:`CALL_LOG_DAYS`. So no window can be aimed at one moment, and the
-    totals do not change during a day. This is what the call log is for:
+    :data:`CALL_LOG_TOTALS_MAX_DAYS`, one day less than retention so the
+    hourly purge cannot shrink the oldest day. So no window can be aimed
+    at one moment. This is what the call log is for:
     learning which tools assistants use and what they ask for that no tool
     serves, without reading anybody's calls. Statistics across people skip
     flagged test accounts (see :func:`test_account_statements`), so scripted

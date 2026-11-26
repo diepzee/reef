@@ -362,18 +362,22 @@ async def test_a_person_learns_only_totals_about_other_people(household, seed, p
     assert not [grant for grant in function["acl"] if grant.startswith("=")]
 
 
-@pytest.mark.parametrize("days", [6, 91, None])
-async def test_fewer_than_a_week_or_more_than_ninety_days_is_refused(probe, days):
-    """A short window could be aimed at one call; a long one at nothing kept."""
+@pytest.mark.parametrize("days", [6, 90, 91, None])
+async def test_database_refuses_periods_outside_the_totals_bounds(probe, days):
+    """Exclude short windows and the retention day that shrinks during today."""
     with pytest.raises(asyncpg.InvalidParameterValueError):
         await probe.fetch("SELECT * FROM reef_call_log_totals($1)", days)
-    if days is not None:
-        with pytest.raises(ValueError, match="7 to 90"):
-            await calllog.totals(days)
 
 
-@pytest.mark.parametrize("days", [7, 90])
-async def test_a_week_and_ninety_days_are_counted(household, seed, days):
+@pytest.mark.parametrize("days", [6, 90, 91])
+async def test_wrapper_refuses_periods_outside_the_totals_bounds(days: int) -> None:
+    """Python callers get the same range as database callers."""
+    with pytest.raises(ValueError, match="7 to 89"):
+        await calllog.totals(days)
+
+
+@pytest.mark.parametrize("days", [7, 89])
+async def test_a_week_and_eighty_nine_days_are_counted(household, seed, days):
     """The bounds themselves are allowed."""
     await _seed_calls(seed, household)
     assert sum(total.calls for total in await calllog.totals(days)) == (
@@ -441,7 +445,7 @@ async def test_the_callers_time_zone_cannot_move_the_window(household, probe):
 async def test_the_operators_script_prints_only_the_totals(household, seed):
     """``just call-totals`` prints a header and one line per total, nothing more."""
     await _seed_calls(seed, household)
-    stdout, stderr, code = await _script("--days", "90")
+    stdout, stderr, code = await _script("--days", "89")
     assert code == 0, stderr
     assert [line.split() for line in stdout.splitlines()] == [
         list(CALL_LOG_TOTALS_COLUMNS),
@@ -464,6 +468,14 @@ async def test_the_operators_script_refuses_less_than_a_week():
     assert code != 0
     assert stdout == ""
     assert "7" in stderr
+
+
+async def test_the_operators_script_refuses_the_partial_oldest_day() -> None:
+    """Ninety whole days could include calls the purge removes today."""
+    stdout, stderr, code = await _script("--days", "90")
+    assert code != 0
+    assert stdout == ""
+    assert "89" in stderr
 
 
 async def _script(*arguments: str) -> tuple[str, str, int]:

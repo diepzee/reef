@@ -48,7 +48,12 @@ from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.models import CallLog
-from reef.rls import CALL_LOG_DAYS, CALL_LOG_MAX_REASON, CALL_LOG_TOTALS_MIN_DAYS
+from reef.rls import (
+    CALL_LOG_DAYS,
+    CALL_LOG_MAX_REASON,
+    CALL_LOG_TOTALS_MAX_DAYS,
+    CALL_LOG_TOTALS_MIN_DAYS,
+)
 
 log = logging.getLogger("reef.calllog")
 
@@ -185,13 +190,14 @@ async def totals(days: int) -> list[Total]:
     refuses a number of days out of range too. Needs no principal.
 
     :param days: how many whole days to count, from
-        :data:`~reef.rls.CALL_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`
+        :data:`~reef.rls.CALL_LOG_TOTALS_MIN_DAYS` to
+        :data:`~reef.rls.CALL_LOG_TOTALS_MAX_DAYS`
     :returns: one total per method and outcome
     :raises ValueError: when ``days`` is out of that range
     """
-    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= CALL_LOG_DAYS:
+    if not CALL_LOG_TOTALS_MIN_DAYS <= days <= CALL_LOG_TOTALS_MAX_DAYS:
         raise ValueError(
-            f"call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_DAYS} days"
+            f"call log totals take {CALL_LOG_TOTALS_MIN_DAYS} to {CALL_LOG_TOTALS_MAX_DAYS} days"
         )
     rows = await CallLog.raw(
         "SELECT method, outcome, calls, empty_reasons FROM reef_call_log_totals({})",

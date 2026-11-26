@@ -233,7 +233,7 @@ worker:
     {{python}} -m reef.worker
 
 # Print how often each tool was called and how the calls ended, over the last
-# whole days (7 to 90): totals only.
+# whole days (7 to 89): totals only.
 call-totals days="30":
     {{python}} scripts/call_totals.py --days {{days}}
 
