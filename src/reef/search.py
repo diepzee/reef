@@ -719,8 +719,8 @@ def demote(
     for kind, row_id in reordered:
         ends = replaced.get(row_id, []) if kind == "page" else []
         if ends and not present.intersection(ends):
-            replacement = ends[0]
-            if replacement in insertable:
+            replacement = next((end for end in ends if end in insertable), None)
+            if replacement is not None:
                 result.append(("page", replacement))
                 present.add(replacement)
         result.append((kind, row_id))
@@ -2109,6 +2109,9 @@ async def search_engrams(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
                 *_hits_params(query, space_ids, limit, file_text),
             )
+            if file_text:
+                rows = spread(rows, _is_file_row, files_in_five)
+            rows = rows[:limit]
             ranking, notes = await _replacement_order(
                 [(row["kind"], row["id"]) for row in rows], space_ids, aliases
             )
@@ -2182,7 +2185,7 @@ async def search_engrams(
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
-        ranking, notes = await _replacement_order(ranking, space_ids, aliases)
+        ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
         chosen = ranking[:limit]

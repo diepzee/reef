@@ -2,9 +2,12 @@
 
 from uuid import uuid4
 
+import pytest
 from conftest import caller_for, save_as, store_as
+from test_search_files import reranker  # noqa: F401
+from test_search_hybrid import service  # noqa: F401
 
-from reef import search
+from reef import embedding, search
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.links import replacements
@@ -45,11 +48,65 @@ def test_demote_inserts_only_a_missing_searchable_replacement() -> None:
     assert demote(ranking, {old: [new]}, set()) == [("page", other), ("page", old)]
 
 
-def test_demote_does_not_substitute_for_an_out_of_scope_first_replacement() -> None:
-    """The design says to insert the first replacement, or keep only the note."""
+def test_demote_inserts_first_searchable_replacement() -> None:
+    """Skip replacements outside the searched spaces when inserting a hit."""
     old, newest, older = [uuid4() for _ in range(3)]
     ranking = [("page", old)]
-    assert demote(ranking, {old: [newest, older]}, {older}) == ranking
+    assert demote(ranking, {old: [newest, older]}, {older}) == [
+        ("page", older),
+        ("page", old),
+    ]
+
+
+def test_demote_after_cut_keeps_the_replacement() -> None:
+    """A missing replacement can push its old hit out of a full result list."""
+    old, new, *others = [uuid4() for _ in range(61)]
+    candidates = [("page", row_id) for row_id in [old, *others]]
+    hits = demote(candidates[:5], {old: [new]}, {new})[:5]
+    assert hits == candidates[1:5] + [("page", new)]
+    assert len(set(hits)) == len(hits)
+
+
+def test_demote_keeps_both_when_present_or_when_room_remains() -> None:
+    """An existing replacement stays before old; a missing one fills spare room."""
+    old, new, *others = [uuid4() for _ in range(5)]
+    ordinary = [("page", row_id) for row_id in others]
+    expected = ordinary + [("page", new), ("page", old)]
+    assert (
+        demote([("page", old), *ordinary, ("page", new)], {old: [new]}, {new})
+        == expected
+    )
+    assert demote([("page", old), *ordinary], {old: [new]}, {new})[:5] == expected
+
+
+@pytest.mark.parametrize("use_reranker", [False, True])
+async def test_candidate_cut_precedes_replacements(
+    household, service, reranker, use_reranker, monkeypatch
+) -> None:
+    """Both vector and reranker paths replace an old hit within the asked five."""
+    me = caller_for(household["wouter"])
+    monkeypatch.setattr(
+        service,
+        "_vector",
+        lambda text: [0.9, 0.1, 0.0, 0.0] if "note" in text else [1.0, 0.0, 0.0, 0.0],
+    )
+    for number in range(12):
+        engram = await save_as(
+            me,
+            "personal",
+            f"match-{number}.md",
+            "car " * (12 - number),
+            title="car" if number == 0 else f"Note {number}",
+        )
+        async with transaction_scope():
+            assert await embedding.embed_engram(me.principal, engram.id, service) > 0
+    await replace(me, "renewal.md", "match-0.md", "renewal")
+    hits = await search_engrams(me.principal, "car", limit=5, rerank=use_reranker)
+    paths = [hit["path"] for hit in hits]
+    assert "renewal.md" in paths
+    assert "match-0.md" not in paths
+    assert len(paths) == len(set(paths)) == 5
+    assert bool(reranker.documents) is use_reranker
 
 
 async def replace(caller, path: str, target: str, body: str = "contract"):

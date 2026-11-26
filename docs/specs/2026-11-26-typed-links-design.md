@@ -66,7 +66,7 @@ a person to use by hand.
 - Tools are workflows (RUG-40). No new tool.
 - `share`, `forget` and `instruct` already ask twice through staged tokens
   (`src/reef/methods/staged.py`). The same mechanism is used here.
-- The stored body never holds the link lines. Everything that reads a body
+- The stored body never starts with a block holding relation lines. Everything that reads a body
   (the summary, the leak guard, the inbox, `correct`, the export, the web
   app) keeps seeing plain Markdown.
 
@@ -90,7 +90,7 @@ a person to use by hand.
 1. **A front matter block at the top of the body** (my call). It is what
    the ticket says, it is the only way a person can write a relation in
    the web app's editor today, and an assistant writes it as easily. One
-   syntax, one parser, in the layer under both the tools and the web app.
+   syntax, one parser, called by the tool and the web app's save route.
 2. **A field on the `write` tool's engram object.** Checked by the tool's
    schema, but it gives a person in the web app no way to write a relation,
    so the parser would be needed anyway.
@@ -119,25 +119,31 @@ The new contract runs from 1 January 2027.
   commas, or as a list with one link per line. A wiki link names an engram
   exactly as it does in a body: `[[x.md]]`, `[[family:x.md]]`,
   `[[personal:x.md]]`.
-- **What Reef takes out:** the lines of these four keys. Every other line
+- **What Reef takes out:** relation lines of these four keys. Every other line
   of the block stays where it is, as text. A block that is empty afterwards
   is removed with its two `---` lines. A body without such a block, or
-  whose block holds none of the four keys, is stored exactly as today.
-- **Where it is read:** in the one place every save passes through, so it
-  works the same for the `write` tool, for the web app's editor and for
-  any later caller. `correct`, `remember` and `log` change a passage or add
-  to a body; they never read a block.
+  whose block holds no relation lines, is stored exactly as today.
+- **Where it is read:** only in `write` and the web app's save route.
+  `save_engram` and every other caller pass the body through as it is.
+  A relation line has one of the four keys at the start of a line and an
+  empty value or a value holding a wiki link. Other values are plain text.
 
 ### 2. What a save does with it
 
+- **No stored body may start with a block holding a relation line.**
+  `save_engram` refuses it, whatever the caller, including `undo`.
+- **A new `replaces` needs a person or their yes.** `save_engram` itself
+  checks that the writer is a person or the caller confirms their yes.
 - **The target must exist** and the writer must be able to read it. If it
   does not, the save is refused and names the link. (A plain wiki link may
   point at an engram that comes later; a typed link may not.)
 - **For `replaces`, the writer must also be able to write in the target's
   space.** Marking an engram as replaced changes what every member finds.
   The database enforces this rule, not only the code above it.
-- **No link to itself, and no circle of `replaces`.** A replaces B and B
-  replaces A is refused.
+- **No link to itself, and no visible circle of `replaces`.** A replaces B
+  and B replaces A is refused when the saver can read both links. A circle
+  through unreadable links can be stored; lookup ends and treats a circle
+  as not replaced.
 - **At most 20 links per key.**
 - **The existing rule stands:** no link from a shared space into a
   personal one.
@@ -175,8 +181,9 @@ The new contract runs from 1 January 2027.
 
   That is the shape `share`, `forget` and `instruct` already return. The
   second call repeats the same engrams and passes the token as `confirm`.
-  The token is bound to the person, to the action and to the pairs it
-  named, and it expires as the other staged tokens do.
+  The token is bound to the person, the action, the target ids and the
+  source id and version (or "new"), and expires as other staged tokens do.
+  A second call with nothing left to confirm acts as a normal `write`.
 - **A person's own save in the web app needs no second step.** They typed
   it. The save route already knows the writer is a person.
 - **The other three keys, and removing any link, need no yes.**
@@ -191,12 +198,15 @@ same one, there are two, and the one whose link is newest comes first.
 
 - **Everything that searches.** The order is changed inside the search
   itself, so `recall`, `brief` and the connector's `search` all get it.
-  Among the engram hits, those that are replaced come after those that are
+  The list is first cut to the asked length. Among the engram hits,
+  those that are replaced come after those that are
   not; each group keeps its order. A replaced hit carries `replaced_by`, a
   list of the refs of its replacements. When none of them is among the
-  hits, the first one is put directly before the replaced hit, and the list
-  is cut to the asked length from the end. It is put there only when it
-  lies in a space that was searched; otherwise the note alone has to do.
+  hits, the first one in a searched space is put directly before the
+  replaced hit, and the list is cut again. An inserted replacement can
+  push the old hit out. With no replacement in a searched space, only the
+  note is added. The connector's `search` keeps only `id`, `title`, `url`;
+  its `fetch` carries the note and references that clients can fetch.
   Files keep their place: the rule of RUG-77 that files leave room for
   engrams still holds.
 - **`brief`** hands out whole bodies. An item for a replaced engram
@@ -255,6 +265,44 @@ same one, there are two, and the one whose link is newest comes first.
 - In the web app's editor the block disappears after a save and nothing
   shows the relation. That is accepted until the web app is redone
   (RUG-59). `open` shows the links to an assistant.
+
+## Changes after review (26 November 2026)
+
+Two reviews of the first build showed that parts of this design were wrong
+or unclear. These points replace what the parts above say.
+
+1. **Only two callers read a block:** the `write` tool and the web app's
+   save route. `save_engram` reads nothing by itself. Every other caller
+   passes a body through as it is.
+2. **No stored body may start with a block that holds a relation line.** A
+   save that would store one is refused, whoever the caller is. Without
+   this rule an assistant could leave such a block as text (with `correct`,
+   or with two blocks in a row), and the person's next save in the web app
+   would turn it into a link they never wrote.
+3. **What a relation line is:** one of the four keys at the start of a
+   line, with an empty value or a value that holds a wiki link. A key with
+   any other text, such as `about: quarterly review`, is ordinary text. It
+   is never read and never refused.
+4. **A new `replaces` link needs a person or a token, in `save_engram`
+   itself.** The writer is a person, or the caller says the person's yes
+   was taken. So a later caller that forgets the two calls cannot add one.
+5. **The token is bound to ids:** the target engrams' ids, and the source
+   engram's id and version (or "new"). A token cannot be used again after
+   the engram changed. A second call that finds nothing left to confirm
+   writes as a normal `write` does.
+6. **Search changes the hits that are returned, not the candidates.** The
+   list is first cut to the asked length. Among those hits, replaced
+   engrams go after the others. For a replaced hit none of whose
+   replacements is among them, the first replacement that lies in a
+   searched space is put directly before it. Then the list is cut again.
+   When the list is full, a replacement that is put in can push its old
+   engram out.
+7. **The connector's `search` keeps its fixed shape** (`id`, `title`,
+   `url`); only its order changes. `fetch` carries the note.
+8. **A known limit:** the check against a circle sees only links the saver
+   can read. A circle through other people's links can be stored. The
+   lookup of replacements ends anyway, and such engrams count as not
+   replaced.
 
 ## Calls I made (check these while reading)
 
