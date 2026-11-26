@@ -37,6 +37,7 @@ from reef.engrams import (
     get_engram,
     normalize_path,
     save_engram,
+    validate_save,
 )
 from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
 from reef.links import Resolver, lock_typed_links, pending_replacements
@@ -701,13 +702,26 @@ async def write(
                         .lock_rows()
                         .first()
                     )
-                    path = existing.path if existing else normalize_path(item["path"])
+                    with refusals(item["path"]):
+                        path = (
+                            existing.path if existing else normalize_path(item["path"])
+                        )
                     if existing is None:
                         existing = await (
                             Engram.objects()
                             .where(Engram.space_id == resolved.id, Engram.path == path)
                             .lock_rows()
                             .first()
+                        )
+                    with refusals(item["path"]):
+                        await validate_save(
+                            caller.principal,
+                            space,
+                            resolved,
+                            path,
+                            body,
+                            existing,
+                            expected_version=item.get("expected_version"),
                         )
                     sources.append(
                         {

@@ -80,6 +80,42 @@ async def test_confirmed_write_retry_and_removed_link_replay(
     assert caught.value.code == "stale_token"
 
 
+@pytest.mark.parametrize(
+    "case, code",
+    [
+        ("path", "invalid_path"),
+        ("meta", "protected_path"),
+        ("size", "engram_too_large"),
+        ("version", "version_conflict"),
+        ("private", "private_content"),
+    ],
+)
+async def test_first_write_checks_the_save_before_asking(
+    household, monkeypatch, case, code
+) -> None:
+    """A refusal already knowable on the first call names the affected path."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    space = "household" if case == "private" else "personal"
+    await save_as(me, space, "old.md", "old")
+    path = {"path": "../new.md", "meta": "meta/note.md"}.get(case, "new.md")
+    text = "new"
+    if case == "size":
+        monkeypatch.setattr(get_settings().engrams, "max_chars", 80)
+        text = "x" * 100
+    if case == "private":
+        text = " ".join(f"secretword{number}" for number in range(50))
+        await save_as(me, "personal", "private.md", text)
+    item = {"path": path, "body": "---\nreplaces: [[old.md]]\n---\n" + text}
+    if case == "version":
+        await save_as(me, space, path, "before")
+        item["expected_version"] = 99
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", space, [item], "replace")
+    assert caught.value.code == code
+    assert path in caught.value.message
+
+
 @pytest.mark.parametrize("change", ["source_version", "target_id"])
 async def test_confirmation_binds_source_version_and_target_id(
     household, monkeypatch, seed, change
