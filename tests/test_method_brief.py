@@ -16,6 +16,32 @@ from reef.methods import REGISTRY, MethodError, find, logs
 from reef.models import Engram
 
 
+@pytest.mark.parametrize("visible", [True, False])
+async def test_brief_names_only_readable_replacements(household, visible) -> None:
+    """Old bodies carry the replacement note without revealing private engrams."""
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    writer = caller_for(household["wouter"])
+    reader = writer if visible else caller_for(household["partner"])
+    await save_as(writer, "household", "old.md", "contract")
+    await save_as(
+        writer,
+        "personal",
+        "new.md",
+        "renewal",
+        relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
+    )
+    [item] = (await find.brief(reader, "", "contract", space="household"))["engrams"]
+    assert item["body"] == "contract"
+    if visible:
+        assert item["replaced_by"] == [
+            {"space": "personal", "path": "new.md", "title": "new"}
+        ]
+    else:
+        assert "replaced_by" not in item
+
+
 def _entries(first: int, last: int) -> str:
     """Write log entries, one per day, as ``###`` sections.
 

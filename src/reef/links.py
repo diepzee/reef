@@ -509,3 +509,35 @@ async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
         if row["id"] not in ends:
             ends.append(row["id"])
     return result
+
+
+async def replacement_refs(
+    principal: Principal, engram_ids: list[UUID]
+) -> dict[UUID, list[dict]]:
+    """Name the replacements of a batch in this reader's own spaces.
+
+    :param principal: the reader
+    :param engram_ids: the engrams being shown
+    :returns: replaced ids and their space, path and title references
+    """
+    aliases = await alias_map(principal)
+    replaced = await replacements(engram_ids)
+    ids = {end for ends in replaced.values() for end in ends}
+    if not ids:
+        return {}
+    details = {
+        row["id"]: {
+            "space": aliases[row["space_id"]],
+            "path": row["path"],
+            "title": row["title"],
+        }
+        for row in await Engram.select(
+            Engram.id, Engram.space_id, Engram.path, Engram.title
+        ).where(Engram.id.is_in(list(ids)))
+        if row["space_id"] in aliases
+    }
+    return {
+        source: [details[end] for end in ends if end in details]
+        for source, ends in replaced.items()
+        if any(end in details for end in ends)
+    }

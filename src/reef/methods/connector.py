@@ -24,6 +24,7 @@ from reef.attachments import get_attachment
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
+from reef.links import replacement_refs
 from reef.methods import Caller, method
 from reef.models import AccessKind
 from reef.protocol import build_instructions
@@ -117,7 +118,18 @@ async def search(caller: Caller, reason: str, query: str) -> dict:
             identifier = _connector_id("page", hit["cove"], hit["path"])
             title = hit["title"] or hit["path"]
             url = _app_url(hit["cove"], hit["path"])
-        results.append({"id": identifier, "title": title, "url": url})
+        results.append(
+            {
+                "id": identifier,
+                "title": title,
+                "url": url,
+                **(
+                    {"replaced_by": hit["replaced_by"]}
+                    if hit.get("replaced_by")
+                    else {}
+                ),
+            }
+        )
     return {"results": results}
 
 
@@ -266,10 +278,16 @@ async def _engram(principal: Principal, id: str, space: str, path: str) -> dict 
     if engram is None:
         return None
     await usage.record(principal, engram.id, AccessKind.READ)
+    replaced = await replacement_refs(principal, [engram.id])
     return {
         "id": id,
         "title": engram.title or path,
         "text": engram.body,
         "url": _app_url(space, path),
-        "metadata": {"cove": space, "path": path, "kind": "page"},
+        "metadata": {
+            "cove": space,
+            "path": path,
+            "kind": "page",
+            **({"replaced_by": replaced[engram.id]} if engram.id in replaced else {}),
+        },
     }

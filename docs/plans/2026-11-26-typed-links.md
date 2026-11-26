@@ -368,13 +368,13 @@ in the task named.
     a replaced engram is out of date, so answer from its replacement and
     add new facts there.
 
-- [ ] **Step 1: Write the failing tests**, one per line above, and for a
+- [x] **Step 1: Write the failing tests**, one per line above, and for a
   reader who cannot read the replacement: no key and no note in any of
   them.
-- [ ] **Step 2: Run** them. Expected: fail.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the four test files. Expected: pass.
-- [ ] **Step 5: Commit** `feat(tools): a replaced engram says so in recall, open, brief and the index (RUG-36)`.
+- [x] **Step 2: Run** them. Expected: fail.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the four test files. Expected: pass.
+- [x] **Step 5: Commit** `feat(tools): a replaced engram says so in recall, open, brief and the index (RUG-36)`.
 
 ---
 

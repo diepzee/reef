@@ -20,6 +20,37 @@ from reef.methods import Caller, connector
 from reef.methods.connector import PROTOCOL_ID
 
 
+async def test_connector_fetch_names_only_visible_replacements(household) -> None:
+    """The connector carries the note in its metadata and respects privacy."""
+    from conftest import caller_for, save_as
+
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    writer = caller_for(household["wouter"])
+    reader = caller_for(household["partner"])
+    await save_as(writer, "household", "old.md", "contract")
+    await save_as(
+        writer,
+        "personal",
+        "new.md",
+        "renewal",
+        relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
+    )
+    mine = await connector.fetch(writer, "", "page:household/old.md")
+    theirs = await connector.fetch(reader, "", "page:household/old.md")
+    assert mine["metadata"]["replaced_by"] == [
+        {"space": "personal", "path": "new.md", "title": "new"}
+    ]
+    assert "replaced_by" not in theirs["metadata"]
+    hits = (await connector.search(writer, "", "contract"))["results"]
+    assert [hit["id"] for hit in hits[1:]] == [
+        "page:personal/new.md",
+        "page:household/old.md",
+    ]
+    assert hits[-1]["replaced_by"] == mine["metadata"]["replaced_by"]
+
+
 def principal_for(person) -> Principal:
     """Build the principal for a seeded person.
 
