@@ -6,12 +6,14 @@ which stands in for the object store the job reads from.
 """
 
 import asyncio
+import json
 import logging
 import re
 import signal
 from types import SimpleNamespace
 from uuid import UUID
 
+import asyncpg
 import pytest
 from conftest import MemoryStore, caller_for, store_as
 from filefixtures import (
@@ -30,7 +32,7 @@ from reef.config import get_settings
 from reef.context import build_index
 from reef.db import transaction_scope
 from reef.jobs import BACKFILL_FILES, EMBED_FILE, READ_FILE, enqueue
-from reef.models import FilePage, Job, TextStatus
+from reef.models import Attachment, FilePage, Job, TextStatus
 from reef.reading import (
     OutOfProcesses,
     Reading,
@@ -919,6 +921,113 @@ async def test_a_file_out_of_processes_is_tried_again_a_day_later(
         await build_index(me.principal)
     assert await drain("test") == 2
     assert await _status(me.principal, held.id) == ("read", 1, None)
+
+
+@pytest.mark.parametrize("reverse_insert", [False, True])
+@pytest.mark.parametrize("highest_fault", [False, True])
+@pytest.mark.parametrize("request_only", [False, True])
+async def test_tied_reading_jobs_choose_the_highest_id(
+    household: dict,
+    seed: asyncpg.Connection,
+    reverse_insert: bool,
+    highest_fault: bool,
+    request_only: bool,
+) -> None:
+    """Both backfill paths choose the same job when creation times tie.
+
+    Insert in both orders and force equal timestamps, so heap order cannot
+    stand in for the id tiebreaker. Repeat after removing only queued jobs
+    to check the same completed history each time.
+
+    :param household: two people with personal and shared spaces
+    :param seed: the connection used to write completed job history
+    :param reverse_insert: whether the larger id is inserted first
+    :param highest_fault: whether the larger id should hold the file back
+    :param request_only: whether to ask for backfill or run it directly
+    """
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "tied.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute("DELETE FROM jobs WHERE person_id = $1", me.principal.person_id)
+    ids = [UUID(int=1), UUID(int=2)]
+    for job_id in reversed(ids) if reverse_insert else ids:
+        fault = highest_fault if job_id == ids[1] else not highest_fault
+        await seed.execute(
+            "INSERT INTO jobs (id, person_id, kind, subject_ids, status, error, "
+            "created_at, finished_at) VALUES ($1, $2, $3, $4, 'failed', $5, "
+            "TIMESTAMP '2026-01-01 12:00:00', LOCALTIMESTAMP)",
+            job_id,
+            me.principal.person_id,
+            READ_FILE,
+            [file.id],
+            "OutOfProcesses" if fault else "SandboxUnavailable",
+        )
+    for _ in range(3):
+        async with transaction_scope():
+            result = await (
+                filetext.request_backfill(me.principal)
+                if request_only
+                else filetext.backfill(me.principal)
+            )
+        assert result == (0 if highest_fault else 1)
+        await seed.execute(
+            "DELETE FROM jobs WHERE person_id = $1 AND status = 'queued'",
+            me.principal.person_id,
+        )
+
+
+@pytest.mark.parametrize("force_index", [False, True])
+async def test_worker_fault_query_uses_the_latest_jobs_index(
+    household: dict, seed: asyncpg.Connection, force_index: bool
+) -> None:
+    """The actual holdback query uses the index under the caller's row security.
+
+    Seed 12,000 jobs across two people and two kinds, then refresh planner
+    statistics. Check the normal plan as well as the available index path
+    with sequential scans discouraged inside this transaction only.
+
+    :param household: two people with personal and shared spaces
+    :param seed: the connection used to seed jobs and refresh statistics
+    :param force_index: whether to discourage sequential scans
+    """
+    me = caller_for(household["wouter"])
+    file = await store_as(me, "personal", "plan.pdf", _pdf(1), PDF, DESCRIPTION)
+    await seed.execute(
+        "INSERT INTO jobs (id, person_id, kind, subject_ids, status, error, "
+        "created_at, finished_at) SELECT gen_random_uuid(), "
+        "CASE WHEN n % 3 = 0 THEN $2::uuid ELSE $1::uuid END, "
+        "CASE WHEN n % 3 = 1 THEN 'embed_file' ELSE 'read_file' END, "
+        "ARRAY[$3::uuid], 'failed', 'OutOfProcesses', "
+        "LOCALTIMESTAMP - n * interval '1 second', LOCALTIMESTAMP "
+        "FROM generate_series(1, 12000) n",
+        me.principal.person_id,
+        household["partner"].id,
+        file.id,
+    )
+    await seed.execute("ANALYZE jobs")
+    async with transaction_scope():
+        await arm(me.principal)
+        if force_index:
+            await Job.raw("SET LOCAL enable_seqscan = off")
+        rows = await Attachment.raw(
+            f"EXPLAIN (FORMAT JSON) SELECT {filetext._WORKER_FAULT} "
+            "FROM attachments a WHERE a.id = {}",
+            *filetext._worker_fault_values(me.principal),
+            file.id,
+        )
+    plan = json.loads(rows[0]["QUERY PLAN"])[0]["Plan"]
+    pending = [plan]
+    nodes = []
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        pending.extend(node.get("Plans", []))
+    job_scans = [node for node in nodes if node.get("Relation Name") == "jobs"]
+    assert len(job_scans) == 1, plan
+    assert job_scans[0]["Node Type"] == "Index Scan", plan
+    assert job_scans[0]["Index Name"] == "jobs_person_kind_latest", plan
+    assert "person_id" in job_scans[0]["Index Cond"], plan
+    assert "kind" in job_scans[0]["Index Cond"], plan
+    assert not any("Sort" in node["Node Type"] for node in nodes), plan
 
 
 async def test_a_file_whose_job_is_running_does_not_ask_for_the_backfill(
