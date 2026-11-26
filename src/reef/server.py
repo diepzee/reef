@@ -56,6 +56,7 @@ from reef.db import transaction_scope
 from reef.limits import MAX_BATCH, MIN_SECRET_LENGTH
 from reef.methods import Caller, Method, MethodError, capture, connector, find, maintain
 from reef.methods import share as sharing
+from reef.transport import log_rejections
 from reef.usage import current_session_id
 from reef.web.routes_api import register_api_routes
 from reef.web.routes_auth import register_auth_routes
@@ -1105,6 +1106,7 @@ def main() -> None:
             middleware = telemetry.request_middleware()
             print("telemetry: exporting to Logfire")
         _lift_transport_body_limit()
+        log_rejections()
         mcp.run(
             transport="http",
             host="0.0.0.0",
