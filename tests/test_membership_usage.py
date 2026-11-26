@@ -50,7 +50,10 @@ async def usage_rows(seed: asyncpg.Connection) -> dict[str, list[asyncpg.Record]
 
 @pytest.mark.parametrize("way", ["removed", "member_leaves", "owner_leaves"])
 async def test_membership_end_erases_only_departing_usage(
-    household: dict, used_spaces: dict[str, Principal], seed: asyncpg.Connection, way: str
+    household: dict,
+    used_spaces: dict[str, Principal],
+    seed: asyncpg.Connection,
+    way: str,
 ) -> None:
     """Each departure removes every shared usage row, preserving all others."""
     departing = used_spaces["wouter" if way == "owner_leaves" else "partner"]
@@ -91,7 +94,10 @@ async def test_transfer_alone_keeps_both_members_usage(
 
 @pytest.mark.parametrize("way", ["removed", "member_leaves", "owner_leaves"])
 async def test_rollback_restores_membership_and_usage(
-    household: dict, used_spaces: dict[str, Principal], seed: asyncpg.Connection, way: str
+    household: dict,
+    used_spaces: dict[str, Principal],
+    seed: asyncpg.Connection,
+    way: str,
 ) -> None:
     """A failed request rolls back departure and its cleanup together."""
     before = await usage_rows(seed)
@@ -110,9 +116,12 @@ async def test_rollback_restores_membership_and_usage(
             raise RuntimeError("abort")
     assert await usage_rows(seed) == before
     assert await seed.fetch("SELECT * FROM memberships ORDER BY id") == memberships
-    assert await seed.fetchval(
-        "SELECT owner_person_id FROM spaces WHERE id = $1", household["shared"].id
-    ) == used_spaces["wouter"].person_id
+    assert (
+        await seed.fetchval(
+            "SELECT owner_person_id FROM spaces WHERE id = $1", household["shared"].id
+        )
+        == used_spaces["wouter"].person_id
+    )
 
 
 async def test_space_deletion_cascades_usage(
@@ -141,6 +150,8 @@ async def test_account_deletion_cascades_usage(
     async with transaction_scope():
         await delete_account_rows(used_spaces[person])
     assert await usage_rows(seed) == {
-        table: [row for row in rows if row["person_id"] != used_spaces[person].person_id]
+        table: [
+            row for row in rows if row["person_id"] != used_spaces[person].person_id
+        ]
         for table, rows in before.items()
     }
