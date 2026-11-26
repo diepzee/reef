@@ -61,8 +61,8 @@ from score import Scored, load, score, write_report
 from reef.access import Principal
 from reef.db import DB, transaction_scope
 from reef.engrams import get_engram
-from reef.links import replacement_refs
 from reef.identity import person_by_email
+from reef.links import replacement_refs
 from reef.testaccount import readiness
 from reef.testaccount.fixture import read_fixture
 

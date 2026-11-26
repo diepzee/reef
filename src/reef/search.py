@@ -2192,6 +2192,8 @@ async def search_engrams(
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
+        if file_text:
+            ranking = spread(ranking, _is_file_hit, files_in_five)
         ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)

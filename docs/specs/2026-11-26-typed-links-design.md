@@ -229,7 +229,8 @@ same one, there are two, and the one whose link is newest comes first.
   reader who cannot read the replacement sees the old engram as not
   replaced: no note, no lower rank.
 - The effect text and the token name paths, never text from an engram.
-- Nothing new is logged.
+- A failed replacement lookup logs only the error's type, never engram
+  text or paths.
 
 ### 6. The data download and deleting
 

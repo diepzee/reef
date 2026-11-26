@@ -144,3 +144,60 @@ async def test_save_counts_repeated_targets_once(household) -> None:
         "new",
         relations=Relations({LinkKind.ABOUT: ("old.md",) * 21}),
     )
+
+
+async def test_repeated_relation_key_is_refused(household) -> None:
+    """A second occurrence cannot silently replace the first list."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    body = "---\nabout: [[old.md]]\nabout:\n---\nnew"
+    with pytest.raises(MethodError) as caught:
+        await capture.write(
+            me, "", "personal", [{"path": "new.md", "body": body}], "save"
+        )
+    assert caught.value.code == "relation_invalid"
+
+
+async def test_bom_prevents_block_parsing(household, seed) -> None:
+    """A byte-order mark keeps the body unchanged and creates no typed link."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    body = "\ufeff---\nreplaces: [[old.md]]\n---\nnew"
+    await capture.write(me, "", "personal", [{"path": "new.md", "body": body}], "save")
+    async with transaction_scope():
+        assert (await get_engram(me.principal, "personal", "new.md")).body == body
+    assert (
+        await seed.fetchval("SELECT count(*) FROM links WHERE source = 'author'") == 0
+    )
+
+
+@pytest.mark.parametrize("caller", ["write", "save"])
+async def test_twenty_one_links_are_refused_by_a_save(household, caller) -> None:
+    """Both parsed and explicit relation lists enforce the twenty-link limit."""
+    from reef.models import LinkKind
+    from reef.relations import InvalidRelations, Relations
+
+    me = caller_for(household["wouter"])
+    paths = tuple(f"target-{number}.md" for number in range(21))
+    for path in paths:
+        await save_as(me, "personal", path, "target")
+    if caller == "write":
+        body = (
+            "---\nabout: " + ", ".join(f"[[{path}]]" for path in paths) + "\n---\nnew"
+        )
+        with pytest.raises(MethodError) as caught:
+            await capture.write(
+                me, "", "personal", [{"path": "new.md", "body": body}], "save"
+            )
+    else:
+        with pytest.raises(InvalidRelations) as caught:
+            await save_as(
+                me,
+                "personal",
+                "new.md",
+                "new",
+                relations=Relations({LinkKind.ABOUT: paths}),
+            )
+    assert caught.value.code == "relation_too_many"
+    async with transaction_scope():
+        assert await get_engram(me.principal, "personal", "new.md") is None

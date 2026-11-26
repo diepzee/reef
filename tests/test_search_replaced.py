@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 from conftest import caller_for, save_as, store_as
-from test_search_files import reranker  # noqa: F401
-from test_search_hybrid import service  # noqa: F401
+from test_search_files import reranker as shared_reranker
+from test_search_hybrid import service as shared_service
 
 from reef import embedding
 from reef.config import get_settings
@@ -14,6 +14,9 @@ from reef.links import replacements
 from reef.models import Link, LinkKind
 from reef.relations import Relations
 from reef.search import demote, search_engrams
+
+reranker = shared_reranker
+service = shared_service
 
 
 def test_demote_keeps_groups_and_file_positions() -> None:
@@ -273,7 +276,7 @@ async def test_memory_without_links_has_a_fixed_order(
     household, service, monkeypatch, seed, semantic
 ) -> None:
     """Keep a fixed seeded order on both keyword and vector paths."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     me = caller_for(household["wouter"])
     monkeypatch.setattr(
@@ -291,7 +294,7 @@ async def test_memory_without_links_has_a_fixed_order(
         engram = await save_as(me, "personal", f"{name}.md", "car", title=name)
         await seed.execute(
             "UPDATE engrams SET updated_at = $1 WHERE id = $2",
-            datetime(2026, 1, day),
+            datetime(2026, 1, day, tzinfo=UTC).replace(tzinfo=None),
             engram.id,
         )
         async with transaction_scope():
@@ -299,3 +302,145 @@ async def test_memory_without_links_has_a_fixed_order(
     hits = await search_engrams(me.principal, "car", semantic=semantic, rerank=False)
     assert [hit["path"] for hit in hits] == ["third.md", "second.md", "first.md"]
     assert all("replaced_by" not in hit for hit in hits)
+
+
+async def test_chain_does_not_cross_an_unreadable_middle(household, graph) -> None:
+    """Readable ends cannot reveal a chain through an unreadable middle."""
+    from reef.methods import find
+
+    writer = caller_for(household["wouter"])
+    reader = caller_for(household["partner"])
+    await graph.shared_space("hidden", household["wouter"])
+    await save_as(writer, "household", "c.md", "contract")
+    await save_as(
+        writer,
+        "hidden",
+        "b.md",
+        "contract",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("household:c.md",)}),
+    )
+    await save_as(
+        writer,
+        "household",
+        "a.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("hidden:b.md",)}),
+    )
+    hits = await search_engrams(
+        reader.principal, "contract", semantic=False, rerank=False
+    )
+    assert [hit["path"] for hit in hits] == ["c.md"]
+    assert "replaced_by" not in hits[0]
+    [opened] = await find.open(reader, "", ["household/c.md"])
+    assert "replaced_by" not in opened
+
+
+async def test_only_the_readable_of_two_replacements_is_named(household) -> None:
+    """An unreadable split replacement affects neither search nor open."""
+    from reef.methods import find
+
+    writer = caller_for(household["wouter"])
+    reader = caller_for(household["partner"])
+    await save_as(writer, "household", "old.md", "contract")
+    await save_as(
+        writer,
+        "household",
+        "visible.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("old.md",)}),
+    )
+    await replace(writer, "hidden.md", "household:old.md", "private renewal")
+    hits = await search_engrams(
+        reader.principal, "contract", semantic=False, rerank=False
+    )
+    assert [hit["path"] for hit in hits] == ["visible.md", "old.md"]
+    [opened] = await find.open(reader, "", ["household/old.md"])
+    expected = [{"space": "household", "path": "visible.md", "title": "visible"}]
+    assert hits[1]["replaced_by"] == opened["replaced_by"] == expected
+
+
+@pytest.mark.parametrize("end", ["delete", "retire"])
+async def test_ended_replacement_disappears_from_search_and_open(
+    household, end
+) -> None:
+    """Deleting the new engram or retiring its link restores the old hit."""
+    from reef.engrams import delete_engram
+    from reef.methods import find
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "contract")
+    await replace(me, "new.md", "old.md", "renewal")
+    if end == "delete":
+        async with transaction_scope():
+            await delete_engram(me.principal, "personal", "new.md")
+    else:
+        await save_as(
+            me,
+            "personal",
+            "new.md",
+            "renewal",
+            relations=Relations({LinkKind.SUPERSEDES: ()}),
+        )
+    hits = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
+    assert [hit["path"] for hit in hits] == ["old.md"]
+    [opened] = await find.open(me, "", ["personal/old.md"])
+    assert "replaced_by" not in hits[0]
+    assert "replaced_by" not in opened
+
+
+async def test_shared_missing_replacement_is_inserted_once(household) -> None:
+    """Two old hits sharing one missing replacement do not duplicate it."""
+    me = caller_for(household["wouter"])
+    for path in ("a.md", "b.md"):
+        await save_as(me, "personal", path, "contract")
+    await save_as(
+        me,
+        "personal",
+        "new.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("a.md", "b.md")}),
+    )
+    hits = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
+    paths = [hit["path"] for hit in hits]
+    assert paths[0] == "new.md"
+    assert len(paths) == len(set(paths)) == 3
+
+
+async def test_inserted_replacement_keeps_room_after_reranking(
+    household, reranker, monkeypatch
+) -> None:
+    """Even a reranker favoring every file must leave room for a replacement."""
+    monkeypatch.setattr(get_settings().reading, "enabled", True)
+    monkeypatch.setattr(get_settings().search, "files_in_five", 3)
+
+    async def prefer_files(query: str, documents: list[str]) -> list[float]:
+        """Score every marked file above every engram."""
+        reranker.documents.extend(documents)
+        return [100.0 if "FILEFIRST" in document else 0.0 for document in documents]
+
+    monkeypatch.setattr(reranker, "score", prefer_files)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "car")
+    await replace(me, "new.md", "old.md", "renewal")
+    for number in range(6):
+        await store_as(
+            me,
+            "personal",
+            f"car-{number}.pdf",
+            b"%PDF",
+            "application/pdf",
+            "car FILEFIRST",
+        )
+    hits = await search_engrams(
+        me.principal, "car", limit=5, semantic=False, rerank=True
+    )
+    assert any("FILEFIRST" in document for document in reranker.documents)
+    assert sum(hit["kind"] == "file" for hit in hits) == 3
+    assert [hit["path"] for hit in hits if hit["kind"] == "page"] == [
+        "new.md",
+        "old.md",
+    ]
