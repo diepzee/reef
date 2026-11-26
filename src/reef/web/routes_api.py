@@ -49,7 +49,10 @@ from reef.invitations import (
     invite_to_reef,
     invites_left,
 )
+from reef.links import RelationRefused
+from reef.methods import MESSAGES
 from reef.models import AccessKind, Engram, Person
+from reef.relations import InvalidRelations
 from reef.releasenotes import feed_as_json, is_unread, load_feed
 from reef.spaces import (
     SpaceError,
@@ -232,6 +235,13 @@ def api(handler: Callable) -> Callable:
             )
         except AccessDenied:
             return JSONResponse({"error": "not_found"}, status_code=404)
+        except (RelationRefused, InvalidRelations) as error:
+            detail = MESSAGES[error.code]
+            if isinstance(error, RelationRefused):
+                detail = f"{error.target}: {detail}"
+            return JSONResponse(
+                {"error": error.code, "detail": detail}, status_code=400
+            )
         except VersionConflict:
             return JSONResponse({"error": "version_conflict"}, status_code=409)
         except ProtectedPath:

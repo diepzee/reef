@@ -17,6 +17,7 @@ from reef.access import (
 )
 from reef.engrams import get_engram, normalize_path, save_engram
 from reef.models import Engram, Promotion, Space, utc_now
+from reef.relations import Relations
 from reef.spaces import member_names
 
 NONCE_TTL = timedelta(minutes=10)
@@ -199,6 +200,7 @@ async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -
             allow_private_copy=True,
             title=staged.dest_path.removesuffix(".md"),
             channel=channel,
+            relations=Relations({}),
         )
         marker = (
             f"*(section moved to the {dest_alias} space — see "
@@ -213,6 +215,7 @@ async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -
             title=source.title,
             tags=list(source.tags),
             channel=channel,
+            relations=Relations({}),
         )
     else:
         await save_engram(
@@ -225,6 +228,7 @@ async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -
             title=source.title,
             tags=list(source.tags),
             channel=channel,
+            relations=Relations({}),
         )
         # The stub replaces the *source* engram, whatever the destination is
         # named: it is what stays behind in the personal space. Writing it to
@@ -241,6 +245,7 @@ async def confirm_promotion(principal: Principal, nonce: str, *, channel: str) -
             title=source.title,
             expected_version=source.version,
             channel=channel,
+            relations=Relations({}),
         )
     staged.consumed_at = now
     await staged.save()

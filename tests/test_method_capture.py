@@ -21,6 +21,119 @@ from reef.models import Engram, Revision
 CAP = 1_000
 
 
+async def test_replaces_stages_the_whole_batch(household, monkeypatch, seed) -> None:
+    """Three engrams wait for yes, then all bodies and relations are saved."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    await save_as(me, "personal", "unchanged.md", "before")
+    items = [
+        {"path": "unchanged.md", "body": "after"},
+        {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"},
+        {"path": "third.md", "body": "third"},
+    ]
+    staged = await capture.write(me, "", "personal", items, "replace")
+    assert set(staged) == {"effect", "token", "expires_in"}
+    assert (
+        "personal/old.md" in staged["effect"] and "personal/new.md" in staged["effect"]
+    )
+    assert (await _read(me, "personal", "unchanged.md")).body == "before"
+    assert await _read(me, "personal", "new.md") is None
+    assert await _read(me, "personal", "third.md") is None
+    result = await capture.write(
+        me, "", "personal", items, "replace", confirm=staged["token"]
+    )
+    assert len(result) == 3
+    assert (await _read(me, "personal", "new.md")).body == "new"
+    assert (await _read(me, "personal", "unchanged.md")).body == "after"
+    assert (await _read(me, "personal", "third.md")).body == "third"
+    assert (
+        await seed.fetchval("SELECT kind FROM links WHERE source = 'author'")
+        == "supersedes"
+    )
+    assert isinstance(await capture.write(me, "", "personal", items, "again"), list)
+
+
+@pytest.mark.parametrize("mismatch", ["pairs", "source", "person", "action"])
+async def test_replaces_token_is_bound_to_this_call(
+    household, monkeypatch, mismatch
+) -> None:
+    """Another pair, source, person or action cannot reuse the token."""
+    from reef.methods import staged
+
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    for path in ("old.md", "other.md"):
+        await save_as(me, "household", path, path)
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    result = await capture.write(me, "", "household", items, "replace")
+    token = result["token"]
+    if mismatch == "pairs":
+        items[0]["body"] = items[0]["body"].replace("old.md", "other.md")
+    elif mismatch == "source":
+        items[0]["path"] = "elsewhere.md"
+    elif mismatch == "person":
+        me = caller_for(household["partner"])
+    else:
+        token = staged.stage(me, "forget", {})["token"]
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", "household", items, "replace", confirm=token)
+    assert caught.value.code == "stale_token"
+    assert await _read(me, "household", items[0]["path"]) is None
+
+
+@pytest.mark.parametrize("key", ["about", "contradicts", "part_of", "replaces"])
+async def test_other_relations_and_removal_do_not_stage(household, key) -> None:
+    """Only adding replaces asks for confirmation."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    value = "" if key == "replaces" else "[[old.md]]"
+    result = await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "new.md", "body": f"---\n{key}: {value}\n---\nnew"}],
+        "link",
+    )
+    assert isinstance(result, list)
+
+
+@pytest.mark.parametrize("operation", ["correct", "remember", "log", "undo"])
+async def test_passage_changes_do_not_read_relation_blocks(
+    household, seed, operation
+) -> None:
+    """Text from passage edits and restored history stays text."""
+    from reef.methods import maintain
+    from reef.relations import Relations
+
+    me = caller_for(household["wouter"])
+    block = "---\nreplaces: [[old.md]]\n---\n"
+    await save_as(me, "personal", "old.md", "old")
+    path = "inbox.md" if operation == "remember" else "notes.md"
+    body = block + "# Notes\n\nOriginal."
+    await save_as(
+        me,
+        "personal",
+        path,
+        body,
+        relations=Relations({}),
+        tags=["log"] if operation == "log" else [],
+    )
+    if operation == "correct":
+        await maintain.correct(me, "", "personal", path, "Original.", "Changed.", "fix")
+    elif operation == "remember":
+        await capture.remember(me, "", "New fact.")
+    elif operation == "log":
+        await capture.log(me, "", "personal", path, "Today", "New entry.")
+    else:
+        await save_as(me, "personal", path, "later")
+        await maintain.undo(me, "", "personal", path)
+    assert (await _read(me, "personal", path)).body.startswith(block)
+    assert (
+        await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
+    )
+
+
 async def _read(caller: Caller, space: str, path: str) -> Engram | None:
     """Read an engram as it is committed now.
 

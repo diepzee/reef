@@ -39,10 +39,12 @@ from reef.engrams import (
     save_engram,
 )
 from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
-from reef.methods import MESSAGES, Caller, MethodError, logs, method
+from reef.links import Resolver, pending_replacements
+from reef.methods import MESSAGES, Caller, MethodError, logs, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram
+from reef.relations import Relations, take_block
 from reef.sections import HEADING_CHARS
 
 #: The engram :func:`remember` adds facts to, in each space.
@@ -63,6 +65,7 @@ async def _save(
     tags: list[str] | None = None,
     expected_version: int | None = None,
     via: AccessKind | None = AccessKind.WRITE,
+    relations: Relations | None = None,
 ) -> Engram:
     """Save an engram as the caller, recording who wrote it.
 
@@ -77,6 +80,7 @@ async def _save(
     :param expected_version: the version it must be at, 0 for one that
         must not exist yet; any when None
     :param via: how to record the write in the usage log, or None
+    :param relations: relations read by write; other capture calls preserve text
     :returns: the saved engram
     :raises MethodError: when the write is refused
     """
@@ -92,6 +96,7 @@ async def _save(
             expected_version=expected_version,
             via=via,
             channel=caller.writer,
+            relations=relations if relations is not None else Relations({}),
         )
 
 
@@ -160,6 +165,7 @@ async def add_to_inbox(
         title="Inbox",
         via=AccessKind.REMEMBER,
         channel=channel,
+        relations=Relations({}),
     )
     return entry
 
@@ -643,8 +649,13 @@ def _names_the_persona(path: str) -> bool:
 
 @method("write")
 async def write(
-    caller: Caller, reason: str, space: str, engrams: list[dict], message: str
-) -> list[dict]:
+    caller: Caller,
+    reason: str,
+    space: str,
+    engrams: list[dict],
+    message: str,
+    confirm: str | None = None,
+) -> list[dict] | dict:
     """Create or replace whole engrams, several at once, all or nothing.
 
     At most :data:`MAX_BATCH` engrams, each ``{path, body, title?, tags?,
@@ -658,6 +669,7 @@ async def write(
     :param space: the caller's name for the space
     :param engrams: the engrams to write
     :param message: why they change, for each engram without its own message
+    :param confirm: the token from the first call, after the person's yes
     :returns: one ``{engram, version}`` per engram written, in order
     :raises MethodError: ``use_instruct`` for the persona, ``empty_batch``,
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
@@ -668,6 +680,47 @@ async def write(
     try:
         with refusals():
             async with transaction_scope():
+                resolved = await resolve_writable_space(caller.principal, space)
+                resolver = await Resolver.for_person(caller.principal)
+                prepared: list[tuple[dict, Relations]] = []
+                pairs: list[list[str]] = []
+                paths: list[str] = []
+                for item in engrams:
+                    body, relations = take_block(item["body"])
+                    existing = (
+                        await Engram.objects()
+                        .where(
+                            Engram.space_id == resolved.id, Engram.path == item["path"]
+                        )
+                        .first()
+                    )
+                    path = existing.path if existing else normalize_path(item["path"])
+                    paths.append(path)
+                    targets = await pending_replacements(
+                        resolver, resolved.id, path, relations
+                    )
+                    pairs.extend(
+                        [
+                            [f"{alias}/{target}", f"{space}/{path}"]
+                            for alias, target in targets
+                        ]
+                    )
+                    prepared.append(({**item, "body": body}, relations))
+                subject = {
+                    "pairs": sorted(pairs),
+                    "space": str(resolved.id),
+                    "engrams": sorted(paths),
+                }
+                if confirm is not None:
+                    if await staged.take(caller, "write", confirm) != subject:
+                        raise MethodError("stale_token")
+                elif pairs:
+                    effect = " ".join(
+                        f"This marks {old} as replaced by {new}."
+                        for old, new in sorted(pairs)
+                    )
+                    effect += " The old engrams stay readable and rank lower in search."
+                    return {"effect": effect, **staged.stage(caller, "write", subject)}
                 saved = [
                     await _save(
                         caller,
@@ -678,8 +731,9 @@ async def write(
                         title=item.get("title"),
                         tags=item.get("tags"),
                         expected_version=item.get("expected_version"),
+                        relations=relations,
                     )
-                    for item in engrams
+                    for item, relations in prepared
                 ]
     except MethodError as refused:
         raise MethodError(

@@ -264,7 +264,7 @@ in the task named.
   - The web route: take the block, save with the relations, no second
     step. A refusal comes back as the route's errors do today.
 
-- [ ] **Step 1: Write the failing tests:**
+- [x] **Step 1: Write the failing tests:**
   - first call with a `replaces` block: the answer has the three keys,
     and no engram of the call exists or changed (use three engrams);
   - second call with the token: all are written, the link is active, the
@@ -281,11 +281,11 @@ in the task named.
     message;
   - the tool surface lists `confirm` on `write`; the CLI's `write` sends
     it.
-- [ ] **Step 2: Run** them. Expected: fail.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the four test files and `tests/test_protocol.py`.
+- [x] **Step 2: Run** them. Expected: fail.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** the four test files and `tests/test_protocol.py`.
   Expected: pass.
-- [ ] **Step 5: Commit** `feat(write): "replaces" takes the person's yes; the web app writes at once (RUG-36)`.
+- [x] **Step 5: Commit** `feat(write): "replaces" takes the person's yes; the web app writes at once (RUG-36)`.
 
 ---
 

@@ -34,6 +34,7 @@ from reef.methods.find import FILE_PREFIX
 from reef.methods.logs import LOG_TAG
 from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram, Revision, SpaceKind
+from reef.relations import Relations
 
 #: The action staged tokens for :func:`forget` are bound to.
 FORGET = "forget"
@@ -147,6 +148,7 @@ async def correct(
                     current.version if expected_version is None else expected_version
                 ),
                 channel=caller.writer,
+                relations=Relations({}),
                 via=AccessKind.CORRECT if old_text != new_text else None,
             )
     return _changed(space, saved)
@@ -208,6 +210,7 @@ async def undo(
                 tags=_restored_tags(current, old),
                 expected_version=current.version,
                 channel=caller.writer,
+                relations=Relations({}),
             )
     return _changed(space, saved)
 

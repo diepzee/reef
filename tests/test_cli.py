@@ -138,7 +138,7 @@ TOOL_ARGUMENT_CASES: dict[str, tuple[list[str], list[str]]] = {
             "--message",
             "save",
         ],
-        [],
+        ["--confirm", "token"],
     ),
     "store_file": (
         ["personal", "{file}", "--description", "Boiler manual."],
@@ -401,6 +401,16 @@ async def test_write_reads_the_json_array(monkeypatch, tmp_path, capsys):
             "message": "add the plan",
         },
     )
+
+
+async def test_write_sends_confirmation(monkeypatch, tmp_path) -> None:
+    """The CLI forwards the token from the first write call."""
+    await _call(
+        monkeypatch,
+        tmp_path,
+        ["write", "personal", "[]", "--message", "replace", "--confirm", "token"],
+    )
+    assert FakeClient.calls[-1][1]["confirm"] == "token"
 
 
 async def test_correct_and_undo(monkeypatch, tmp_path):
