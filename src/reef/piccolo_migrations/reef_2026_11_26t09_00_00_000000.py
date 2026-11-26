@@ -8,7 +8,12 @@ partially retained oldest day out. Like call totals: flagged test accounts
 excluded, authz ownership and app execution only.
 
 The SQL is fixed text printed from reef.rls.search_log_statements when
-written. This migration never imports reef.rls or changes existing tables.
+written. This migration never imports reef.rls. It grants SELECT on
+search_log, engram_access and test_accounts to the function's owner,
+reef_authz (or rif_authz on an older cluster), so that role can read the
+stored rows inside the function. It grants callers only EXECUTE on the
+function, not access to other people's rows. Table definitions and stored
+rows are unchanged.
 """
 
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
