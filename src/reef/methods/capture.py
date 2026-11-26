@@ -767,9 +767,11 @@ async def write(
                     "space": str(resolved.id),
                     "engrams": sorted(sources, key=lambda source: source["path"]),
                 }
+                replacements_confirmed = False
                 if pairs and confirm is not None:
                     if await staged.take(caller, "write", confirm) != subject:
                         raise MethodError("stale_token")
+                    replacements_confirmed = True
                 elif pairs:
                     effect = " ".join(
                         f"This marks {old} as replaced by {new}."
@@ -788,7 +790,7 @@ async def write(
                         tags=item.get("tags"),
                         expected_version=item.get("expected_version"),
                         relations=relations,
-                        replacements_confirmed=confirm is not None,
+                        replacements_confirmed=replacements_confirmed,
                     )
                     for item, relations in prepared
                 ]

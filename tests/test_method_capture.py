@@ -80,6 +80,37 @@ async def test_confirmed_write_retry_and_removed_link_replay(
     assert caught.value.code == "stale_token"
 
 
+async def test_confirmation_flag_means_a_token_was_taken_for_pairs(
+    household, monkeypatch
+) -> None:
+    """Arbitrary confirm text and a no-op retry confer no confirmation authority."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    real_save = capture.save_engram
+    flags: list[bool] = []
+
+    async def recording_save(*args, **kwargs):
+        """Record whether storage receives actual confirmation authority."""
+        flags.append(kwargs["replacements_confirmed"])
+        return await real_save(*args, **kwargs)
+
+    monkeypatch.setattr(capture, "save_engram", recording_save)
+    await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "plain.md", "body": "plain"}],
+        "save",
+        confirm="arbitrary text",
+    )
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    await capture.write(me, "", "personal", items, "replace", confirm=first["token"])
+    await capture.write(me, "", "personal", items, "retry", confirm=first["token"])
+    assert flags == [False, True, False]
+
+
 @pytest.mark.parametrize(
     "case, code",
     [
