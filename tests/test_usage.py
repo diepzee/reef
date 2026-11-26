@@ -179,6 +179,15 @@ async def test_a_correction_that_changes_nothing_records_nothing(tx, household) 
     assert await Job.count().where(Job.kind == REFRESH_ACTIVATION) == 0
 
 
+async def test_undo_still_counts_as_a_routine_write(tx, household) -> None:
+    """Undo restores a revision but is not a correction kind in the design."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "personal", "house.md", "blue", message="x", via=None)
+    await save_engram(me, "personal", "house.md", "green", message="x", via=None)
+    await maintain.undo(_caller(me), "", "personal", "house.md")
+    assert await _log(me) == [("write", 1.0)]
+
+
 async def test_being_shown_is_not_being_used(tx, household):
     """Search results and the index record nothing."""
     me = principal_for(household["wouter"])
