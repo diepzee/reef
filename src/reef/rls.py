@@ -198,11 +198,17 @@ _PROMOTION_PREDICATE = f"person_id = {PRINCIPAL}"
 HELPER_SEARCH_PATH = "pg_catalog, public, pg_temp"
 """Where a helper function looks names up, in this order.
 
-The system catalog comes first, so an object in ``public`` cannot stand in
-for a built-in such as ``current_setting``. Temporary tables come last and
-are named on purpose: left out, Postgres searches them *first*, and a
-session's own temporary ``memberships`` table would answer for the real one.
+The system catalog comes first, so an object in ``public`` with the same
+name and argument types as a built-in, such as ``current_setting(text,
+boolean)``, cannot stand in for it. Temporary tables come last and are named
+on purpose: left out, Postgres searches them *first*, and a session's own
+temporary ``memberships`` table would answer for the real one.
 ``tests/test_helper_search_path.py`` shows both.
+
+This does not cover everything. Postgres prefers the function or operator
+whose argument types fit best, wherever it stands in the path, so an object
+in ``public`` that fits a call more exactly than the built-in still wins.
+Only the schema's owner and the helpers' owner may create in ``public``.
 """
 
 

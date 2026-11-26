@@ -21,6 +21,9 @@ async def test_a_temporary_table_cannot_grant_access(household, probe) -> None:
     private = await save_as(
         caller_for(household["wouter"]), "personal", "private.md", "private"
     )
+    shared = await save_as(
+        caller_for(household["wouter"]), "household", "shared.md", "shared"
+    )
     transaction = probe.transaction()
     await transaction.start()
     try:
@@ -42,8 +45,14 @@ async def test_a_temporary_table_cannot_grant_access(household, probe) -> None:
             "SELECT set_config('app.person_id', $1, true)",
             str(household["partner"].id),
         )
-        seen = await probe.fetch("SELECT id FROM engrams WHERE id = $1", private.id)
-        assert seen == []
+        # The session itself finds its own table first, and row security is
+        # at work: the partner reads the shared engram, not the private one.
+        assert await probe.fetchval("SELECT count(*) FROM memberships") == 1
+        seen = await probe.fetch(
+            "SELECT id FROM engrams WHERE id = ANY($1::uuid[])",
+            [private.id, shared.id],
+        )
+        assert [row["id"] for row in seen] == [shared.id]
     finally:
         await transaction.rollback()
 
@@ -55,15 +64,16 @@ async def test_a_function_in_public_cannot_stand_in_for_a_built_in(household) ->
     ``current_setting``, and so not list Wouter's personal space.
 
     The session is new on purpose: Postgres keeps a function's parsed body
-    for the life of a session, so a helper that ran before would not look
-    names up again.
+    within a session until something makes it stale, and a new function
+    elsewhere does not. A helper that ran before would not look names up
+    again.
     """
     # The suite's role owns the schema, so it may create in ``public``; the
     # app role may not.
-    owner = await asyncpg.connect(_plain(get_settings().database.test_url))
-    transaction = owner.transaction()
-    await transaction.start()
+    owner = await asyncpg.connect(get_settings().database.test_url)
     try:
+        transaction = owner.transaction()
+        await transaction.start()
         await owner.execute(
             "CREATE FUNCTION public.current_setting(text, boolean) RETURNS text "
             f"LANGUAGE sql AS $$ SELECT '{household['wouter'].id}'::text $$"
@@ -78,22 +88,12 @@ async def test_a_function_in_public_cannot_stand_in_for_a_built_in(household) ->
             household["p_personal"].id,
             household["shared"].id,
         }
-    finally:
         await transaction.rollback()
+    finally:
         await owner.close()
 
 
-def _plain(dsn: str) -> str:
-    """Return a DSN that asyncpg accepts.
-
-    :param dsn: the test database's address, as the settings hold it
-    :returns: the same address with the plain ``postgresql`` scheme
-    """
-    scheme, _, rest = dsn.partition("://")
-    return f"postgresql://{rest}" if scheme.startswith("postgres") else dsn
-
-
-async def test_every_helper_has_the_safe_search_path(household) -> None:
+async def test_every_helper_has_the_safe_search_path() -> None:
     """Every function in ``public`` that runs with its owner's rights names
     the system catalog first and temporary tables last. A helper added later
     without that setting fails here."""
@@ -108,4 +108,8 @@ async def test_every_helper_has_the_safe_search_path(household) -> None:
         for row in rows
         if row["config"] != [f"search_path={HELPER_SEARCH_PATH}"]
     }
-    assert wrong == {}
+    assert wrong == {}, (
+        "these run with their owner's rights without the safe search path. One "
+        "that reef.rls does not declare is a leftover in the shared test "
+        "database from another branch: drop it."
+    )
