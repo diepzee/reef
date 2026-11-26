@@ -689,7 +689,8 @@ async def write(
                     await lock_typed_links()
                 prepared: list[tuple[dict, Relations]] = []
                 pairs: list[list[str]] = []
-                paths: list[str] = []
+                identities: list[list[str]] = []
+                sources: list[dict] = []
                 for item, body, relations in parsed:
                     refuse_stored_block(body)
                     existing = (
@@ -702,13 +703,19 @@ async def write(
                     )
                     path = existing.path if existing else normalize_path(item["path"])
                     if existing is None:
-                        await (
+                        existing = await (
                             Engram.objects()
                             .where(Engram.space_id == resolved.id, Engram.path == path)
                             .lock_rows()
                             .first()
                         )
-                    paths.append(path)
+                    sources.append(
+                        {
+                            "path": path,
+                            "id": str(existing.id) if existing else "new",
+                            "version": existing.version if existing else 0,
+                        }
+                    )
                     targets = await pending_replacements(
                         resolver, resolved.id, path, relations
                     )
@@ -718,13 +725,23 @@ async def write(
                             for alias, target in targets
                         ]
                     )
+                    for alias, target in targets:
+                        row = (
+                            await Engram.select(Engram.id)
+                            .where(
+                                Engram.space_id == resolver.space_by_alias[alias],
+                                Engram.path == target,
+                            )
+                            .first()
+                        )
+                        identities.append([str(row["id"]), path])
                     prepared.append(({**item, "body": body}, relations))
                 subject = {
-                    "pairs": sorted(pairs),
+                    "pairs": sorted(identities),
                     "space": str(resolved.id),
-                    "engrams": sorted(paths),
+                    "engrams": sorted(sources, key=lambda source: source["path"]),
                 }
-                if confirm is not None:
+                if pairs and confirm is not None:
                     if await staged.take(caller, "write", confirm) != subject:
                         raise MethodError("stale_token")
                 elif pairs:

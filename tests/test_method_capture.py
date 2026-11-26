@@ -54,6 +54,55 @@ async def test_replaces_stages_the_whole_batch(household, monkeypatch, seed) -> 
     assert isinstance(await capture.write(me, "", "personal", items, "again"), list)
 
 
+async def test_confirmed_write_retry_and_removed_link_replay(
+    household, monkeypatch
+) -> None:
+    """A retry writes normally, but a removed replacement needs a fresh yes."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    await capture.write(me, "", "personal", items, "replace", confirm=first["token"])
+    retry = await capture.write(
+        me, "", "personal", items, "retry", confirm=first["token"]
+    )
+    assert isinstance(retry, list)
+    await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "new.md", "body": "---\nreplaces:\n---\nnew"}],
+        "remove",
+    )
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", "personal", items, "replay", confirm=first["token"])
+    assert caught.value.code == "stale_token"
+
+
+@pytest.mark.parametrize("change", ["source_version", "target_id"])
+async def test_confirmation_binds_source_version_and_target_id(
+    household, monkeypatch, seed, change
+) -> None:
+    """The same paths cannot conceal an edited source or a recreated target."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    old = await save_as(me, "personal", "old.md", "old")
+    await save_as(me, "personal", "new.md", "before")
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    if change == "source_version":
+        await save_as(me, "personal", "new.md", "changed")
+    else:
+        await seed.execute("DELETE FROM engrams WHERE id = $1", old.id)
+        await save_as(me, "personal", "old.md", "another engram")
+    with pytest.raises(MethodError) as caught:
+        await capture.write(
+            me, "", "personal", items, "replace", confirm=first["token"]
+        )
+    assert caught.value.code == "stale_token"
+
+
 @pytest.mark.parametrize("mismatch", ["pairs", "source", "person", "action"])
 async def test_replaces_token_is_bound_to_this_call(
     household, monkeypatch, mismatch
