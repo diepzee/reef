@@ -1569,6 +1569,9 @@ def usage_statements() -> list[str]:
     the same statement as the membership. Account and engram deletion
     already erase them through foreign keys.
 
+    A concurrent usage insert can still commit after membership cleanup and
+    leave a hidden row, because cleanup cannot see an uncommitted insert.
+
     ``engram_heat`` is derived from that log and is replaced whenever it is
     recomputed, so its one policy covers every command.
 
