@@ -9,8 +9,15 @@ is pg_catalog, public, pg_temp.
 
 Grants the existing function owner SELECT on engrams and SELECT, DELETE on
 engram_access and engram_heat. No application role gains access to another
-person's rows. Tables, indexes, row policies, other functions and search_log
-are left alone. The SQL is fixed text and runs atomically, safely twice.
+person's rows. Table definitions, indexes, row policies, other functions and
+search_log are left alone. The SQL is fixed text and runs atomically, safely twice.
+
+This deletes data: existing engram_access and engram_heat rows whose person
+is neither a member nor the owner of the engram's space. Production had
+zero such rows in the read-only count on 26 Nov 2026. The cleanup temporarily
+uses the existing helper owner's role to see rows hidden by row security,
+then restores the migration connection's role. It creates no extra helper
+and changes no role attributes or memberships.
 """
 
 from piccolo.apps.migrations.auto.migration_manager import MigrationManager
@@ -71,11 +78,36 @@ BEGIN
     EXECUTE format('GRANT SELECT, DELETE ON engram_access, engram_heat TO %I', authz);
 END
 $rights$""",
+    """DO $cleanup$
+DECLARE
+    authz name;
+    previous_role text := current_setting('role');
+BEGIN
+    SELECT pg_get_userbyid(proowner) INTO STRICT authz
+    FROM pg_proc WHERE oid = 'reef_remove_member(uuid,uuid)'::regprocedure;
+    EXECUTE format('SET LOCAL ROLE %I', authz);
+    DELETE FROM engram_access a USING engrams e, spaces s
+    WHERE a.engram_id = e.id AND e.space_id = s.id
+      AND s.owner_person_id <> a.person_id
+      AND NOT EXISTS (
+          SELECT 1 FROM memberships m
+          WHERE m.space_id = s.id AND m.person_id = a.person_id
+      );
+    DELETE FROM engram_heat h USING engrams e, spaces s
+    WHERE h.engram_id = e.id AND e.space_id = s.id
+      AND s.owner_person_id <> h.person_id
+      AND NOT EXISTS (
+          SELECT 1 FROM memberships m
+          WHERE m.space_id = s.id AND m.person_id = h.person_id
+      );
+    PERFORM set_config('role', previous_role, true);
+END
+$cleanup$""",
 ]
 
 
 async def forwards() -> MigrationManager:
-    """Replace the membership helper and grant its cleanup rights.
+    """Replace the membership helper, grant its rights and erase old orphans.
 
     :returns: configured migration manager
     """

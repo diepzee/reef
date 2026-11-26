@@ -262,3 +262,40 @@ async def test_migration_preserves_former_role_ownership_and_grants(
         for rows in (await stored_usage(connection)).values()
         for row in rows
     )
+
+
+async def test_migration_erases_old_orphans_and_keeps_members_and_owners(
+    connection: asyncpg.Connection,
+) -> None:
+    """Repair stored hidden rows, preserving owners without membership rows."""
+    owner, member, space = await seed_usage(connection)
+    await connection.execute("DELETE FROM memberships WHERE space_id = $1", space)
+    await connection.execute(
+        "INSERT INTO search_log (id, person_id, query, engram_ids) "
+        "VALUES (gen_random_uuid(), $1, 'private search', "
+        "ARRAY(SELECT id FROM engrams WHERE space_id = $2))",
+        member,
+        space,
+    )
+    before = await stored_usage(connection)
+    untouched = {
+        table: await connection.fetch(f"SELECT * FROM {table} ORDER BY id")
+        for table in ("persons", "spaces", "memberships", "engrams", "search_log")
+    }
+    expected = {
+        table: [
+            row
+            for row in rows
+            if not (row["person_id"] == member and row["space_id"] == space)
+        ]
+        for table, rows in before.items()
+    }
+    for _ in range(2):
+        await connection.execute("SET LOCAL ROLE reef")
+        await apply_migration(connection)
+        assert await connection.fetchval("SELECT current_user") == "reef"
+        await connection.execute("RESET ROLE")
+        assert await stored_usage(connection) == expected
+        for table, rows in untouched.items():
+            assert await connection.fetch(f"SELECT * FROM {table} ORDER BY id") == rows
+    assert any(row["person_id"] == owner for row in expected["engram_access"])
