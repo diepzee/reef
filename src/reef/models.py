@@ -422,6 +422,7 @@ class AccessKind(StrEnum):
 
     READ = "read"
     WRITE = "write"
+    CORRECT = "correct"
     REMEMBER = "remember"
     WEB = "web"
 

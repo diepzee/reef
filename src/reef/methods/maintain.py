@@ -33,7 +33,7 @@ from reef.methods import Caller, MethodError, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.logs import LOG_TAG
 from reef.methods.refusals import refusals
-from reef.models import Engram, Revision, SpaceKind
+from reef.models import AccessKind, Engram, Revision, SpaceKind
 
 #: The action staged tokens for :func:`forget` are bound to.
 FORGET = "forget"
@@ -110,7 +110,8 @@ async def correct(
     """Replace one exact passage of an engram, and change nothing else.
 
     The passage must occur exactly once. History keeps the old text and who
-    changed it.
+    changed it. A changed passage records a correction in the caller's
+    usage log; replacing a passage with itself records no use.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -146,6 +147,7 @@ async def correct(
                     current.version if expected_version is None else expected_version
                 ),
                 channel=caller.writer,
+                via=AccessKind.CORRECT if old_text != new_text else None,
             )
     return _changed(space, saved)
 

@@ -35,11 +35,12 @@ from reef.config import get_settings
 from reef.jobs import REFRESH_ACTIVATION, enqueue
 from reef.models import AccessKind, EngramAccess
 
-#: How much each kind of use counts. Something a person explicitly asked to
-#: have remembered counts three times a routine read or write.
+#: How much each kind of use counts. A correction or something a person
+#: explicitly asked to have remembered counts three times a routine read or write.
 WEIGHTS: dict[AccessKind, float] = {
     AccessKind.READ: 1.0,
     AccessKind.WRITE: 1.0,
+    AccessKind.CORRECT: 3.0,
     AccessKind.WEB: 1.0,
     AccessKind.REMEMBER: 3.0,
 }
