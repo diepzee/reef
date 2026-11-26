@@ -1375,6 +1375,12 @@ def job_statements() -> list[str]:
             "CREATE INDEX IF NOT EXISTS jobs_claimable ON jobs (run_after, created_at) "
             "WHERE status IN ('queued', 'running')"
         ),
+        # The latest reading job decides whether to hold a file back.
+        # Include id so equal creation times need no extra sort.
+        (
+            "CREATE INDEX IF NOT EXISTS jobs_person_kind_latest "
+            "ON jobs (person_id, kind, created_at DESC, id DESC)"
+        ),
         # At most one whole-person job of a kind waiting per person, so
         # "queue it again, to be sure" is free and cannot pile up.
         (
