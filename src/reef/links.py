@@ -495,11 +495,13 @@ async def pending_replacements(
 
 
 async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
-    """Find visible chain ends, visiting each reachable engram once.
+    """Find visible chain ends without walking repeated paths through forks.
 
     One recursive query collects nodes, not paths through forks. Ends are
     built from the leaves back toward the hits, keeping newest links first.
-    Cycles and nodes leading into them never finish and count as not replaced.
+    Circles are grouped before that walk: they supply no end themselves,
+    but do not hide ordinary ends on another branch. Each pass visits each
+    node once, so circles and forks cannot multiply the work.
     A failed query rolls back its savepoint and leaves the original ranking.
 
     :param engram_ids: the engrams to check for the armed reader
@@ -538,23 +540,82 @@ async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
         if new not in targets:
             targets.append(new)
         parents.setdefault(new, set()).add(old)
-    remaining = {node: len(children.get(node, [])) for node in nodes}
-    ready = deque(node for node in nodes if not remaining[node])
+    groups = _replacement_groups(children, parents, nodes)
+    branches: dict[UUID, list[UUID]] = {}
+    previous: dict[UUID, set[UUID]] = {}
+    for row in rows:
+        old, new = groups[row["to_engram_id"]], groups[row["from_engram_id"]]
+        if old == new:
+            continue
+        targets = branches.setdefault(old, [])
+        if new not in targets:
+            targets.append(new)
+        previous.setdefault(new, set()).add(old)
+    remaining = {group: len(branches.get(group, [])) for group in groups.values()}
+    ready = deque(group for group in remaining if not remaining[group])
     ends: dict[UUID, list[UUID]] = {}
     while ready:
         node = ready.popleft()
         ends[node] = (
-            list(dict.fromkeys(end for child in children[node] for end in ends[child]))
+            list(dict.fromkeys(end for child in branches[node] for end in ends[child]))
+            if node in branches
+            else []
             if node in children
             else [node]
         )
-        for parent in parents.get(node, set()):
+        for parent in previous.get(node, set()):
             remaining[parent] -= 1
             if not remaining[parent]:
                 ready.append(parent)
     return {
-        root: ends[root] for root in engram_ids if root in children and root in ends
+        root: ends[groups[root]]
+        for root in engram_ids
+        if root in children and ends[groups[root]]
     }
+
+
+def _replacement_groups(
+    children: dict[UUID, list[UUID]],
+    parents: dict[UUID, set[UUID]],
+    nodes: set[UUID],
+) -> dict[UUID, UUID]:
+    """Group mutually reachable nodes using two bounded graph passes.
+
+    The resulting graph has no circles. Iterative walks avoid a Python
+    recursion limit on long imported chains.
+
+    :param children: replacements, newest direct link first
+    :param parents: the reverse edges
+    :param nodes: every reachable engram
+    :returns: each engram's group, named by one of its members
+    """
+    seen: set[UUID] = set()
+    finished: list[UUID] = []
+    for start in nodes:
+        stack = [(start, False)]
+        while stack:
+            node, leaving = stack.pop()
+            if leaving:
+                finished.append(node)
+            elif node not in seen:
+                seen.add(node)
+                stack.append((node, True))
+                stack.extend(
+                    (child, False) for child in reversed(children.get(node, []))
+                )
+    groups: dict[UUID, UUID] = {}
+    for start in reversed(finished):
+        if start in groups:
+            continue
+        groups[start] = start
+        pending = [start]
+        while pending:
+            node = pending.pop()
+            for parent in parents.get(node, set()):
+                if parent not in groups:
+                    groups[parent] = start
+                    pending.append(parent)
+    return groups
 
 
 async def replacement_refs(

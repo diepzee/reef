@@ -214,6 +214,37 @@ async def test_seeded_circle_ends_and_is_not_replaced(household, seed) -> None:
     assert all("replaced_by" not in hit for hit in hits)
 
 
+@pytest.mark.parametrize("root_in_circle", [False, True])
+async def test_clean_replacement_counts_beside_a_circle(
+    household, seed, root_in_circle
+) -> None:
+    """Circular branches cannot hide an ordinary reachable replacement."""
+    from reef.methods import find
+
+    me = caller_for(household["wouter"])
+    old = await save_as(me, "personal", "old.md", "contract")
+    clean = await save_as(me, "personal", "clean.md", "renewal")
+    a = await save_as(me, "personal", "a.md", "branch")
+    b = await save_as(me, "personal", "b.md", "branch")
+    edges = [(clean, old), (a, old), (b, a), (old if root_in_circle else a, b)]
+    for source, target in edges:
+        await seed.execute(
+            "INSERT INTO links (id, from_engram_id, to_engram_id, author_id, kind, source) VALUES ($1, $2, $3, $4, 'supersedes', 'author')",
+            uuid4(),
+            source.id,
+            target.id,
+            me.principal.person_id,
+        )
+    hits = await search_engrams(
+        me.principal, "contract", limit=1, semantic=False, rerank=False
+    )
+    assert [hit["path"] for hit in hits] == ["clean.md"]
+    [opened] = await find.open(me, "", ["personal/old.md"])
+    assert opened["replaced_by"] == [
+        {"space": "personal", "path": "clean.md", "title": "clean"}
+    ]
+
+
 async def test_missing_replacement_is_inserted_and_limit_holds(household) -> None:
     """A replacement with different words is still offered before old text."""
     me = caller_for(household["wouter"])
