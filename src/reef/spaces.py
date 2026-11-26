@@ -497,7 +497,7 @@ async def leave_space(principal: Principal, slug: str) -> dict:
     :param principal: the authenticated person
     :param slug: the shared space to leave
     :raises SpaceError: if personal, or the principal is its only member
-    :returns: outcome, including who inherited the space if anyone did
+    :returns: outcome, including the successor and a ``person_erased`` flag
     """
     space = await resolve_space(principal, slug)
     if space.kind == SpaceKind.PERSONAL.value:
@@ -542,7 +542,20 @@ async def leave_space(principal: Principal, slug: str) -> dict:
     )
     if not outcome or not outcome[0]["removed"]:
         raise SpaceError(f"could not leave {slug!r}; nothing was changed")
-    return {"cove": slug, "left": True, "handed_to": handed_to}
+    person_erased = bool(outcome[0]["person_erased"])
+    audit.record(
+        audit.MEMBER_LEFT,
+        actor=principal.person_id,
+        space_id=space.id,
+        member_id=principal.person_id,
+        person_erased=person_erased,
+    )
+    return {
+        "cove": slug,
+        "left": True,
+        "handed_to": handed_to,
+        "person_erased": person_erased,
+    }
 
 
 async def ensure_personal_space(person_id: UUID, email: str) -> None:

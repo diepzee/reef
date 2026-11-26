@@ -18,9 +18,35 @@ from opentelemetry.sdk.trace.export import (
 
 from reef import audit, telemetry
 from reef.access import Principal
-from reef.db import DB
+from reef.db import DB, transaction_scope
 from reef.invitations import allowlist
-from reef.spaces import create_space, delete_space, invite, remove_member
+from reef.spaces import create_space, delete_space, invite, leave_space, remove_member
+
+
+@pytest.mark.parametrize("erased", [False, True])
+async def test_leaving_records_the_person_and_erasure(
+    household, seed, recorded, erased
+) -> None:
+    """Leaving records identifiers and reports an erased unused invitation."""
+    if erased:
+        await seed.execute(
+            "DELETE FROM spaces WHERE id = $1", household["p_personal"].id
+        )
+    person = household["partner"]
+    async with transaction_scope():
+        result = await leave_space(principal_for(person), "household")
+    assert "space.member_left" in _actions(recorded)
+    event = next(
+        span.attributes
+        for span in recorded.spans
+        if (span.attributes or {}).get("action") == "space.member_left"
+    )
+    assert event["actor_id"] == event["member_id"] == str(person.id)
+    assert event["space_id"] == str(household["shared"].id)
+    assert event["person_erased"] is erased
+    assert result["person_erased"] is erased
+    assert person.email not in _blob(recorded)
+    assert "household" not in _blob(recorded)
 
 
 def principal_for(person) -> Principal:
