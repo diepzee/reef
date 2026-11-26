@@ -66,8 +66,9 @@ a person to use by hand.
   security enforces this, and it refuses a link from a shared space into a
   personal one. Both rules stay as they are.
 - Tools are workflows (RUG-40). No new tool.
-- `share`, `forget` and `instruct` already ask twice through staged tokens
-  (`src/reef/methods/staged.py`). The same mechanism is used here.
+- `share`, `forget` and `instruct` already ask twice. `share` keeps a
+  consumed nonce in the database; `forget` and `instruct` use stateless
+  tokens (`src/reef/methods/staged.py`). `write` uses the stateless tokens.
 - The stored body never starts with a block holding relation lines. Everything that reads a body
   (the summary, the leak guard, the inbox, `correct`, the export, the web
   app) keeps seeing plain Markdown.
@@ -301,7 +302,8 @@ or unclear. These points replace what the parts above say.
    was taken. So a later caller that forgets the two calls cannot add one.
 5. **The token is bound to ids:** the target engrams' ids, and the source
    engram's id and version (or "new"). A token cannot be used again after
-   the engram changed. A second call that finds nothing left to confirm
+   the engram changed, except for the new-source deletion case in point
+   10. A second call that finds nothing left to confirm
    writes as a normal `write` does.
 6. **Search changes the hits that are returned, not the candidates.** The
    list is first cut to the asked length. Among those hits, replaced
@@ -329,6 +331,13 @@ or unclear. These points replace what the parts above say.
    Only the guard uses the normalized view; `write` and the web route
    parse the original body. A key with a quoted wiki link is a relation
    line too.
+10. **Known limit: a write token is not single use.** If the source engram
+    was new and the person deletes it before the token expires, replaying
+    the second call recreates the engram and the link. `write` keeps no
+    record of used tokens; closing this gap would need one. `share` and
+    `forget` do not have this gap: `share` keeps a consumed nonce, and
+    `forget` binds the engram's id. This is an accepted limit, with no
+    behaviour change in this work.
 
 ## Calls I made (check these while reading)
 
