@@ -16,7 +16,7 @@ from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.export import build_full_dump
 from reef.jobs import REFRESH_ACTIVATION
-from reef.methods import Caller, capture, find
+from reef.methods import Caller, MethodError, capture, find, maintain
 from reef.models import AccessKind, EngramAccess, EngramHeat, Job
 from reef.search import search_engrams
 from reef.usage import activations, record, refresh_activation
@@ -98,6 +98,96 @@ async def test_something_the_person_asked_to_remember_counts_three_times(tx, hou
     assert await _log(me) == [("remember", 3.0)]
 
 
+async def test_a_correction_counts_three_times(tx, household) -> None:
+    """A correction records one use of this engram by its caller, at weight 3."""
+    me = principal_for(household["wouter"])
+    engram = await save_engram(me, "personal", "house.md", "blue", message="x")
+    await maintain.correct(
+        _caller(me), "", "personal", "house.md", "blue", "green", "fix colour"
+    )
+    assert await _log(me) == [("write", 1.0), ("correct", 3.0)]
+    rows = await EngramAccess.select().where(EngramAccess.via == "correct")
+    assert len(rows) == 1
+    assert rows[0]["person_id"] == me.person_id
+    assert rows[0]["engram_id"] == engram.id
+
+
+async def test_a_correction_raises_activation_more_than_a_write(tx, household) -> None:
+    """At the same time, correcting the same engram adds ln(3) more activation."""
+    me = principal_for(household["wouter"])
+    partner = principal_for(household["partner"])
+    engram = await save_engram(me, "household", "house.md", "blue", message="x")
+    await maintain.correct(
+        _caller(partner), "", "household", "house.md", "blue", "green", "fix"
+    )
+    [correction] = await EngramAccess.select()
+    await refresh_activation(partner)
+    corrected = (await activations(partner))[engram.id]
+    await refresh_activation(me)
+    written = (await activations(me))[engram.id]
+    [write] = await EngramAccess.select()
+    # Both uses share the transaction's timestamp, so recency cannot differ.
+    assert correction["accessed_at"] == write["accessed_at"]
+    assert corrected > written
+    assert corrected - written == pytest.approx(math.log(3))
+
+
+@pytest.mark.parametrize(
+    ("old_text", "new_text", "version", "code"),
+    [
+        ("missing", "green", None, "passage_not_found"),
+        ("", "green", None, "passage_not_found"),
+        ("b", "green", None, "passage_ambiguous"),
+        ("blue", "green", 9, "version_conflict"),
+        ("blue", "blue", 9, "version_conflict"),
+    ],
+)
+async def test_a_refused_correction_records_nothing(
+    household, old_text: str, new_text: str, version: int | None, code: str
+) -> None:
+    """Refusals, including stale no-op calls, never record a use."""
+    me = principal_for(household["wouter"])
+    async with transaction_scope():
+        await save_engram(
+            me, "personal", "house.md", "blue boiler", message="x", via=None
+        )
+    with pytest.raises(MethodError) as refused:
+        await maintain.correct(
+            _caller(me),
+            "",
+            "personal",
+            "house.md",
+            old_text,
+            new_text,
+            "fix",
+            expected_version=version,
+        )
+    assert refused.value.code == code
+    async with transaction_scope():
+        assert await _log(me) == []
+        assert await Job.count().where(Job.kind == REFRESH_ACTIVATION) == 0
+
+
+async def test_a_correction_that_changes_nothing_records_nothing(tx, household) -> None:
+    """Replacing a passage with itself adds no usage or activation refresh."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "personal", "house.md", "blue", message="x", via=None)
+    await maintain.correct(
+        _caller(me), "", "personal", "house.md", "blue", "blue", "unchanged"
+    )
+    assert await _log(me) == []
+    assert await Job.count().where(Job.kind == REFRESH_ACTIVATION) == 0
+
+
+async def test_undo_still_counts_as_a_routine_write(tx, household) -> None:
+    """Undo restores a revision but is not a correction kind in the design."""
+    me = principal_for(household["wouter"])
+    await save_engram(me, "personal", "house.md", "blue", message="x", via=None)
+    await save_engram(me, "personal", "house.md", "green", message="x", via=None)
+    await maintain.undo(_caller(me), "", "personal", "house.md")
+    assert await _log(me) == [("write", 1.0)]
+
+
 async def test_being_shown_is_not_being_used(tx, household):
     """Search results and the index record nothing."""
     me = principal_for(household["wouter"])
@@ -138,6 +228,9 @@ async def test_one_members_use_of_a_shared_engram_is_invisible_to_another(
     async with transaction_scope():
         await save_engram(me, "household", "house.md", "x", message="x")
         await _open(me, "household", "house.md")
+        await maintain.correct(
+            _caller(me), "", "household", "house.md", "x", "y", "fix"
+        )
         await refresh_activation(me)
     async with transaction_scope():
         assert await _log(partner) == []
@@ -146,7 +239,7 @@ async def test_one_members_use_of_a_shared_engram_is_invisible_to_another(
     # Unarmed sees nothing either.
     assert await EngramAccess.count() == 0
     assert await EngramHeat.count() == 0
-    assert await seed.fetchval("SELECT count(*) FROM engram_access") == 2
+    assert await seed.fetchval("SELECT count(*) FROM engram_access") == 3
 
 
 async def test_use_cannot_be_recorded_in_somebody_elses_name(household):
@@ -419,6 +512,10 @@ async def test_the_full_export_carries_links_and_only_the_persons_own_usage(
     await save_engram(me, "household", "a.md", "x", message="x")
     await save_engram(partner, "household", "b.md", "[[a.md]]", message="x")
     await _open(partner, "household", "a.md")
+    await maintain.correct(_caller(me), "", "household", "a.md", "x", "y", "fix")
+    await maintain.correct(
+        _caller(partner), "", "household", "b.md", "[[a.md]]", "See [[a.md]]", "fix"
+    )
     await refresh_activation(me)
     await refresh_activation(partner)
 
@@ -434,6 +531,8 @@ async def test_the_full_export_carries_links_and_only_the_persons_own_usage(
             "active",
         )
     ]
-    assert [(row["engram"]["path"], row["via"]) for row in log] == [("a.md", "write")]
+    assert sorted(
+        (row["engram"]["path"], row["via"], row["weight"]) for row in log
+    ) == [("a.md", "correct", 3.0), ("a.md", "write", 1.0)]
     assert [row["engram"]["path"] for row in activation] == ["a.md"]
-    assert manifest["contents"]["usage_log"] == 1
+    assert manifest["contents"]["usage_log"] == 2

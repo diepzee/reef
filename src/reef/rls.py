@@ -1570,7 +1570,7 @@ def usage_statements() -> list[str]:
         "ALTER TABLE engram_access DROP CONSTRAINT IF EXISTS engram_access_via_known",
         (
             "ALTER TABLE engram_access ADD CONSTRAINT engram_access_via_known "
-            "CHECK (via IN ('read', 'write', 'remember', 'web'))"
+            "CHECK (via IN ('read', 'write', 'remember', 'web', 'correct'))"
         ),
         "ALTER TABLE engram_access DROP CONSTRAINT IF EXISTS engram_access_weight_sane",
         (

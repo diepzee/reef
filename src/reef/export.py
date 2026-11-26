@@ -4,6 +4,10 @@ The original hand-run Markdown directory export remains available as
 ``python -m reef.export <alias> <target-dir>``. The web surface builds on the
 same rendering with scoped Markdown/JSON downloads, plus a comprehensive ZIP
 which includes revision history and stored file bytes.
+
+``data/usage.json`` carries the stored kind and weight of each use, including
+``correct`` and ``remember`` at weight 3. It contains only the requesting
+person's usage, also in shared spaces.
 """
 
 import asyncio

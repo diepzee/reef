@@ -46,10 +46,20 @@ One term per concept. The "Replaces" column lists words the documents used for t
 | **Priming** | Engrams used earlier in the session make related engrams easier to recall | session priming, session context | Priming |
 | **Activation** | How readily an engram comes to mind for one person, from how often and how recently they used it | heat, usage score, hot path | Activation |
 | **Spreading** | Activation passing from an engram to the engrams connected to it | graph expansion, spread | Spreading activation |
-| **Salience** | How much one event counts. A correction counts for more than a routine note | weight (of an access) | Salience |
+| **Salience** | How much one event counts. A correction or explicit "remember this" counts three times a routine read or write | weight (of an access) | Salience |
 | **Active, resting, dormant** | The three states of an engram for one person. A dormant engram stays findable but drops to the end of the index | hot, warm, cold, tier, forgetting | Dormancy |
 | **Index** | The short list of every engram an assistant loads at the start of a session | digest, briefing | Hippocampal index |
 | **Recall path** | The explanation attached to a result: how well it matched, its activation, and what spread into it | trace | none |
+
+The usage log records `read`, `write` and `web` with weight 1, and `correct`
+and `remember` with weight 3. A refused correction, or one that replaces a
+passage with itself, records no use. `undo` still records a routine `write`.
+Being shown in search results or the index records nothing.
+
+The full data download includes these kinds and their stored weights in
+`data/usage.json`, with the person's activation in `data/activation.json`.
+Both contain only that person's usage, including in shared spaces. Old
+corrections recorded as writes keep their original kind and weight.
 
 ## Dreaming
 
