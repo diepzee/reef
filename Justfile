@@ -238,7 +238,7 @@ call-totals days="30":
     {{python}} scripts/call_totals.py --days {{days}}
 
 # Print how many searches missed at least one read, over the last whole
-# days (7 to 90): totals only.
+# days (7 to 89): totals only.
 search-totals days="30":
     {{python}} scripts/search_totals.py --days {{days}}
 

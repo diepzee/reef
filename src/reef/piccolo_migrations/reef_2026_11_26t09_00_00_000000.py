@@ -3,8 +3,9 @@
 Reads search_log and engram_access, with the miss rule in searchlog.misses.
 Each search counts once, even when several reads were missed. The period
 selects searches and excludes reads at or after the start of today.
-Like call totals: 7 to 90 whole UTC days ending at the start of today,
-flagged test accounts excluded, authz ownership and app execution only.
+Counts 7 to 89 whole UTC days ending at the start of today, leaving the
+partially retained oldest day out. Like call totals: flagged test accounts
+excluded, authz ownership and app execution only.
 
 The SQL is fixed text printed from reef.rls.search_log_statements when
 written. This migration never imports reef.rls or changes existing tables.
@@ -23,8 +24,8 @@ STATEMENTS = [
     """CREATE OR REPLACE FUNCTION reef_search_log_totals(p_days integer) RETURNS TABLE(searches bigint, misses bigint) LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, pg_catalog AS $reef$
 BEGIN
     IF p_days IS NULL
-       OR p_days NOT BETWEEN 7 AND 90 THEN
-        RAISE EXCEPTION 'search log totals take 7 to 90 days'
+       OR p_days NOT BETWEEN 7 AND 89 THEN
+        RAISE EXCEPTION 'search log totals take 7 to 89 days'
             USING ERRCODE = 'invalid_parameter_value';
     END IF;
     RETURN QUERY

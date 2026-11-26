@@ -1422,9 +1422,10 @@ way to count search misses across people. It returns how many searches
 and how many of them missed at least one read. No query, person, engram,
 session or time, and not how many people. It counts whole days in UTC, from
 the start of the day `p_days` days ago to the start of today, and refuses
-fewer than 7 days or more than 90. The caller's `TimeZone` setting does not
-move these bounds: `searched_at` holds UTC clock time and is compared as it
-is. So no window can be aimed at one moment, and today's searches count
+fewer than 7 days or more than 89. The maximum is one day less than retention,
+so the hourly purge cannot shrink the oldest day. The caller's `TimeZone`
+setting does not move these bounds: `searched_at` holds UTC clock time and
+is compared as it is. So no window can be aimed at one moment, and today's searches count
 from tomorrow. Flagged test accounts are left out, as in the call totals.
 Print them with `just search-totals [days]` (30 by default). In production,
 run it inside `reef-app`, so it uses the app's own role:

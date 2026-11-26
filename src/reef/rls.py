@@ -1604,6 +1604,9 @@ SEARCH_LOG_TOTALS_COLUMNS = ("searches", "misses")
 SEARCH_LOG_TOTALS_MIN_DAYS = 7
 """The fewest whole days the search totals cover, as for the call log."""
 
+SEARCH_LOG_TOTALS_MAX_DAYS = SEARCH_LOG_DAYS - 1
+"""Leave the oldest retention day out: its rows expire during the day."""
+
 #: Both logs keep UTC clock time as a ``timestamp``. Comparing timestamp
 #: bounds directly means a caller's ``TimeZone`` cannot move the window.
 _TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
@@ -1611,8 +1614,8 @@ _TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
 _SEARCH_LOG_TOTALS = f"""
 BEGIN
     IF p_days IS NULL
-       OR p_days NOT BETWEEN {SEARCH_LOG_TOTALS_MIN_DAYS} AND {SEARCH_LOG_DAYS} THEN
-        RAISE EXCEPTION 'search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_DAYS} days'
+       OR p_days NOT BETWEEN {SEARCH_LOG_TOTALS_MIN_DAYS} AND {SEARCH_LOG_TOTALS_MAX_DAYS} THEN
+        RAISE EXCEPTION 'search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_TOTALS_MAX_DAYS} days'
             USING ERRCODE = 'invalid_parameter_value';
     END IF;
     RETURN QUERY
@@ -1675,9 +1678,10 @@ def search_log_statements() -> list[str]:
     reads must be before the start of today. A search in the last hour of
     a day may therefore be counted as not missed: this is the price of
     whole days, so today's reads cannot change yesterday's count.
-    Like the call totals, it accepts 7 to 90 whole UTC days ending at the
-    start of today, skips flagged test accounts, and grants no access to
-    another person's rows. It needs ``test_accounts`` to exist.
+    It accepts 7 to 89 whole UTC days ending at the start of today, one day
+    less than retention so the hourly purge cannot shrink the oldest day.
+    Like the call totals, it skips flagged test accounts and grants no access
+    to another person's rows. It needs ``test_accounts`` to exist.
 
     :returns: SQL statements to execute in order
     """

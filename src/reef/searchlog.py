@@ -13,9 +13,10 @@ memory, so the log is private to them: row security enforces that, and
 nothing here reads across people. Across people this module only counts.
 
 **Totals across everybody.** :func:`totals` returns only how many searches
-and how many of them missed at least one read. Whole UTC days, from 7 to 90,
-ending at the start of today, as for the call log. Flagged test accounts
-are left out. No query, person, engram, session or time leaves the function.
+and how many of them missed at least one read. Whole UTC days, from 7 to 89,
+ending at the start of today, with the partially retained oldest day left out.
+Flagged test accounts are left out. No query, person, engram, session or time
+leaves the function.
 
 **How long.** :data:`RETENTION_DAYS` days. :func:`purge` deletes older rows
 for everybody, through a database function that takes no argument and
@@ -42,7 +43,12 @@ from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB
 from reef.models import SearchLog
-from reef.rls import SEARCH_LOG_DAYS, SEARCH_LOG_MAX_QUERY, SEARCH_LOG_TOTALS_MIN_DAYS
+from reef.rls import (
+    SEARCH_LOG_DAYS,
+    SEARCH_LOG_MAX_QUERY,
+    SEARCH_LOG_TOTALS_MAX_DAYS,
+    SEARCH_LOG_TOTALS_MIN_DAYS,
+)
 from reef.usage import current_session_id
 
 log = logging.getLogger("reef.searchlog")
@@ -122,13 +128,14 @@ async def totals(days: int) -> Total:
     yesterday's count. Needs no principal.
 
     :param days: how many whole days to count, from
-        :data:`~reef.rls.SEARCH_LOG_TOTALS_MIN_DAYS` to :data:`RETENTION_DAYS`
+        :data:`~reef.rls.SEARCH_LOG_TOTALS_MIN_DAYS` to
+        :data:`~reef.rls.SEARCH_LOG_TOTALS_MAX_DAYS`
     :returns: searches and searches that missed, including zeroes
     :raises ValueError: when ``days`` is out of that range
     """
-    if not SEARCH_LOG_TOTALS_MIN_DAYS <= days <= SEARCH_LOG_DAYS:
+    if not SEARCH_LOG_TOTALS_MIN_DAYS <= days <= SEARCH_LOG_TOTALS_MAX_DAYS:
         raise ValueError(
-            f"search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_DAYS} days"
+            f"search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_TOTALS_MAX_DAYS} days"
         )
     [row] = await SearchLog.raw(
         "SELECT searches, misses FROM reef_search_log_totals({})", days

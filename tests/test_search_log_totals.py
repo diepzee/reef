@@ -179,14 +179,14 @@ async def test_only_app_roles_can_call_the_fixed_function(seed):
     }
 
 
-@pytest.mark.parametrize("days", [0, 6, 91, None])
-async def test_database_refuses_periods_outside_the_call_log_bounds(probe, days):
+@pytest.mark.parametrize("days", [0, 6, 90, 91, None])
+async def test_database_refuses_periods_outside_the_search_totals_bounds(probe, days):
     """The function itself enforces the period, even without the wrapper."""
     with pytest.raises(asyncpg.InvalidParameterValueError):
         await probe.fetch("SELECT * FROM reef_search_log_totals($1)", days)
 
 
-@pytest.mark.parametrize("days", [7, 90])
+@pytest.mark.parametrize("days", [7, 89])
 async def test_wrapper_accepts_both_bounds(household, seed, days):
     """The wrapper returns the database's two counts, with no principal."""
     await _seed_searches(seed, household)
@@ -194,10 +194,10 @@ async def test_wrapper_accepts_both_bounds(household, seed, days):
     assert (total.searches, total.misses) == (2 if days == 7 else 3, 2)
 
 
-@pytest.mark.parametrize("days", [6, 91])
+@pytest.mark.parametrize("days", [6, 90, 91])
 async def test_wrapper_refuses_periods_outside_the_bounds(days):
     """The Python caller gets the same range as a direct database caller."""
-    with pytest.raises(ValueError, match="7 to 90"):
+    with pytest.raises(ValueError, match="7 to 89"):
         await searchlog.totals(days)
 
 
@@ -235,7 +235,7 @@ async def test_flagged_test_accounts_count_in_neither_number(household, seed, pr
     await seed.execute(
         "INSERT INTO test_accounts (person_id) VALUES ($1)", household["wouter"].id
     )
-    assert tuple(await probe.fetchrow("SELECT * FROM reef_search_log_totals(90)")) == (
+    assert tuple(await probe.fetchrow("SELECT * FROM reef_search_log_totals(89)")) == (
         1,
         1,
     )
@@ -348,7 +348,7 @@ async def _script(*arguments: str) -> tuple[str, str, int]:
 async def test_script_prints_only_the_two_counts(household, seed):
     """Print a header and one numeric row, as the call totals script does."""
     await _seed_searches(seed, household)
-    stdout, stderr, code = await _script("--days", "90")
+    stdout, stderr, code = await _script("--days", "89")
     assert code == 0, stderr
     assert [line.split() for line in stdout.splitlines()] == [list(COLUMNS), ["3", "2"]]
     assert PRIVATE_QUERY not in stdout + stderr
@@ -360,3 +360,11 @@ async def test_script_refuses_less_than_a_week():
     assert code != 0
     assert stdout == ""
     assert "7" in stderr
+
+
+async def test_script_refuses_the_partial_oldest_day():
+    """Ninety whole days could include rows the hourly purge removes today."""
+    stdout, stderr, code = await _script("--days", "90")
+    assert code != 0
+    assert stdout == ""
+    assert "89" in stderr

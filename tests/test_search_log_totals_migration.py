@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 import asyncpg
+import pytest
 import pytest_asyncio
 from test_migration_chain import _admin_dsn, build_by_migrating, drop_database
 
@@ -60,6 +61,19 @@ async def test_chain_creates_totals_with_the_authz_owner(migrated):
             "SELECT pg_get_userbyid(proowner) FROM pg_proc "
             "WHERE proname = 'reef_search_log_totals'"
         ) in ("reef_authz", "rif_authz")
+    finally:
+        await app.close()
+
+
+async def test_migrated_totals_accept_89_days_and_refuse_90(migrated):
+    """The shipped SQL must leave the partially retained oldest day out."""
+    app = await asyncpg.connect(migrated)
+    try:
+        assert tuple(
+            await app.fetchrow("SELECT * FROM reef_search_log_totals(89)")
+        ) == (2, 0)
+        with pytest.raises(asyncpg.InvalidParameterValueError):
+            await app.fetchrow("SELECT * FROM reef_search_log_totals(90)")
     finally:
         await app.close()
 
