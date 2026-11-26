@@ -271,7 +271,7 @@ async def links_of(principal: Principal, engram_id: UUID) -> dict[str, list[dict
 
 
 async def inbound_counts(engram_ids: list[UUID]) -> dict[UUID, int]:
-    """Count the live links pointing at each engram, as the armed reader sees them.
+    """Count readable engrams with a live link pointing at each engram.
 
     :param engram_ids: the engrams to count for
     :returns: engram id to count; engrams nothing points at are absent
@@ -279,7 +279,7 @@ async def inbound_counts(engram_ids: list[UUID]) -> dict[UUID, int]:
     if not engram_ids:
         return {}
     rows = await Link.raw(
-        "SELECT to_engram_id, count(*) AS inbound FROM links "
+        "SELECT to_engram_id, count(DISTINCT from_engram_id) AS inbound FROM links "
         "WHERE status = 'active' AND to_engram_id = ANY({}::uuid[]) "
         "GROUP BY to_engram_id",
         [str(engram_id) for engram_id in engram_ids],

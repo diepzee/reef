@@ -230,6 +230,11 @@ async def test_two_replacements_and_later_wiki_link(household, seed) -> None:
         "supersedes",
         "supersedes",
     ]
+    from reef.links import inbound_counts
+
+    async with transaction_scope():
+        old = await get_engram(caller.principal, "personal", "old.md")
+        assert await inbound_counts([old.id]) == {old.id: 2}
 
 
 async def test_pending_replacements_uses_readers_names_and_existing_rows(
