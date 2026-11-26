@@ -1639,7 +1639,7 @@ DECLARE
     removed integer;
 BEGIN
     DELETE FROM search_log
-    WHERE searched_at < LOCALTIMESTAMP - make_interval(days => {SEARCH_LOG_DAYS});
+    WHERE searched_at < (now() AT TIME ZONE 'UTC') - make_interval(days => {SEARCH_LOG_DAYS});
     GET DIAGNOSTICS removed = ROW_COUNT;
     RETURN removed;
 END
@@ -1752,7 +1752,7 @@ DECLARE
     removed integer;
 BEGIN
     DELETE FROM call_log
-    WHERE called_at < LOCALTIMESTAMP - make_interval(days => {CALL_LOG_DAYS});
+    WHERE called_at < (now() AT TIME ZONE 'UTC') - make_interval(days => {CALL_LOG_DAYS});
     GET DIAGNOSTICS removed = ROW_COUNT;
     RETURN removed;
 END
