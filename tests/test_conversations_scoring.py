@@ -332,6 +332,45 @@ def test_replace_contract_scenario_asks_then_confirms_then_reads() -> None:
     assert scenario["messages"][1].startswith("Ja")
     assert scenario["facts"] == [["12 uur", "twaalf uur"]]
     assert len(scenario["after"]) == 2
+    assert (
+        scenario["messages"][-1]
+        == "Binnen hoeveel uur moet Archiefhaven reageren op een storing?"
+    )
+    assert scenario["answer_must_not"]
+    assert scenario["after"][0]["replaced_by"] == ["personal/work/contract-2027.md"]
+
+
+def test_after_checks_require_the_replacement_link():
+    """An answer and both texts cannot pass while the replacement link is absent."""
+    scenario = _scenario(
+        kind="write",
+        after=[
+            {
+                "ref": "personal/old.md",
+                "contains": ["old"],
+                "replaced_by": ["personal/new.md"],
+            }
+        ],
+    )
+    session = _session("load_index", "recall", answer=RIGHT_ANSWER)
+    assert _score(scenario, session, {"personal/old.md": "old"}).verdict == "fail"
+    after = {
+        "personal/old.md": {
+            "body": "old",
+            "replaced_by": [{"space": "personal", "path": "new.md", "title": "New"}],
+        }
+    }
+    assert _score(scenario, session, after).verdict == "pass"
+
+
+def test_cli_reads_keep_replacement_references():
+    """The conversation's after checks receive the note returned by open."""
+    note = {
+        "body": "old",
+        "replaced_by": [{"space": "personal", "path": "new.md", "title": "New"}],
+    }
+    output = {"structured_content": {"result": [{"ref": "personal/old.md", **note}]}}
+    assert run.bodies_from_cli(json.dumps(output)) == {"personal/old.md": note}
 
 
 def test_report_drops_tokens(tmp_path):

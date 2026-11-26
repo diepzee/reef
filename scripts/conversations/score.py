@@ -142,12 +142,11 @@ def _label(fact: str | list[str]) -> str:
     return fact if isinstance(fact, str) else fact[0]
 
 
-def _check_after(checks: list[dict], after: dict[str, str | None]) -> list[str]:
+def _check_after(checks: list[dict], after: dict[str, str | dict | None]) -> list[str]:
     """Compare the memory afterwards with what a scenario wants.
 
     :param checks: the scenario's ``after`` checks
-    :param after: the engram bodies read afterwards, by ref; None when the
-        engram does not exist
+    :param after: bodies and optional replacement notes, by ref; None when absent
     :returns: one reason for every check that failed
     """
     reasons: list[str] = []
@@ -156,7 +155,8 @@ def _check_after(checks: list[dict], after: dict[str, str | None]) -> list[str]:
         if ref not in after:
             reasons.append(f"{ref} was not read afterwards")
             continue
-        body = after[ref]
+        entry = after[ref]
+        body = entry.get("body") if isinstance(entry, dict) else entry
         absent = check.get("absent", [])
         if absent is True:
             if body is not None:
@@ -165,6 +165,13 @@ def _check_after(checks: list[dict], after: dict[str, str | None]) -> list[str]:
         if body is None:
             reasons.append(f"{ref} does not exist")
             continue
+        replacements = entry.get("replaced_by", []) if isinstance(entry, dict) else []
+        refs = {f"{item['space']}/{item['path']}" for item in replacements}
+        reasons += [
+            f"{ref} is not replaced by {replacement}"
+            for replacement in check.get("replaced_by", [])
+            if replacement not in refs
+        ]
         text = normalize(body)
         reasons += [
             f"{ref} lacks {_label(fact)!r}"
@@ -180,7 +187,7 @@ def _check_after(checks: list[dict], after: dict[str, str | None]) -> list[str]:
 def score(
     scenario: dict,
     session: Session | None,
-    after: dict[str, str | None],
+    after: dict[str, str | dict | None],
     *,
     files: bool,
     file_text: bool,

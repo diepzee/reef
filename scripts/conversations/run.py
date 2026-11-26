@@ -61,6 +61,7 @@ from score import Scored, load, score, write_report
 from reef.access import Principal
 from reef.db import DB, transaction_scope
 from reef.engrams import get_engram
+from reef.links import replacement_refs
 from reef.identity import person_by_email
 from reef.testaccount import readiness
 from reef.testaccount.fixture import read_fixture
@@ -647,16 +648,22 @@ def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> 
     return combine(turns)
 
 
-def bodies_from_cli(text: str) -> dict[str, str | None]:
+def bodies_from_cli(text: str) -> dict[str, str | dict | None]:
     """Read what ``reef open`` printed.
 
     :param text: the command's standard output
-    :returns: each ref's engram body, or None when Reef has no such engram
+    :returns: bodies with replacement notes when present, or None for absent engrams
     """
     output = json.loads(text)
     found = (output.get("structured_content") or output.get("data") or {}).get("result")
     return {
-        entry["ref"]: None if "error" in entry else entry.get("body")
+        entry["ref"]: (
+            None
+            if "error" in entry
+            else {"body": entry.get("body"), "replaced_by": entry["replaced_by"]}
+            if "replaced_by" in entry
+            else entry.get("body")
+        )
         for entry in found or []
         if isinstance(entry, dict) and "ref" in entry
     }
@@ -730,18 +737,29 @@ class LocalTarget:
             reef_version=version("reef"),
         )
 
-    async def read(self, refs: list[str]) -> dict[str, str | None]:
-        """Read engram bodies.
+    async def read(self, refs: list[str]) -> dict[str, str | dict | None]:
+        """Read engram bodies and their replacement notes.
 
         :param refs: ``<space>/<path>`` for each engram
-        :returns: each ref's body, or None when it does not exist
+        :returns: bodies with replacement notes when present, or None when absent
         """
-        bodies: dict[str, str | None] = {}
+        bodies: dict[str, str | dict | None] = {}
         for ref in refs:
             space, _, path = ref.partition("/")
             async with transaction_scope():
                 engram = await get_engram(self._principal, space, path)
-            bodies[ref] = engram.body if engram else None
+                notes = (
+                    await replacement_refs(self._principal, [engram.id])
+                    if engram
+                    else {}
+                )
+            bodies[ref] = (
+                {"body": engram.body, "replaced_by": notes[engram.id]}
+                if engram and engram.id in notes
+                else engram.body
+                if engram
+                else None
+            )
         return bodies
 
 
@@ -810,11 +828,11 @@ class ProductionTarget:
             reef_version=str(result.get("reef_version")),
         )
 
-    async def read(self, refs: list[str]) -> dict[str, str | None]:
+    async def read(self, refs: list[str]) -> dict[str, str | dict | None]:
         """Read engram bodies with ``reef open``.
 
         :param refs: ``<space>/<path>`` for each engram
-        :returns: each ref's body, or None when it does not exist
+        :returns: bodies with replacement notes when present, or None when absent
         :raises RunError: when the output cannot be read
         """
         text = self._cli("open", *refs, timeout=120)
