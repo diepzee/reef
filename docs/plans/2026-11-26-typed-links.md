@@ -2,7 +2,7 @@
 
 > **For agentic workers:** build this task by task, in order. Each task ends
 > with its tests passing and one commit per step group. Steps use checkbox
-> (`- [ ]`) syntax for tracking.
+> (`- [x]`) syntax for tracking.
 
 **Goal:** an engram can say it replaces, contradicts, is about or is part of
 another one, and a replaced engram ranks lower in search and names its
@@ -98,7 +98,7 @@ in the task named.
     repeats. Property `empty: bool` is true when `given` is empty.
   - `def take_block(body: str) -> tuple[str, Relations]`
 
-- [ ] **Step 1: Write the failing tests** in `tests/test_relations.py`,
+- [x] **Step 1: Write the failing tests** in `tests/test_relations.py`,
   one test per line of this table, plus one generated test.
 
   | Body | Returned body | `given` |
@@ -121,17 +121,17 @@ in the task named.
   at the start of a line, with and without a leading block; assert the body
   comes back identical and `given == {}`.
 
-- [ ] **Step 2: Run** `just test-py tests/test_relations.py`. Expected:
+- [x] **Step 2: Run** `just test-py tests/test_relations.py`. Expected:
   fails, no module `reef.relations`.
-- [ ] **Step 3: Implement `take_block`.** Read lines, not YAML: the block
+- [x] **Step 3: Implement `take_block`.** Read lines, not YAML: the block
   is the text between a first line `---` and the next line `---`. Inside
   it, a line `key:` at column 0 with one of the four keys starts a
   relation; its value is the rest of the line, plus following lines that
   start with white space and `- `. Remove exactly those lines. If the block
   holds no other line, remove the block and the one line break after it.
   Keep the body's own line endings.
-- [ ] **Step 4: Run** the tests. Expected: pass.
-- [ ] **Step 5: Commit** `feat(links): read relations from a front matter block (RUG-36)`.
+- [x] **Step 4: Run** the tests. Expected: pass.
+- [x] **Step 5: Commit** `feat(links): read relations from a front matter block (RUG-36)`.
 
 ---
 
