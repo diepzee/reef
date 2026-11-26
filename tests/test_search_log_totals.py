@@ -15,6 +15,7 @@ from reef.access import Principal
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import save_engram
+from reef.spaces import leave_space
 
 TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
 PRIVATE_QUERY = "my private diagnosis"
@@ -241,10 +242,15 @@ async def test_flagged_test_accounts_count_in_neither_number(household, seed, pr
     )
 
 
+@pytest.mark.parametrize("leave_shared", [False, True])
 async def test_misses_agree_with_distinct_searches_in_the_persons_log(
-    household, seed, probe
+    household, seed, probe, leave_shared
 ):
-    """All matching rules agree, and several missed reads count a search once."""
+    """Rules agree while reads are visible; leaving a space is an exception.
+
+    The person's miss list loses reads in a space they left. Totals keep
+    counting those stored reads without exposing them to the caller.
+    """
     engram = await _seed_searches(seed, household)
     await seed.execute("DELETE FROM search_log")
     await seed.execute("DELETE FROM engram_access")
@@ -282,6 +288,14 @@ async def test_misses_agree_with_distinct_searches_in_the_persons_log(
         len(cases),
         len(distinct_searches),
     )
+    if leave_shared:
+        async with transaction_scope():
+            principal = Principal(person.id, person.email)
+            await leave_space(principal, "household")
+            assert await searchlog.misses(principal) == []
+        assert tuple(
+            await probe.fetchrow("SELECT * FROM reef_search_log_totals(7)")
+        ) == (len(cases), len(distinct_searches))
 
 
 async def test_identical_searches_are_still_separate_searches(household, seed, probe):

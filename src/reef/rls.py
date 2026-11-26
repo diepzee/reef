@@ -1672,8 +1672,11 @@ def search_log_statements() -> list[str]:
     **The totals.** ``reef_search_log_totals(p_days)`` counts searches and
     searches with at least one missed read, across people. Its owner reads
     both ``search_log`` and ``engram_access``, but returns only those two
-    numbers. A miss follows the same rule as :func:`reef.searchlog.misses`;
-    the parity test in ``tests/test_search_log_totals.py`` keeps them aligned.
+    numbers. The match uses the same rule as :func:`reef.searchlog.misses`,
+    with an exception for reads in a shared space the person has since left:
+    row security hides those reads from their miss list, but the totals
+    still count them. The parity test in ``tests/test_search_log_totals.py``
+    states this exception.
     Multiple missed reads count a search once. Both searches and matching
     reads must be before the start of today. A search in the last hour of
     a day may therefore be counted as not missed: this is the price of
