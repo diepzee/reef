@@ -59,8 +59,10 @@ assumed: it has no command for cron schedules or start commands)
 
 - [ ] **Connector on a phone**, then on her account and tier. Phase 1,
       steps 5–6. The mobile app is the whole reason for the remote-MCP design.
-- [ ] **Context ceiling measurement.** Phase 7. The daily-dump prerequisite is
-      closed; step 1 still pads the real corpus, so keep the cleanup step.
+- [x] **Context ceiling measurement.** Phase 7. Replaced by the spike of
+      20 Nov 2026 (RUG-47), which measured the index and where Claude Code
+      cuts a tool's answer. The phone is still not measured: that is part of
+      RUG-81.
 
 - [x] **`reefwith.me` cutover.** Done 2026-08-11. Domain live behind
       Cloudflare, WorkOS callback registered, `REEF_BASE_URL` flipped, and
@@ -991,25 +993,32 @@ The protocol ships with the product. Only the persona is content:
 
 ## Phase 7 — Measure the context ceiling
 
-> **Open, and it needs a new measurement.** The steps below measure
-> `load_all_context`, a bulk-read tool that no longer exists (RUG-40 retired
-> it). They have not been redone for the workflow tools: decide first which
-> call carries the most text now (`brief` or `open`), then measure that one.
-> Do not rely on the numbers below. Note that step 1 pads the *real* corpus,
-> so run it after Phase 4's backup is proven, not before.
+> **Replaced, 25 Nov 2026.** The steps that stood here measured
+> `load_all_context`, a tool that no longer exists (RUG-40 retired it). The
+> question they asked is answered in
+> `docs/research/2026-11-20-fast-index-spike.md` (RUG-47).
 
-**Why:** the server counts body characters; the client cares about serialized
-tokens, and the mobile host may truncate big tool results on its own. The
-budget must come from measurement on the real device, not arithmetic.
+**What is known**
 
-1. `railway run uv run python scripts/measure_context.py wouter@rugvin.be <size>`
-   to pad the corpus to ~60KB, then ~200KB, then ~500KB.
-2. After each: from the Claude mobile app, ask the assistant to
-   `open` every ref `load_index` lists and report how many engrams it received
-   and whether every body arrived intact (the payload is built so a host-side cut
-   is detectable — a mismatch means truncation in transit).
-3. Record results in `docs/superpowers/plans/context-limits.md`.
-4. Clean up: `scripts/measure_context.py wouter@rugvin.be 0`.
+- Claude Code replaces a tool's answer of more than about 50,000 characters
+  with a short preview.
+- `load_index` is the call that grows with a memory. On 25 Nov 2026 the
+  owner's whole answer was 19,600 characters: 13,300 for the protocol and the
+  persona, and 5,500 for 37 engram lines. The largest memory had 37 engrams;
+  the cut comes near 240.
+- The protocol comes first in the answer, so a client that cuts keeps it.
+
+**What is still open**
+
+- The Claude app on a phone has not been measured. A phone may cut earlier
+  than Claude Code.
+- Nothing stops the index from growing past the cut. RUG-81 gives it a fixed
+  size, and has the phone measurement as a condition for done. It is planned
+  right before dreaming, which is what makes an index grow fast.
+
+`scripts/measure_context.py` pads a real memory to a given size. It is kept
+for that measurement. It changes real data: run it only after a backup, and
+clean up with size `0`.
 
 ---
 
