@@ -2,14 +2,13 @@
 
 import importlib
 from collections.abc import AsyncIterator
-from pathlib import Path
+from datetime import timedelta
+from uuid import uuid4
 
 import asyncpg
 import pytest
 import pytest_asyncio
 from test_migration_chain import _admin_dsn, build_by_migrating, drop_database
-
-from reef.rls import search_log_statements
 
 DATABASE = "reef_search_log_totals_drill"
 MIGRATION_ID = "2026-11-26T09:00:00:000000"
@@ -78,8 +77,8 @@ async def test_migrated_totals_accept_89_days_and_refuse_90(migrated):
         await app.close()
 
 
-async def test_migration_adds_only_the_function_and_preserves_existing_rows(migrated):
-    """Apply to stored searches twice: neither tables nor rows are rewritten."""
+async def test_migration_recreates_totals_and_preserves_search_rows(migrated):
+    """Recreate the function twice and check that stored searches are unchanged."""
     migration = importlib.import_module(MODULE)
     admin = await asyncpg.connect(_admin_dsn(DATABASE))
     app = await asyncpg.connect(migrated)
@@ -100,14 +99,46 @@ async def test_migration_adds_only_the_function_and_preserves_existing_rows(migr
         await admin.close()
 
 
-def test_frozen_sql_matches_the_declared_function():
-    """The migration freezes the same body, ownership and grants the suite uses."""
-    migration = importlib.import_module(MODULE)
-    statements = search_log_statements()
-    start = next(
-        index
-        for index, statement in enumerate(statements)
-        if statement.startswith("CREATE OR REPLACE FUNCTION reef_search_log_totals(")
-    )
-    assert migration.STATEMENTS == statements[start:]
-    assert "\nfrom reef.rls" not in Path(migration.__file__).read_text()
+@pytest.mark.parametrize("seconds, missed", [(-1, 1), (0, 0), (300, 0)])
+async def test_migrated_totals_exclude_reads_from_today(migrated, seconds, missed):
+    """Check the frozen function's midnight cutoff as a non-owner caller."""
+    admin = await asyncpg.connect(_admin_dsn(DATABASE))
+    transaction = admin.transaction()
+    await transaction.start()
+    try:
+        space, engram = uuid4(), uuid4()
+        await admin.execute(
+            "INSERT INTO spaces (id, slug, kind, owner_person_id) "
+            "VALUES ($1, 'edge', 'shared', $2)",
+            space,
+            FIRST,
+        )
+        await admin.execute(
+            "INSERT INTO engrams (id, space_id, path, title, body) "
+            "VALUES ($1, $2, 'edge.md', 'Edge', 'Private text')",
+            engram,
+            space,
+        )
+        await admin.execute(
+            "INSERT INTO search_log (id, person_id, query, engram_ids, "
+            "session_id, searched_at) VALUES (gen_random_uuid(), $1, "
+            "'private edge query', ARRAY[]::uuid[], 'edge-session', "
+            "date_trunc('day', now() AT TIME ZONE 'UTC') - interval '10 minutes')",
+            FIRST,
+        )
+        await admin.execute(
+            "INSERT INTO engram_access (id, person_id, engram_id, via, "
+            "session_id, accessed_at) VALUES (gen_random_uuid(), $1, $2, "
+            "'read', 'edge-session', date_trunc('day', now() AT TIME ZONE 'UTC') "
+            "+ $3::interval)",
+            FIRST,
+            engram,
+            timedelta(seconds=seconds),
+        )
+        await admin.execute("SET LOCAL ROLE reef_probe")
+        assert tuple(
+            await admin.fetchrow("SELECT * FROM reef_search_log_totals(7)")
+        ) == (3, missed)
+    finally:
+        await transaction.rollback()
+        await admin.close()
