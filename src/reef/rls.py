@@ -484,10 +484,8 @@ def identity_policy_statements() -> list[str]:
             "CREATE POLICY memberships_insert ON memberships FOR INSERT "
             "WITH CHECK (reef_owns_space(space_id))"
         ),
-        (
-            f"CREATE POLICY memberships_self_delete ON memberships FOR DELETE "
-            f"USING (person_id = {PRINCIPAL})"
-        ),
+        # Membership departure must run the privileged usage cleanup.
+        "DROP POLICY IF EXISTS memberships_self_delete ON memberships",
         # Renaming a space is editing your own membership, and nobody else's.
         # The row scope is here; the *column* scope is a grant, because row
         # security cannot say "alias but not role" -- without that half this
@@ -823,13 +821,18 @@ DECLARE
 BEGIN
   removed := false;
   person_erased := false;
-  -- Only the space's owner, and never on themselves: an owner removing
-  -- themselves would leave the space with no accountable person.
-  IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
-                 AND owner_person_id = {PRINCIPAL}) THEN
+  -- Wait for an ownership change before deciding who may leave.
+  PERFORM 1 FROM spaces WHERE id = p_space FOR UPDATE;
+  -- A member may leave, or the owner may remove them. The current owner
+  -- must hand ownership on before leaving.
+  IF {PRINCIPAL} IS NULL OR
+     (p_person IS DISTINCT FROM {PRINCIPAL} AND
+      NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+                  AND owner_person_id = {PRINCIPAL})) THEN
     RETURN;
   END IF;
-  IF p_person = {PRINCIPAL} THEN
+  IF EXISTS (SELECT 1 FROM spaces WHERE id = p_space
+             AND owner_person_id = p_person) THEN
     RETURN;
   END IF;
   DELETE FROM memberships WHERE space_id = p_space AND person_id = p_person;
@@ -838,6 +841,12 @@ BEGIN
     RETURN;
   END IF;
   removed := true;
+  DELETE FROM engram_access a USING engrams e
+   WHERE a.engram_id = e.id AND e.space_id = p_space
+     AND a.person_id = p_person;
+  DELETE FROM engram_heat h USING engrams e
+   WHERE h.engram_id = e.id AND e.space_id = p_space
+     AND h.person_id = p_person;
   -- An invitation that was never taken up: no provider subject bound, and
   -- now no membership anywhere. Erasing it is the typo-repair path.
   IF EXISTS (SELECT 1 FROM persons WHERE id = p_person AND subject IS NULL)
@@ -849,14 +858,17 @@ END
 """,
             returns="record",
             writes=("memberships", "persons"),
-            reads=("spaces",),
+            reads=("spaces", "engrams"),
             volatility="VOLATILE",
             language="plpgsql",
         ),
+        _for_authz("GRANT SELECT, DELETE ON engram_access, engram_heat TO %I"),
         *_function_ddl(
             "reef_transfer_space_ownership(p_space uuid, p_successor uuid)",
             f"""
 BEGIN
+  -- Take the same first lock as removal, before checking the successor.
+  PERFORM 1 FROM spaces WHERE id = p_space FOR UPDATE;
   IF NOT EXISTS (SELECT 1 FROM spaces WHERE id = p_space
                  AND owner_person_id = {PRINCIPAL}) THEN
     RETURN false;
@@ -1545,21 +1557,22 @@ def usage_statements() -> list[str]:
     Not part of :func:`enable_statements`, for the reason
     :func:`appearance_statements` gives.
 
-    Both tables are private to one person. Nothing looks across people, so
-    there is no helper function here at all.
+    Both tables are private to one person. The membership removal helper
+    deletes the departing person's rows with its owner's rights, because
+    the person removing them cannot see those private rows.
 
     ``engram_access`` is a log: a person may add to it, read it and delete
     from it, but there is no ``UPDATE`` policy, so a row cannot be
     rewritten. Deleting is allowed because a person may remove what Reef
     recorded about them.
 
-    **A known gap.** Rows about an engram the person can no longer read are
-    hidden from them, and a row that cannot be seen cannot be deleted
-    either. So after leaving a space, a person's usage of its engrams stays
-    stored, invisible to everyone, until the engram or their account is
-    deleted. Showing them those rows instead would let a former member
-    watch which of a space's engrams still exist. The proper fix is to remove
-    the rows when the membership ends.
+    Rows about an unreadable engram are hidden. Membership removal and
+    leaving both call ``reef_remove_member``, which deletes these rows and
+    the membership in one function call within one transaction. Account and
+    engram deletion already erase them through foreign keys.
+
+    A concurrent usage insert can still commit after membership cleanup and
+    leave a hidden row, because cleanup cannot see an uncommitted insert.
 
     ``engram_heat`` is derived from that log and is replaced whenever it is
     recomputed, so its one policy covers every command.
@@ -1696,11 +1709,12 @@ def search_log_statements() -> list[str]:
     **The totals.** ``reef_search_log_totals(p_days)`` counts searches and
     searches with at least one missed read, across people. Its owner reads
     both ``search_log`` and ``engram_access``, but returns only those two
-    numbers. The match uses the same rule as :func:`reef.searchlog.misses`,
-    with an exception for reads in a shared space the person has since left:
-    row security hides those reads from their miss list, but the totals
-    still count them. The parity test in ``tests/test_search_log_totals.py``
-    states this exception.
+    numbers. The match uses the same rule as :func:`reef.searchlog.misses`.
+    Membership departure deletes the person's usage for that space, so
+    neither count retains those reads. Their search rows stay unchanged.
+    The miss count for past days can therefore fall after someone leaves,
+    as it already can when an engram is deleted; the number of searches
+    does not change.
     Multiple missed reads count a search once. Both searches and matching
     reads must be before the start of today. A search in the last hour of
     a day may therefore be counted as not missed: this is the price of

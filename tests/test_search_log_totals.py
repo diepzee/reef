@@ -250,10 +250,9 @@ async def test_flagged_test_accounts_count_in_neither_number(household, seed, pr
 async def test_misses_agree_with_distinct_searches_in_the_persons_log(
     household, seed, probe, leave_shared
 ):
-    """Rules agree while reads are visible; leaving a space is an exception.
+    """Rules agree before and after the person's usage ends with membership.
 
-    The person's miss list loses reads in a space they left. Totals keep
-    counting those stored reads without exposing them to the caller.
+    Leaving removes those reads from both counts while keeping searches.
     """
     engram = await _seed_searches(seed, household)
     person = household["wouter"]
@@ -308,13 +307,15 @@ async def test_misses_agree_with_distinct_searches_in_the_persons_log(
         len(distinct_searches),
     )
     if leave_shared:
+        searches = await seed.fetch("SELECT * FROM search_log ORDER BY id")
         async with transaction_scope():
             principal = Principal(person.id, person.email)
             await leave_space(principal, "household")
             assert await searchlog.misses(principal) == []
         assert tuple(
             await probe.fetchrow("SELECT * FROM reef_search_log_totals(7)")
-        ) == (len(cases), len(distinct_searches))
+        ) == (len(cases), 0)
+        assert await seed.fetch("SELECT * FROM search_log ORDER BY id") == searches
 
 
 async def test_identical_searches_are_still_separate_searches(household, seed, probe):

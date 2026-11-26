@@ -108,8 +108,9 @@ async def refresh_activation(principal: Principal) -> int:
 
     Replaces what was stored. An engram the person can no longer read drops
     out: row security hides its log rows, so nothing is computed for it.
-    Its old value stays where it is, hidden from them by the same rule,
-    until the engram or the person is deleted.
+    Membership departure removes the old value along with that space's log
+    rows. A concurrent write can still leave a hidden row after cleanup;
+    see :func:`reef.rls.usage_statements`.
 
     :param principal: the person to recompute for
     :returns: how many engrams now carry an activation

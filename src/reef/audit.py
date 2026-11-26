@@ -33,8 +33,10 @@ happened to my invitation" without becoming a second place the answer leaks
 from.
 """
 
+from functools import partial
 from uuid import UUID
 
+from reef.db import after_commit
 from reef.telemetry import is_configured
 
 # The complete set. Adding one is a deliberate act: it means either a new way
@@ -48,10 +50,24 @@ INVITE_MINTED = "invite.minted"
 OPEN_DOOR_ADMITTED = "invite.open_door_admitted"
 MEMBER_ADMITTED = "space.member_admitted"
 MEMBER_REMOVED = "space.member_removed"
+MEMBER_LEFT = "space.member_left"
 OWNERSHIP_TRANSFERRED = "space.ownership_transferred"
 SPACE_DELETED = "space.deleted"
 ENGRAM_DELETED = "space.engram_deleted"
 ACCOUNT_ERASED = "account.erased"
+
+
+def record_after_commit(action: str, actor: UUID, **fields: object) -> None:
+    """Defer an audit event until the surrounding transaction scope commits.
+
+    Used for leaving, whose ownership transfer and removal may be rolled back
+    together. A rollback discards both events.
+
+    :param action: one of this module's action constants
+    :param actor: the principal who performed it
+    :param fields: further identifiers; ids and counts only, never content
+    """
+    after_commit(partial(record, action, actor, **fields))
 
 
 def record(action: str, actor: UUID, **fields: object) -> None:

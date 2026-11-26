@@ -373,7 +373,8 @@ async def remove_member(principal: Principal, slug: str, email: str) -> dict:
     if person_id == principal.person_id:
         raise SpaceError("the owner cannot remove themselves from their own space")
 
-    # The removal and the orphan check are one statement in the database.
+    # Removal and the orphan check run in one function call within one
+    # transaction.
     # Deciding here whether the departing person still belongs anywhere would
     # need a person-wide membership count, and the remover has no right to
     # see memberships in spaces they are not in -- so the count would come
@@ -497,7 +498,7 @@ async def leave_space(principal: Principal, slug: str) -> dict:
     :param principal: the authenticated person
     :param slug: the shared space to leave
     :raises SpaceError: if personal, or the principal is its only member
-    :returns: outcome, including who inherited the space if anyone did
+    :returns: outcome, including the successor and a ``person_erased`` flag
     """
     space = await resolve_space(principal, slug)
     if space.kind == SpaceKind.PERSONAL.value:
@@ -530,18 +531,32 @@ async def leave_space(principal: Principal, slug: str) -> dict:
         if not handed_over or not handed_over[0]["ok"]:
             raise SpaceError(f"could not hand {slug!r} on; nothing was changed")
         handed_to = names.get(successor.person_id)
-        audit.record(
+        audit.record_after_commit(
             audit.OWNERSHIP_TRANSFERRED,
             actor=principal.person_id,
             space_id=space.id,
             successor_id=successor.person_id,
         )
 
-    await Membership.delete().where(
-        Membership.space_id == space.id,
-        Membership.person_id == principal.person_id,
+    outcome = await Membership.raw(
+        "SELECT * FROM reef_remove_member({}, {})", space.id, principal.person_id
     )
-    return {"cove": slug, "left": True, "handed_to": handed_to}
+    if not outcome or not outcome[0]["removed"]:
+        raise SpaceError(f"could not leave {slug!r}; nothing was changed")
+    person_erased = bool(outcome[0]["person_erased"])
+    audit.record_after_commit(
+        audit.MEMBER_LEFT,
+        actor=principal.person_id,
+        space_id=space.id,
+        member_id=principal.person_id,
+        person_erased=person_erased,
+    )
+    return {
+        "cove": slug,
+        "left": True,
+        "handed_to": handed_to,
+        "person_erased": person_erased,
+    }
 
 
 async def ensure_personal_space(person_id: UUID, email: str) -> None:
