@@ -102,33 +102,39 @@ async def test_other_relations_and_removal_do_not_stage(household, key) -> None:
 async def test_passage_changes_do_not_read_relation_blocks(
     household, seed, operation
 ) -> None:
-    """Text from passage edits and restored history stays text."""
+    """Legacy relation blocks cannot be stored again by passage tools."""
     from reef.methods import maintain
-    from reef.relations import Relations
 
     me = caller_for(household["wouter"])
     block = "---\nreplaces: [[old.md]]\n---\n"
     await save_as(me, "personal", "old.md", "old")
     path = "inbox.md" if operation == "remember" else "notes.md"
     body = block + "# Notes\n\nOriginal."
-    await save_as(
+    existing = await save_as(
         me,
         "personal",
         path,
-        body,
-        relations=Relations({}),
+        "# Notes\n\nOriginal.",
         tags=["log"] if operation == "log" else [],
     )
-    if operation == "correct":
-        await maintain.correct(me, "", "personal", path, "Original.", "Changed.", "fix")
-    elif operation == "remember":
-        await capture.remember(me, "", "New fact.")
-    elif operation == "log":
-        await capture.log(me, "", "personal", path, "Today", "New entry.")
-    else:
+    await seed.execute("UPDATE engrams SET body = $1 WHERE id = $2", body, existing.id)
+    await seed.execute(
+        "UPDATE revisions SET body = $1 WHERE engram_id = $2", body, existing.id
+    )
+    if operation == "undo":
         await save_as(me, "personal", path, "later")
-        await maintain.undo(me, "", "personal", path)
-    assert (await _read(me, "personal", path)).body.startswith(block)
+    with pytest.raises(MethodError) as caught:
+        if operation == "correct":
+            await maintain.correct(
+                me, "", "personal", path, "Original.", "Changed.", "fix"
+            )
+        elif operation == "remember":
+            await capture.remember(me, "", "New fact.")
+        elif operation == "log":
+            await capture.log(me, "", "personal", path, "Today", "New entry.")
+        else:
+            await maintain.undo(me, "", "personal", path)
+    assert caught.value.code == "relation_invalid"
     assert (
         await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
     )

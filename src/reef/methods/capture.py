@@ -44,7 +44,7 @@ from reef.methods import MESSAGES, Caller, MethodError, logs, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram
-from reef.relations import Relations, take_block
+from reef.relations import Relations, refuse_stored_block, take_block
 from reef.sections import HEADING_CHARS
 
 #: The engram :func:`remember` adds facts to, in each space.
@@ -66,6 +66,7 @@ async def _save(
     expected_version: int | None = None,
     via: AccessKind | None = AccessKind.WRITE,
     relations: Relations | None = None,
+    replacements_confirmed: bool = False,
 ) -> Engram:
     """Save an engram as the caller, recording who wrote it.
 
@@ -81,6 +82,7 @@ async def _save(
         must not exist yet; any when None
     :param via: how to record the write in the usage log, or None
     :param relations: relations read by write; other capture calls preserve text
+    :param replacements_confirmed: the caller checked the person's yes
     :returns: the saved engram
     :raises MethodError: when the write is refused
     """
@@ -96,7 +98,8 @@ async def _save(
             expected_version=expected_version,
             via=via,
             channel=caller.writer,
-            relations=relations if relations is not None else Relations({}),
+            relations=relations,
+            replacements_confirmed=replacements_confirmed,
         )
 
 
@@ -165,7 +168,6 @@ async def add_to_inbox(
         title="Inbox",
         via=AccessKind.REMEMBER,
         channel=channel,
-        relations=Relations({}),
     )
     return entry
 
@@ -689,6 +691,7 @@ async def write(
                 pairs: list[list[str]] = []
                 paths: list[str] = []
                 for item, body, relations in parsed:
+                    refuse_stored_block(body)
                     existing = (
                         await Engram.objects()
                         .where(
@@ -742,6 +745,7 @@ async def write(
                         tags=item.get("tags"),
                         expected_version=item.get("expected_version"),
                         relations=relations,
+                        replacements_confirmed=confirm is not None,
                     )
                     for item, relations in prepared
                 ]

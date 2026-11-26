@@ -30,6 +30,7 @@ async def test_brief_names_only_readable_replacements(household, visible) -> Non
         "personal",
         "new.md",
         "renewal",
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
     )
     [item] = (await find.brief(reader, "", "contract", space="household"))["engrams"]

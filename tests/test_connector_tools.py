@@ -35,6 +35,7 @@ async def test_connector_fetch_names_only_visible_replacements(household) -> Non
         "personal",
         "new.md",
         "renewal",
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
     )
     mine = await connector.fetch(writer, "", "page:household/old.md")

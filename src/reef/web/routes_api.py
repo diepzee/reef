@@ -52,7 +52,7 @@ from reef.invitations import (
 from reef.links import RelationRefused
 from reef.methods import MESSAGES
 from reef.models import AccessKind, Engram, Person
-from reef.relations import InvalidRelations
+from reef.relations import InvalidRelations, take_block
 from reef.releasenotes import feed_as_json, is_unread, load_feed
 from reef.spaces import (
     SpaceError,
@@ -572,6 +572,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
     title = _optional_str(payload, "title")
     tags = _optional_tags(payload)
     expected_version = _optional_int(payload, "expected_version")
+    body, relations = take_block(body)
     engram = await save_engram(
         principal,
         space,
@@ -582,6 +583,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
         tags=tags,
         expected_version=expected_version,
         channel="person",
+        relations=relations,
     )
     return await _engram_payload(space, engram)
 

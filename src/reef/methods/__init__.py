@@ -55,6 +55,7 @@ MESSAGES = {
     "relation_into_personal": "An engram in a shared space cannot link into a personal space.",
     "relation_to_itself": "An engram cannot link to itself. Name another engram.",
     "relation_needs_write": "Replacing an engram needs write access to its space. The person can only read it.",
+    "relation_needs_confirmation": "Replacing an engram needs the person's yes. Use write's two calls.",
     "relation_circle": "These replacements would lead back to the same engram. Remove the link that closes the circle.",
     "stale_token": (
         "This confirmation has expired or does not match the request. "

@@ -39,6 +39,7 @@ async def test_replacement_notes_in_recall_open_and_index(household, visible) ->
         "personal",
         "new.md",
         "renewal",
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
     )
     opened = (await find.open(reader, "", ["household/old.md"]))[0]
@@ -71,6 +72,7 @@ async def test_index_uses_bare_path_for_same_space_replacement(household) -> Non
         "personal",
         "new.md",
         "renewal",
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: ("old.md",)}),
     )
     index = await find.load_index(me, "")
@@ -94,6 +96,7 @@ async def test_historical_open_still_names_current_replacement(household) -> Non
         "personal",
         "new.md",
         "renewal",
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: ("old.md",)}),
     )
     [opened] = await find.open(

@@ -45,7 +45,6 @@ from reef.methods import Caller, MethodError, Writer, method, staged
 from reef.methods.refusals import refusals
 from reef.models import Engram, Promotion
 from reef.promotion import confirm_promotion, prepare_promotion
-from reef.relations import Relations
 
 #: The action the staged token of :func:`instruct` is bound to.
 INSTRUCT = "instruct"
@@ -83,7 +82,6 @@ async def write_persona(
         body,
         message=message,
         allow_protected=True,
-        relations=Relations({}),
         channel=channel,
         expected_version=expected_version,
     )

@@ -17,14 +17,16 @@ from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
 from reef.links import (
+    RelationRefused,
     Resolver,
     connect_waiting_links,
     lock_typed_links,
+    pending_replacements,
     sync_typed_links,
     sync_wiki_links,
 )
 from reef.models import AccessKind, Attachment, Engram, Revision, Space, SpaceKind
-from reef.relations import Relations, take_block
+from reef.relations import Relations, refuse_stored_block
 
 PROTECTED_PREFIX = "meta/"
 
@@ -288,6 +290,7 @@ async def save_engram(
     via: AccessKind | None = AccessKind.WRITE,
     channel: str = "assistant",
     relations: Relations | None = None,
+    replacements_confirmed: bool = False,
 ) -> Engram:
     """Create or overwrite an engram: snapshot a revision, bump engram and space versions.
 
@@ -308,8 +311,8 @@ async def save_engram(
         the engram
     :param channel: who made the change, kept on the revision: ``assistant``
         for a call over MCP, ``person`` for the website
-    :param relations: already-read relations; when absent, read the leading
-        block here. Passage changes pass empty relations to keep their text.
+    :param relations: relations already read by write or the web save route
+    :param replacements_confirmed: the caller checked the person's yes
     :raises PrivateContentLeak: for personal text written into a space
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new engram's path cannot be normalized
@@ -317,9 +320,9 @@ async def save_engram(
     :raises VersionConflict: when expected_version is stale
     :returns: the saved engram
     """
-    if relations is None:
-        body, relations = take_block(body)
     validate_body(path, body)
+    refuse_stored_block(body)
+    relations = relations or Relations({})
     _refuse_protected(path, allow_protected)
     space = await resolve_writable_space(principal, alias)
     if not relations.empty:
@@ -347,6 +350,10 @@ async def save_engram(
         )
     if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
         await _refuse_private_copy(principal, alias, path, body, engram)
+    if not relations.empty and channel != "person" and not replacements_confirmed:
+        resolver = await Resolver.for_person(principal)
+        if await pending_replacements(resolver, space.id, path, relations):
+            raise RelationRefused("relation_needs_confirmation", path)
     created = False
     if engram is None:
         if expected_version not in (None, 0):

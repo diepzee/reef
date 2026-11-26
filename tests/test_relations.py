@@ -34,6 +34,11 @@ from reef.relations import InvalidRelations, take_block
         ("---\nreplaces:\n---\nx", "x", {LinkKind.SUPERSEDES: ()}),
         ("---\ntitle: T\n---\nx", "---\ntitle: T\n---\nx", {}),
         (
+            "---\nabout: quarterly review\n---\nx",
+            "---\nabout: quarterly review\n---\nx",
+            {},
+        ),
+        (
             "# T\n\n---\nreplaces: [[a.md]]\n---\n",
             "# T\n\n---\nreplaces: [[a.md]]\n---\n",
             {},
@@ -67,7 +72,6 @@ def test_take_block(body: str, plain: str, given: dict) -> None:
 @pytest.mark.parametrize(
     ("value", "code"),
     [
-        ("a.md", "relation_invalid"),
         ("[[a.md]] and more", "relation_invalid"),
         (", ".join(f"[[{n}.md]]" for n in range(21)), "relation_too_many"),
     ],

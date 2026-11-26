@@ -123,6 +123,7 @@ async def replace(caller, path: str, target: str, body: str = "contract"):
         "personal",
         path,
         body,
+        channel="person",
         relations=Relations({LinkKind.SUPERSEDES: (target,)}),
     )
 

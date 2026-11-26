@@ -92,7 +92,7 @@ def take_block(body: str) -> tuple[str, Relations]:
     given: dict[LinkKind, tuple[str, ...]] = {}
     index = 1
     while index < end:
-        match = _KEY.fullmatch(lines[index].rstrip("\r\n"))
+        match = _relation_line(lines[index])
         if match is None:
             kept.append(lines[index])
             index += 1
@@ -118,3 +118,29 @@ def take_block(body: str) -> tuple[str, Relations]:
         return body, Relations({})
     remaining = lines[0] + "".join(kept) + lines[end] if kept else ""
     return remaining + "".join(lines[end + 1 :]), Relations(given)
+
+
+def _relation_line(line: str) -> re.Match[str] | None:
+    """Recognize only empty values and values holding a wiki link.
+
+    :param line: a line inside a leading block
+    :returns: the key and value match, or None for ordinary text
+    """
+    match = _KEY.fullmatch(line.rstrip("\r\n"))
+    return (
+        match if match and (not match[2].strip() or _VALUE.search(match[2])) else None
+    )
+
+
+def refuse_stored_block(body: str) -> None:
+    """Refuse text a later editor save could turn into a relation.
+
+    :param body: the body that would be stored
+    :raises InvalidRelations: when its first block holds a relation line
+    """
+    lines = body.splitlines()
+    if not lines or lines[0] != "---":
+        return
+    end = next((i for i in range(1, len(lines)) if lines[i] == "---"), None)
+    if end is not None and any(_relation_line(line) for line in lines[1:end]):
+        raise InvalidRelations()
