@@ -118,6 +118,14 @@ def test_limit_counts_distinct_targets_and_accepts_labels() -> None:
     assert relations.given == {LinkKind.ABOUT: ("a.md",)}
 
 
+@pytest.mark.parametrize("prefix", ["\n", " ", "\ufeff", " \r\n\ufeff\t"])
+def test_reading_a_prefixed_block_keeps_the_prefix(prefix: str) -> None:
+    """Taking a block out preserves the preceding whitespace and BOM."""
+    body, relations = take_block(prefix + "---\r\nabout: [[a.md]]\r\n---\r\nx")
+    assert body == prefix + "x"
+    assert relations.given == {LinkKind.ABOUT: ("a.md",)}
+
+
 @pytest.mark.parametrize("item", ["", "[[a.md]], [[b.md]]"])
 def test_each_list_item_names_exactly_one_link(item: str) -> None:
     """An empty or multi-link list item is not the promised list syntax.

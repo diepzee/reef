@@ -158,16 +158,119 @@ async def test_repeated_relation_key_is_refused(household) -> None:
     assert caught.value.code == "relation_invalid"
 
 
-async def test_bom_prevents_block_parsing(household, seed) -> None:
-    """A byte-order mark keeps the body unchanged and creates no typed link."""
+async def test_bom_is_kept_when_write_reads_a_block(household, seed) -> None:
+    """A leading byte-order mark survives removal of the relation block."""
     me = caller_for(household["wouter"])
     await save_as(me, "personal", "old.md", "old")
-    body = "\ufeff---\nreplaces: [[old.md]]\n---\nnew"
+    body = "\ufeff---\nabout: [[old.md]]\n---\nnew"
     await capture.write(me, "", "personal", [{"path": "new.md", "body": body}], "save")
     async with transaction_scope():
-        assert (await get_engram(me.principal, "personal", "new.md")).body == body
+        assert (
+            await get_engram(me.principal, "personal", "new.md")
+        ).body == "\ufeffnew"
     assert (
-        await seed.fetchval("SELECT count(*) FROM links WHERE source = 'author'") == 0
+        await seed.fetchval("SELECT count(*) FROM links WHERE source = 'author'") == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "separator", ["\r", "\u2028", "\u2029", "\x85", "\f", "\v", "\x1c", "\x1d", "\x1e"]
+)
+@pytest.mark.parametrize("operation", ["correct", "save"])
+async def test_editor_line_normalization_cannot_activate_a_block(
+    household, separator, operation
+) -> None:
+    """A block hidden by other line separators cannot be planted."""
+    from reef.relations import InvalidRelations
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "new.md", "Original.")
+    body = separator.join(("---", "replaces: [[old.md]]", "---", "body"))
+    with pytest.raises((MethodError, InvalidRelations)) as caught:
+        if operation == "correct":
+            await maintain.correct(
+                me, "", "personal", "new.md", "Original.", body, "fix"
+            )
+        else:
+            await save_as(me, "personal", "new.md", body)
+    assert caught.value.code == "relation_invalid"
+    async with transaction_scope():
+        assert (
+            await get_engram(me.principal, "personal", "new.md")
+        ).body == "Original."
+
+
+@pytest.mark.parametrize("prefix", ["\n", " ", "\ufeff"])
+@pytest.mark.parametrize("operation", ["correct", "save"])
+async def test_trimming_a_prefix_cannot_activate_a_block(
+    household, prefix, operation
+) -> None:
+    """Whitespace and a byte-order mark cannot hide a leading relation block."""
+    from reef.relations import InvalidRelations
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "new.md", "Original.")
+    with pytest.raises((MethodError, InvalidRelations)) as caught:
+        if operation == "correct":
+            await maintain.correct(
+                me, "", "personal", "new.md", "Original.", prefix + BLOCK, "fix"
+            )
+        else:
+            await save_as(me, "personal", "new.md", prefix + BLOCK)
+    assert caught.value.code == "relation_invalid"
+
+
+async def test_refused_plant_cannot_become_a_link_on_web_save(api, world, seed) -> None:
+    """A refused edit leaves only the original text for the person's later save."""
+    me = caller_for(world[0])
+    _login(api, world[0])
+    await save_as(me, "team", "old.md", "old")
+    await save_as(me, "team", "new.md", "Original.")
+    with pytest.raises(MethodError):
+        await maintain.correct(
+            me,
+            "",
+            "team",
+            "new.md",
+            "Original.",
+            "\n---\nreplaces: [[old.md]]\n---\nnew",
+            "fix",
+        )
+    original = (await api.get("/api/engrams/team/new.md")).json()["body"]
+    assert original == "Original."
+    response = await api.put(
+        "/api/engrams/team/new.md",
+        json={"body": original, "message": "save"},
+        headers={"X-Rif-Csrf": "1"},
+    )
+    assert response.status_code == 200
+    assert (
+        await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
+    )
+
+
+@pytest.mark.parametrize(
+    "separator", ["\u2028", "\u2029", "\x85", "\f", "\v", "\x1c", "\x1d", "\x1e"]
+)
+async def test_non_lf_inside_an_ordinary_line_stays_inert(
+    api, world, seed, separator
+) -> None:
+    """The original review example stays plain text under either parser view."""
+    me = caller_for(world[0])
+    _login(api, world[0])
+    await save_as(me, "team", "old.md", "old")
+    await save_as(me, "team", "new.md", "Original.")
+    body = f"---\n---{separator}replaces: [[old.md]]\n---\nbody"
+    await maintain.correct(me, "", "team", "new.md", "Original.", body, "fix")
+    response = await api.put(
+        "/api/engrams/team/new.md",
+        json={"body": body, "message": "save"},
+        headers={"X-Rif-Csrf": "1"},
+    )
+    assert response.status_code == 200
+    assert response.json()["body"] == body
+    assert (
+        await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
     )
 
 

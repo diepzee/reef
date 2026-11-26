@@ -75,18 +75,25 @@ def _targets(value: str) -> list[str]:
 def take_block(body: str) -> tuple[str, Relations]:
     """Take recognized relation lines out of a closed leading block.
 
-    Unknown lines and their line endings remain exactly as written. Repeated
-    keys are refused so an earlier list cannot silently disappear.
+    Only LF, optionally preceded by CR, ends a line. Leading whitespace and
+    byte-order marks, unknown lines and line endings remain as written.
+    Repeated keys are refused so an earlier list cannot silently disappear.
 
     :param body: the Markdown supplied by the writer
     :returns: the remaining body and the relation lists
     :raises InvalidRelations: for a malformed or oversized relation list
     """
-    lines = body.splitlines(keepends=True)
-    if not lines or lines[0].rstrip("\r\n") != "---":
+    start = next(
+        (i for i, char in enumerate(body) if not char.isspace() and char != "\ufeff"),
+        len(body),
+    )
+    prefix = body[:start]
+    pieces = body[start:].split("\n")
+    lines = [piece + "\n" for piece in pieces[:-1]] + pieces[-1:]
+    if not lines or _line_text(lines[0]) != "---":
         return body, Relations({})
     end = next(
-        (i for i in range(1, len(lines)) if lines[i].rstrip("\r\n") == "---"),
+        (i for i in range(1, len(lines)) if _line_text(lines[i]) == "---"),
         None,
     )
     if end is None:
@@ -95,7 +102,7 @@ def take_block(body: str) -> tuple[str, Relations]:
     given: dict[LinkKind, tuple[str, ...]] = {}
     index = 1
     while index < end:
-        match = _relation_line(lines[index])
+        match = _relation_line(_line_text(lines[index]))
         if match is None:
             kept.append(lines[index])
             index += 1
@@ -106,7 +113,7 @@ def take_block(body: str) -> tuple[str, Relations]:
         targets = _targets(match[2])
         index += 1
         while index < end:
-            item = _ITEM.fullmatch(lines[index].rstrip("\r\n"))
+            item = _ITEM.fullmatch(_line_text(lines[index]))
             if item is None:
                 break
             listed = _targets(item[1])
@@ -121,7 +128,16 @@ def take_block(body: str) -> tuple[str, Relations]:
     if not given:
         return body, Relations({})
     remaining = lines[0] + "".join(kept) + lines[end] if kept else ""
-    return remaining + "".join(lines[end + 1 :]), Relations(given)
+    return prefix + remaining + "".join(lines[end + 1 :]), Relations(given)
+
+
+def _line_text(line: str) -> str:
+    """Remove one LF line ending and its optional preceding CR.
+
+    :param line: one piece split at LF, with its ending retained
+    :returns: the line's text
+    """
+    return line[:-2] if line.endswith("\r\n") else line.removesuffix("\n")
 
 
 def _relation_line(line: str) -> re.Match[str] | None:
@@ -130,7 +146,7 @@ def _relation_line(line: str) -> re.Match[str] | None:
     :param line: a line inside a leading block
     :returns: the key and value match, or None for ordinary text
     """
-    match = _KEY.fullmatch(line.rstrip("\r\n"))
+    match = _KEY.fullmatch(line)
     return (
         match if match and (not match[2].strip() or _VALUE.search(match[2])) else None
     )
@@ -142,9 +158,12 @@ def refuse_stored_block(body: str) -> None:
     :param body: the body that would be stored
     :raises InvalidRelations: when its first block holds a relation line
     """
-    lines = body.splitlines()
-    if not lines or lines[0] != "---":
-        return
-    end = next((i for i in range(1, len(lines)) if lines[i] == "---"), None)
-    if end is not None and any(_relation_line(line) for line in lines[1:end]):
-        raise InvalidRelations()
+    # Editors may normalize other separators. This view is only a guard;
+    # write and the web route always parse the original text.
+    for view in (body, "\n".join(body.splitlines())):
+        try:
+            _, relations = take_block(view)
+        except InvalidRelations:
+            raise InvalidRelations() from None
+        if not relations.empty:
+            raise InvalidRelations()
