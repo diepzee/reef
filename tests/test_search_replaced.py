@@ -40,12 +40,12 @@ def test_demote_keeps_groups_and_file_positions() -> None:
 
 
 def test_demote_inserts_only_a_missing_searchable_replacement() -> None:
-    """An inserted replacement is adjacent and never duplicated."""
+    """An inserted replacement takes the old hit's original place."""
     old, new, other = [uuid4() for _ in range(3)]
     ranking = [("page", old), ("page", other)]
     assert demote(ranking, {old: [new]}, {new}) == [
-        ("page", other),
         ("page", new),
+        ("page", other),
         ("page", old),
     ]
     assert demote(ranking, {old: [new]}, set()) == [("page", other), ("page", old)]
@@ -66,7 +66,7 @@ def test_demote_after_cut_keeps_the_replacement() -> None:
     old, new, *others = [uuid4() for _ in range(61)]
     candidates = [("page", row_id) for row_id in [old, *others]]
     hits = demote(candidates[:5], {old: [new]}, {new})[:5]
-    assert hits == candidates[1:5] + [("page", new)]
+    assert hits == [("page", new)] + candidates[1:5]
     assert len(set(hits)) == len(hits)
 
 
@@ -79,7 +79,11 @@ def test_demote_keeps_both_when_present_or_when_room_remains() -> None:
         demote([("page", old), *ordinary, ("page", new)], {old: [new]}, {new})
         == expected
     )
-    assert demote([("page", old), *ordinary], {old: [new]}, {new})[:5] == expected
+    assert demote([("page", old), *ordinary], {old: [new]}, {new})[:5] == [
+        ("page", new),
+        *ordinary,
+        ("page", old),
+    ]
 
 
 @pytest.mark.parametrize("use_reranker", [False, True])
@@ -107,6 +111,10 @@ async def test_candidate_cut_precedes_replacements(
     hits = await search_engrams(me.principal, "car", limit=5, rerank=use_reranker)
     paths = [hit["path"] for hit in hits]
     assert "renewal.md" in paths
+    assert paths[0] == "renewal.md"
+    assert hits[0]["replaces"] == [
+        {"space": "personal", "path": "match-0.md", "title": "car"}
+    ]
     assert "match-0.md" not in paths
     assert len(paths) == len(set(paths)) == 5
     assert bool(reranker.documents) is use_reranker
@@ -408,6 +416,29 @@ async def test_shared_missing_replacement_is_inserted_once(household) -> None:
     paths = [hit["path"] for hit in hits]
     assert paths[0] == "new.md"
     assert len(paths) == len(set(paths)) == 3
+    assert {ref["path"] for ref in hits[0]["replaces"]} == {"a.md", "b.md"}
+
+
+async def test_inserted_hit_explains_itself_in_search_recall_and_brief(
+    household,
+) -> None:
+    """Search-derived payloads name the old hits the inserted note stands in for."""
+    from reef.methods import find
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "contract", title="Old contract")
+    await replace(me, "new.md", "old.md", "renewal")
+    hits = await search_engrams(
+        me.principal, "contract", limit=1, semantic=False, rerank=False
+    )
+    recalled = await find.recall(me, "", "contract", limit=1)
+    briefed = (await find.brief(me, "", "contract"))["engrams"]
+    expected = [{"space": "personal", "path": "old.md", "title": "Old contract"}]
+    for hit in (hits[0], recalled[0], briefed[0]):
+        assert hit["replaces"] == expected
+    await save_as(me, "personal", "new.md", "contract renewal")
+    both = await search_engrams(me.principal, "contract", semantic=False, rerank=False)
+    assert all("replaces" not in hit for hit in both)
 
 
 async def test_inserted_replacement_keeps_room_after_reranking(

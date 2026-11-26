@@ -197,6 +197,7 @@ async def recall(
     name and description. Within the asked hits, replaced engrams rank last;
     a missing replacement from a searched space may stand in for its old hit.
     Replaced hits carry readable replacements in ``replaced_by``.
+    Inserted hits carry ``replaces``, naming the old hits they stand in for.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -321,6 +322,7 @@ def _passage(hit: dict, author: str | None, updated_at: str) -> dict:
         "updated_at": updated_at,
         "ref": f"{space}/{hit['path']}",
         **({"replaced_by": hit["replaced_by"]} if hit.get("replaced_by") else {}),
+        **({"replaces": hit["replaces"]} if hit.get("replaces") else {}),
     }
 
 
@@ -737,6 +739,8 @@ async def _brief_item(
                 refs.append(ref)
     if refs:
         item["replaced_by"] = refs
+    if hit.get("replaces"):
+        item["replaces"] = hit["replaces"]
     return item
 
 

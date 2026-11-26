@@ -682,8 +682,9 @@ def _row_payload(
         }
     else:
         payload = {**common, "path": row["path"], "title": row["title"]}
-        if row.get("replaced_by"):
-            payload["replaced_by"] = row["replaced_by"]
+        for key in ("replaced_by", "replaces"):
+            if row.get(key):
+                payload[key] = row[key]
     if passages is not None:
         payload["passage"] = passages.get(row["id"]) or row["snippet"]
     return payload
@@ -697,7 +698,7 @@ def demote(
     """Move replaced engrams after current ones, keeping each group's order.
 
     Files retain their slots during the reorder. Inserting a missing
-    replacement adds a slot directly before its replaced engram.
+    replacement adds a slot where its first old hit stood before demotion.
 
     :param ranking: the original kind and id pairs
     :param replaced: each replaced engram's terminal replacements
@@ -714,28 +715,49 @@ def demote(
     reordered = [
         next(ordered) if kind == "page" else (kind, row_id) for kind, row_id in ranking
     ]
+    positions = {row_id: index for index, (_, row_id) in enumerate(ranking)}
+    for replacement, old_hits in _replacement_insertions(
+        ranking, replaced, insertable
+    ).items():
+        reordered.insert(positions[old_hits[0]], ("page", replacement))
+    return reordered
+
+
+def _replacement_insertions(
+    ranking: list[tuple[str, UUID]],
+    replaced: dict[UUID, list[UUID]],
+    insertable: set[UUID],
+) -> dict[UUID, list[UUID]]:
+    """Choose missing replacements and the original hits they stand in for.
+
+    :param ranking: the hits before demotion
+    :param replaced: visible chain ends for each old hit
+    :param insertable: replacements in searched spaces
+    :returns: inserted ids and their old hits, in original hit order
+    """
     present = {row_id for kind, row_id in ranking if kind == "page"}
-    result: list[tuple[str, UUID]] = []
-    for kind, row_id in reordered:
-        ends = replaced.get(row_id, []) if kind == "page" else []
-        if ends and not present.intersection(ends):
+    inserted: dict[UUID, list[UUID]] = {}
+    for kind, old in ranking:
+        ends = replaced.get(old, []) if kind == "page" else []
+        if not ends or present.intersection(ends):
+            continue
+        replacement = next((end for end in ends if end in inserted), None)
+        if replacement is None:
             replacement = next((end for end in ends if end in insertable), None)
-            if replacement is not None:
-                result.append(("page", replacement))
-                present.add(replacement)
-        result.append((kind, row_id))
-    return result
+        if replacement is not None:
+            inserted.setdefault(replacement, []).append(old)
+    return inserted
 
 
 async def _replacement_order(
     ranking: list[tuple[str, UUID]], space_ids: list[UUID], aliases: dict[UUID, str]
-) -> tuple[list[tuple[str, UUID]], dict[UUID, list[dict]]]:
+) -> tuple[list[tuple[str, UUID]], dict[UUID, dict]]:
     """Adjust one ranking and name its visible replacements in a batch.
 
     :param ranking: hits already cut to the asked length
     :param space_ids: searched spaces; empty means all readable spaces
     :param aliases: the reader's names for spaces
-    :returns: the ranking and each replaced engram's references
+    :returns: the ranking and replacement notes for old and inserted hits
     """
     replaced = await replacements(
         [row_id for kind, row_id in ranking if kind == "page"]
@@ -746,7 +768,7 @@ async def _replacement_order(
             row["id"]: row
             for row in await Engram.select(
                 Engram.id, Engram.space_id, Engram.path, Engram.title
-            ).where(Engram.id.is_in(list(ends)))
+            ).where(Engram.id.is_in(list(ends | replaced.keys())))
         }
         if ends
         else {}
@@ -760,22 +782,28 @@ async def _replacement_order(
         for source, targets in replaced.items()
     }
     replaced = {source: targets for source, targets in replaced.items() if targets}
+    refs = {
+        row_id: {
+            "space": aliases[row["space_id"]],
+            "path": row["path"],
+            "title": row["title"],
+        }
+        for row_id, row in details.items()
+        if row["space_id"] in aliases
+    }
     notes = {
-        source: [
-            {
-                "space": aliases[details[end]["space_id"]],
-                "path": details[end]["path"],
-                "title": details[end]["title"],
-            }
-            for end in targets
-        ]
+        source: {"replaced_by": [refs[end] for end in targets]}
         for source, targets in replaced.items()
     }
     insertable = {
         end
         for end, row in details.items()
-        if not space_ids or row["space_id"] in space_ids
+        if end in ends and (not space_ids or row["space_id"] in space_ids)
     }
+    for new, old_hits in _replacement_insertions(ranking, replaced, insertable).items():
+        notes.setdefault(new, {})["replaces"] = [
+            refs[old] for old in old_hits if old in refs
+        ]
     return demote(ranking, replaced, insertable), notes
 
 
@@ -2031,7 +2059,8 @@ async def search_engrams(
     **Replacements.** Cut to the asked length, then move replaced engram
     hits after current ones. A hit's readable chain ends are named in
     ``replaced_by``. If none is present, insert the first end in a searched
-    space directly before the old hit. Spread files again and cut again;
+    space at the old hit's original place, with ``replaces`` naming the hits
+    it stands in for. Spread files again and cut again;
     an inserted replacement can push its old hit out. A failed replacement
     query keeps the original order and adds no notes.
 
@@ -2134,7 +2163,7 @@ async def search_engrams(
             rows = [by_id[hit] for hit in ranking if hit in by_id]
             for row in rows:
                 if row["kind"] == "page" and row["id"] in notes:
-                    row["replaced_by"] = notes[row["id"]]
+                    row.update(notes[row["id"]])
             if file_text:
                 # Up to the limit of each kind: spread, then cut.
                 rows = spread(rows, _is_file_row, files_in_five)
@@ -2209,7 +2238,7 @@ async def search_engrams(
         rows = await _chosen_rows(query, chosen, file_text, nearest) if chosen else []
         for row in rows:
             if row["kind"] == "page" and row["id"] in notes:
-                row["replaced_by"] = notes[row["id"]]
+                row.update(notes[row["id"]])
         await _record(log, principal, query, rows)
         if passages:
             best, texts = await _read_best_pieces(

@@ -202,8 +202,10 @@ same one, there are two, and the one whose link is newest comes first.
   those that are replaced come after those that are
   not; each group keeps its order. A replaced hit carries `replaced_by`, a
   list of the refs of its replacements. When none of them is among the
-  hits, the first one in a searched space is put directly before the
-  replaced hit, and the list is cut again. An inserted replacement can
+  hits, the first one in a searched space takes the old hit's place before
+  demotion. It carries `replaces`, the `{space, path, title}` refs of the
+  hits it stands in for. An already present replacement keeps its order
+  and gets no new note. The list is cut again. An inserted replacement can
   push the old hit out. With no replacement in a searched space, only the
   note is added. The connector's `search` keeps only `id`, `title`, `url`;
   its `fetch` carries the note and references that clients can fetch.
@@ -295,7 +297,10 @@ or unclear. These points replace what the parts above say.
    list is first cut to the asked length. Among those hits, replaced
    engrams go after the others. For a replaced hit none of whose
    replacements is among them, the first replacement that lies in a
-   searched space is put directly before it. Then the list is cut again.
+   searched space is put where the old hit stood before the move. It
+   carries `replaces`, a list of `{space, path, title}` refs of the hits it
+   stands in for. A replacement already among the hits keeps its order
+   and carries nothing new. Then the list is cut again.
    When the list is full, a replacement that is put in can push its old
    engram out.
 7. **The connector's `search` keeps its fixed shape** (`id`, `title`,
@@ -317,8 +322,8 @@ or unclear. These points replace what the parts above say.
 - A whole `write` call waits for the yes, not only the engram with the
   `replaces` line.
 - Replaced hits go after all hits that are not replaced, and a missing
-  replacement is put before its replaced hit, but only from a space that
-  was searched.
+  replacement takes its old hit's original place, but only from a space
+  that was searched, and names the old hits in `replaces`.
 - Every search gets the new order, `brief` included.
 - Two engrams may replace the same one; `replaced_by` is a list, newest
   link first.
