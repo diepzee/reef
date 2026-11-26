@@ -530,7 +530,7 @@ async def leave_space(principal: Principal, slug: str) -> dict:
         if not handed_over or not handed_over[0]["ok"]:
             raise SpaceError(f"could not hand {slug!r} on; nothing was changed")
         handed_to = names.get(successor.person_id)
-        audit.record(
+        audit.record_after_commit(
             audit.OWNERSHIP_TRANSFERRED,
             actor=principal.person_id,
             space_id=space.id,
@@ -543,7 +543,7 @@ async def leave_space(principal: Principal, slug: str) -> dict:
     if not outcome or not outcome[0]["removed"]:
         raise SpaceError(f"could not leave {slug!r}; nothing was changed")
     person_erased = bool(outcome[0]["person_erased"])
-    audit.record(
+    audit.record_after_commit(
         audit.MEMBER_LEFT,
         actor=principal.person_id,
         space_id=space.id,

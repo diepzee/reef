@@ -20,7 +20,67 @@ from reef import audit, telemetry
 from reef.access import Principal
 from reef.db import DB, transaction_scope
 from reef.invitations import allowlist
-from reef.spaces import create_space, delete_space, invite, leave_space, remove_member
+from reef.models import Membership
+from reef.spaces import (
+    SpaceError,
+    create_space,
+    delete_space,
+    invite,
+    leave_space,
+    remove_member,
+)
+
+
+@pytest.mark.parametrize("person", ["wouter", "partner"])
+async def test_rolled_back_leave_emits_no_audit(
+    household, seed, recorded, person
+) -> None:
+    """Even a failure after leaving must not record an uncommitted departure."""
+    before = await seed.fetch("SELECT * FROM memberships ORDER BY id")
+    with pytest.raises(RuntimeError, match="abort"):
+        async with transaction_scope():
+            async with transaction_scope():
+                await leave_space(principal_for(household[person]), "household")
+            raise RuntimeError("abort")
+    assert _actions(recorded) == []
+    assert await seed.fetch("SELECT * FROM memberships ORDER BY id") == before
+    assert (
+        await seed.fetchval(
+            "SELECT owner_person_id FROM spaces WHERE id = $1", household["shared"].id
+        )
+        == household["wouter"].id
+    )
+
+
+async def test_refused_leave_after_transfer_emits_no_audit(
+    household, seed, recorded, monkeypatch
+) -> None:
+    """The helper's refusal rolls back ownership without announcing a transfer."""
+
+    async def refuse(*args, **kwargs) -> list[dict]:
+        """Represent a departure refused after ownership has been transferred."""
+        return [{"removed": False, "person_erased": False}]
+
+    monkeypatch.setattr(Membership, "raw", refuse)
+    with pytest.raises(SpaceError, match="could not leave"):
+        async with transaction_scope():
+            await leave_space(principal_for(household["wouter"]), "household")
+    assert _actions(recorded) == []
+    assert (
+        await seed.fetchval(
+            "SELECT owner_person_id FROM spaces WHERE id = $1", household["shared"].id
+        )
+        == household["wouter"].id
+    )
+
+
+async def test_owner_leave_audit_waits_for_outer_commit(household, recorded) -> None:
+    """A successful nested leave emits both events only after the outer commit."""
+    async with transaction_scope():
+        async with transaction_scope():
+            await leave_space(principal_for(household["wouter"]), "household")
+        assert _actions(recorded) == []
+    assert _actions(recorded) == [audit.OWNERSHIP_TRANSFERRED, audit.MEMBER_LEFT]
 
 
 @pytest.mark.parametrize("erased", [False, True])
