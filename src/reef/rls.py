@@ -1598,6 +1598,38 @@ early."""
 SEARCH_LOG_MAX_QUERY = 500
 """The longest query text stored. A longer one is cut by the application."""
 
+#: Only numbers leave the search totals function, never a query or an identity.
+SEARCH_LOG_TOTALS_COLUMNS = ("searches", "misses")
+
+SEARCH_LOG_TOTALS_MIN_DAYS = 7
+"""The fewest whole days the search totals cover, as for the call log."""
+
+#: Both logs keep UTC clock time as a ``timestamp``. Comparing timestamp
+#: bounds directly means a caller's ``TimeZone`` cannot move the window.
+_TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
+
+_SEARCH_LOG_TOTALS = f"""
+BEGIN
+    IF p_days IS NULL
+       OR p_days NOT BETWEEN {SEARCH_LOG_TOTALS_MIN_DAYS} AND {SEARCH_LOG_DAYS} THEN
+        RAISE EXCEPTION 'search log totals take {SEARCH_LOG_TOTALS_MIN_DAYS} to {SEARCH_LOG_DAYS} days'
+            USING ERRCODE = 'invalid_parameter_value';
+    END IF;
+    RETURN QUERY
+    SELECT count(*), count(*) FILTER (WHERE EXISTS (
+        SELECT 1 FROM engram_access a
+        WHERE a.person_id = s.person_id AND a.session_id = s.session_id
+          AND a.via = 'read' AND a.accessed_at >= s.searched_at
+          AND a.accessed_at < s.searched_at + interval '1 hour'
+          AND NOT (a.engram_id = ANY (s.engram_ids))
+    ))
+    FROM search_log s
+    WHERE s.searched_at >= {_TODAY_UTC} - make_interval(days => p_days)
+      AND s.searched_at < {_TODAY_UTC}
+      AND NOT EXISTS (SELECT 1 FROM test_accounts t WHERE t.person_id = s.person_id);
+END
+"""
+
 _PURGE_SEARCH_LOG = f"""
 DECLARE
     removed integer;
@@ -1611,15 +1643,15 @@ END
 
 
 def search_log_statements() -> list[str]:
-    """Return idempotent DDL arming RLS on the search log, and its purge.
+    """Return idempotent DDL for the search log, its purge and its totals.
 
     Not part of :func:`enable_statements`, for the reason
     :func:`appearance_statements` gives.
 
     **The policies.** The table is private to one person, like the usage
     log. A person may add a row, read their rows and delete them. There is
-    no ``UPDATE`` policy, so a row cannot be rewritten. Nothing looks across
-    people.
+    no ``UPDATE`` policy, so a row cannot be rewritten. Nobody reads another
+    person's rows.
 
     **The purge.** Rows must go after :data:`SEARCH_LOG_DAYS` days, also for
     a person who never comes back, and no armed connection can delete
@@ -1632,6 +1664,17 @@ def search_log_statements() -> list[str]:
 
     What a caller of it can do is delete rows that were due for deletion
     anyway.
+
+    **The totals.** ``reef_search_log_totals(p_days)`` counts searches and
+    searches with at least one missed read, across people. Its owner reads
+    both ``search_log`` and ``engram_access``, but returns only those two
+    numbers. A miss follows the same rule as :func:`reef.searchlog.misses`;
+    the parity test in ``tests/test_search_log_totals.py`` keeps them aligned.
+    Multiple missed reads count a search once. The period selects searches,
+    and their full following hour is checked, even across midnight.
+    Like the call totals, it accepts 7 to 90 whole UTC days ending at the
+    start of today, skips flagged test accounts, and grants no access to
+    another person's rows. It needs ``test_accounts`` to exist.
 
     :returns: SQL statements to execute in order
     """
@@ -1673,6 +1716,13 @@ def search_log_statements() -> list[str]:
             volatility="VOLATILE",
             language="plpgsql",
         ),
+        *_function_ddl(
+            "reef_search_log_totals(p_days integer)",
+            _SEARCH_LOG_TOTALS,
+            returns="TABLE(searches bigint, misses bigint)",
+            reads=("search_log", "engram_access", "test_accounts"),
+            language="plpgsql",
+        ),
     ]
 
 
@@ -1705,12 +1755,6 @@ CALL_LOG_TOTALS_COLUMNS = ("method", "outcome", "calls", "empty_reasons")
 CALL_LOG_TOTALS_MIN_DAYS = 7
 """The fewest whole days the call log's totals cover. A shorter window could
 be aimed at one call."""
-
-#: The start of today on a UTC clock, as a ``timestamp``. ``called_at`` holds
-#: UTC clock time too, so the window's bounds are compared with it as they
-#: are, with no time zone in between: a caller's ``TimeZone`` setting, which
-#: any session may set to an offset to the minute, cannot move them.
-_TODAY_UTC = "date_trunc('day', now() AT TIME ZONE 'UTC')"
 
 _CALL_LOG_TOTALS = f"""
 BEGIN
