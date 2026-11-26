@@ -56,6 +56,9 @@ def _targets(value: str) -> list[str]:
         return []
     targets: list[str] = []
     while value:
+        quote = value[0] if value[0] in ("'", '"') else ""
+        if quote:
+            value = value[1:].lstrip()
         match = _VALUE.match(value)
         if match is None:
             raise InvalidRelations()
@@ -64,6 +67,10 @@ def _targets(value: str) -> list[str]:
             raise InvalidRelations()
         targets.append(target)
         value = value[match.end() :].strip()
+        if quote:
+            if not value.startswith(quote):
+                raise InvalidRelations()
+            value = value[1:].strip()
         if not value:
             break
         if not value.startswith(",") or not value[1:].strip():

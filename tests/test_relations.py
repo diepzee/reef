@@ -126,6 +126,18 @@ def test_reading_a_prefixed_block_keeps_the_prefix(prefix: str) -> None:
     assert relations.given == {LinkKind.ABOUT: ("a.md",)}
 
 
+@pytest.mark.parametrize("quote", ['"', "'"])
+@pytest.mark.parametrize("listed", [False, True])
+def test_quoted_wiki_links_are_relations(quote: str, listed: bool) -> None:
+    """Editors may quote wiki links in inline values or list items."""
+    value = f"{quote}[[a.md]]{quote}, {quote}[[b.md|label]]{quote}"
+    if listed:
+        value = f"\n  - {quote}[[a.md]]{quote}\n  - {quote}[[b.md|label]]{quote}"
+    body, relations = take_block(f"---\nabout: {value}\n---\nx")
+    assert body == "x"
+    assert relations.given == {LinkKind.ABOUT: ("a.md", "b.md")}
+
+
 @pytest.mark.parametrize("item", ["", "[[a.md]], [[b.md]]"])
 def test_each_list_item_names_exactly_one_link(item: str) -> None:
     """An empty or multi-link list item is not the promised list syntax.

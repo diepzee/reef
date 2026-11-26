@@ -110,6 +110,35 @@ async def test_web_preserves_ordinary_key_text(api, world) -> None:
     assert response.json()["body"] == ORDINARY
 
 
+@pytest.mark.parametrize("quote", ['"', "'"])
+@pytest.mark.parametrize("route", ["write", "web"])
+async def test_quoted_relation_saves_through_both_readers(
+    api, world, seed, quote, route
+) -> None:
+    """Quoted wiki links are read by the tool and by the person's editor."""
+    me = caller_for(world[0])
+    old = await save_as(me, "team", "old.md", "old")
+    body = f"---\nabout: {quote}[[old.md]]{quote}\n---\nnew"
+    if route == "write":
+        await capture.write(me, "", "team", [{"path": "new.md", "body": body}], "save")
+    else:
+        _login(api, world[0])
+        response = await api.put(
+            "/api/engrams/team/new.md",
+            json={"body": body, "message": "save"},
+            headers={"X-Rif-Csrf": "1"},
+        )
+        assert response.status_code == 200
+    async with transaction_scope():
+        assert (await get_engram(me.principal, "team", "new.md")).body == "new"
+    assert (
+        await seed.fetchval(
+            "SELECT to_engram_id FROM links WHERE source = 'author' AND kind = 'about'"
+        )
+        == old.id
+    )
+
+
 async def test_write_checks_size_before_reading_block(household, monkeypatch) -> None:
     """Removing a large block cannot bypass the input size limit."""
     me = caller_for(household["wouter"])
