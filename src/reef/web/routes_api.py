@@ -520,6 +520,11 @@ async def _engram_payload(space: str, engram: Engram) -> dict:
 async def _get_engram(request: Request, principal: Principal) -> Response | dict:
     """Fetch a single engram by space and path.
 
+    Read the exact stored name, including names created before path repair
+    existed. Repairing first could hide an old mixed-case name or select a
+    different engram. PUT checks the exact name first and repairs only a
+    missing name; GET keeps returning 404 for that missing spelling.
+
     :param request: the incoming request, carrying ``space`` and ``path``
         path params
     :param principal: the authenticated person
