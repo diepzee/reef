@@ -7,7 +7,7 @@ from conftest import caller_for, save_as, store_as
 from test_search_files import reranker  # noqa: F401
 from test_search_hybrid import service  # noqa: F401
 
-from reef import embedding, search
+from reef import embedding
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.links import replacements
@@ -225,23 +225,34 @@ async def test_reading_files_still_leaves_room_for_engrams(
     assert sum(hit["kind"] == "file" for hit in hits) <= 3
 
 
-async def test_twenty_queries_without_replacements_are_unchanged(
-    household, monkeypatch
+@pytest.mark.parametrize("semantic", [False, True])
+async def test_memory_without_links_has_a_fixed_order(
+    household, service, monkeypatch, seed, semantic
 ) -> None:
-    """The rank adjustment is exactly inert for memory without replaces."""
+    """Keep a fixed seeded order on both keyword and vector paths."""
+    from datetime import datetime
+
     me = caller_for(household["wouter"])
-    for number in range(20):
-        await save_as(
-            me, "personal", f"{number}.md", f"contract topic{number} terms agreement"
+    monkeypatch.setattr(
+        service,
+        "_vector",
+        lambda text: (
+            [0.8, 0.2, 0.0, 0.0]
+            if "first" in text
+            else [0.9, 0.1, 0.0, 0.0]
+            if "second" in text
+            else [1.0, 0.0, 0.0, 0.0]
+        ),
+    )
+    for day, name in enumerate(("first", "second", "third"), 1):
+        engram = await save_as(me, "personal", f"{name}.md", "car", title=name)
+        await seed.execute(
+            "UPDATE engrams SET updated_at = $1 WHERE id = $2",
+            datetime(2026, 1, day),
+            engram.id,
         )
-    for number in range(20):
-        query = f"contract topic{number}"
-        actual = await search_engrams(me.principal, query, semantic=False, rerank=False)
-        with monkeypatch.context() as patch:
-            patch.setattr(
-                search, "demote", lambda ranking, replaced, insertable: ranking
-            )
-            original = await search_engrams(
-                me.principal, query, semantic=False, rerank=False
-            )
-        assert actual == original
+        async with transaction_scope():
+            assert await embedding.embed_engram(me.principal, engram.id, service) > 0
+    hits = await search_engrams(me.principal, "car", semantic=semantic, rerank=False)
+    assert [hit["path"] for hit in hits] == ["third.md", "second.md", "first.md"]
+    assert all("replaced_by" not in hit for hit in hits)
