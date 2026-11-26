@@ -233,7 +233,8 @@ async def test_migration_preserves_former_role_ownership_and_grants(
     await connection.execute("GRANT rif_authz TO reef")
     await connection.execute("GRANT USAGE, CREATE ON SCHEMA public TO rif_authz")
     await connection.execute("GRANT USAGE ON SCHEMA public TO rif_app")
-    await connection.execute("GRANT SELECT ON spaces TO rif_authz")
+    # The ownership-transfer helper already gives this role UPDATE on spaces.
+    await connection.execute("GRANT SELECT, UPDATE ON spaces TO rif_authz")
     await connection.execute(
         "GRANT SELECT, DELETE ON memberships, persons TO rif_authz"
     )

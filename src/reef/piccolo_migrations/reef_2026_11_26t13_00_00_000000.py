@@ -35,6 +35,8 @@ DECLARE
 BEGIN
   removed := false;
   person_erased := false;
+  -- Wait for an ownership change before deciding who may leave.
+  PERFORM 1 FROM spaces WHERE id = p_space FOR UPDATE;
   -- A member may leave, or the owner may remove them. The current owner
   -- must hand ownership on before leaving.
   IF NULLIF(current_setting('app.person_id', true), '')::uuid IS NULL OR

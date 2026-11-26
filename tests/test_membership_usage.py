@@ -1,16 +1,74 @@
 """Ending membership erases private usage without touching anyone else's."""
 
+import asyncio
+
 import asyncpg
 import pytest
 import pytest_asyncio
 
 from reef.access import Principal, arm
 from reef.account import delete_account_rows
+from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import save_engram
 from reef.models import Space
 from reef.spaces import delete_space, leave_space, remove_member
 from reef.usage import refresh_activation
+
+
+async def test_departure_waits_for_ownership_transfer(household: dict) -> None:
+    """Observe the lock itself, then ensure departure sees committed ownership."""
+    owner = await asyncpg.connect(get_settings().database.test_url)
+    departing = await asyncpg.connect(get_settings().database.test_url)
+    pending = None
+    try:
+        async with departing.transaction():
+            await departing.execute(
+                "SELECT set_config('app.person_id', $1, true)",
+                str(household["partner"].id),
+            )
+            async with owner.transaction():
+                await owner.execute(
+                    "SELECT set_config('app.person_id', $1, true)",
+                    str(household["wouter"].id),
+                )
+                assert await owner.fetchval(
+                    "SELECT reef_transfer_space_ownership($1, $2)",
+                    household["shared"].id,
+                    household["partner"].id,
+                )
+                pending = asyncio.create_task(
+                    departing.fetchrow(
+                        "SELECT * FROM reef_remove_member($1, $2)",
+                        household["shared"].id,
+                        household["partner"].id,
+                    )
+                )
+                blocked = False
+                async with asyncio.timeout(5):
+                    while not pending.done():
+                        blockers = await owner.fetchval(
+                            "SELECT pg_blocking_pids($1)", departing.get_server_pid()
+                        )
+                        if owner.get_server_pid() in blockers:
+                            blocked = True
+                            break
+                        await asyncio.sleep(0)
+                assert blocked, "departure finished without locking the space"
+            assert tuple(await pending) == (False, False)
+            assert (
+                await departing.fetchval(
+                    "SELECT count(*) FROM memberships WHERE space_id = $1",
+                    household["shared"].id,
+                )
+                == 2
+            )
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        await departing.close()
+        await owner.close()
 
 
 @pytest_asyncio.fixture
