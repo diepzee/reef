@@ -11,7 +11,7 @@ from reef import embedding, filetext
 from reef.access import Principal, accessible_spaces, alias_map
 from reef.indexfields import index_fields, resolve_references
 from reef.jobs import BACKFILL_INDEX_FIELDS, BACKFILL_LINKS, enqueue
-from reef.links import inbound_counts
+from reef.links import inbound_counts, replacements
 from reef.models import (
     Attachment,
     AttachmentStatus,
@@ -235,6 +235,15 @@ async def build_index(principal: Principal) -> IndexPayload:
     engrams = await _indexed_engrams(space_ids)
     await _queue_backfills(principal, engrams)
     inbound = await inbound_counts([engram["id"] for engram in engrams])
+    replaced = await replacements([engram["id"] for engram in engrams])
+    refs = {
+        engram["id"]: {
+            "space": aliases[engram["space_id"]],
+            "path": engram["path"],
+            "title": engram["title"],
+        }
+        for engram in engrams
+    }
     attachments = await Attachment.objects().where(
         Attachment.space_id.is_in(space_ids),
         Attachment.status == AttachmentStatus.READY.value,
@@ -278,6 +287,15 @@ async def build_index(principal: Principal) -> IndexPayload:
                 "last_editor": editors.get(engram["id"]),
                 "references": references,
                 "inbound": inbound.get(engram["id"], 0),
+                **(
+                    {
+                        "replaced_by": [
+                            refs[end] for end in replaced[engram["id"]] if end in refs
+                        ]
+                    }
+                    if engram["id"] in replaced
+                    else {}
+                ),
             }
         )
     for attachment in attachments:

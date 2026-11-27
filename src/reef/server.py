@@ -552,22 +552,38 @@ async def log(
 
 @_destructive("Write")
 async def write(
-    reason: Reason = "", *, space: str, engrams: list[dict], message: str
-) -> list[dict]:
+    reason: Reason = "",
+    *,
+    space: str,
+    engrams: list[dict],
+    message: str,
+    confirm: str | None = None,
+) -> list[dict] | dict:
     """Create or replace whole engrams, up to {MAX_BATCH} in one call, all or nothing.
 
     Use it for new engrams and for rewriting one completely. For a small
     change use correct; to add to a log use log. When you replace an engram,
     pass the expected_version you read.
 
+    A body may start with a block between --- lines using replaces,
+    contradicts, about or part_of with wiki links. Adding replaces takes
+    two calls: show the effect, ask for the person's yes, then repeat the
+    same engrams with the token as confirm.
+
     :param space: the space's name from load_index
     :param engrams: the engrams, each ``{path, body, title?, tags?,
         expected_version?, message?}``
     :param message: what changed and why, kept in history, for each engram
         without a message of its own
+    :param confirm: the token from the first call, after the person's yes
     """
     return await _run(
-        capture.write, reason, space=space, engrams=engrams, message=message
+        capture.write,
+        reason,
+        space=space,
+        engrams=engrams,
+        message=message,
+        confirm=confirm,
     )
 
 

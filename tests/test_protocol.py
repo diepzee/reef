@@ -145,6 +145,11 @@ def backticked(text: str) -> set[str]:
 
 #: Backticked words that are not tools: arguments, result keys, spaces and tags.
 NOT_TOOLS = {
+    "replaces",
+    "contradicts",
+    "about",
+    "part_of",
+    "replaced_by",
     "as_of",
     "confirm",
     "core",
@@ -312,3 +317,25 @@ def test_the_plugin_commands_name_only_existing_tools():
         assert not unknown_names(text, NOT_TOOLS_OUTSIDE_PROTOCOL)
         assert not re.search(r"\bcoves?\b", text.lower())
         assert not pages_not_of_a_file(text)
+
+
+def test_protocol_explains_relations_and_the_persons_yes() -> None:
+    """The protocol tells assistants both how to write and what to answer from."""
+    from pathlib import Path
+
+    body = (Path(__file__).parents[1] / "src/reef/protocol.md").read_text()
+    for key in ("replaces", "contradicts", "about", "part_of"):
+        assert key in body
+    assert "replaces: [[contract-2026.md]]" in body
+    plain = " ".join(body.split())
+    assert (
+        "Adding `replaces` through `write` takes two calls and the person's yes."
+        in plain
+    )
+    assert "Answer from its replacement." in plain
+    assert "Add new facts there." in plain
+    assert "Only `write` reads a relation block among the tools." in plain
+    assert (
+        "Four tools act in two steps: `share`, `forget`, `instruct` and `write`."
+        in plain
+    )

@@ -24,6 +24,7 @@ from reef.attachments import get_attachment
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import get_engram
+from reef.links import replacement_refs
 from reef.methods import Caller, method
 from reef.models import AccessKind
 from reef.protocol import build_instructions
@@ -266,10 +267,24 @@ async def _engram(principal: Principal, id: str, space: str, path: str) -> dict 
     if engram is None:
         return None
     await usage.record(principal, engram.id, AccessKind.READ)
+    replaced = await replacement_refs(principal, [engram.id])
+    refs = [
+        {
+            **ref,
+            "id": _connector_id("page", ref["space"], ref["path"]),
+            "url": _app_url(ref["space"], ref["path"]),
+        }
+        for ref in replaced.get(engram.id, [])
+    ]
     return {
         "id": id,
         "title": engram.title or path,
         "text": engram.body,
         "url": _app_url(space, path),
-        "metadata": {"cove": space, "path": path, "kind": "page"},
+        "metadata": {
+            "cove": space,
+            "path": path,
+            "kind": "page",
+            **({"replaced_by": refs} if refs else {}),
+        },
     }

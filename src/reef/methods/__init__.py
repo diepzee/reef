@@ -49,6 +49,15 @@ OK = "ok"
 """The outcome recorded for a call that returned."""
 
 MESSAGES = {
+    "relation_invalid": "Write each relation as wiki links, such as about: [[house.md]]. Use each key once.",
+    "relation_block_in_body": "The engram's text starts with a block of relation lines. Rewrite the engram with write, which reads the block.",
+    "relation_too_many": "A relation key may name at most 20 engrams. Split this list.",
+    "relation_target_missing": "This link names no engram the person can read. Check its space and path.",
+    "relation_into_personal": "An engram in a shared space cannot link into a personal space.",
+    "relation_to_itself": "An engram cannot link to itself. Name another engram.",
+    "relation_needs_write": "Replacing an engram needs write access to its space. The person can only read it.",
+    "relation_needs_confirmation": "Replacing an engram needs the person's yes. Use write's two calls.",
+    "relation_circle": "These replacements would lead back to the same engram. Remove the link that closes the circle.",
     "stale_token": (
         "This confirmation has expired or does not match the request. "
         "Make the first call again to get a new one."

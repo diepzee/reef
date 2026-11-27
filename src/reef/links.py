@@ -27,20 +27,29 @@ outright, here and again by the database.
 Everything here assumes it runs inside :func:`reef.db.transaction_scope`.
 """
 
+import logging
+from collections import deque
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from reef.access import Principal, accessible_spaces, alias_map
+from reef.db import DB
 from reef.indexfields import index_fields
 from reef.models import (
     Engram,
     Link,
+    LinkKind,
     LinkStatus,
     MemberRole,
     Membership,
     Space,
     SpaceKind,
 )
+from reef.relations import MAX_RELATIONS, RELATION_KEYS, InvalidRelations, Relations
+
+#: Advisory-lock key for typed link changes. Arbitrary, but fixed: saves and
+#: confirmation checks must share it to prevent concurrent replacement circles.
+_TYPED_LINK_LOCK_KEY = 7360036
 
 
 def parse_target(target: str) -> tuple[str | None, str]:
@@ -50,6 +59,7 @@ def parse_target(target: str) -> tuple[str | None, str]:
     :returns: the space name, or None for a same-space target, and the path
         without any ``#section`` part
     """
+    target = target.split("|", 1)[0].strip()
     alias: str | None = None
     path = target
     if ":" in target:
@@ -161,6 +171,7 @@ async def sync_wiki_links(
         for row in await Link.select(Link.to_engram_id).where(
             Link.from_engram_id == engram_id,
             Link.status == LinkStatus.ACTIVE.value,
+            Link.kind == LinkKind.REFERENCES.value,
         )
     }
     for row in candidates:
@@ -265,7 +276,7 @@ async def links_of(principal: Principal, engram_id: UUID) -> dict[str, list[dict
 
 
 async def inbound_counts(engram_ids: list[UUID]) -> dict[UUID, int]:
-    """Count the live links pointing at each engram, as the armed reader sees them.
+    """Count readable engrams with a live link pointing at each engram.
 
     :param engram_ids: the engrams to count for
     :returns: engram id to count; engrams nothing points at are absent
@@ -273,7 +284,7 @@ async def inbound_counts(engram_ids: list[UUID]) -> dict[UUID, int]:
     if not engram_ids:
         return {}
     rows = await Link.raw(
-        "SELECT to_engram_id, count(*) AS inbound FROM links "
+        "SELECT to_engram_id, count(DISTINCT from_engram_id) AS inbound FROM links "
         "WHERE status = 'active' AND to_engram_id = ANY({}::uuid[]) "
         "GROUP BY to_engram_id",
         [str(engram_id) for engram_id in engram_ids],
@@ -329,3 +340,311 @@ async def backfill_links(principal: Principal) -> int:
         )
         updated += 1
     return updated
+
+
+class RelationRefused(Exception):
+    """A typed link cannot be saved with this writer's rights."""
+
+    def __init__(self, code: str, target: str) -> None:
+        """Keep the reason and written target, without any engram text.
+
+        :param code: the reason the link was refused
+        :param target: the link as written
+        """
+        self.code = code
+        self.target = target
+        super().__init__(f"{code}: {target}")
+
+
+async def _relation_targets(
+    resolver: Resolver, space_id: UUID, path: str, relations: Relations
+) -> dict[LinkKind, dict[UUID, tuple[str, str, str]]]:
+    """Resolve and check the targets of all given kinds.
+
+    :param resolver: the writer's spaces and rights
+    :param space_id: the source space
+    :param path: the source path
+    :param relations: the given kinds
+    :returns: each kind's target ids, with written text, space name and path
+    :raises RelationRefused: when a target or a replacement chain is invalid
+    :raises InvalidRelations: for an unknown kind or too many targets
+    """
+    result: dict[LinkKind, dict[UUID, tuple[str, str, str]]] = {}
+    aliases = {sid: alias for alias, sid in resolver.space_by_alias.items()}
+    for kind, targets in relations.given.items():
+        targets = tuple(dict.fromkeys(targets))
+        if kind not in RELATION_KEYS.values():
+            raise InvalidRelations()
+        if len(targets) > MAX_RELATIONS:
+            raise InvalidRelations("relation_too_many")
+        result[kind] = {}
+        for text in targets:
+            alias, target_path = parse_target(text)
+            target_space = (
+                space_id if alias is None else resolver.space_by_alias.get(alias)
+            )
+            if target_space is None or not target_path:
+                raise RelationRefused("relation_target_missing", text)
+            if target_space == space_id and target_path == path:
+                raise RelationRefused("relation_to_itself", text)
+            if (
+                resolver.spaces[space_id].kind != SpaceKind.PERSONAL.value
+                and resolver.spaces[target_space].kind == SpaceKind.PERSONAL.value
+            ):
+                raise RelationRefused("relation_into_personal", text)
+            target = (
+                await Engram.objects()
+                .where(Engram.space_id == target_space, Engram.path == target_path)
+                .first()
+            )
+            if target is None:
+                raise RelationRefused("relation_target_missing", text)
+            if kind == LinkKind.SUPERSEDES and target_space not in resolver.writable:
+                raise RelationRefused("relation_needs_write", text)
+            result[kind][target.id] = (text, aliases[target_space], target_path)
+    supersedes = result.get(LinkKind.SUPERSEDES, {})
+    if supersedes:
+        circles = await Link.raw(
+            "WITH RECURSIVE chain(root, id) AS ("
+            "SELECT id, id FROM engrams WHERE id = ANY({}::uuid[]) "
+            "UNION SELECT c.root, l.to_engram_id FROM chain c JOIN links l "
+            "ON l.from_engram_id = c.id WHERE l.kind = 'supersedes' AND l.status = 'active') "
+            "SELECT c.root FROM chain c JOIN engrams e ON e.id = c.id "
+            "WHERE e.space_id = {} AND e.path = {}",
+            [str(target) for target in supersedes],
+            space_id,
+            path,
+        )
+        if circles:
+            raise RelationRefused("relation_circle", supersedes[circles[0]["root"]][0])
+    return result
+
+
+async def lock_typed_links() -> None:
+    """Serialize graph changes before taking any engram row lock.
+
+    Saves and confirmation checks share this transaction-scoped lock so
+    a circle check cannot race another link change. Taking it first avoids
+    a deadlock when two sources replace each other across spaces.
+    """
+    await Link.raw("SELECT pg_advisory_xact_lock({})", _TYPED_LINK_LOCK_KEY)
+
+
+async def sync_typed_links(
+    resolver: Resolver, engram_id: UUID, space_id: UUID, relations: Relations
+) -> None:
+    """Replace given kinds, retaining unseen links and unchanged rows.
+
+    :param resolver: the writer's spaces and rights
+    :param engram_id: the saved source engram
+    :param space_id: its space
+    :param relations: the kinds to replace
+    :raises RelationRefused: when a link cannot be written
+    """
+    await lock_typed_links()
+    source = await Engram.objects().get(Engram.id == engram_id)
+    targets = await _relation_targets(resolver, space_id, source.path, relations)
+    for kind, wanted in targets.items():
+        await Link.raw(
+            "SELECT reef_retire_typed_links({}, {}, {}::uuid[])",
+            engram_id,
+            kind.value,
+            [str(target) for target in wanted],
+        )
+        for target_id, (text, _, _) in wanted.items():
+            await Link.raw(
+                "INSERT INTO links (id, from_engram_id, to_engram_id, target_text, "
+                "author_id, kind, source) VALUES ({}, {}, {}, {}, {}, {}, 'author') "
+                "ON CONFLICT DO NOTHING",
+                uuid4(),
+                engram_id,
+                target_id,
+                text,
+                resolver.principal.person_id,
+                kind.value,
+            )
+
+
+async def pending_replacements(
+    resolver: Resolver, space_id: UUID, path: str, relations: Relations
+) -> list[tuple[str, str]]:
+    """Find newly added replacements, checking the whole relation block.
+
+    :param resolver: the writer's spaces and rights
+    :param space_id: the source space
+    :param path: the source path, which may not exist yet
+    :param relations: the given kinds
+    :returns: new targets as sorted space-name and path pairs
+    :raises RelationRefused: when a link cannot be written
+    """
+    wanted = (await _relation_targets(resolver, space_id, path, relations)).get(
+        LinkKind.SUPERSEDES, {}
+    )
+    rows = await Link.raw(
+        "SELECT l.to_engram_id FROM links l JOIN engrams e ON e.id = l.from_engram_id "
+        "WHERE e.space_id = {} AND e.path = {} AND l.kind = 'supersedes' AND l.status = 'active'",
+        space_id,
+        path,
+    )
+    active = {row["to_engram_id"] for row in rows}
+    return sorted(
+        (alias, target_path)
+        for target, (_, alias, target_path) in wanted.items()
+        if target not in active
+    )
+
+
+async def replacements(engram_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+    """Find visible chain ends without walking repeated paths through forks.
+
+    One recursive query collects nodes, not paths through forks. Ends are
+    built from the leaves back toward the hits, keeping newest links first.
+    Circles are grouped before that walk: they supply no end themselves,
+    but do not hide ordinary ends on another branch. Each pass visits each
+    node once, so circles and forks cannot multiply the work.
+    A failed query rolls back its savepoint and leaves the original ranking.
+
+    :param engram_ids: the engrams to check for the armed reader
+    :returns: replaced ids and their terminal replacements in order
+    """
+    if not engram_ids:
+        return {}
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        rows = await Link.raw(
+            "WITH RECURSIVE reachable(id) AS ("
+            "SELECT unnest({}::uuid[]) UNION "
+            "SELECT l.from_engram_id FROM links l JOIN reachable r "
+            "ON l.to_engram_id = r.id "
+            "WHERE l.kind = 'supersedes' AND l.status = 'active') "
+            "SELECT l.to_engram_id, l.from_engram_id FROM links l "
+            "JOIN reachable r ON l.to_engram_id = r.id "
+            "WHERE l.kind = 'supersedes' AND l.status = 'active' "
+            "ORDER BY l.recorded_at DESC, l.from_engram_id",
+            [str(engram_id) for engram_id in engram_ids],
+        )
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        logging.getLogger(__name__).warning(
+            "replacement lookup keeps the original order (%s)", type(error).__name__
+        )
+        return {}
+    await savepoint.release()
+    children: dict[UUID, list[UUID]] = {}
+    parents: dict[UUID, set[UUID]] = {}
+    nodes: set[UUID] = set()
+    for row in rows:
+        old, new = row["to_engram_id"], row["from_engram_id"]
+        nodes.update((old, new))
+        targets = children.setdefault(old, [])
+        if new not in targets:
+            targets.append(new)
+        parents.setdefault(new, set()).add(old)
+    groups = _replacement_groups(children, parents, nodes)
+    branches: dict[UUID, list[UUID]] = {}
+    previous: dict[UUID, set[UUID]] = {}
+    for row in rows:
+        old, new = groups[row["to_engram_id"]], groups[row["from_engram_id"]]
+        if old == new:
+            continue
+        targets = branches.setdefault(old, [])
+        if new not in targets:
+            targets.append(new)
+        previous.setdefault(new, set()).add(old)
+    remaining = {group: len(branches.get(group, [])) for group in groups.values()}
+    ready = deque(group for group in remaining if not remaining[group])
+    ends: dict[UUID, list[UUID]] = {}
+    while ready:
+        node = ready.popleft()
+        ends[node] = (
+            list(dict.fromkeys(end for child in branches[node] for end in ends[child]))
+            if node in branches
+            else []
+            if node in children
+            else [node]
+        )
+        for parent in previous.get(node, set()):
+            remaining[parent] -= 1
+            if not remaining[parent]:
+                ready.append(parent)
+    return {
+        root: ends[groups[root]]
+        for root in engram_ids
+        if root in children and ends[groups[root]]
+    }
+
+
+def _replacement_groups(
+    children: dict[UUID, list[UUID]],
+    parents: dict[UUID, set[UUID]],
+    nodes: set[UUID],
+) -> dict[UUID, UUID]:
+    """Group mutually reachable nodes using two bounded graph passes.
+
+    The resulting graph has no circles. Iterative walks avoid a Python
+    recursion limit on long imported chains.
+
+    :param children: replacements, newest direct link first
+    :param parents: the reverse edges
+    :param nodes: every reachable engram
+    :returns: each engram's group, named by one of its members
+    """
+    seen: set[UUID] = set()
+    finished: list[UUID] = []
+    for start in nodes:
+        stack = [(start, False)]
+        while stack:
+            node, leaving = stack.pop()
+            if leaving:
+                finished.append(node)
+            elif node not in seen:
+                seen.add(node)
+                stack.append((node, True))
+                stack.extend(
+                    (child, False) for child in reversed(children.get(node, []))
+                )
+    groups: dict[UUID, UUID] = {}
+    for start in reversed(finished):
+        if start in groups:
+            continue
+        groups[start] = start
+        pending = [start]
+        while pending:
+            node = pending.pop()
+            for parent in parents.get(node, set()):
+                if parent not in groups:
+                    groups[parent] = start
+                    pending.append(parent)
+    return groups
+
+
+async def replacement_refs(
+    principal: Principal, engram_ids: list[UUID]
+) -> dict[UUID, list[dict]]:
+    """Name the replacements of a batch in this reader's own spaces.
+
+    :param principal: the reader
+    :param engram_ids: the engrams being shown
+    :returns: replaced ids and their space, path and title references
+    """
+    aliases = await alias_map(principal)
+    replaced = await replacements(engram_ids)
+    ids = {end for ends in replaced.values() for end in ends}
+    if not ids:
+        return {}
+    details = {
+        row["id"]: {
+            "space": aliases[row["space_id"]],
+            "path": row["path"],
+            "title": row["title"],
+        }
+        for row in await Engram.select(
+            Engram.id, Engram.space_id, Engram.path, Engram.title
+        ).where(Engram.id.is_in(list(ids)))
+        if row["space_id"] in aliases
+    }
+    return {
+        source: [details[end] for end in ends if end in details]
+        for source, ends in replaced.items()
+        if any(end in details for end in ends)
+    }

@@ -42,7 +42,7 @@ from reef.config import get_settings
 from reef.context import build_index, latest_editors
 from reef.db import transaction_scope
 from reef.engrams import get_engram, get_engram_as_of
-from reef.links import links_of
+from reef.links import links_of, replacement_refs
 from reef.methods import Caller, MethodError, logs, method
 from reef.models import AccessKind, Attachment, Engram, MemberRole, Membership, Space
 from reef.protocol import build_instructions
@@ -127,7 +127,7 @@ async def load_index(caller: Caller, reason: str) -> dict:
                     "members": await member_names(space_id),
                     "files": len(space["attachments"]),
                     "engrams": [
-                        _engram_line(engram, files_on[engram["path"]])
+                        _engram_line(engram, files_on[engram["path"]], space["alias"])
                         for engram in space["engrams"]
                     ],
                 }
@@ -135,7 +135,7 @@ async def load_index(caller: Caller, reason: str) -> dict:
     return {"operating_protocol": protocol, "spaces": shaped}
 
 
-def _engram_line(engram: dict, files: int) -> str:
+def _engram_line(engram: dict, files: int, space: str = "") -> str:
     """Write one engram as one line: ``path | title | description #tag``.
 
     Whitespace in the title and the description collapses to single spaces.
@@ -143,6 +143,7 @@ def _engram_line(engram: dict, files: int) -> str:
 
     :param engram: one engram of :func:`reef.context.build_index`
     :param files: how many files are attached to it
+    :param space: the source space's name, to shorten a same-space replacement
     :returns: the line, ending in `` (N files)`` when there are files
     """
     title = " ".join(engram["title"].split())
@@ -154,6 +155,14 @@ def _engram_line(engram: dict, files: int) -> str:
         line += f" #{tag}"
     if files:
         line += f" ({files} files)"
+    if engram.get("replaced_by"):
+        replacement = engram["replaced_by"][0]
+        path = (
+            replacement["path"]
+            if replacement["space"] == space
+            else f"{replacement['space']}/{replacement['path']}"
+        )
+        line += f" (replaced by {path})"
     return line
 
 
@@ -185,7 +194,10 @@ async def recall(
     Ranked by the same search the search tools use, by words and by meaning,
     and read again by the reranker for a large memory. See
     :func:`reef.search.search_engrams`. A described file is found by its
-    name and description.
+    name and description. Within the asked hits, replaced engrams rank last;
+    a missing replacement from a searched space may stand in for its old hit.
+    Replaced hits carry readable replacements in ``replaced_by``.
+    Inserted hits carry ``replaces``, naming the old hits they stand in for.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -309,6 +321,8 @@ def _passage(hit: dict, author: str | None, updated_at: str) -> dict:
         "author": author,
         "updated_at": updated_at,
         "ref": f"{space}/{hit['path']}",
+        **({"replaced_by": hit["replaced_by"]} if hit.get("replaced_by") else {}),
+        **({"replaces": hit["replaces"]} if hit.get("replaces") else {}),
     }
 
 
@@ -325,6 +339,10 @@ async def open(
     reading of files switched on, a file also comes with the text Reef read
     from it, every page marked with its number, cut at a page when it
     passes the engram size cap (``REEF_ENGRAM_MAX_CHARS``).
+
+    Current and historical engrams carry ``replaced_by`` when a replacement
+    is readable now. Historical bodies retain their original text; the note
+    points to the current end of the replacement chain.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -438,6 +456,7 @@ async def _read_engram(principal: Principal, space: str, path: str) -> dict | No
     if engram is None:
         return None
     await usage.record(principal, engram.id, AccessKind.READ)
+    replaced = await replacement_refs(principal, [engram.id])
     return {
         "kind": "engram",
         "space": space,
@@ -448,6 +467,7 @@ async def _read_engram(principal: Principal, space: str, path: str) -> dict | No
         "version": engram.version,
         "updated_at": engram.updated_at.isoformat(),
         **await links_of(principal, engram.id),
+        **({"replaced_by": replaced[engram.id]} if engram.id in replaced else {}),
     }
 
 
@@ -467,6 +487,8 @@ async def _read_past(
     state = await get_engram_as_of(principal, space, path, moment)
     if state is None:
         return None
+    current = await get_engram(principal, space, path)
+    replaced = await replacement_refs(principal, [current.id]) if current else {}
     return {
         "kind": "engram",
         "space": space,
@@ -476,6 +498,11 @@ async def _read_past(
         "body": state["body"],
         "updated_at": state["created"],
         "as_of": as_of,
+        **(
+            {"replaced_by": replaced[current.id]}
+            if current and current.id in replaced
+            else {}
+        ),
     }
 
 
@@ -585,6 +612,9 @@ async def brief(
     to :data:`BRIEF_BUDGET` characters: items fill in rank order, the one
     that would pass the budget is cut to what remains, and later ones are
     left out. A log drops its oldest entries first, a body is cut at its end.
+
+    Replaced items carry ``replaced_by`` with the readable ends of their
+    chains. A combined log names replacements of any of its returned parts.
 
     :param caller: who is calling
     :param reason: why, in the caller's words
@@ -701,6 +731,16 @@ async def _brief_item(
         if part.id not in read:
             await usage.record(principal, part.id, AccessKind.READ)
             read.add(part.id)
+    replaced = await replacement_refs(principal, [part.id for part in parts])
+    refs: list[dict] = []
+    for part in parts:
+        for ref in replaced.get(part.id, []):
+            if ref not in refs:
+                refs.append(ref)
+    if refs:
+        item["replaced_by"] = refs
+    if hit.get("replaces"):
+        item["replaces"] = hit["replaces"]
     return item
 
 

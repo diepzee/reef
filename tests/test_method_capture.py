@@ -21,6 +21,243 @@ from reef.models import Engram, Revision
 CAP = 1_000
 
 
+async def test_replaces_stages_the_whole_batch(household, monkeypatch, seed) -> None:
+    """Three engrams wait for yes, then all bodies and relations are saved."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    await save_as(me, "personal", "unchanged.md", "before")
+    items = [
+        {"path": "unchanged.md", "body": "after"},
+        {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"},
+        {"path": "third.md", "body": "third"},
+    ]
+    staged = await capture.write(me, "", "personal", items, "replace")
+    assert set(staged) == {"effect", "token", "expires_in"}
+    assert (
+        "personal/old.md" in staged["effect"] and "personal/new.md" in staged["effect"]
+    )
+    assert (await _read(me, "personal", "unchanged.md")).body == "before"
+    assert await _read(me, "personal", "new.md") is None
+    assert await _read(me, "personal", "third.md") is None
+    result = await capture.write(
+        me, "", "personal", items, "replace", confirm=staged["token"]
+    )
+    assert len(result) == 3
+    assert (await _read(me, "personal", "new.md")).body == "new"
+    assert (await _read(me, "personal", "unchanged.md")).body == "after"
+    assert (await _read(me, "personal", "third.md")).body == "third"
+    assert (
+        await seed.fetchval("SELECT kind FROM links WHERE source = 'author'")
+        == "supersedes"
+    )
+    assert isinstance(await capture.write(me, "", "personal", items, "again"), list)
+
+
+async def test_confirmed_write_retry_and_removed_link_replay(
+    household, monkeypatch
+) -> None:
+    """A retry writes normally, but a removed replacement needs a fresh yes."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    await capture.write(me, "", "personal", items, "replace", confirm=first["token"])
+    retry = await capture.write(
+        me, "", "personal", items, "retry", confirm=first["token"]
+    )
+    assert isinstance(retry, list)
+    await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "new.md", "body": "---\nreplaces:\n---\nnew"}],
+        "remove",
+    )
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", "personal", items, "replay", confirm=first["token"])
+    assert caught.value.code == "stale_token"
+
+
+async def test_confirmation_flag_means_a_token_was_taken_for_pairs(
+    household, monkeypatch
+) -> None:
+    """Arbitrary confirm text and a no-op retry confer no confirmation authority."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    real_save = capture.save_engram
+    flags: list[bool] = []
+
+    async def recording_save(*args, **kwargs):
+        """Record whether storage receives actual confirmation authority."""
+        flags.append(kwargs["replacements_confirmed"])
+        return await real_save(*args, **kwargs)
+
+    monkeypatch.setattr(capture, "save_engram", recording_save)
+    await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "plain.md", "body": "plain"}],
+        "save",
+        confirm="arbitrary text",
+    )
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    await capture.write(me, "", "personal", items, "replace", confirm=first["token"])
+    await capture.write(me, "", "personal", items, "retry", confirm=first["token"])
+    assert flags == [False, True, False]
+
+
+@pytest.mark.parametrize(
+    "case, code",
+    [
+        ("path", "invalid_path"),
+        ("meta", "protected_path"),
+        ("size", "engram_too_large"),
+        ("version", "version_conflict"),
+        ("private", "private_content"),
+    ],
+)
+async def test_first_write_checks_the_save_before_asking(
+    household, monkeypatch, case, code
+) -> None:
+    """A refusal already knowable on the first call names the affected path."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    space = "household" if case == "private" else "personal"
+    await save_as(me, space, "old.md", "old")
+    path = {"path": "../new.md", "meta": "meta/note.md"}.get(case, "new.md")
+    text = "new"
+    if case == "size":
+        monkeypatch.setattr(get_settings().engrams, "max_chars", 80)
+        text = "x" * 100
+    if case == "private":
+        text = " ".join(f"secretword{number}" for number in range(50))
+        await save_as(me, "personal", "private.md", text)
+    item = {"path": path, "body": "---\nreplaces: [[old.md]]\n---\n" + text}
+    if case == "version":
+        await save_as(me, space, path, "before")
+        item["expected_version"] = 99
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", space, [item], "replace")
+    assert caught.value.code == code
+    assert path in caught.value.message
+
+
+@pytest.mark.parametrize("change", ["source_version", "target_id"])
+async def test_confirmation_binds_source_version_and_target_id(
+    household, monkeypatch, seed, change
+) -> None:
+    """The same paths cannot conceal an edited source or a recreated target."""
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    old = await save_as(me, "personal", "old.md", "old")
+    await save_as(me, "personal", "new.md", "before")
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    first = await capture.write(me, "", "personal", items, "replace")
+    if change == "source_version":
+        await save_as(me, "personal", "new.md", "changed")
+    else:
+        await seed.execute("DELETE FROM engrams WHERE id = $1", old.id)
+        await save_as(me, "personal", "old.md", "another engram")
+    with pytest.raises(MethodError) as caught:
+        await capture.write(
+            me, "", "personal", items, "replace", confirm=first["token"]
+        )
+    assert caught.value.code == "stale_token"
+
+
+@pytest.mark.parametrize("mismatch", ["pairs", "source", "person", "action"])
+async def test_replaces_token_is_bound_to_this_call(
+    household, monkeypatch, mismatch
+) -> None:
+    """Another pair, source, person or action cannot reuse the token."""
+    from reef.methods import staged
+
+    monkeypatch.setattr(get_settings().web, "session_secret", "x" * 32)
+    me = caller_for(household["wouter"])
+    for path in ("old.md", "other.md"):
+        await save_as(me, "household", path, path)
+    items = [{"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}]
+    result = await capture.write(me, "", "household", items, "replace")
+    token = result["token"]
+    if mismatch == "pairs":
+        items[0]["body"] = items[0]["body"].replace("old.md", "other.md")
+    elif mismatch == "source":
+        items[0]["path"] = "elsewhere.md"
+    elif mismatch == "person":
+        me = caller_for(household["partner"])
+    else:
+        token = staged.stage(me, "forget", {})["token"]
+    with pytest.raises(MethodError) as caught:
+        await capture.write(me, "", "household", items, "replace", confirm=token)
+    assert caught.value.code == "stale_token"
+    assert await _read(me, "household", items[0]["path"]) is None
+
+
+@pytest.mark.parametrize("key", ["about", "contradicts", "part_of", "replaces"])
+async def test_other_relations_and_removal_do_not_stage(household, key) -> None:
+    """Only adding replaces asks for confirmation."""
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "old")
+    value = "" if key == "replaces" else "[[old.md]]"
+    result = await capture.write(
+        me,
+        "",
+        "personal",
+        [{"path": "new.md", "body": f"---\n{key}: {value}\n---\nnew"}],
+        "link",
+    )
+    assert isinstance(result, list)
+
+
+@pytest.mark.parametrize("operation", ["correct", "remember", "log", "undo"])
+async def test_passage_changes_do_not_read_relation_blocks(
+    household, seed, operation
+) -> None:
+    """Legacy relation blocks cannot be stored again by passage tools."""
+    from reef.methods import maintain
+
+    me = caller_for(household["wouter"])
+    block = "---\nreplaces: [[old.md]]\n---\n"
+    await save_as(me, "personal", "old.md", "old")
+    path = "inbox.md" if operation == "remember" else "notes.md"
+    body = block + "# Notes\n\nOriginal."
+    existing = await save_as(
+        me,
+        "personal",
+        path,
+        "# Notes\n\nOriginal.",
+        tags=["log"] if operation == "log" else [],
+    )
+    await seed.execute("UPDATE engrams SET body = $1 WHERE id = $2", body, existing.id)
+    await seed.execute(
+        "UPDATE revisions SET body = $1 WHERE engram_id = $2", body, existing.id
+    )
+    if operation == "undo":
+        await save_as(me, "personal", path, "later")
+    with pytest.raises(MethodError) as caught:
+        if operation == "correct":
+            await maintain.correct(
+                me, "", "personal", path, "Original.", "Changed.", "fix"
+            )
+        elif operation == "remember":
+            await capture.remember(me, "", "New fact.")
+        elif operation == "log":
+            await capture.log(me, "", "personal", path, "Today", "New entry.")
+        else:
+            await maintain.undo(me, "", "personal", path)
+    assert caught.value.code == "relation_block_in_body"
+    assert "rewrite" in caught.value.message.lower()
+    assert "write" in caught.value.message
+    assert (
+        await seed.fetchval("SELECT count(*) FROM links WHERE kind = 'supersedes'") == 0
+    )
+
+
 async def _read(caller: Caller, space: str, path: str) -> Engram | None:
     """Read an engram as it is committed now.
 

@@ -369,6 +369,9 @@ def _build_tool_parsers(sub: argparse._SubParsersAction) -> None:
     write.add_argument("space")
     write.add_argument("engrams", help="JSON array, @file, or '-' for stdin")
     write.add_argument("--message", required=True)
+    write.add_argument(
+        "--confirm", help="token from the first call, after the person's yes"
+    )
     store = tool(
         "store_file",
         "keep a document or an image with a description; Reef reads the text "
@@ -468,7 +471,12 @@ def _arguments(args: argparse.Namespace) -> dict[str, Any]:
         engrams = _json_source(args.engrams)
         if not isinstance(engrams, list):
             raise CLIError("write input must be a JSON array")
-        return {"space": args.space, "engrams": engrams, "message": args.message}
+        return {
+            "space": args.space,
+            "engrams": engrams,
+            "message": args.message,
+            **({"confirm": args.confirm} if args.confirm is not None else {}),
+        }
     if tool == "store_file":
         return _file_arguments(args)
     if tool == "correct":

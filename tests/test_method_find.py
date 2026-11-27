@@ -25,6 +25,87 @@ CAR = "The car is a blue estate, insured with Ethias for 45 euro a month. "
 HOUSE = "The house policy covers fire and storm damage, renewed every March. "
 
 
+@pytest.mark.parametrize("visible", [True, False])
+async def test_replacement_notes_in_recall_open_and_index(household, visible) -> None:
+    """All three surfaces describe only replacements readable by this person."""
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    writer = caller_for(household["wouter"])
+    reader = writer if visible else caller_for(household["partner"])
+    await save_as(writer, "household", "old.md", "contract", title="Old contract")
+    await save_as(
+        writer,
+        "personal",
+        "new.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("household:old.md",)}),
+    )
+    opened = (await find.open(reader, "", ["household/old.md"]))[0]
+    recalled = (await find.recall(reader, "", "contract", space="household"))[0]
+    index = await find.load_index(reader, "")
+    lines = next(
+        space["engrams"] for space in index["spaces"] if space["alias"] == "household"
+    )
+    line = next(line for line in lines if line.startswith("old.md |"))
+    if visible:
+        expected = [{"space": "personal", "path": "new.md", "title": "new"}]
+        assert opened["replaced_by"] == expected
+        assert recalled["replaced_by"] == expected
+        assert line.endswith(" (replaced by personal/new.md)")
+    else:
+        assert "replaced_by" not in opened
+        assert "replaced_by" not in recalled
+        assert "replaced by" not in line
+
+
+async def test_index_uses_bare_path_for_same_space_replacement(household) -> None:
+    """The short index note needs no repeated space name."""
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    me = caller_for(household["wouter"])
+    await save_as(me, "personal", "old.md", "contract")
+    await save_as(
+        me,
+        "personal",
+        "new.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("old.md",)}),
+    )
+    index = await find.load_index(me, "")
+    lines = next(
+        space["engrams"] for space in index["spaces"] if space["alias"] == "personal"
+    )
+    assert next(line for line in lines if line.startswith("old.md |")).endswith(
+        " (replaced by new.md)"
+    )
+
+
+async def test_historical_open_still_names_current_replacement(household) -> None:
+    """Reading an old revision does not lose today's out-of-date warning."""
+    from reef.models import LinkKind
+    from reef.relations import Relations
+
+    me = caller_for(household["wouter"])
+    old = await save_as(me, "personal", "old.md", "contract")
+    await save_as(
+        me,
+        "personal",
+        "new.md",
+        "renewal",
+        channel="person",
+        relations=Relations({LinkKind.SUPERSEDES: ("old.md",)}),
+    )
+    [opened] = await find.open(
+        me, "", ["personal/old.md"], as_of=old.updated_at.isoformat()
+    )
+    assert opened["body"] == "contract"
+    assert opened["replaced_by"][0]["path"] == "new.md"
+
+
 @pytest.fixture
 def store(monkeypatch) -> Store:
     """Stand in for the object store wherever ``open`` builds one."""

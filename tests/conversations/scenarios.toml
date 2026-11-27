@@ -14,7 +14,8 @@
 # review = true makes a right answer a review, for a person to read.
 # answer_must_not is a list of regular expressions the answer must not match.
 # After checks: ref, contains (same shape as facts), absent (a list of texts
-# that must be gone, or true when the whole engram must be gone).
+# that must be gone, or true when the whole engram must be gone), replaced_by
+# (refs that must be named as replacements on the old engram).
 
 # --- reads ---------------------------------------------------------------------
 
@@ -305,6 +306,28 @@ tools_required = ["load_index", "forget"]
 [[scenario.after]]
 ref = "personal/notes/gift-ideas.md"
 absent = true
+
+[[scenario]]
+id = "replace-contract"
+kind = "write"
+messages = [
+  "Het contract met Archiefhaven voor 2027 vervangt dat van 2026. Leg dat vast bij het nieuwe contract.",
+  "Ja, doe maar.",
+  "Binnen hoeveel uur moet Archiefhaven reageren op een storing?",
+]
+tools_required = ["load_index", "write"]
+facts = [["12 uur", "twaalf uur"]]
+answer_must_not = ['\b48\b', 'achtenveertig']
+
+[[scenario.after]]
+ref = "personal/work/contract-2026.md"
+contains = ["48 uur"]
+replaced_by = ["personal/work/contract-2027.md"]
+
+[[scenario.after]]
+ref = "personal/work/contract-2027.md"
+contains = ["12 uur"]
+absent = ["replaces:"]
 
 [[scenario]]
 id = "forget-declined"

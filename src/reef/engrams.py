@@ -16,8 +16,17 @@ from reef.access import AccessDenied, Principal, resolve_space, resolve_writable
 from reef.config import get_settings
 from reef.indexfields import index_fields
 from reef.leakguard import overlaps
-from reef.links import Resolver, connect_waiting_links, sync_wiki_links
+from reef.links import (
+    RelationRefused,
+    Resolver,
+    connect_waiting_links,
+    lock_typed_links,
+    pending_replacements,
+    sync_typed_links,
+    sync_wiki_links,
+)
 from reef.models import AccessKind, Attachment, Engram, Revision, Space, SpaceKind
+from reef.relations import Relations, refuse_stored_block
 
 PROTECTED_PREFIX = "meta/"
 
@@ -266,6 +275,50 @@ async def get_engram_as_of(
     }
 
 
+async def validate_save(
+    principal: Principal,
+    alias: str,
+    space: Space,
+    path: str,
+    body: str,
+    existing: Engram | None,
+    *,
+    expected_version: int | None = None,
+    allow_protected: bool = False,
+    allow_private_copy: bool = False,
+) -> None:
+    """Check a resolved, locked save before writing or asking for confirmation.
+
+    :param principal: the writer
+    :param alias: the writer's name for the destination space
+    :param space: the resolved writable space
+    :param path: the existing or normalized path
+    :param body: the body that would be stored
+    :param existing: the current engram, locked by the caller, or None
+    :param expected_version: the requested version, or None to allow any
+    :param allow_protected: allow a dedicated tool to change meta/
+    :param allow_private_copy: the share ceremony already disclosed the text
+    :raises EngramTooLarge: when the body exceeds the limit
+    :raises ProtectedPath: when the caller cannot write under meta/
+    :raises PrivateContentLeak: when the write copies private text
+    :raises VersionConflict: when the current version differs
+    :raises reef.relations.InvalidRelations: ``relation_block_in_body`` when
+        the body could be read as a leading relation block
+    """
+    validate_body(path, body)
+    refuse_stored_block(body)
+    _refuse_protected(path, allow_protected)
+    if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
+        await _refuse_private_copy(principal, alias, path, body, existing)
+    if existing is None:
+        if expected_version not in (None, 0):
+            raise VersionConflict(f"{path!r} does not exist yet")
+    elif expected_version is not None and existing.version != expected_version:
+        raise VersionConflict(
+            f"{path!r} is at version {existing.version}, expected {expected_version}"
+        )
+
+
 async def save_engram(
     principal: Principal,
     alias: str,
@@ -280,6 +333,8 @@ async def save_engram(
     allow_private_copy: bool = False,
     via: AccessKind | None = AccessKind.WRITE,
     channel: str = "assistant",
+    relations: Relations | None = None,
+    replacements_confirmed: bool = False,
 ) -> Engram:
     """Create or overwrite an engram: snapshot a revision, bump engram and space versions.
 
@@ -300,16 +355,29 @@ async def save_engram(
         the engram
     :param channel: who made the change, kept on the revision: ``assistant``
         for a call over MCP, ``person`` for the website
+    :param relations: relations already read by write or the web save route
+    :param replacements_confirmed: the caller checked the person's yes
     :raises PrivateContentLeak: for personal text written into a space
     :raises ProtectedPath: for meta/ paths without allow_protected
     :raises InvalidPath: when a new engram's path cannot be normalized
     :raises EngramTooLarge: for a body over the per-engram ceiling
     :raises VersionConflict: when expected_version is stale
+    :raises reef.relations.InvalidRelations: ``relation_block_in_body`` for
+        a stored relation block, ``relation_invalid`` for an unknown kind,
+        or ``relation_too_many`` for more than twenty targets of a kind
+    :raises RelationRefused: ``relation_target_missing``,
+        ``relation_into_personal``, ``relation_to_itself``,
+        ``relation_needs_write``, ``relation_circle`` or
+        ``relation_needs_confirmation`` when a typed link cannot be saved
     :returns: the saved engram
     """
     validate_body(path, body)
+    refuse_stored_block(body)
+    relations = relations or Relations({})
     _refuse_protected(path, allow_protected)
     space = await resolve_writable_space(principal, alias)
+    if not relations.empty:
+        await lock_typed_links()
     # An existing engram is addressed by exactly the name it already carries.
     # reef stored arbitrary paths before normalize_path existed, and
     # normalizing unconditionally would not *rename* such an engram -- it would
@@ -331,12 +399,23 @@ async def save_engram(
             .lock_rows()
             .first()
         )
-    if not allow_private_copy and space.kind == SpaceKind.SHARED.value:
-        await _refuse_private_copy(principal, alias, path, body, engram)
+    await validate_save(
+        principal,
+        alias,
+        space,
+        path,
+        body,
+        engram,
+        expected_version=expected_version,
+        allow_protected=allow_protected,
+        allow_private_copy=allow_private_copy,
+    )
+    if not relations.empty and channel != "person" and not replacements_confirmed:
+        resolver = await Resolver.for_person(principal)
+        if await pending_replacements(resolver, space.id, path, relations):
+            raise RelationRefused("relation_needs_confirmation", path)
     created = False
     if engram is None:
-        if expected_version not in (None, 0):
-            raise VersionConflict(f"{path!r} does not exist yet")
         now = _now()
         engram = Engram(
             space_id=space.id,
@@ -354,10 +433,6 @@ async def save_engram(
         await engram.save()
         created = True
     else:
-        if expected_version is not None and engram.version != expected_version:
-            raise VersionConflict(
-                f"{path!r} is at version {engram.version}, expected {expected_version}"
-            )
         engram.body = body
         engram.updated_at = _now()
         engram.version += 1
@@ -387,6 +462,8 @@ async def save_engram(
     # ones reads the targets it now stores.
     resolver = await Resolver.for_person(principal)
     await sync_wiki_links(resolver, engram.id, space.id, engram.reference_targets)
+    if not relations.empty:
+        await sync_typed_links(resolver, engram.id, space.id, relations)
     if created:
         await connect_waiting_links(resolver, engram.id, space.id, engram.path)
     if via is not None:

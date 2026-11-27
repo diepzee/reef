@@ -39,6 +39,7 @@ from reef.engrams import (
     delete_engram,
     get_engram,
     save_engram,
+    validate_body,
 )
 from reef.export import build_full_dump, build_json_export, build_markdown_archive
 from reef.identity import person_by_email, person_session_epoch
@@ -49,7 +50,10 @@ from reef.invitations import (
     invite_to_reef,
     invites_left,
 )
+from reef.links import RelationRefused
+from reef.methods import MESSAGES
 from reef.models import AccessKind, Engram, Person
+from reef.relations import InvalidRelations, take_block
 from reef.releasenotes import feed_as_json, is_unread, load_feed
 from reef.spaces import (
     SpaceError,
@@ -232,6 +236,13 @@ def api(handler: Callable) -> Callable:
             )
         except AccessDenied:
             return JSONResponse({"error": "not_found"}, status_code=404)
+        except (RelationRefused, InvalidRelations) as error:
+            detail = MESSAGES[error.code]
+            if isinstance(error, RelationRefused):
+                detail = f"{error.target}: {detail}"
+            return JSONResponse(
+                {"error": error.code, "detail": detail}, status_code=400
+            )
         except VersionConflict:
             return JSONResponse({"error": "version_conflict"}, status_code=409)
         except ProtectedPath:
@@ -562,6 +573,8 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
     title = _optional_str(payload, "title")
     tags = _optional_tags(payload)
     expected_version = _optional_int(payload, "expected_version")
+    validate_body(path, body)
+    body, relations = take_block(body)
     engram = await save_engram(
         principal,
         space,
@@ -572,6 +585,7 @@ async def _put_engram(request: Request, principal: Principal) -> dict:
         tags=tags,
         expected_version=expected_version,
         channel="person",
+        relations=relations,
     )
     return await _engram_payload(space, engram)
 

@@ -14,6 +14,38 @@ from reef.models import Revision
 CSRF = {"X-Rif-Csrf": "1"}
 
 
+async def test_web_relations_write_at_once_and_refuse_missing_targets(
+    api, world, seed
+) -> None:
+    """A person's written replaces block needs no separate confirmation."""
+    alice, _, _ = world
+    _login(api, alice)
+    await api.put(
+        "/api/engrams/team/old.md",
+        json={"body": "old", "message": "save"},
+        headers=CSRF,
+    )
+    response = await api.put(
+        "/api/engrams/team/new.md",
+        json={"body": "---\nreplaces: [[old.md]]\n---\nnew", "message": "save"},
+        headers=CSRF,
+    )
+    assert response.status_code == 200
+    assert response.json()["body"] == "new"
+    assert (
+        await seed.fetchval("SELECT kind FROM links WHERE source = 'author'")
+        == "supersedes"
+    )
+    response = await api.put(
+        "/api/engrams/team/new.md",
+        json={"body": "---\nabout: [[missing.md]]\n---\nnew", "message": "save"},
+        headers=CSRF,
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "relation_target_missing"
+    assert "missing.md" in response.json()["detail"]
+
+
 async def test_web_saves_record_a_person_on_each_revision(api, world):
     """Creating and editing through the web API both record a person."""
     alice, _, _ = world

@@ -37,12 +37,16 @@ from reef.engrams import (
     get_engram,
     normalize_path,
     save_engram,
+    validate_body,
+    validate_save,
 )
 from reef.limits import FILENAME_CHARS, MAX_BATCH, MIME_CHARS
-from reef.methods import MESSAGES, Caller, MethodError, logs, method
+from reef.links import Resolver, lock_typed_links, pending_replacements
+from reef.methods import MESSAGES, Caller, MethodError, logs, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
 from reef.models import AccessKind, Engram
+from reef.relations import Relations, refuse_stored_block, take_block
 from reef.sections import HEADING_CHARS
 
 #: The engram :func:`remember` adds facts to, in each space.
@@ -63,6 +67,8 @@ async def _save(
     tags: list[str] | None = None,
     expected_version: int | None = None,
     via: AccessKind | None = AccessKind.WRITE,
+    relations: Relations | None = None,
+    replacements_confirmed: bool = False,
 ) -> Engram:
     """Save an engram as the caller, recording who wrote it.
 
@@ -77,6 +83,8 @@ async def _save(
     :param expected_version: the version it must be at, 0 for one that
         must not exist yet; any when None
     :param via: how to record the write in the usage log, or None
+    :param relations: relations read by write; other capture calls preserve text
+    :param replacements_confirmed: the caller checked the person's yes
     :returns: the saved engram
     :raises MethodError: when the write is refused
     """
@@ -92,6 +100,8 @@ async def _save(
             expected_version=expected_version,
             via=via,
             channel=caller.writer,
+            relations=relations,
+            replacements_confirmed=replacements_confirmed,
         )
 
 
@@ -643,8 +653,13 @@ def _names_the_persona(path: str) -> bool:
 
 @method("write")
 async def write(
-    caller: Caller, reason: str, space: str, engrams: list[dict], message: str
-) -> list[dict]:
+    caller: Caller,
+    reason: str,
+    space: str,
+    engrams: list[dict],
+    message: str,
+    confirm: str | None = None,
+) -> list[dict] | dict:
     """Create or replace whole engrams, several at once, all or nothing.
 
     At most :data:`MAX_BATCH` engrams, each ``{path, body, title?, tags?,
@@ -653,21 +668,122 @@ async def write(
     If any engram is refused, none is written. The persona is refused: it
     changes only through ``instruct``.
 
+    Only this tool reads relation blocks. Adding a replacement first returns
+    its effect and a token without writing. After the person's yes, repeat
+    the call with that token; it names the target ids and source versions.
+    Other relations and removal write at once. A retry with no new replacement
+    writes normally. Every save check runs before confirmation is requested.
+
     :param caller: who is calling
     :param reason: why, in the caller's words
     :param space: the caller's name for the space
     :param engrams: the engrams to write
     :param message: why they change, for each engram without its own message
-    :returns: one ``{engram, version}`` per engram written, in order
+    :param confirm: the token from the first call, after the person's yes
+    :returns: one ``{engram, version}`` per engram written, or the effect,
+        token and expiry when confirmation is needed
     :raises MethodError: ``use_instruct`` for the persona, ``empty_batch``,
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
         ``read_only``, ``version_conflict``, ``protected_path``,
-        ``invalid_path``, ``engram_too_large`` or ``private_content``
+        ``invalid_path``, ``engram_too_large``, ``private_content``,
+        ``stale_token``, ``relation_invalid``, ``relation_block_in_body``,
+        ``relation_too_many``, ``relation_target_missing``,
+        ``relation_into_personal``, ``relation_to_itself``,
+        ``relation_needs_write``, ``relation_circle`` or
+        ``relation_needs_confirmation``
     """
     _check_batch(engrams)
     try:
         with refusals():
             async with transaction_scope():
+                resolved = await resolve_writable_space(caller.principal, space)
+                resolver = await Resolver.for_person(caller.principal)
+                parsed: list[tuple[dict, str, Relations]] = []
+                for item in engrams:
+                    with refusals(item["path"]):
+                        validate_body(item["path"], item["body"])
+                        parsed.append((item, *take_block(item["body"])))
+                if any(not relations.empty for _, _, relations in parsed):
+                    await lock_typed_links()
+                prepared: list[tuple[dict, Relations]] = []
+                pairs: list[list[str]] = []
+                identities: list[list[str]] = []
+                sources: list[dict] = []
+                for item, body, relations in parsed:
+                    refuse_stored_block(body)
+                    existing = (
+                        await Engram.objects()
+                        .where(
+                            Engram.space_id == resolved.id, Engram.path == item["path"]
+                        )
+                        .lock_rows()
+                        .first()
+                    )
+                    with refusals(item["path"]):
+                        path = (
+                            existing.path if existing else normalize_path(item["path"])
+                        )
+                    if existing is None:
+                        existing = await (
+                            Engram.objects()
+                            .where(Engram.space_id == resolved.id, Engram.path == path)
+                            .lock_rows()
+                            .first()
+                        )
+                    with refusals(item["path"]):
+                        await validate_save(
+                            caller.principal,
+                            space,
+                            resolved,
+                            path,
+                            body,
+                            existing,
+                            expected_version=item.get("expected_version"),
+                        )
+                    sources.append(
+                        {
+                            "path": path,
+                            "id": str(existing.id) if existing else "new",
+                            "version": existing.version if existing else 0,
+                        }
+                    )
+                    targets = await pending_replacements(
+                        resolver, resolved.id, path, relations
+                    )
+                    pairs.extend(
+                        [
+                            [f"{alias}/{target}", f"{space}/{path}"]
+                            for alias, target in targets
+                        ]
+                    )
+                    for alias, target in targets:
+                        row = (
+                            await Engram.select(Engram.id)
+                            .where(
+                                Engram.space_id == resolver.space_by_alias[alias],
+                                Engram.path == target,
+                            )
+                            .first()
+                        )
+                        identities.append([str(row["id"]), path])
+                    prepared.append(({**item, "body": body}, relations))
+                subject = {
+                    "pairs": sorted(identities),
+                    "space": str(resolved.id),
+                    "engrams": sorted(sources, key=lambda source: source["path"]),
+                }
+                replacements_confirmed = False
+                if pairs and confirm is not None:
+                    if await staged.take(caller, "write", confirm) != subject:
+                        raise MethodError("stale_token")
+                    replacements_confirmed = True
+                elif pairs:
+                    effect = " ".join(
+                        f"This marks {old} as replaced by {new}."
+                        for old, new in sorted(pairs)
+                    )
+                    effect += " The old engrams stay readable and rank lower in search."
+                    return {"effect": effect, **staged.stage(caller, "write", subject)}
                 saved = [
                     await _save(
                         caller,
@@ -678,8 +794,10 @@ async def write(
                         title=item.get("title"),
                         tags=item.get("tags"),
                         expected_version=item.get("expected_version"),
+                        relations=relations,
+                        replacements_confirmed=replacements_confirmed,
                     )
-                    for item in engrams
+                    for item, relations in prepared
                 ]
     except MethodError as refused:
         raise MethodError(

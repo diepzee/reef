@@ -150,7 +150,8 @@ shared space, its members have read it or may have. Share only through `share`, 
 
 ## Show the effect, then wait for a yes
 
-Three tools act in two steps: `share`, `forget` and `instruct`.
+Four tools act in two steps: `share`, `forget`, `instruct` and `write`.
+`write` asks twice only when adding a replacement.
 
 1. Call the tool. It changes nothing yet. It returns the effect and a token.
 2. Show the person the effect in plain words: the exact text, who will see it,
@@ -203,6 +204,33 @@ were universal.
 
 If you follow a link and the engram says it moved, go where it points and fix
 the link you came from.
+
+To say how engrams relate, start the body with a block between `---` lines.
+Only `write` reads a relation block among the tools. Other tools refuse a
+leading block that holds relation lines. The web editor also reads a block
+when the person saves it.
+Use `replaces`, `contradicts`, `about` or `part_of`, followed by wiki links:
+
+```markdown
+---
+replaces: [[contract-2026.md]]
+about: [[family:house.md]]
+---
+# Contract 2027
+```
+
+Use commas for several links, or a list with one link per line. Each key may
+name at most 20 engrams that already exist. A key left out keeps its links;
+an empty key removes them. Reef stores the links apart from the body.
+
+Adding `replaces` through `write` takes two calls and the person's yes.
+Show the first call's effect and ask. After they agree, repeat the same
+engrams with the token as `confirm`. Nothing in the batch is written before
+that. The person must be able to change the old engram's space too.
+
+A replaced engram is out of date. Answer from its replacement. Add new facts
+there. The old engram stays readable and ranks lower in search;
+`replaced_by` names its replacements.
 
 ## Spaces and people are managed on the website
 

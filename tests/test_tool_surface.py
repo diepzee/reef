@@ -59,6 +59,14 @@ SIXTEEN = {
 #: The two tools whose schemas the connector contract fixes: no reason.
 CONNECTOR = {"search", "fetch"}
 
+
+async def test_write_has_optional_confirmation() -> None:
+    """The tool can return the person's confirmation token on a second call."""
+    tool = next(tool for tool in await mcp.list_tools() if tool.name == "write")
+    assert "confirm" in tool.parameters["properties"]
+    assert "confirm" not in tool.parameters.get("required", [])
+
+
 #: Tools that change nothing, so a client may run them without asking.
 READ_ONLY = {"load_index", "recall", "brief", "open", "catch_up", "search", "fetch"}
 
