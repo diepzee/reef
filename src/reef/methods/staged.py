@@ -65,8 +65,25 @@ def _secret() -> str:
     return hmac.new(secret.encode(), _PURPOSE, sha256).hexdigest()
 
 
+def next_step(confirm_argument: str) -> str:
+    """Tell the assistant how to confirm after the person says yes.
+
+    :param confirm_argument: the argument that takes the token
+    :returns: the next step for the same call
+    """
+    return (
+        "Ask the person first. After a yes, send this same call again with every "
+        f"argument unchanged, and add `{confirm_argument}` with this token."
+    )
+
+
 def stage(
-    caller: Caller, action: str, subject: dict, *, now: float | None = None
+    caller: Caller,
+    action: str,
+    subject: dict,
+    *,
+    confirm_argument: str = "confirm",
+    now: float | None = None,
 ) -> dict:
     """Issue a token for an action the caller will confirm.
 
@@ -74,8 +91,9 @@ def stage(
     :param action: the action, such as ``forget``; only it can take the token
     :param subject: what the action is about, such as the space and engram;
         JSON-serialisable and readable by whoever holds the token
+    :param confirm_argument: the argument that takes the token on the next call
     :param now: clock override for tests; defaults to wall time
-    :returns: ``{"token", "expires_in"}``, the lifetime in seconds
+    :returns: ``token``, ``expires_in`` in seconds, and ``next``, how to confirm
     :raises MethodError: ``not_configured``, when the secret is too short
     """
     issued = time.time() if now is None else now
@@ -86,7 +104,11 @@ def stage(
         "iat": issued,
     }
     token = seal(doc, secret=_secret(), ttl_seconds=TOKEN_TTL_SECONDS, now=issued)
-    return {"token": token, "expires_in": TOKEN_TTL_SECONDS}
+    return {
+        "token": token,
+        "expires_in": TOKEN_TTL_SECONDS,
+        "next": next_step(confirm_argument),
+    }
 
 
 async def _reset_epoch(caller: Caller) -> float | None:

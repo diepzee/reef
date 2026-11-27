@@ -683,7 +683,7 @@ async def write(
     :param message: why they change, for each engram without its own message
     :param confirm: the token from the first call, after the person's yes
     :returns: one ``{engram, version}`` per engram written, or the effect,
-        token and expiry when confirmation is needed
+        token, expiry and ``next``, how to confirm, when confirmation is needed
     :raises MethodError: ``use_instruct`` for the persona, ``empty_batch``,
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
         ``read_only``, ``version_conflict``, ``protected_path``,
