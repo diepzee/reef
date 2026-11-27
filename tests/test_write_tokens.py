@@ -85,7 +85,7 @@ async def test_consume_waits_for_the_first_transaction(
     finally:
         release.set()
         results = await asyncio.gather(a, b)
-    assert results[1] == ("consumed" if rollback else "stale_token")
+    assert results[1] == ("consumed" if rollback else "used_token")
     assert await seed.fetchval("SELECT count(*) FROM used_write_tokens") == 1
 
 
@@ -108,7 +108,10 @@ async def test_deleted_source_cannot_reuse_a_yes(household, seed, body, padded) 
         token = payload + "====." + signature
     with pytest.raises(MethodError) as caught:
         await capture.write(me, "", "personal", [replacement(body)], "save", token)
-    assert caught.value.code == "stale_token"
+    assert caught.value.code == ("stale_token" if padded else "used_token")
+    if not padded:
+        assert caught.value.message.startswith("This confirmation was already used.")
+        assert "Ask the person again" in caught.value.message
     assert (
         await seed.fetchval("SELECT count(*) FROM engrams WHERE path = 'new.md'") == 0
     )

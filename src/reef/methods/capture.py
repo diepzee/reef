@@ -686,7 +686,7 @@ async def write(
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
         ``read_only``, ``version_conflict``, ``protected_path``,
         ``invalid_path``, ``engram_too_large``, ``private_content``,
-        ``stale_token``, ``relation_invalid``, ``relation_block_in_body``,
+        ``stale_token``, ``used_token``, ``relation_invalid``, ``relation_block_in_body``,
         ``relation_too_many``, ``relation_target_missing``,
         ``relation_into_personal``, ``relation_to_itself``,
         ``relation_needs_write``, ``relation_circle`` or

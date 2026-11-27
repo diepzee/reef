@@ -19,7 +19,8 @@ async def consume(caller: Caller, token: str) -> None:
 
     :param caller: the person whose token has been checked
     :param token: the checked token from the first call
-    :raises MethodError: ``stale_token`` when used or spelled differently
+    :raises MethodError: ``used_token`` when used; ``stale_token`` when
+        spelled differently
     """
     payload = token.rpartition(".")[0]
     canonical = (
@@ -41,7 +42,7 @@ async def consume(caller: Caller, token: str) -> None:
         sha256(token.encode()).hexdigest(),
     )
     if not inserted:
-        raise MethodError("stale_token")
+        raise MethodError("used_token")
 
 
 async def purge() -> None:
