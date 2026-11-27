@@ -1,5 +1,8 @@
 """A yes for a replacement authorizes one committed write."""
 
+from hashlib import sha256
+
+import asyncpg
 import pytest
 from conftest import caller_for, save_as
 
@@ -7,6 +10,7 @@ from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.engrams import delete_engram, get_engram
 from reef.methods import MethodError, capture
+from reef.models import UsedWriteToken
 
 
 @pytest.fixture(autouse=True)
@@ -24,8 +28,9 @@ def replacement(body: str = "new") -> dict:
     return {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\n" + body}
 
 
+@pytest.mark.parametrize("padded", [False, True])
 @pytest.mark.parametrize("body", ["new", "a different engram at the same path"])
-async def test_deleted_source_cannot_reuse_a_yes(household, seed, body) -> None:
+async def test_deleted_source_cannot_reuse_a_yes(household, seed, body, padded) -> None:
     """Deleting the source cannot make its used token valid again."""
     me = caller_for(household["wouter"])
     await save_as(me, "personal", "old.md", "old")
@@ -36,10 +41,12 @@ async def test_deleted_source_cannot_reuse_a_yes(household, seed, body) -> None:
     await capture.write(me, "", "personal", [replacement()], "save", staged["token"])
     async with transaction_scope():
         await delete_engram(me.principal, "personal", "new.md")
+    token = staged["token"]
+    if padded:
+        payload, _, signature = token.rpartition(".")
+        token = payload + "====." + signature
     with pytest.raises(MethodError) as caught:
-        await capture.write(
-            me, "", "personal", [replacement(body)], "save", staged["token"]
-        )
+        await capture.write(me, "", "personal", [replacement(body)], "save", token)
     assert caught.value.code == "stale_token"
     assert (
         await seed.fetchval("SELECT count(*) FROM engrams WHERE path = 'new.md'") == 0
@@ -66,6 +73,8 @@ async def test_failure_after_take_rolls_back_the_yes(
     async def fail_second(*args, **kwargs):
         """Force a version conflict after the first engram has been saved."""
         if args[2] == "other.md":
+            assert await get_engram(me.principal, "personal", "new.md") is not None
+            assert await UsedWriteToken.count() == 1
             assert (
                 await seed.fetchval(
                     "SELECT count(*) FROM engrams WHERE path = 'new.md'"
@@ -80,6 +89,7 @@ async def test_failure_after_take_rolls_back_the_yes(
         with pytest.raises(MethodError) as caught:
             await capture.write(me, "", "personal", batch, "save", staged["token"])
     assert caught.value.code == "version_conflict"
+    assert await seed.fetchval("SELECT count(*) FROM used_write_tokens") == 0
     async with transaction_scope():
         assert await get_engram(me.principal, "personal", "new.md") is None
         assert (
@@ -113,4 +123,52 @@ async def test_another_person_cannot_consume_the_yes(household) -> None:
     assert caught.value.code == "stale_token"
     assert await capture.write(
         me, "", "household", [replacement()], "save", staged["token"]
+    )
+
+
+async def test_token_rows_are_private_and_cascade(household, probe, seed) -> None:
+    """Used digests stay private, immutable and tied to the account."""
+    me = caller_for(household["wouter"])
+    other = household["partner"]
+    await save_as(me, "personal", "old.md", "old")
+    staged = await capture.write(me, "", "personal", [replacement()], "save")
+    await capture.write(me, "", "personal", [replacement()], "save", staged["token"])
+    digest = sha256(staged["token"].encode()).hexdigest()
+    async with probe.transaction():
+        await probe.execute(
+            "SELECT set_config('app.person_id', $1, true)", str(other.id)
+        )
+        assert await probe.fetch("SELECT * FROM used_write_tokens") == []
+        # A digest for another person must not reveal a uniqueness conflict.
+        await probe.execute(
+            "INSERT INTO used_write_tokens (id, person_id, token_digest) VALUES (gen_random_uuid(), $1, $2)",
+            other.id,
+            digest,
+        )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with probe.transaction():
+                await probe.execute(
+                    "INSERT INTO used_write_tokens (id, person_id, token_digest) VALUES (gen_random_uuid(), $1, $2)",
+                    me.principal.person_id,
+                    "a" * 64,
+                )
+        await probe.execute(
+            "SELECT set_config('app.person_id', $1, true)", str(me.principal.person_id)
+        )
+        rows = await probe.fetch("SELECT * FROM used_write_tokens")
+        assert len(rows) == 1 and rows[0]["token_digest"] == digest
+        assert staged["token"] not in str(rows)
+        for sql in (
+            "DELETE FROM used_write_tokens",
+            "UPDATE used_write_tokens SET token_digest = 'changed'",
+        ):
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                async with probe.transaction():
+                    await probe.execute(sql)
+    await seed.execute("DELETE FROM persons WHERE id = $1", other.id)
+    assert (
+        await seed.fetchval(
+            "SELECT count(*) FROM used_write_tokens WHERE person_id = $1", other.id
+        )
+        == 0
     )

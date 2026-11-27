@@ -676,6 +676,19 @@ class TestAccount(Table, tablename="test_accounts", db=DB):
     reset_at = Timestamptz(null=True, default=None)
 
 
+class UsedWriteToken(Table, tablename="used_write_tokens", db=DB):
+    """A committed replacement confirmation, kept for one day.
+
+    Only the SHA-256 digest is stored. The person and digest are unique
+    together, so uniqueness checks cannot disclose another person's use.
+    """
+
+    id = UUID(primary_key=True, default=uuid4)
+    person_id = ForeignKey(Person, null=False, on_delete=OnDelete.cascade)
+    token_digest = Varchar(length=64)
+    used_at = Timestamptz(default=TimestamptzNow())
+
+
 TABLES = [
     Person,
     Space,
@@ -697,4 +710,5 @@ TABLES = [
     FileEmbedding,
     ReadingSpend,
     TestAccount,
+    UsedWriteToken,
 ]

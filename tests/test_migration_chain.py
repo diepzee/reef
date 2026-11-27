@@ -333,6 +333,7 @@ def _declared(pattern: str) -> set[str]:
         session_epoch_statements,
         test_account_statements,
         usage_statements,
+        write_token_statements,
     )
 
     everything = " ".join(
@@ -349,6 +350,7 @@ def _declared(pattern: str) -> set[str]:
         + search_log_statements()
         + file_text_statements()
         + test_account_statements()
+        + write_token_statements()
     )
     return set(re.findall(pattern, everything))
 

@@ -19,9 +19,9 @@ method compares it with the second call's arguments.
 account was reset after that, the token is stale, so a confirmation can
 never act on freshly reloaded memory.
 
-**Single use.** Not enforced here: there is no token store. A second take of
-a token whose share or deletion was already applied finds nothing left to do,
-and the method says so.
+**Single use.** Not enforced here. ``write`` records used digests in its write
+transaction; ``share`` keeps its own consumed nonce, and ``forget`` binds the
+engram's id so a new engram cannot reuse consent for a deleted one.
 
 **The token is readable.** It is signed, not encrypted: whoever holds it can
 read the subject. Stage paths and digests, never engram text.

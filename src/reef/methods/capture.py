@@ -776,6 +776,9 @@ async def write(
                 if pairs and confirm is not None:
                     if await staged.take(caller, "write", confirm) != subject:
                         raise MethodError("stale_token")
+                    from reef.write_tokens import consume
+
+                    await consume(caller, confirm)
                     replacements_confirmed = True
                 elif pairs:
                     effect = " ".join(

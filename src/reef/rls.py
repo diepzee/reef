@@ -1857,6 +1857,34 @@ END
 """
 
 
+def write_token_statements() -> list[str]:
+    """Protect used write tokens with private, append-only rows.
+
+    Kept outside the historical policy groups, which predate this table.
+    Uniqueness includes the person so a conflict reveals no other account.
+
+    :returns: idempotent SQL statements in execution order
+    """
+    own = f"person_id = {PRINCIPAL}"
+    return [
+        "CREATE UNIQUE INDEX IF NOT EXISTS used_write_tokens_person_digest ON used_write_tokens (person_id, token_digest)",
+        "ALTER TABLE used_write_tokens ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE used_write_tokens FORCE ROW LEVEL SECURITY",
+        "DROP POLICY IF EXISTS used_write_tokens_select ON used_write_tokens",
+        "DROP POLICY IF EXISTS used_write_tokens_insert ON used_write_tokens",
+        f"CREATE POLICY used_write_tokens_select ON used_write_tokens FOR SELECT USING ({own})",
+        f"CREATE POLICY used_write_tokens_insert ON used_write_tokens FOR INSERT WITH CHECK ({own})",
+        *[
+            f"DO $do$ BEGIN IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN "
+            f"IF '{role}' <> pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid = 'used_write_tokens'::regclass)) THEN "
+            f"EXECUTE 'REVOKE UPDATE, DELETE ON used_write_tokens FROM {role}'; "
+            "END IF; "
+            f"EXECUTE 'GRANT SELECT, INSERT ON used_write_tokens TO {role}'; END IF; END $do$"
+            for role in _EXECUTOR_ROLES
+        ],
+    ]
+
+
 def call_log_statements() -> list[str]:
     """Return idempotent DDL arming RLS on the call log, its purge and its totals.
 
