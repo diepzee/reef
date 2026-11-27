@@ -19,9 +19,10 @@ method compares it with the second call's arguments.
 account was reset after that, the token is stale, so a confirmation can
 never act on freshly reloaded memory.
 
-**Single use.** Not enforced here: there is no token store. A second take of
-a token whose share or deletion was already applied finds nothing left to do,
-and the method says so.
+**Single use.** :func:`take` validates without consuming. ``write`` calls
+:func:`consume` to record the signed payload's digest in its write
+transaction; ``share`` keeps its own consumed nonce, and ``forget`` binds the
+engram's id so a new engram cannot reuse consent for a deleted one.
 
 **The token is readable.** It is signed, not encrypted: whoever holds it can
 read the subject. Stage paths and digests, never engram text.
@@ -30,14 +31,15 @@ read the subject. Stage paths and digests, never engram text.
 import hmac
 import time
 from hashlib import sha256
+from uuid import uuid4
 
 from reef.access import arm
 from reef.config import get_settings
 from reef.db import transaction_scope
 from reef.limits import MIN_SECRET_LENGTH
 from reef.methods import Caller, MethodError
-from reef.models import Person
-from reef.sealing import seal, unseal
+from reef.models import Person, UsedWriteToken
+from reef.sealing import payload_digest, seal, unseal
 
 TOKEN_TTL_SECONDS = 600
 """How long a staged token works: ten minutes, like the share nonce."""
@@ -135,3 +137,28 @@ async def take(
     if reset is not None and (not isinstance(iat, int | float) or reset > iat):
         raise MethodError("stale_token")
     return doc["sub"]
+
+
+async def consume(caller: Caller, token: str) -> None:
+    """Remember a checked token, or refuse it when already used.
+
+    Call only after signature, person and subject checks, inside the write
+    transaction. The unique insert takes concurrent uses in turn, and a
+    rollback restores the token along with the engrams. Hash the signed
+    payload bytes so alternate spellings spend the same record.
+
+    :param caller: the person whose token has been checked
+    :param token: the checked token from the first call
+    :raises MethodError: ``used_token`` when already used
+    """
+    await arm(caller.principal)
+    inserted = await UsedWriteToken.raw(
+        "INSERT INTO used_write_tokens (id, person_id, token_digest) "
+        "VALUES ({}, {}, {}) ON CONFLICT (person_id, token_digest) "
+        "DO NOTHING RETURNING id",
+        uuid4(),
+        caller.principal.person_id,
+        payload_digest(token),
+    )
+    if not inserted:
+        raise MethodError("used_token")

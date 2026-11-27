@@ -52,6 +52,7 @@ from reef.rls import (
     session_epoch_statements,
     test_account_statements,
     usage_statements,
+    write_token_statements,
 )
 from reef.search import search_statements
 
@@ -330,6 +331,7 @@ async def schema():
         + open_door_statements()
         + avatar_statements()
         + person_column_grant_statements()
+        + write_token_statements()
     ):
         await DB._run_in_new_connection(statement)
     yield

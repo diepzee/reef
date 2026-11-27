@@ -331,13 +331,7 @@ or unclear. These points replace what the parts above say.
    Only the guard uses the normalized view; `write` and the web route
    parse the original body. A key with a quoted wiki link is a relation
    line too.
-10. **Known limit: a write token is not single use.** If the source engram
-    was new and the person deletes it before the token expires, replaying
-    the second call recreates the engram and the link. `write` keeps no
-    record of used tokens; closing this gap would need one. `share` and
-    `forget` do not have this gap: `share` keeps a consumed nonce, and
-    `forget` binds the engram's id. This is an accepted limit, with no
-    behaviour change in this work.
+10. Since RUG-97 (27 November 2026), a `write` token is single use: its digest is recorded in the same transaction as the write it allows, and another use returns `used_token`, asking for the person's yes again and a new first call.
 
 ## Calls I made (check these while reading)
 

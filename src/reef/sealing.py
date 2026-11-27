@@ -47,6 +47,22 @@ def _sign(payload: bytes, secret: str) -> str:
     return _b64(hmac.new(secret.encode(), payload, sha256).digest())
 
 
+def payload_digest(token: str) -> str:
+    """Hash the bytes covered by a token's signature, regardless of spelling.
+
+    This does not validate the signature or expiry. Call only after
+    :func:`unseal` has accepted the token.
+
+    :param token: an already checked sealed document
+    :returns: the SHA-256 hex digest of the decoded payload
+    :raises ValueError: when the token has no separator or cannot be decoded
+    """
+    encoded, dot, _ = token.rpartition(".")
+    if not dot:
+        raise ValueError("a sealed document needs a signature")
+    return sha256(_unb64(encoded)).hexdigest()
+
+
 def seal(doc: dict, *, secret: str, ttl_seconds: int, now: float | None = None) -> str:
     """Sign a document so it can travel and come back unchanged.
 

@@ -62,6 +62,10 @@ MESSAGES = {
         "This confirmation has expired or does not match the request. "
         "Make the first call again to get a new one."
     ),
+    "used_token": (
+        "This confirmation was already used. Ask the person again, then make "
+        "the first call again to get a new one."
+    ),
     "not_configured": (
         "Reef cannot confirm actions right now, because it is not set up for "
         "it. Tell the person; their Reef's operator needs to fix this."
