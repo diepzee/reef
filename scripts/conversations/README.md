@@ -59,6 +59,21 @@ Options: `--only ID...` plays only those scenarios; `--file-text on|off`
 overrides whether the target reads file text. Reports go to
 `~/.reef-conversations/reports/`, outside git. Every scenario uses Codex quota.
 
+## Timing in the report
+
+`Seconds` is the time taken to play all messages in a scenario. It includes
+getting each token and starting Codex. Resets and checks of the memory
+afterwards are outside that time.
+
+The report does not measure the longest gap without output from Codex.
+The runner gets all output at once, after `codex exec` ends. The JSON events
+it reads have no timestamps. The total time cannot tell us how long the
+model was silent.
+
+Measuring that gap would need live output reading with a clock, while still
+handling both output streams, timeouts and token removal. Reading Codex's
+session files would be another way. Both are left for a separate change.
+
 ## Through Orca
 
 The controller fills in the target and starts a Codex worker:
