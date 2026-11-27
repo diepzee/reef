@@ -194,6 +194,7 @@ def score(
     files: bool,
     file_text: bool,
     seconds: float,
+    bearer: bool = False,
 ) -> Scored:
     """Give a scenario its verdict.
 
@@ -206,6 +207,7 @@ def score(
     :param files: whether the target stores files
     :param file_text: whether the target reads the text in files
     :param seconds: how long the conversation took
+    :param bearer: whether Codex used a bearer token for this scenario
     :returns: the verdict, with the reasons
     """
     id_ = scenario["id"]
@@ -222,6 +224,14 @@ def score(
     if session is None:
         return Scored(id_, "invalid", ["no conversation was played"], [], seconds)
     tools = [call.tool for call in session.tool_calls]
+    if bearer and any(call.auth_required for call in session.tool_calls):
+        return Scored(
+            id_,
+            "invalid",
+            ["the sign-in ran out while the model was answering; run it again"],
+            tools,
+            seconds,
+        )
     if session.error:
         return Scored(
             id_, "invalid", [f"Codex failed: {session.error}"], tools, seconds

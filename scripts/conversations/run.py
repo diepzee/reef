@@ -1032,7 +1032,13 @@ async def _play_one(
     refs = [check["ref"] for check in scenario["after"]]
     after = await target.read(refs) if refs and not session.error else {}
     item = score(
-        scenario, session, after, files=files, file_text=file_text, seconds=seconds
+        scenario,
+        session,
+        after,
+        files=files,
+        file_text=file_text,
+        seconds=seconds,
+        bearer=target.server.bearer,
     )
     return item, session.answer
 

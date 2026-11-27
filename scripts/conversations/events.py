@@ -23,6 +23,17 @@ from dataclasses import dataclass, replace
 #: The names Reef's server goes by in the runner's Codex settings.
 REEF_SERVERS = frozenset({"reef_local", "reef_bench"})
 
+#: Missing or expired sign-in text from MCP's RequireAuthMiddleware in
+#: mcp/server/auth/middleware/bearer_auth.py, and the longer version from
+#: FastMCP's server/auth/middleware.py used by Reef's HTTP endpoint.
+AUTH_REQUIRED_MESSAGES = (
+    "Authentication required",
+    (
+        "Authentication failed. The provided bearer token is invalid, expired, "
+        "or no longer recognized by the server."
+    ),
+)
+
 #: Items that are neither a tool nor a source of information: the
 #: assistant's words, its reasoning, its own to-do list, and warnings.
 _NOT_TOOLS = frozenset({"agent_message", "reasoning", "todo_list", "error"})
@@ -43,6 +54,7 @@ class ToolCall:
     :param protocol: the operating protocol a ``load_index`` call returned,
         which ends with the persona; empty for every other tool, and when
         the result could not be read
+    :param auth_required: whether a failed call asked for a valid sign-in
     """
 
     server: str
@@ -51,6 +63,7 @@ class ToolCall:
     ok: bool
     turn: int = 0
     protocol: str = ""
+    auth_required: bool = False
 
 
 @dataclass(frozen=True)
@@ -190,7 +203,28 @@ def _tool_call(item: dict) -> ToolCall:
         arguments=arguments if isinstance(arguments, dict) else {},
         ok=ok,
         protocol=_protocol(result) if tool == "load_index" else "",
+        auth_required=not ok and _auth_required(item, result),
     )
+
+
+def _auth_required(item: dict, result: dict) -> bool:
+    """Recognize Reef's sign-in refusal without keeping the error text.
+
+    Codex may put the refusal in its transport error or in the tool result.
+    Only failed calls are checked, so a successful read can quote the error.
+
+    :param item: the failed MCP call
+    :param result: its result, or an empty object for a transport error
+    :returns: whether the call was refused for its sign-in
+    """
+    error = item.get("error")
+    texts = [error if isinstance(error, str) else _message(error) or ""]
+    texts += [
+        part["text"]
+        for part in result.get("content") or []
+        if isinstance(part, dict) and isinstance(part.get("text"), str)
+    ]
+    return any(message in text for text in texts for message in AUTH_REQUIRED_MESSAGES)
 
 
 def _protocol(result: dict) -> str:
