@@ -1,3 +1,9 @@
+## [2.7.1](https://github.com/diepzee/reef/compare/v2.7.0...v2.7.1) (2026-11-27)
+
+### Bug fixes
+
+* **write:** a yes for "replaces" works once (RUG-97) ([#199](https://github.com/diepzee/reef/issues/199)) ([f172022](https://github.com/diepzee/reef/commit/f1720226f3f95caa1944af54c0f121248435a86a))
+
 ## [2.7.0](https://github.com/diepzee/reef/compare/v2.6.0...v2.7.0) (2026-11-27)
 
 ### Features
