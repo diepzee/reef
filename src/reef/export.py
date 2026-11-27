@@ -299,7 +299,9 @@ async def build_full_dump(
     recorded explicitly in ``data/file-errors.json`` rather than omitted
     silently. Each file with text read from it also gets that text, whole and
     with its pages marked, as ``<filename>.txt`` beside it. Vectors are
-    derived data and stay out.
+    derived data and stay out. Used write-token digests also stay out: like
+    job and quota bookkeeping, they are temporary service state, with no
+    memory content or account history to carry to another service.
 
     :param principal: authenticated person
     :param store: injectable object reader; defaults to R2 when files exist
