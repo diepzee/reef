@@ -1746,7 +1746,7 @@ in none of four runs with that setting and in all four with `required=true`.
 | `review` | A fact or engram is missing from the answer, or a call to a tool named in `review_failed_tools` failed, even if a retry worked. | Read the conversation in the report. |
 | `fail` | A required tool is missing, a forbidden one was used, or the memory afterwards is wrong. | Investigate: this is a finding about Reef. |
 | `skipped` | The target lacks something the scenario needs, such as file reading. | Nothing, unless you expected it to run. |
-| `invalid` | Codex failed, or used a tool outside Reef. The scenario says nothing about Reef. | Run that scenario again with `--only`. |
+| `invalid` | Codex failed, used a tool outside Reef, or Reef refused its bearer sign-in. The scenario says nothing about Reef. | Run that scenario again with `--only`. |
 
 If the run stops, the report says why (`stopped`). A failed final reset is
 reported too: reset the account by hand before the next run.
@@ -1762,7 +1762,10 @@ test home's sign-in to Codex.
 - Codex cannot renew the token it gets for a message. If Reef's access
   tokens last less than 420 seconds, one very long message can still end
   with an authentication error. That scenario is then `invalid`: run it
-  again with `--only`.
+  again with `--only`. The reason is "the sign-in ran out while the model
+  was answering; run it again". This takes priority over other failed
+  checks, even if a later tool call succeeds. Local runs have no bearer
+  token to expire, so their auth errors keep the usual scoring.
 - If the run says the test home is not signed in to Codex, run
   `CODEX_HOME=~/.reef-conversations/codex codex login` again.
 

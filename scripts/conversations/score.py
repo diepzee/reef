@@ -5,17 +5,19 @@ which facts and engrams its answer must hold, and what the memory must hold
 afterwards. :func:`score` turns what Codex did into one verdict:
 
 * ``skipped``: the target lacks something the scenario needs.
-* ``invalid``: there is no session, Codex failed, or the assistant used a
-  tool outside Reef. The run says nothing about Reef.
+* ``invalid``: there is no session, Codex failed, the assistant used a
+  tool outside Reef, or Reef refused the bearer sign-in. The run says
+  nothing about Reef.
 * ``fail``: a required tool is missing, a forbidden tool was used, or the
   memory afterwards is not as it must be.
 * ``pass``: the tools are right and every fact and engram is in the answer.
 * ``review``: a fact or engram is not in the answer, or a call failed to a
   tool named in ``review_failed_tools``. A person reads the conversation.
 
-Every failed call to a Reef tool is listed in the reasons, whatever the
-verdict. A scenario can name ``review_failed_tools`` to ask for review even
-when a later call succeeds.
+For ``pass``, ``fail`` and ``review``, every failed call to a Reef tool is
+listed in the reasons. A pass after a retry still shows the call that failed.
+A scenario can name ``review_failed_tools`` to ask for review even when a
+later call succeeds.
 
 Reports never hold a staged token, a share nonce or a signed link.
 """

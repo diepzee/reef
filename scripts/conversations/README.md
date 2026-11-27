@@ -59,6 +59,26 @@ Options: `--only ID...` plays only those scenarios; `--file-text on|off`
 overrides whether the target reads file text. Reports go to
 `~/.reef-conversations/reports/`, outside git. Every scenario uses Codex quota.
 
+## Verdicts
+
+| Verdict | Meaning |
+| --- | --- |
+| `pass` | The tools, answer and memory checks passed. |
+| `fail` | A required tool did not work, a forbidden tool was used, or another check failed. |
+| `review` | The tools and checks passed, but a person must read the answer. |
+| `skipped` | The target lacks something the scenario needs. |
+| `invalid` | Codex failed, used a tool outside Reef, or Reef refused its bearer sign-in. |
+
+When a bearer sign-in runs out during a message, the run proves nothing
+about the scenario. It is `invalid` even if other checks fail or a later
+call succeeds. The reason says to run it again. The runner recognizes the
+MCP reply `Authentication required` and FastMCP's longer reply about an
+invalid or expired bearer token.
+
+Local runs have no bearer token to expire. Their tool errors keep the usual
+scoring, including an auth error: it may point to a local setup problem.
+Other tool errors, such as `invalid_arguments`, also keep the usual scoring.
+
 ## Timing in the report
 
 `Seconds` is the time taken to play all messages in a scenario. It includes
