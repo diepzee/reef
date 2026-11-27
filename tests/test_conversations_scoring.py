@@ -337,7 +337,41 @@ def test_replace_contract_scenario_asks_then_confirms_then_reads() -> None:
         == "Binnen hoeveel uur moet Archiefhaven reageren op een storing?"
     )
     assert scenario["answer_must_not"]
+    assert scenario["review_failed_tools"] == ["write"]
     assert scenario["after"][0]["replaced_by"] == ["personal/work/contract-2027.md"]
+
+
+@pytest.mark.parametrize(
+    ("failed_tool", "expected"),
+    [(None, "pass"), ("write", "review"), ("recall", "pass")],
+)
+@pytest.mark.parametrize("valid_memory", [True, False])
+def test_replace_contract_reviews_a_failed_write(
+    failed_tool: str | None, expected: str, valid_memory: bool
+) -> None:
+    """A failed write needs review after a retry, but never hides wrong memory.
+
+    :param failed_tool: the tool whose call failed, if any
+    :param expected: the verdict when memory is right
+    :param valid_memory: whether the saved memory meets the scenario's checks
+    """
+    scenario = next(
+        scenario for scenario in load(SCENARIOS) if scenario["id"] == "replace-contract"
+    )
+    session = _session("load_index", "write", "write", answer="12 uur")
+    if failed_tool:
+        session.tool_calls.insert(1, _call(failed_tool, ok=False))
+    after = {
+        "personal/work/contract-2026.md": {
+            "body": "48 uur",
+            "replaced_by": [{"space": "personal", "path": "work/contract-2027.md"}],
+        },
+        "personal/work/contract-2027.md": "12 uur",
+    }
+    scored = _score(scenario, session, after if valid_memory else {})
+    assert scored.verdict == (expected if valid_memory else "fail")
+    if failed_tool:
+        assert f"the call to {failed_tool} failed" in scored.reasons
 
 
 def test_after_checks_require_the_replacement_link():

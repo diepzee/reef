@@ -10,11 +10,12 @@ afterwards. :func:`score` turns what Codex did into one verdict:
 * ``fail``: a required tool is missing, a forbidden tool was used, or the
   memory afterwards is not as it must be.
 * ``pass``: the tools are right and every fact and engram is in the answer.
-* ``review``: the tools are right but a fact or engram is not in the
-  answer. The assistant may have put it in other words: a person reads it.
+* ``review``: a fact or engram is not in the answer, or a call failed to a
+  tool named in ``review_failed_tools``. A person reads the conversation.
 
 Every failed call to a Reef tool is listed in the reasons, whatever the
-verdict, so a pass after a retry still shows the call that failed.
+verdict. A scenario can name ``review_failed_tools`` to ask for review even
+when a later call succeeds.
 
 Reports never hold a staged token, a share nonce or a signed link.
 """
@@ -78,6 +79,7 @@ def load(path: Path | str) -> list[dict]:
     defaults: dict = {
         "tools_required": [],
         "tools_forbidden": [],
+        "review_failed_tools": [],
         "facts": [],
         "engrams": [],
         "needs": [],
@@ -273,7 +275,11 @@ def score(
     ]
     if scenario.get("review"):
         doubts.append("a person must read the answer")
-    if doubts:
+    review_failed = any(
+        not call.ok and call.tool in scenario.get("review_failed_tools", [])
+        for call in session.tool_calls
+    )
+    if doubts or review_failed:
         return Scored(id_, "review", doubts + broken, tools, seconds)
     return Scored(id_, "pass", broken, tools, seconds)
 
