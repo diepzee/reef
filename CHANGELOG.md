@@ -1,3 +1,13 @@
+## [2.7.0](https://github.com/diepzee/reef/compare/v2.6.0...v2.7.0) (2026-11-27)
+
+### Features
+
+* **links:** an engram can replace another one, and search respects it (RUG-36) ([#196](https://github.com/diepzee/reef/issues/196)) ([0f0fdea](https://github.com/diepzee/reef/commit/0f0fdeaadbb71b3d81aac1b9d29fd09a71fb774a))
+
+### Bug fixes
+
+* explain MCP 400 responses with safe reason categories ([#197](https://github.com/diepzee/reef/issues/197)) ([8010de0](https://github.com/diepzee/reef/commit/8010de06d061dd66d1ce55502db733460c33ec45))
+
 ## [2.6.0](https://github.com/diepzee/reef/compare/v2.5.1...v2.6.0) (2026-11-26)
 
 ### Features
