@@ -1,12 +1,11 @@
 """Record a yes for a replacement in the transaction it authorizes."""
 
-import base64
-from hashlib import sha256
 from uuid import uuid4
 
 from reef.access import arm
 from reef.methods import Caller, MethodError
 from reef.models import UsedWriteToken
+from reef.sealing import payload_digest
 
 
 async def consume(caller: Caller, token: str) -> None:
@@ -14,24 +13,13 @@ async def consume(caller: Caller, token: str) -> None:
 
     Call only after signature, person and subject checks, inside the write
     transaction. The unique insert takes concurrent uses in turn, and a
-    rollback restores the token along with the engrams. Reject alternate
-    base64 spellings so padding cannot turn one signed token into two digests.
+    rollback restores the token along with the engrams. Hash the signed
+    payload bytes so alternate spellings spend the same record.
 
     :param caller: the person whose token has been checked
     :param token: the checked token from the first call
-    :raises MethodError: ``used_token`` when used; ``stale_token`` when
-        spelled differently
+    :raises MethodError: ``used_token`` when already used
     """
-    payload = token.rpartition(".")[0]
-    canonical = (
-        base64.urlsafe_b64encode(
-            base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
-        )
-        .rstrip(b"=")
-        .decode()
-    )
-    if payload != canonical:
-        raise MethodError("stale_token")
     await arm(caller.principal)
     inserted = await UsedWriteToken.raw(
         "INSERT INTO used_write_tokens (id, person_id, token_digest) "
@@ -39,7 +27,7 @@ async def consume(caller: Caller, token: str) -> None:
         "DO NOTHING RETURNING id",
         uuid4(),
         caller.principal.person_id,
-        sha256(token.encode()).hexdigest(),
+        payload_digest(token),
     )
     if not inserted:
         raise MethodError("used_token")

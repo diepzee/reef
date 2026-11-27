@@ -1,6 +1,7 @@
 """A yes for a replacement authorizes one committed write."""
 
 import asyncio
+import base64
 from hashlib import sha256
 
 import asyncpg
@@ -10,7 +11,7 @@ from conftest import caller_for, save_as
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.engrams import delete_engram, get_engram
-from reef.methods import MethodError, capture, staged
+from reef.methods import Caller, MethodError, capture, staged
 from reef.models import UsedWriteToken
 from reef.write_tokens import consume
 
@@ -28,6 +29,80 @@ def replacement(body: str = "new") -> dict:
     :returns: one write item
     """
     return {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\n" + body}
+
+
+def token_with_alternate_spellings(caller: Caller) -> str:
+    """Issue a token whose payload exercises both alphabets and spare trailing bits.
+
+    :param caller: the person confirming
+    :returns: a token with two missing padding characters and both URL symbols
+    """
+    for extra in range(3):
+        token = staged.stage(
+            caller, "write", {"text": "??????>>>>>>", "pad": "x" * extra}, now=1000
+        )["token"]
+        payload = token.partition(".")[0]
+        if len(payload) % 4 == 2:
+            assert "-" in payload and "_" in payload
+            return token
+    raise AssertionError("no payload with spare trailing bits")
+
+
+@pytest.mark.parametrize("variant", ["padding", "newline", "standard", "trailing_bits"])
+@pytest.mark.parametrize("variant_first", [False, True])
+async def test_payload_spellings_spend_the_same_record(
+    household, seed, variant, variant_first
+) -> None:
+    """All four spellings pass take and share one use, in either order.
+
+    The newline variant retains explicit padding so the decoder has enough
+    padding after counting the newline in the encoded length.
+    """
+    me = caller_for(household["wouter"])
+    plain = token_with_alternate_spellings(me)
+    payload, _, signature = plain.rpartition(".")
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    spelled = (
+        {
+            "padding": payload + "==",
+            "newline": payload[:8] + "\n" + payload[8:] + "==",
+            "standard": payload.replace("-", "+").replace("_", "/"),
+            "trailing_bits": payload[:-1] + alphabet[alphabet.index(payload[-1]) | 1],
+        }[variant]
+        + "."
+        + signature
+    )
+    assert spelled != plain
+    assert await staged.take(me, "write", spelled, now=1001) == await staged.take(
+        me, "write", plain, now=1001
+    )
+    first, second = (spelled, plain) if variant_first else (plain, spelled)
+    async with transaction_scope():
+        await consume(me, first)
+    with pytest.raises(MethodError) as caught:
+        async with transaction_scope():
+            await consume(me, second)
+    assert caught.value.code == "used_token"
+    assert (
+        await seed.fetchval("SELECT token_digest FROM used_write_tokens")
+        == sha256(base64.urlsafe_b64decode(payload + "==")).hexdigest()
+    )
+
+
+async def test_bare_newline_can_be_refused_before_consumption(household) -> None:
+    """A bare newline with two missing pads fails take's existing decoding.
+
+    Its encoded length makes unseal add only one pad; this malformed variant
+    is stale rather than used, and unseal's validation is left unchanged.
+    """
+    me = caller_for(household["wouter"])
+    token = token_with_alternate_spellings(me)
+    payload, _, signature = token.rpartition(".")
+    with pytest.raises(MethodError) as caught:
+        await staged.take(
+            me, "write", payload[:8] + "\n" + payload[8:] + "." + signature, now=1001
+        )
+    assert caught.value.code == "stale_token"
 
 
 @pytest.mark.parametrize("rollback", [False, True])
@@ -108,7 +183,7 @@ async def test_deleted_source_cannot_reuse_a_yes(household, seed, body, padded) 
         token = payload + "====." + signature
     with pytest.raises(MethodError) as caught:
         await capture.write(me, "", "personal", [replacement(body)], "save", token)
-    assert caught.value.code == ("stale_token" if padded else "used_token")
+    assert caught.value.code == "used_token"
     if not padded:
         assert caught.value.message.startswith("This confirmation was already used.")
         assert "Ask the person again" in caught.value.message
@@ -197,7 +272,10 @@ async def test_token_rows_are_private_and_cascade(household, probe, seed) -> Non
     await save_as(me, "personal", "old.md", "old")
     staged = await capture.write(me, "", "personal", [replacement()], "save")
     await capture.write(me, "", "personal", [replacement()], "save", staged["token"])
-    digest = sha256(staged["token"].encode()).hexdigest()
+    payload = staged["token"].partition(".")[0]
+    digest = sha256(
+        base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+    ).hexdigest()
     async with probe.transaction():
         await probe.execute(
             "SELECT set_config('app.person_id', $1, true)", str(other.id)
