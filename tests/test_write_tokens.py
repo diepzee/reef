@@ -1,5 +1,6 @@
 """A yes for a replacement authorizes one committed write."""
 
+import asyncio
 from hashlib import sha256
 
 import asyncpg
@@ -7,10 +8,11 @@ import pytest
 from conftest import caller_for, save_as
 
 from reef.config import get_settings
-from reef.db import transaction_scope
+from reef.db import DB, transaction_scope
 from reef.engrams import delete_engram, get_engram
-from reef.methods import MethodError, capture
+from reef.methods import MethodError, capture, staged
 from reef.models import UsedWriteToken
+from reef.write_tokens import consume
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +28,65 @@ def replacement(body: str = "new") -> dict:
     :returns: one write item
     """
     return {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\n" + body}
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+async def test_consume_waits_for_the_first_transaction(
+    household, seed, rollback
+) -> None:
+    """Two connections resolve the same token only after the first transaction ends."""
+    me = caller_for(household["wouter"])
+    token = staged.stage(me, "write", {"test": True})["token"]
+    await staged.take(me, "write", token)
+    consumed = asyncio.Event()
+    release = asyncio.Event()
+    second_started = asyncio.Event()
+    pids: dict[str, int] = {}
+
+    async def first() -> None:
+        """Consume and hold the first transaction until the test releases it."""
+        async with transaction_scope():
+            pids["first"] = (
+                await UsedWriteToken.raw("SELECT pg_backend_pid() AS pid")
+            )[0]["pid"]
+            await consume(me, token)
+            consumed.set()
+            await release.wait()
+            if rollback:
+                await DB.current_transaction.get().rollback()
+
+    async def second() -> str:
+        """Try the same digest on a separate connection and report its outcome."""
+        await consumed.wait()
+        try:
+            async with transaction_scope():
+                pids["second"] = (
+                    await UsedWriteToken.raw("SELECT pg_backend_pid() AS pid")
+                )[0]["pid"]
+                second_started.set()
+                await consume(me, token)
+        except MethodError as refused:
+            return refused.code
+        return "consumed"
+
+    a = asyncio.create_task(first())
+    b = asyncio.create_task(second())
+    try:
+        async with asyncio.timeout(10):
+            await second_started.wait()
+            assert pids["first"] != pids["second"]
+            # Observe PostgreSQL's lock wait, rather than assuming a delay proves it.
+            while pids["first"] not in await seed.fetchval(
+                "SELECT pg_blocking_pids($1)", pids["second"]
+            ):
+                assert not b.done(), "the second consume did not wait"
+                await asyncio.sleep(0.01)
+            assert not b.done()
+    finally:
+        release.set()
+        results = await asyncio.gather(a, b)
+    assert results[1] == ("consumed" if rollback else "stale_token")
+    assert await seed.fetchval("SELECT count(*) FROM used_write_tokens") == 1
 
 
 @pytest.mark.parametrize("padded", [False, True])
