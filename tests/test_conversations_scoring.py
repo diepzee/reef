@@ -1689,6 +1689,144 @@ def test_failed_call_to_the_only_used_alternative_does_not_count():
     assert "none of open, recall was used successfully" in scored.reasons
 
 
+def _refused_call(message: str, shape: str, server: str) -> dict:
+    """Build a failed tool event as Codex would print it.
+
+    :param message: the refusal from Reef
+    :param shape: transport error, or either spelling of the result error flag
+    :param server: the server Codex called
+    :returns: the completed tool event
+    """
+    item = {
+        "id": "refused",
+        "type": "mcp_tool_call",
+        "server": server,
+        "tool": "recall",
+        "status": "failed" if shape == "transport" else "completed",
+    }
+    if shape == "transport":
+        item["error"] = {"message": f"tools/call failed: {message}"}
+    else:
+        item["result"] = {
+            shape: True,
+            "content": [{"type": "text", "text": message}],
+        }
+    return {"type": "item.completed", "item": item}
+
+
+@pytest.mark.parametrize("shape", ["transport", "isError", "is_error"])
+@pytest.mark.parametrize("other_failures", [False, True])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Authentication required",
+        (
+            "Authentication failed. The provided bearer token is invalid, expired, "
+            "or no longer recognized by the server. To resolve: clear authentication "
+            "tokens in your MCP client and reconnect. Your client should automatically "
+            "re-register and obtain new tokens."
+        ),
+    ],
+    ids=["mcp", "fastmcp"],
+)
+async def test_expired_sign_in_makes_the_scenario_invalid(
+    monkeypatch: pytest.MonkeyPatch, shape: str, other_failures: bool, message: str
+) -> None:
+    """A refused sign-in outweighs both a good retry and other failed checks.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param shape: how Codex reports the refusal
+    :param other_failures: also fail tool, answer and memory checks
+    :param message: the auth refusal from MCP or FastMCP
+    """
+    session = _probe(_refused_call(message, shape, "reef_bench"))
+    session = combine([session, _session("load_index", "recall", answer=RIGHT_ANSWER)])
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scenario = _scenario()
+    if other_failures:
+        scenario |= {
+            "tools_required": ["write"],
+            "tools_forbidden": ["recall"],
+            "answer_must_not": ["december"],
+            "after": [{"ref": "personal/missing.md", "contains": ["new"]}],
+        }
+    scored, _ = await run._play_one(
+        _FakeTarget(server=run.PRODUCTION_SERVER), scenario, True, True
+    )
+    assert scored.verdict == "invalid"
+    assert scored.reasons == [
+        "the sign-in ran out while the model was answering; run it again"
+    ]
+
+
+@pytest.mark.parametrize("bearer", [False, True])
+@pytest.mark.parametrize("retry", [False, True])
+async def test_other_tool_refusals_keep_their_verdict(
+    monkeypatch: pytest.MonkeyPatch, bearer: bool, retry: bool
+) -> None:
+    """Bad arguments still fail a required call, or pass after a good retry.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param bearer: whether the run uses a bearer token
+    :param retry: whether the failed tool later succeeds
+    """
+    server = run.PRODUCTION_SERVER if bearer else run.local_server("test-secret")
+    session = _probe(_refused_call("invalid_arguments", "isError", server.name))
+    session = combine(
+        [
+            _session("load_index", answer=RIGHT_ANSWER),
+            session,
+            _session(*(["recall"] if retry else [])),
+        ]
+    )
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(_FakeTarget(server=server), _scenario(), True, True)
+    assert scored.verdict == ("pass" if retry else "fail")
+    assert "the call to recall failed" in scored.reasons
+
+
+@pytest.mark.parametrize("retry", [False, True])
+async def test_local_auth_refusal_keeps_its_verdict(
+    monkeypatch: pytest.MonkeyPatch, retry: bool
+) -> None:
+    """A local run has no bearer token that could have run out.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param retry: whether the failed tool later succeeds
+    """
+    session = _probe(
+        _refused_call("Authentication required", "transport", "reef_local")
+    )
+    session = combine(
+        [
+            _session("load_index", answer=RIGHT_ANSWER),
+            session,
+            _session(*(["recall"] if retry else [])),
+        ]
+    )
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(_FakeTarget(), _scenario(), True, True)
+    assert scored.verdict == ("pass" if retry else "fail")
+    assert "the call to recall failed" in scored.reasons
+
+
+async def test_auth_words_in_a_successful_result_are_not_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An engram may quote the auth error without making a good run invalid.
+
+    :param monkeypatch: replaces Codex with recorded events
+    """
+    event = _refused_call("Authentication required", "isError", "reef_bench")
+    event["item"]["result"]["isError"] = False
+    session = combine([_probe(event), _session("load_index", answer=RIGHT_ANSWER)])
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(
+        _FakeTarget(server=run.PRODUCTION_SERVER), _scenario(), True, True
+    )
+    assert scored.verdict == "pass"
+
+
 def test_coverage_counts_alternatives():
     """Every tool named inside a list of alternatives is covered."""
     scenarios = [{"tools_required": ["load_index", ["open", "recall"]]}]
