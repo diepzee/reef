@@ -5,6 +5,22 @@ import pytest
 from reef.worker import purge_old_logs
 
 
+def test_tokens_expire_well_before_records_are_purged() -> None:
+    """Keep at least ten token lifetimes before a use record may be removed."""
+    from reef.methods.staged import TOKEN_TTL_SECONDS
+    from reef.rls import WRITE_TOKEN_RETENTION_HOURS
+
+    assert TOKEN_TTL_SECONDS * 10 < WRITE_TOKEN_RETENTION_HOURS * 3600
+
+
+def test_frozen_migration_matches_current_token_rules() -> None:
+    """The frozen migration and the fixture must install the same token rules."""
+    from reef.piccolo_migrations.reef_2026_11_27t08_00_00_000000 import STATEMENTS
+    from reef.rls import write_token_statements
+
+    assert STATEMENTS[1:] == write_token_statements()
+
+
 @pytest.mark.parametrize("zone", ["UTC", "Pacific/Kiritimati", "America/Los_Angeles"])
 async def test_purge_removes_only_records_older_than_a_day(
     household, seed, probe, zone

@@ -1857,6 +1857,10 @@ END
 """
 
 
+WRITE_TOKEN_RETENTION_HOURS = 24
+"""How many hours used write tokens are kept, well beyond their lifetime."""
+
+
 def write_token_statements() -> list[str]:
     """Protect used write tokens with private, append-only rows.
 
@@ -1885,7 +1889,8 @@ def write_token_statements() -> list[str]:
         ],
         *_function_ddl(
             "reef_purge_write_tokens()",
-            "DELETE FROM used_write_tokens WHERE used_at < now() - interval '24 hours'",
+            "DELETE FROM used_write_tokens WHERE used_at < now() "
+            f"- interval '{WRITE_TOKEN_RETENTION_HOURS} hours'",
             returns="void",
             reads=("used_write_tokens",),
             volatility="VOLATILE",
