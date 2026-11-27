@@ -295,6 +295,10 @@ async def test_forget_needs_the_token(household):
     me = caller_for(household["wouter"])
     await save_as(me, "household", "car.md", CAR, title="The car")
     staged = await maintain.forget(me, "", "household", engram="car.md")
+    assert staged["next"] == (
+        "Ask the person first. After a yes, send this same call again with every "
+        "argument unchanged, and add `confirm` with this token."
+    )
     assert staged["expires_in"] == 600
     assert "The car" in staged["effect"]
     assert "car.md" in staged["effect"]
@@ -376,6 +380,10 @@ async def test_forget_a_file(household, store):
     me = caller_for(household["wouter"])
     key = await attach_file(me, "household", "A policy.")
     staged = await maintain.forget(me, "", "household", file=key)
+    assert staged["next"] == (
+        "Ask the person first. After a yes, send this same call again with every "
+        "argument unchanged, and add `confirm` with this token."
+    )
     assert "policy.pdf" in staged["effect"]
     assert "4 bytes" in staged["effect"]
     assert store.deleted == []
