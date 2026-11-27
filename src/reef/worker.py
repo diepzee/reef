@@ -17,7 +17,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
-from reef import calllog, embedding, filetext, searchlog, telemetry
+from reef import calllog, embedding, filetext, searchlog, telemetry, write_tokens
 from reef.access import Principal
 from reef.config import get_settings
 from reef.context import backfill_index_fields
@@ -362,7 +362,7 @@ PURGE_EVERY_SECONDS = 3600.0
 
 
 async def purge_old_logs() -> int:
-    """Delete logged searches and logged calls that are older than they may be kept.
+    """Delete old search logs, call logs and used write tokens.
 
     Not a job: a job is done for one person, and this is for everybody. It
     reads no row and needs no principal. See :func:`reef.searchlog.purge` and
@@ -376,15 +376,16 @@ async def purge_old_logs() -> int:
     """
     searches = await _purge("search log", searchlog.purge)
     calls = await _purge("call log", calllog.purge)
+    await _purge("used write tokens", write_tokens.purge)
     return searches + calls
 
 
-async def _purge(log_name: str, purge: Callable[[], Awaitable[int]]) -> int:
+async def _purge(log_name: str, purge: Callable[[], Awaitable[int | None]]) -> int:
     """Purge one log in a transaction of its own, and never raise.
 
     :param log_name: the log, as the app log names it
     :param purge: the log's purge, such as :func:`reef.searchlog.purge`
-    :returns: how many rows were deleted; 0 when the purge failed
+    :returns: how many rows were deleted; 0 when unreported or failed
     """
     try:
         async with transaction_scope():
@@ -395,7 +396,7 @@ async def _purge(log_name: str, purge: Callable[[], Awaitable[int]]) -> int:
         return 0
     if removed:
         log.info("%s: %d old rows deleted", log_name, removed)
-    return removed
+    return removed or 0
 
 
 async def serve(worker: str, stop: asyncio.Event, poll_seconds: float) -> None:

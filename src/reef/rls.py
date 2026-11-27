@@ -1868,6 +1868,7 @@ def write_token_statements() -> list[str]:
     own = f"person_id = {PRINCIPAL}"
     return [
         "CREATE UNIQUE INDEX IF NOT EXISTS used_write_tokens_person_digest ON used_write_tokens (person_id, token_digest)",
+        "CREATE INDEX IF NOT EXISTS used_write_tokens_age ON used_write_tokens (used_at)",
         "ALTER TABLE used_write_tokens ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE used_write_tokens FORCE ROW LEVEL SECURITY",
         "DROP POLICY IF EXISTS used_write_tokens_select ON used_write_tokens",
@@ -1882,6 +1883,14 @@ def write_token_statements() -> list[str]:
             f"EXECUTE 'GRANT SELECT, INSERT ON used_write_tokens TO {role}'; END IF; END $do$"
             for role in _EXECUTOR_ROLES
         ],
+        *_function_ddl(
+            "reef_purge_write_tokens()",
+            "DELETE FROM used_write_tokens WHERE used_at < now() - interval '24 hours'",
+            returns="void",
+            reads=("used_write_tokens",),
+            volatility="VOLATILE",
+        ),
+        _for_authz("GRANT DELETE ON used_write_tokens TO %I"),
     ]
 
 
