@@ -1,6 +1,16 @@
 {
   "entries": [
     {
+      "version": "2.7.0",
+      "date": "2026-11-27",
+      "changes": [
+        {
+          "kind": "added",
+          "text": "An engram can now replace another one: the old one stays readable, ranks lower in search and names its replacement. You can also say that an engram contradicts, is about or is part of another one."
+        }
+      ]
+    },
+    {
       "version": "2.4.5",
       "date": "2026-11-26",
       "changes": [
