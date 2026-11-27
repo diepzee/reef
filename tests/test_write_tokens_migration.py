@@ -113,6 +113,26 @@ async def test_migrated_table_is_private_and_purge_returns_void(connection) -> N
     assert await connection.fetchval("SELECT count(*) FROM used_write_tokens") == 0
 
 
+async def test_migration_enforces_unique_tokens_and_row_security(connection) -> None:
+    """The migrated table has a valid unique pair index and enabled, forced RLS."""
+    flags = await connection.fetchrow(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class "
+        "WHERE oid = 'used_write_tokens'::regclass"
+    )
+    assert flags["relrowsecurity"] and flags["relforcerowsecurity"]
+    index = await connection.fetchrow(
+        "SELECT i.indisunique, i.indisvalid, i.indpred IS NULL AS unfiltered, "
+        "ARRAY(SELECT a.attname FROM unnest(i.indkey) WITH ORDINALITY AS k(num, pos) "
+        "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.num "
+        "ORDER BY k.pos) AS columns FROM pg_index i "
+        "WHERE i.indexrelid = 'used_write_tokens_person_digest'::regclass "
+        "AND i.indrelid = 'used_write_tokens'::regclass"
+    )
+    assert index is not None
+    assert index["indisunique"] and index["indisvalid"] and index["unfiltered"]
+    assert index["columns"] == ["person_id", "token_digest"]
+
+
 async def test_former_app_role_receives_private_table_and_purge_rights(
     connection,
 ) -> None:
