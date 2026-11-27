@@ -45,6 +45,7 @@ from reef.links import Resolver, lock_typed_links, pending_replacements
 from reef.methods import MESSAGES, Caller, MethodError, logs, method, staged
 from reef.methods.find import FILE_PREFIX
 from reef.methods.refusals import refusals
+from reef.methods.staged import consume
 from reef.models import AccessKind, Engram
 from reef.relations import Relations, refuse_stored_block, take_block
 from reef.sections import HEADING_CHARS
@@ -671,6 +672,7 @@ async def write(
     Only this tool reads relation blocks. Adding a replacement first returns
     its effect and a token without writing. After the person's yes, repeat
     the call with that token; it names the target ids and source versions.
+    A confirmation works once, and a failed write leaves it unused.
     Other relations and removal write at once. A retry with no new replacement
     writes normally. Every save check runs before confirmation is requested.
 
@@ -686,7 +688,8 @@ async def write(
         ``batch_too_large``, ``malformed_item``, ``unknown_space``,
         ``read_only``, ``version_conflict``, ``protected_path``,
         ``invalid_path``, ``engram_too_large``, ``private_content``,
-        ``stale_token``, ``used_token``, ``relation_invalid``, ``relation_block_in_body``,
+        ``stale_token``, ``used_token``, ``relation_invalid``,
+        ``relation_block_in_body``,
         ``relation_too_many``, ``relation_target_missing``,
         ``relation_into_personal``, ``relation_to_itself``,
         ``relation_needs_write``, ``relation_circle`` or
@@ -776,8 +779,6 @@ async def write(
                 if pairs and confirm is not None:
                     if await staged.take(caller, "write", confirm) != subject:
                         raise MethodError("stale_token")
-                    from reef.write_tokens import consume
-
                     await consume(caller, confirm)
                     replacements_confirmed = True
                 elif pairs:

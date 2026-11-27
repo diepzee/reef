@@ -12,8 +12,8 @@ from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.engrams import delete_engram, get_engram
 from reef.methods import Caller, MethodError, capture, staged
+from reef.methods.staged import consume
 from reef.models import UsedWriteToken
-from reef.write_tokens import consume
 
 
 @pytest.fixture(autouse=True)
