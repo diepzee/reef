@@ -568,8 +568,7 @@ async def write(
 
     A body may start with a block between --- lines using replaces,
     contradicts, about or part_of with wiki links. Adding replaces takes
-    two calls: show the effect, ask for the person's yes, then repeat the
-    same engrams with the token as confirm.
+    two calls: show the effect, ask for the person's yes, then follow `next`.
 
     :param space: the space's name from load_index
     :param engrams: the engrams, each ``{path, body, title?, tags?,
@@ -695,9 +694,8 @@ async def forget(
     """Delete an engram, with its history, or a stored file, for good.
 
     Use it only when the person asks to delete something, and name what you
-    will delete. Two calls. The first changes nothing: it returns the effect and a
-    token. Show the person the effect and wait for their yes. Then call
-    again with the token as confirm.
+    will delete. Two calls. The first changes nothing: it returns the effect
+    and a token. Show the person the effect, wait for their yes, then follow `next`.
 
     :param space: the space's name from load_index
     :param engram: the path of the engram to forget; or give file
@@ -730,8 +728,7 @@ async def share(
     that space can then read it, for good. Two calls. The first changes
     nothing: it returns `text`, the exact words that would be shared, with
     the effect and a token. Show the person those words as they are, and the
-    effect, and wait for their yes. Then call again with the same arguments
-    and the token as confirm.
+    effect, and wait for their yes. Then follow `next`.
 
     :param engram: the path of the engram in the personal space
     :param to_space: the shared space's name from load_index
@@ -758,9 +755,9 @@ async def instruct(
     """Replace the person's persona: what every assistant they use follows.
 
     Use it when the person asks to change how assistants speak to them or
-    what they know about them. Two calls. The first changes nothing: it returns the effect and a
-    token. Show the person the new text and the effect, and wait for their
-    yes. Then call again with the same body and the token as confirm.
+    what they know about them. Two calls. The first changes nothing: it returns
+    the effect and a token. Show the person the new text and the effect, and
+    wait for their yes. Then follow `next`.
 
     :param body: the whole new persona
     :param confirm: the token from the first call, once the person said yes
