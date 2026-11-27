@@ -24,6 +24,7 @@ import pytest
 import pytest_asyncio
 from conftest import SpanCapture
 from fastmcp import Client
+from jsonschema import validate
 from opentelemetry.trace import SpanKind
 
 from reef import server
@@ -65,6 +66,57 @@ async def test_write_has_optional_confirmation() -> None:
     tool = next(tool for tool in await mcp.list_tools() if tool.name == "write")
     assert "confirm" in tool.parameters["properties"]
     assert "confirm" not in tool.parameters.get("required", [])
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        (
+            "write",
+            {
+                "space": "personal",
+                "engrams": [
+                    {"path": "new.md", "body": "---\nreplaces: [[old.md]]\n---\nnew"}
+                ],
+                "message": "replace",
+            },
+        ),
+        ("share", {"engram": "old.md", "to_space": "household"}),
+        ("forget", {"space": "personal", "engram": "old.md"}),
+        ("instruct", {"body": "Be brief."}),
+    ],
+)
+async def test_staged_next_reaches_mcp_clients(
+    client, household, monkeypatch, name: str, arguments: dict
+) -> None:
+    """Both MCP answer forms keep the next step and fit the listed schema.
+
+    :param client: the connected MCP client
+    :param household: people with a shared space
+    :param monkeypatch: pytest's patch fixture
+    :param name: the staged tool
+    :param arguments: its first call's arguments
+    """
+    monkeypatch.setattr(get_settings().web, "session_secret", "s" * 40)
+    async with transaction_scope():
+        await save_engram(
+            principal_for(household["wouter"]),
+            "personal",
+            "old.md",
+            "old",
+            message="seed",
+        )
+    tool = (await _listed(client))[name]
+    result = await client.call_tool(name, {"reason": "requested", **arguments})
+    assert result.is_error is False
+    validate(result.structured_content, tool.outputSchema)
+    answer = json.loads(result.content[0].text)
+    assert answer == result.data
+    assert answer["next"] == (
+        "Ask the person first. After a yes, send this same call again with every "
+        "argument unchanged, and add `confirm` with this token."
+    )
+    assert "confirm" in tool.inputSchema["properties"]
 
 
 #: Tools that change nothing, so a client may run them without asking.
