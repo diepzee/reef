@@ -8,6 +8,7 @@ exists, and a person must not be able to plant or remove links by hand.
 import asyncpg
 import pytest
 
+from reef import links
 from reef.access import Principal, arm
 from reef.context import build_index
 from reef.db import DB, transaction_scope
@@ -504,3 +505,51 @@ async def test_a_viewer_backfills_nothing(household, graph, seed):
 )
 def test_a_written_target_splits_into_space_and_path(written, expected):
     assert parse_target(written) == expected
+
+
+async def test_neighbourhood_reads_two_hops_both_ways_and_replaced_targets(
+    tx, household
+):
+    """Two hops include neighbours' neighbours, but not a third link."""
+    me = principal_for(household["wouter"])
+    ids = []
+    for name, body in (
+        ("a", "[[b.md]]"),
+        ("b", "[[c.md]]"),
+        ("c", "[[d.md]]"),
+        ("d", "end"),
+    ):
+        row = await save_engram(me, "personal", f"{name}.md", body, message="x")
+        ids.append(row.id)
+    a, b, c, d = ids
+    await Link(
+        from_engram_id=b,
+        to_engram_id=c,
+        kind="supersedes",
+        source="author",
+        author_id=me.person_id,
+    ).save()
+    neighbours, closed = await links.neighbourhood([a])
+    assert neighbours == {a: [b], b: [a, c], c: [b]} or (
+        {key: set(value) for key, value in neighbours.items()}
+        == {a: {b}, b: {a, c}, c: {b}}
+    )
+    assert closed == {c}
+    assert d not in neighbours
+
+
+async def test_neighbourhood_ignores_retired_and_unreadable_links(tx, household):
+    """Neither an old link nor another person's private endpoint exists."""
+    me = principal_for(household["wouter"])
+    partner = principal_for(household["partner"])
+    a = await save_engram(me, "household", "a.md", "[[b.md]]", message="x")
+    await save_engram(me, "household", "b.md", "end", message="x")
+    await save_engram(me, "household", "a.md", "removed", message="x")
+    private = await save_engram(
+        me, "personal", "secret.md", "[[household:a.md]]", message="x"
+    )
+    await arm(me)
+    neighbours, _ = await links.neighbourhood([a.id])
+    assert neighbours == {a.id: [private.id], private.id: [a.id]}
+    await arm(partner)
+    assert await links.neighbourhood([a.id]) == ({}, set())
