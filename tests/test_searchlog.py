@@ -312,6 +312,7 @@ async def test_earlier_results_belong_to_this_person_and_recent_session(
         assert await searchlog.earlier_results(me, "same") == [[b], [a, b]]
         await arm(partner)
         assert await searchlog.earlier_results(partner, "same") == [[a]]
+        assert await searchlog.earlier_results(me, "same") == []
 
 
 async def test_earlier_results_read_at_most_ten_searches(tx, household, logging_on):

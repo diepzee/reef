@@ -557,3 +557,41 @@ async def test_empty_matches_skip_the_stage(matches, monkeypatch):
     monkeypatch.setattr(search, "_lift_order", record)
     assert await search.search_engrams(me, "absent", semantic=False, rerank=False) == []
     assert seen == []
+
+
+async def test_another_members_session_cannot_prime_shared_matches(
+    household, monkeypatch
+):
+    """One shared label cannot transfer the other member's search weight."""
+    me = Principal(person_id=household["wouter"].id, email=household["wouter"].email)
+    partner = Principal(
+        person_id=household["partner"].id, email=household["partner"].email
+    )
+    async with transaction_scope():
+        rows = [
+            await save_engram(
+                me,
+                "household",
+                f"shared-{n}.md",
+                "tram " * (8 - n) + "word " * 50,
+                title=f"Note {n}",
+                message="x",
+            )
+            for n in range(8)
+        ]
+    monkeypatch.setattr(get_settings().search, "log", True)
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    monkeypatch.setattr(usage, "current_session_id", lambda: "same")
+    monkeypatch.setattr(searchlog, "current_session_id", lambda: "same")
+    async with transaction_scope():
+        await searchlog.record(partner, "earlier", [rows[5].id])
+    hits = await search.search_engrams(
+        me, "tram", limit=5, semantic=False, rerank=False
+    )
+    assert _paths(hits) == [row.path for row in rows[:5]]
+    assert all("why" not in hit for hit in hits)
+    async with transaction_scope():
+        await searchlog.record(me, "earlier", [rows[5].id])
+    own = await search.search_engrams(me, "tram", limit=5, semantic=False, rerank=False)
+    assert own[4]["path"] == rows[5].path
+    assert own[4]["why"]["primed"] is True
