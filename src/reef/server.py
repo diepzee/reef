@@ -455,7 +455,7 @@ async def recall(
     comes from and a ref. Use it for any question about the person or their
     spaces. Open a ref only when its passage is not enough. A passage from
     inside a file names its page, and its ref ends in #page=N.
-    A result may say why its place changed.
+    A result that moved up may say why.
 
     :param question: the question, in the person's words
     :param space: search one space only, by its name from load_index; leave

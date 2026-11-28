@@ -188,7 +188,7 @@ def test_files_keep_their_slots_when_an_engram_crosses_them():
     assert why[b].place_by_match == 3
 
 
-def test_non_candidates_neither_enter_nor_set_the_largest_weight():
+def test_non_candidates_neither_enter_nor_change_a_candidates_share():
     """A change of subject cannot bring an old result into the candidates."""
     ids = [uuid4() for _ in range(7)]
     order, why = lift(

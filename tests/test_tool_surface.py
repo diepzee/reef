@@ -284,6 +284,7 @@ async def test_tool_descriptions_have_their_limits_filled_in(client: Client) -> 
     assert listed["write"].description.startswith(
         "Create or replace whole engrams, up to 20 in one call, all or nothing."
     )
+    assert "A result that moved up may say why." in listed["recall"].description
     for name, tool in listed.items():
         assert "{" not in tool.description, name
 

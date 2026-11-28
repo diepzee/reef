@@ -346,7 +346,8 @@ def test_protocol_explains_why_a_result_rose_without_growing_the_index():
     """The recall path takes fewer than 300 extra characters to explain."""
     text = " ".join((ROOT / "src/reef/protocol.md").read_text().split())
     sentence = (
-        "An engram that rose because of this session's earlier results or its links "
+        "An engram that rose because of this session's earlier results "
+        "or because a good match links to it "
         "carries `why`, with its original place and the sources. "
         "Tell the person why it came up when that helps."
     )

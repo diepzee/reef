@@ -620,8 +620,10 @@ async def brief(
 ) -> dict:
     """Return the engrams that bear on a topic, ready to advise or prepare on.
 
-    Ranked by :func:`reef.search.search_engrams`, engrams only. With reading
-    of files switched on, files are not searched, so none takes the place of
+    Ranked by :func:`reef.search.search_engrams`, engrams only. It is never
+    primed: the session must not decide what gets recorded as use. Spreading
+    still applies. With reading of files switched on, files are not searched,
+    so none takes the place of
     an engram. A log, an engram tagged ``log``, gives its last ``entries``
     entries across all its parts (see :mod:`reef.methods.logs`); several
     hits in one log make one item, at the best hit's place. Any other engram

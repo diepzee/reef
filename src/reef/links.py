@@ -58,8 +58,9 @@ async def neighbourhood(
     """Read up to two hops of active links for the armed person.
 
     Both ends are protected by row security. At most 2,000 link rows are
-    taken, best source first and then by link id. Replacement checks include incoming links outside
-    that cut, so a cut cannot make an old engram accept weight.
+    taken, best source first and then by link id. Replacement checks include
+    incoming links outside that cut, so a cut cannot make an old engram accept
+    weight.
 
     :param engram_ids: the starting engrams, best placed first
     :returns: neighbours in both directions and replaced engrams

@@ -6,13 +6,21 @@ All inputs are plain values. Nothing is read or stored here.
 from dataclasses import dataclass
 from uuid import UUID
 
+#: Best engrams kept from each earlier search.
 PRIMED_PER_SEARCH = 3
+#: Most distinct engrams that can carry session weight.
 PRIMED_ENGRAMS = 10
+#: How long an earlier search can count in this session.
 PRIMING_MINUTES = 60
+#: Candidate positions that can start spreading; files use a position too.
 SPREAD_SOURCES = 20
+#: Most matches the stage can lift; later results keep their order.
 CANDIDATES = 50
+#: Weight from the newest search, also the reference for a full primed share.
 NEWEST_WEIGHT = 0.5
+#: Fraction passed each round, also the reference for a full linked share.
 PASSED_ON = 0.5
+#: Most direct senders named in a recall note.
 LINKED_FROM = 3
 
 
@@ -125,7 +133,7 @@ def lift(
         (kind, next(ordered)) if kind == "page" else (kind, row_id)
         for kind, row_id in candidates
     ]
-    notes = {}
+    notes: dict[UUID, Why] = {}
     for place, (kind, row_id) in enumerate(ranking, 1):
         if kind != "page" or place >= places[row_id]:
             continue

@@ -3,13 +3,15 @@
 Two rankings, merged. Postgres full-text search finds engrams and files by
 their words. Where the deployment has an embedding service, the stored
 vectors find engrams by their meaning, and the two rankings are fused. See
-:func:`search_engrams`. Without a service, or when it does not answer, search
-is keyword search and nothing else changes.
+:func:`search_engrams`. Without a service, or when it does not answer, matches
+come from words alone. An optional stage lifts those matches using session
+results and readable links.
 
 With reading switched on (``REEF_FILE_TEXT``), a file is also found by the
 words on its pages and by the meaning of its chunks (see
 :mod:`reef.filechunks`), and a file hit names the page it was found on. With
-it off, every statement is the one search ran before files had text.
+it off and both ranking switches off, every statement is the one search ran
+before files had text.
 
 Every query runs in the same armed transaction as every other read, so the
 row-level policies scope it — a search can only ever rank content the
@@ -2017,7 +2019,7 @@ async def _lift_order(
     caller enters here only with a switch on and a question that is not exact.
 
     :param principal: the armed reader
-    :param ranking: at most fifty candidates, after any reranker
+    :param ranking: at most fifty candidates, after any reranker and file spread
     :param aliases: the reader's names for their spaces
     :param earlier: supplied history, or None to read this session's log
     :returns: the order and notes for engrams that rose
@@ -2025,7 +2027,7 @@ async def _lift_order(
     settings = get_settings().search
     savepoint = await DB.current_transaction.get().savepoint()
     try:
-        primed = {}
+        primed: dict[UUID, float] = {}
         if settings.priming:
             if earlier is None:
                 session_id = usage.current_session_id()
@@ -2035,7 +2037,8 @@ async def _lift_order(
                     else []
                 )
             primed = lifting.primed_weights(earlier)
-        linked, origins = {}, {}
+        linked: dict[UUID, float] = {}
+        origins: dict[UUID, dict[UUID, float]] = {}
         if settings.spreading:
             sources = {
                 row_id: 1 / place
@@ -2068,7 +2071,7 @@ async def _lift_order(
             if source_ids
             else {}
         )
-        notes = {}
+        notes: dict[UUID, dict] = {}
         for row_id, why in reasons.items():
             note = {"place_by_match": why.place_by_match}
             if why.primed:
@@ -2123,8 +2126,8 @@ async def search_engrams(
     ``REEF_RERANK_CANDIDATES`` results are read next to the query and put
     in its order, see :mod:`reef.rerank`.
 
-    A query with a quoted phrase or an exclusion is neither merged nor read
-    again: it stays exact.
+    A query with a quoted phrase or an exclusion is neither merged, read
+    again nor lifted: it stays exact.
 
     **Room for engrams.** With reading on, engrams and files are taken as
     candidates each on their own, by words and by meaning, so files that
@@ -2132,6 +2135,17 @@ async def search_engrams(
     at most ``REEF_SEARCH_FILES_IN_FIVE`` files while engrams remain, see
     :func:`spread`: after the fusion or the keyword ranking, again after
     the reranker, and on the rows of a search by words alone.
+
+    **Session and links.** With priming or spreading on, lift the first 50
+    matches after the reranker and its file spread, before replacements.
+    Recent results from this person's session give primed weight. Readable
+    links from good matches pass weight for two rounds. Each share uses a
+    fixed reference and is capped at one, so age and match place still count.
+    Only engrams can rise; files keep their slots and no new match enters.
+    Fetch at least 50 candidates, or the asked length when larger, and keep
+    any tail behind the lifted prefix. Empty rankings skip the stage.
+    With both switches off, the original statements and cut stay. The stage's
+    reads use a savepoint; a failure keeps the match order and gives no notes.
 
     **Never slow because of a model.** The search embeds the query first,
     then reads in one short transaction, then asks the reranker, then reads
@@ -2149,7 +2163,11 @@ async def search_engrams(
     an inserted replacement can push its old hit out. A failed replacement
     query keeps the original order and adds no notes.
 
-    Search never fails because of the embedding service or the reranker.
+    Only an engram whose final place is better than its place before the
+    lift carries ``why``. It names any priming and up to three direct link
+    neighbours that passed it weight, strongest first.
+
+    Search never fails because of the embedding service, reranker or lift.
     Without them, or when they are slow or down, the answer is the order
     it had without them.
 
@@ -2237,7 +2255,7 @@ async def search_engrams(
         )
         words_only = not closest and not reread and not lift_on
         if words_only:
-            # Keyword search, in one statement, as it always was.
+            # With both lifts off, keep the original keyword statement and cut.
             rows = await Engram.raw(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
                 *_hits_params(query, space_ids, limit, file_text),
@@ -2326,7 +2344,7 @@ async def search_engrams(
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
-        why = {}
+        why: dict[UUID, dict] = {}
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
         if lift_on and ranking:
