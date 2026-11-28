@@ -73,8 +73,9 @@ The runner times each Codex message, after getting its token. The sign-in
 provider's access tokens last 300 seconds (as of 27 November 2026). With a
 30-second margin, a refused sign-in in a message that took at least 270
 seconds makes the scenario `invalid`, even if a later call succeeds. The
-reason gives the measured time and the token lifetime. Every other reason,
-including failed calls, stays in the report.
+reason gives the measured time and the token lifetime. An invalid report
+lists every invalid cause, then sign-in notes, then failed calls. It leaves
+out unmet scenario checks, which may just follow from the invalid cause.
 
 A refusal in a shorter message keeps the usual verdict. For example, the
 report adds "Reef refused a fresh sign-in after 12 seconds". A required

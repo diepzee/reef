@@ -15,8 +15,9 @@ afterwards. :func:`score` turns what Codex did into one verdict:
   tool named in ``review_failed_tools``. A person reads the conversation.
 
 Every failed call to a Reef tool is listed in the reasons for ``pass``,
-``fail``, ``review`` and ``invalid``. An invalid verdict keeps the other
-reasons too, so a sign-in problem cannot hide another fault.
+``fail``, ``review`` and ``invalid``. An invalid verdict lists every invalid
+cause, then sign-in notes, then failed calls. It leaves out unmet scenario
+checks, which may just follow from the invalid cause.
 A scenario can name ``review_failed_tools`` to ask for review even when a
 later call succeeds.
 
@@ -269,10 +270,12 @@ def score(
     if session.other_tools:
         used = ", ".join(sorted(set(session.other_tools)))
         invalid.append(f"used tools outside Reef: {used}")
-    worked = {call.tool for call in session.tool_calls if call.ok}
     broken = [
         f"the call to {call.tool} failed" for call in session.tool_calls if not call.ok
     ]
+    if invalid:
+        return Scored(id_, "invalid", invalid + notes + broken, tools, seconds, longest)
+    worked = {call.tool for call in session.tool_calls if call.ok}
     failures = []
     for entry in scenario["tools_required"]:
         # A list is a set of alternatives: one of them is enough.
@@ -315,15 +318,6 @@ def score(
         not call.ok and call.tool in scenario.get("review_failed_tools", [])
         for call in session.tool_calls
     )
-    if invalid:
-        return Scored(
-            id_,
-            "invalid",
-            invalid + failures + doubts + notes + broken,
-            tools,
-            seconds,
-            longest,
-        )
     if failures:
         return Scored(id_, "fail", failures + notes + broken, tools, seconds, longest)
     if doubts or review_failed:

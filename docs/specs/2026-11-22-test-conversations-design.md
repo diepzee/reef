@@ -213,7 +213,8 @@ run with the server limited to those two tools by a per-run Codex setting
 - Per scenario: pass, fail, skipped, for review or invalid; the tools called
   in order; the duration and longest message. Totals per target at the end.
   A refused bearer sign-in in a message lasting at least 270 seconds makes
-  that scenario invalid. Other reasons stay in the report.
+  that scenario invalid. Its reasons list every invalid cause, then sign-in
+  notes, then failed calls; they leave out unmet scenario checks.
 - Reports hold only made-up content. They are saved outside git, and a summary
   goes on the ticket of the change being tested.
 

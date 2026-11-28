@@ -1763,8 +1763,9 @@ test home's sign-in to Codex.
   gives it 300 seconds (as of 27 November 2026). A refused sign-in in a
   message that took at least 270 seconds, allowing a 30-second margin,
   makes the scenario `invalid`. For example: "the sign-in ran out: the
-  message took 331 seconds and a sign-in lasts 300; run it again". Other
-  reasons stay in the report, even when invalid wins the verdict.
+  message took 331 seconds and a sign-in lasts 300; run it again". An invalid
+  report keeps every invalid cause, then sign-in notes, then failed calls.
+  It leaves out unmet scenario checks.
 - A shorter message keeps the usual verdict and adds a reason such as
   "Reef refused a fresh sign-in after 12 seconds". Investigate that refusal:
   the measured time does not explain it. Local runs have no bearer token

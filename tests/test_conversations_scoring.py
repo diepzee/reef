@@ -1816,16 +1816,13 @@ async def test_expired_sign_in_makes_the_scenario_invalid(
         _FakeTarget(server=run.PRODUCTION_SERVER), scenario, True, True
     )
     assert scored.verdict == "invalid"
-    assert (
-        "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
-        "300; run it again"
-    ) in scored.reasons
-    assert "the call to recall failed" in scored.reasons
-    if other_failures:
-        assert "required tool write was not used successfully" in scored.reasons
-        assert "forbidden tool recall was used" in scored.reasons
-        assert "personal/missing.md was not read afterwards" in scored.reasons
-        assert "the answer matches 'december'" in scored.reasons
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "the call to recall failed",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -1853,9 +1850,9 @@ def test_auth_refusal_uses_its_message_time(
     )
     assert scored.verdict == verdict
     assert session.message_seconds == pytest.approx([400, seconds])
-    assert "required tool recall was not used successfully" in scored.reasons
     assert "the call to recall failed" in scored.reasons
     if verdict == "fail":
+        assert "required tool recall was not used successfully" in scored.reasons
         assert (
             f"Reef refused a fresh sign-in after {seconds:.0f} seconds"
             in scored.reasons
@@ -1866,7 +1863,7 @@ def test_auth_refusal_uses_its_message_time(
 def test_long_auth_refusal_keeps_codex_and_shell_reasons(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An invalid verdict keeps the evidence of every other problem.
+    """An invalid verdict keeps its causes and failed calls in order.
 
     :param monkeypatch: replaces Codex and the clock
     """
@@ -1882,12 +1879,69 @@ def test_long_auth_refusal_keeps_codex_and_shell_reasons(
         _scenario(), session, {}, files=True, file_text=True, seconds=331, bearer=True
     )
     assert scored.verdict == "invalid"
-    assert "Codex failed: provider stopped" in scored.reasons
-    assert "used tools outside Reef: shell" in scored.reasons
-    assert "the call to recall failed" in scored.reasons
-    assert "required tool load_index was not used successfully" in scored.reasons
-    assert "fact not found: 3 december" in scored.reasons
-    assert any("331 seconds" in reason for reason in scored.reasons)
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "Codex failed: provider stopped",
+        "used tools outside Reef: shell",
+        "the call to recall failed",
+    ]
+
+
+def test_timeout_does_not_list_unmet_scenario_checks() -> None:
+    """A timeout says why the run is invalid, without listing its consequences."""
+    scenario = _scenario(
+        tools_required=["load_index", "write"],
+        facts=["12 uur"],
+        after=[
+            {"ref": "personal/old.md", "contains": ["old"]},
+            {"ref": "personal/new.md", "contains": ["12 uur"]},
+        ],
+    )
+    scored = _score(scenario, Session("t", [], [], "", error="timed out"))
+    assert scored.verdict == "invalid"
+    assert scored.reasons == ["Codex failed: timed out"]
+
+
+def test_invalid_reasons_put_sign_in_notes_before_failed_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep all invalid causes, then sign-in notes, then every failed call.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    refused = _probe(_refused_call("Authentication required", "isError", "reef_bench"))
+    session = _play_with_times(
+        monkeypatch,
+        [
+            refused,
+            Session("t", refused.tool_calls, ["shell"], "wrong", error="timed out"),
+        ],
+        [331, 12],
+    )
+    scenario = _scenario(
+        tools_forbidden=["recall"],
+        answer_must_not=["wrong"],
+        after=[{"ref": "personal/missing.md", "contains": ["new"]}],
+        review=True,
+    )
+    scored = score(
+        scenario, session, {}, files=True, file_text=True, seconds=343, bearer=True
+    )
+    assert scored.verdict == "invalid"
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "Codex failed: timed out",
+        "used tools outside Reef: shell",
+        "Reef refused a fresh sign-in after 12 seconds",
+        "the call to recall failed",
+        "the call to recall failed",
+    ]
 
 
 def test_fresh_auth_refusal_can_pass_after_a_retry(
