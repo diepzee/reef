@@ -116,7 +116,8 @@ async def instruct(
     :param body: the full new persona
     :param confirm: the token from the first call
     :returns: without ``confirm``, ``effect`` (plain text), ``token`` and
-        ``expires_in``; with it, ``path`` and ``version``
+        ``expires_in``, plus ``next``, how to confirm; with it, ``path`` and
+        ``version``
     :raises MethodError: ``engram_too_large``, ``stale_token`` or
         ``not_configured``
     """
@@ -192,8 +193,8 @@ async def share(
     :param confirm: the token from the first call
     :returns: without ``confirm``, ``text`` (exactly what would be shared:
         the whole body, or the section), ``effect`` (plain text), ``token``
-        and ``expires_in``; with it, ``shared`` (``space/path``) and
-        ``already_done``
+        and ``expires_in``, plus ``next``, how to confirm; with it, ``shared``
+        (``space/path``) and ``already_done``
     :raises MethodError: ``share_to_personal``, ``unknown_space``,
         ``read_only``, ``not_found``, ``share_needs_path``,
         ``passage_not_found``, ``passage_ambiguous``,
@@ -219,7 +220,7 @@ async def _stage_share(
     :param section: the exact text to share, or None
     :param to_path: the shared engram's path, or None
     :returns: ``text``, ``effect``, ``token`` (the promotion's nonce) and
-        ``expires_in``
+        ``expires_in``, plus ``next``, how to confirm
     :raises MethodError: as :func:`share` does
     """
     if any(
@@ -250,6 +251,7 @@ async def _stage_share(
         "effect": effect,
         "token": staged_share["nonce"],
         "expires_in": int(staged.TOKEN_TTL_SECONDS),
+        "next": staged.NEXT_STEP,
     }
 
 

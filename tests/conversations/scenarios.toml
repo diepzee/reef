@@ -310,6 +310,7 @@ absent = true
 [[scenario]]
 id = "replace-contract"
 kind = "write"
+review_failed_tools = ["write"]
 messages = [
   "Het contract met Archiefhaven voor 2027 vervangt dat van 2026. Leg dat vast bij het nieuwe contract.",
   "Ja, doe maar.",

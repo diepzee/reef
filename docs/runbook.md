@@ -1743,7 +1743,7 @@ in none of four runs with that setting and in all four with `required=true`.
 | Verdict | Meaning | What to do |
 |---|---|---|
 | `pass` | Right tools, and every fact and engram is in the answer. | Nothing. |
-| `review` | Right tools, but a fact or engram is missing from the answer. The assistant may have used other words. | Read the answer in the report. |
+| `review` | A fact or engram is missing from the answer, or a call to a tool named in `review_failed_tools` failed, even if a retry worked. | Read the conversation in the report. |
 | `fail` | A required tool is missing, a forbidden one was used, or the memory afterwards is wrong. | Investigate: this is a finding about Reef. |
 | `skipped` | The target lacks something the scenario needs, such as file reading. | Nothing, unless you expected it to run. |
 | `invalid` | Codex failed, or used a tool outside Reef. The scenario says nothing about Reef. | Run that scenario again with `--only`. |

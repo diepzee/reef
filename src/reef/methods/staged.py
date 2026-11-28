@@ -47,6 +47,12 @@ TOKEN_TTL_SECONDS = 600
 _PURPOSE = b"reef.methods.staged"
 """What the derived key is for; it keeps staged tokens apart from cookies."""
 
+NEXT_STEP = (
+    "Show the person the effect and ask. After a yes, send this same call again "
+    "with every argument unchanged, and add `confirm` with this token."
+)
+"""How to confirm a staged action after the person says yes."""
+
 
 def _secret() -> str:
     """Return the key staged tokens are signed with, or refuse to sign.
@@ -75,7 +81,7 @@ def stage(
     :param subject: what the action is about, such as the space and engram;
         JSON-serialisable and readable by whoever holds the token
     :param now: clock override for tests; defaults to wall time
-    :returns: ``{"token", "expires_in"}``, the lifetime in seconds
+    :returns: ``token``, ``expires_in`` in seconds, and ``next``, how to confirm
     :raises MethodError: ``not_configured``, when the secret is too short
     """
     issued = time.time() if now is None else now
@@ -86,7 +92,11 @@ def stage(
         "iat": issued,
     }
     token = seal(doc, secret=_secret(), ttl_seconds=TOKEN_TTL_SECONDS, now=issued)
-    return {"token": token, "expires_in": TOKEN_TTL_SECONDS}
+    return {
+        "token": token,
+        "expires_in": TOKEN_TTL_SECONDS,
+        "next": NEXT_STEP,
+    }
 
 
 async def _reset_epoch(caller: Caller) -> float | None:

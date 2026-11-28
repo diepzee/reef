@@ -51,6 +51,10 @@ async def test_share_moves_and_leaves_a_pointer(household):
     partner = caller_for(household["partner"])
     await save_as(me, "personal", "boiler.md", BOILER, title="Boiler")
     first = await share.share(me, "", "boiler.md", "household")
+    assert first["next"] == (
+        "Show the person the effect and ask. After a yes, send this same call again "
+        "with every argument unchanged, and add `confirm` with this token."
+    )
     assert first["expires_in"] == 600
     assert "Everyone in that space can read it" in first["effect"]
     assert ", and anyone invited later." in first["effect"]
@@ -403,6 +407,10 @@ async def test_instruct_needs_the_token(household):
     """The first call writes nothing; the second writes the persona."""
     me = caller_for(household["wouter"])
     first = await share.instruct(me, "", "Be blunt.")
+    assert first["next"] == (
+        "Show the person the effect and ask. After a yes, send this same call again "
+        "with every argument unchanged, and add `confirm` with this token."
+    )
     assert first["expires_in"] == 600 and "Be blunt." not in first["effect"]
     assert await _read(me, "personal", PERSONA_PATH) is None
     done = await share.instruct(me, "", "Be blunt.", confirm=first["token"])

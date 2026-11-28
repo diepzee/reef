@@ -252,8 +252,8 @@ async def forget(
     :param file: the key of the file to forget; or ``engram``
     :param confirm: the token from the first call
     :returns: without ``confirm``, ``effect`` (plain text), ``token`` and
-        ``expires_in``; with it, ``forgotten``, a reference like
-        :func:`reef.methods.find.open` takes
+        ``expires_in``, plus ``next``, how to confirm; with it, ``forgotten``,
+        a reference like :func:`reef.methods.find.open` takes
     :raises MethodError: ``one_target``, ``use_instruct``,
         ``protected_path``, ``unknown_space``, ``read_only``,
         ``not_found`` for a target that is missing or that the caller may
@@ -286,7 +286,7 @@ def _stage(caller: Caller, subject: dict) -> dict:
 
     :param caller: who is staging
     :param subject: the target
-    :returns: ``token`` and ``expires_in``
+    :returns: ``token``, ``expires_in`` and ``next``, how to confirm
     """
     return staged.stage(caller, FORGET, subject)
 

@@ -18,6 +18,11 @@ section of `docs/runbook.md`.
 - `worker-task.md`: the task for an Orca worker; `{target}` is `local` or `production`.
 - `../../tests/conversations/scenarios.toml`: the scenarios.
 
+A scenario can set `review_failed_tools = ["write"]` to ask for review when
+a call to that tool fails, even if a retry works. Other failures still keep
+their `fail` verdict. `replace-contract` uses this to catch a confirmation
+sent without the original arguments.
+
 ## Run it
 
 Once, before any run (local or production), sign in the runner's own Codex home:
