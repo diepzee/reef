@@ -13,7 +13,7 @@ from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB, transaction_scope
 from reef.engrams import save_engram
-from reef.models import Attachment, AttachmentStatus, Engram, Link
+from reef.models import Attachment, AttachmentStatus, Engram, FilePage, Link
 
 service = shared_service
 reranker = shared_reranker
@@ -390,11 +390,29 @@ async def test_match_place_follows_the_rerankers_file_spread(
 
 
 @pytest.mark.parametrize("route", ["words", "hybrid", "reranker"])
+@pytest.mark.parametrize("file_text", [False, True], ids=["reading-off", "reading-on"])
 async def test_both_off_keep_the_original_statements_and_cut(
-    matches, reranker, monkeypatch, route
+    matches, reranker, monkeypatch, route, file_text
 ):
     """Pin statements captured before wiring in the stage, on all routes."""
     me, rows = matches
+    monkeypatch.setattr(get_settings().reading, "enabled", file_text)
+    if file_text:
+        async with transaction_scope():
+            await arm(me)
+            file = Attachment(
+                space_id=rows[0].space_id,
+                object_key="read-file",
+                filename="notes.pdf",
+                mime="application/pdf",
+                byte_size=1,
+                description="Notes",
+                status=AttachmentStatus.READY.value,
+            )
+            await file.save()
+            await FilePage(
+                attachment_id=file.id, number=1, text="car " * 20, reader="tesseract"
+            ).save()
     recorded = []
     original = DB.run_querystring
 
@@ -408,10 +426,14 @@ async def test_both_off_keep_the_original_statements_and_cut(
     hits = await search.search_engrams(
         me, "car", limit=5, semantic=route == "hybrid", rerank=route == "reranker"
     )
-    assert _paths(hits) == [r.path for r in rows[:5]]
+    assert _paths(hits) == [r.path for r in rows[: 4 if file_text else 5]]
+    if file_text:
+        assert len([hit for hit in hits if hit["kind"] == "file"]) == 1
     assert all("why" not in hit for hit in hits)
     hashes = [hashlib.sha256(sql.encode()).hexdigest() for sql, _ in recorded]
-    assert hashes == BASELINE[route], {route: hashes}
+    assert hashes == (BASELINE_READING if file_text else BASELINE)[route], "\n".join(
+        hashes
+    )
     if route == "words":
         matching = [
             (sql, args)
@@ -421,7 +443,7 @@ async def test_both_off_keep_the_original_statements_and_cut(
         assert len(matching) == 1 and matching[0][1][-1] == 5
 
 
-# Statement hashes captured before the lift was wired into search.
+# Statement hashes captured before the lift was wired into search (817b715).
 BASELINE = {
     "words": [
         "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
@@ -446,6 +468,37 @@ BASELINE = {
         "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
         "1739763be5cd8330a7c232ea87b33d845d5bba0b980eb877a95bea946fe134e8",
         "04c41afe71426b6554af24a4118c9c62c312f77adac2ce6ff8e07184467a87d2",
+    ],
+}
+
+# Reading-on hashes come from the same search implementation at 817b715.
+BASELINE_READING = {
+    "words": [
+        "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
+        "5f8c991bb2f4ef48db0f98164e7aac98968c3b7c4450c4705522ba6b0cfc31d0",
+        "f3f7a30f0a2fb12821b18b9f813d30b2543cbebe0af362a536cf08e56894446c",
+        "1739763be5cd8330a7c232ea87b33d845d5bba0b980eb877a95bea946fe134e8",
+    ],
+    "hybrid": [
+        "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
+        "5f8c991bb2f4ef48db0f98164e7aac98968c3b7c4450c4705522ba6b0cfc31d0",
+        "ed10493ec7888452c6f2af0571b664bf5a0f2e4031c5108d0cdba7cbf46c3336",
+        "9ff83d5fc780581e6e295c664c0c2ab28ab2e3bc4bb9cf4e524c31216cfac3e7",
+        "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
+        "1739763be5cd8330a7c232ea87b33d845d5bba0b980eb877a95bea946fe134e8",
+        "0c84c337e410f4bf2bd944a8289ee65b7694428916ee561fc7580e1d91dac139",
+        "360b4c58ad1447600bf19d7d9b4fe3d524a435ec98938b745069257fb67f94fd",
+    ],
+    "reranker": [
+        "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
+        "5f8c991bb2f4ef48db0f98164e7aac98968c3b7c4450c4705522ba6b0cfc31d0",
+        "a5a729b72263f67f84b5c15de3408a734009de72f84e62939c64f88840e43c05",
+        "1d3c713b551fb23263b64775ba748633a2dbb4201c937e1e2cb7816378059df3",
+        "8e8c67007359ad5ca89db86f6276396e537a515f38989e7e560f01d9bc5602f5",
+        "bdc59790111161b74154f6cf4bfc6f5ce5cf6f7f9525a3e0d282c98fc1dd4637",
+        "3fe9c87f44fb190a85d33bc8109ea8f95673dd70e498b1fd49d38390e6c92c94",
+        "1739763be5cd8330a7c232ea87b33d845d5bba0b980eb877a95bea946fe134e8",
+        "360b4c58ad1447600bf19d7d9b4fe3d524a435ec98938b745069257fb67f94fd",
     ],
 }
 
@@ -500,12 +553,16 @@ async def test_every_enabled_route_gives_the_stage_fifty_candidates(
         assert seen == [50, 50]
 
 
-async def test_a_file_keeps_its_slot_and_never_gets_a_reason(matches, monkeypatch):
+@pytest.mark.parametrize("file_text", [False, True], ids=["reading-off", "reading-on"])
+async def test_a_file_keeps_its_slot_and_never_gets_a_reason(
+    matches, monkeypatch, file_text
+):
     """Lifting an engram past a file does not move the file's slot."""
     me, rows = matches
+    monkeypatch.setattr(get_settings().reading, "enabled", file_text)
     async with transaction_scope():
         await arm(me)
-        await Attachment(
+        file = Attachment(
             space_id=rows[0].space_id,
             object_key="files/car",
             filename="car.pdf",
@@ -513,6 +570,10 @@ async def test_a_file_keeps_its_slot_and_never_gets_a_reason(matches, monkeypatc
             byte_size=1,
             description="car",
             status=AttachmentStatus.READY.value,
+        )
+        await file.save()
+        await FilePage(
+            attachment_id=file.id, number=1, text="car " * 20, reader="tesseract"
         ).save()
     before = await search.search_engrams(
         me, "car", limit=10, semantic=False, rerank=False
