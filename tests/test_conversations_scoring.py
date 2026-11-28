@@ -2015,6 +2015,48 @@ def test_recorded_auth_result_uses_content_not_metadata(
     assert not _probe(event).tool_calls[0].auth_required
 
 
+@pytest.mark.parametrize("seconds, verdict", [(12, "review"), (331, "invalid")])
+def test_auth_timing_keeps_failed_write_review(
+    monkeypatch: pytest.MonkeyPatch, seconds: float, verdict: str
+) -> None:
+    """A long auth refusal wins over write review without losing either reason.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param seconds: duration of the message with the auth refusal
+    :param verdict: the verdict after also seeing a failed write
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [
+            _probe(_refused_call("Authentication required", "isError", "reef_bench")),
+            Session(
+                "t",
+                [
+                    ToolCall("reef_bench", "load_index", {}, True),
+                    ToolCall("reef_bench", "recall", {}, True),
+                    ToolCall("reef_bench", "write", {}, False),
+                ],
+                [],
+                RIGHT_ANSWER,
+            ),
+        ],
+        [seconds, 1],
+    )
+    scored = score(
+        _scenario(review_failed_tools=["write"]),
+        session,
+        {},
+        files=True,
+        file_text=True,
+        seconds=seconds + 1,
+        bearer=True,
+    )
+    assert scored.verdict == verdict
+    assert "the call to write failed" in scored.reasons
+    assert "the call to recall failed" in scored.reasons
+    assert any(f"{seconds:.0f} seconds" in reason for reason in scored.reasons)
+
+
 @pytest.mark.parametrize("seconds", [12, 331])
 def test_measured_local_refusal_keeps_local_scoring(
     monkeypatch: pytest.MonkeyPatch, seconds: float

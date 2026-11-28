@@ -14,9 +14,9 @@ afterwards. :func:`score` turns what Codex did into one verdict:
 * ``review``: a fact or engram is not in the answer, or a call failed to a
   tool named in ``review_failed_tools``. A person reads the conversation.
 
-Every failed call to a Reef tool is listed for ``pass``, ``fail``, ``review``
-and ``invalid``. An invalid verdict keeps the other reasons too, so a sign-in
-problem cannot hide another fault.
+Every failed call to a Reef tool is listed in the reasons for ``pass``,
+``fail``, ``review`` and ``invalid``. An invalid verdict keeps the other
+reasons too, so a sign-in problem cannot hide another fault.
 A scenario can name ``review_failed_tools`` to ask for review even when a
 later call succeeds.
 

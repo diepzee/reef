@@ -65,7 +65,7 @@ overrides whether the target reads file text. Reports go to
 | --- | --- |
 | `pass` | The tools, answer and memory checks passed. |
 | `fail` | A required tool did not work, a forbidden tool was used, or another check failed. |
-| `review` | The tools and checks passed, but a person must read the answer. |
+| `review` | No failing checks, but the answer needs review or a call failed to a tool named in `review_failed_tools`. |
 | `skipped` | The target lacks something the scenario needs. |
 | `invalid` | Codex failed, used a tool outside Reef, or Reef refused a bearer sign-in near its time limit. |
 
