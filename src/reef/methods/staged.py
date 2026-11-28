@@ -48,8 +48,8 @@ _PURPOSE = b"reef.methods.staged"
 """What the derived key is for; it keeps staged tokens apart from cookies."""
 
 NEXT_STEP = (
-    "Ask the person first. After a yes, send this same call again with every "
-    "argument unchanged, and add `confirm` with this token."
+    "Show the person the effect and ask. After a yes, send this same call again "
+    "with every argument unchanged, and add `confirm` with this token."
 )
 """How to confirm a staged action after the person says yes."""
 

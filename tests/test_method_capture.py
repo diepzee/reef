@@ -34,8 +34,8 @@ async def test_replaces_stages_the_whole_batch(household, monkeypatch, seed) -> 
     ]
     staged = await capture.write(me, "", "personal", items, "replace")
     assert staged["next"] == (
-        "Ask the person first. After a yes, send this same call again with every "
-        "argument unchanged, and add `confirm` with this token."
+        "Show the person the effect and ask. After a yes, send this same call again "
+        "with every argument unchanged, and add `confirm` with this token."
     )
     assert set(staged) == {"effect", "token", "expires_in", "next"}
     assert (
