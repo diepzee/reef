@@ -327,6 +327,41 @@ async def test_the_stage_runs_after_the_reranker(matches, reranker, monkeypatch)
     assert hits[4]["why"] == {"place_by_match": 6, "primed": True}
 
 
+async def test_match_place_follows_the_rerankers_file_spread(
+    matches, reranker, monkeypatch
+):
+    """The note starts from the same file spacing as the disabled stage."""
+    me, rows = matches
+    monkeypatch.setattr(get_settings().reading, "enabled", True)
+    async with transaction_scope():
+        await arm(me)
+        for number in range(4):
+            await Attachment(
+                space_id=rows[0].space_id,
+                object_key=f"file-{number}",
+                filename=f"filemark-{number}.pdf",
+                mime="application/pdf",
+                byte_size=1,
+                description="car filemark",
+                status=AttachmentStatus.READY.value,
+            ).save()
+
+    async def files_first(query, documents):
+        """Put all four files first, so file spreading must make room."""
+        return [1000 if "filemark" in doc else doc.count("car") for doc in documents]
+
+    monkeypatch.setattr(reranker, "score", files_first)
+    before = await search.search_engrams(me, "car", limit=12, semantic=False)
+    assert before[4]["kind"] == "page"
+    target = next(row for row in rows if row.path == before[4]["path"])
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    after = await search.search_engrams(
+        me, "car", limit=12, semantic=False, earlier=[[target.id]]
+    )
+    assert after[3]["path"] == target.path
+    assert after[3]["why"] == {"place_by_match": 5, "primed": True}
+
+
 @pytest.mark.parametrize("route", ["words", "hybrid", "reranker"])
 async def test_both_off_keep_the_original_statements_and_cut(
     matches, reranker, monkeypatch, route

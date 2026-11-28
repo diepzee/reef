@@ -2319,10 +2319,10 @@ async def search_engrams(
     async with transaction_scope():
         await arm(principal)
         why = {}
-        if lift_on:
-            ranking, why = await _lift_order(principal, ranking, aliases, earlier)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
+        if lift_on:
+            ranking, why = await _lift_order(principal, ranking, aliases, earlier)
         ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
