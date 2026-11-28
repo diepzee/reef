@@ -15,6 +15,7 @@ import subprocess
 import sys
 from importlib.metadata import version
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from events import Session, ToolCall, combine, parse_events
@@ -120,7 +121,13 @@ def _score(
     :returns: the scored scenario
     """
     return score(
-        scenario, session, after or {}, files=files, file_text=file_text, seconds=1.5
+        scenario,
+        session,
+        after or {},
+        files=files,
+        file_text=file_text,
+        seconds=1.5,
+        bearer=False,
     )
 
 
@@ -210,6 +217,12 @@ def test_right_answer_passes():
 def test_no_session_is_invalid():
     """Without a session there is nothing to score."""
     assert _score(_scenario(), None).verdict == "invalid"
+
+
+def test_scoring_requires_the_sign_in_mode() -> None:
+    """A caller must say whether the conversation used a bearer token."""
+    with pytest.raises(TypeError, match="bearer"):
+        score(_scenario(), None, {}, files=True, file_text=True, seconds=0)
 
 
 def test_shell_use_is_invalid():
@@ -1687,6 +1700,499 @@ def test_failed_call_to_the_only_used_alternative_does_not_count():
     scored = _score(scenario, session)
     assert scored.verdict == "fail"
     assert "none of open, recall was used successfully" in scored.reasons
+
+
+def _refused_call(message: str, shape: str, server: str) -> dict:
+    """Build a failed tool event as Codex would print it.
+
+    :param message: the refusal from Reef
+    :param shape: transport error, or either spelling of the result error flag
+    :param server: the server Codex called
+    :returns: the completed tool event
+    """
+    item = {
+        "id": "refused",
+        "type": "mcp_tool_call",
+        "server": server,
+        "tool": "recall",
+        "status": "failed" if shape == "transport" else "completed",
+    }
+    if shape == "transport":
+        item["error"] = {"message": f"tools/call failed: {message}"}
+    else:
+        item["result"] = {
+            shape: True,
+            "content": [{"type": "text", "text": message}],
+        }
+    return {"type": "item.completed", "item": item}
+
+
+def _play_with_times(
+    monkeypatch: pytest.MonkeyPatch,
+    sessions: list[Session],
+    seconds: list[float],
+    *,
+    bearer: bool = True,
+) -> Session:
+    """Play fake Codex turns against a clock, including slow token fetching.
+
+    :param monkeypatch: replaces Codex, token fetching and the runner's clock
+    :param sessions: what each Codex message returns
+    :param seconds: how long each Codex message takes
+    :param bearer: whether to use the production server settings
+    :returns: the measured conversation
+    """
+    clock = [100.0]
+    turns = iter(zip(sessions, seconds, strict=True))
+
+    def token() -> str:
+        """Spend time getting a made-up token.
+
+        :returns: a made-up token
+        """
+        clock[0] += 1000
+        return TOKEN
+
+    def codex(*args: object) -> Session:
+        """Spend the chosen time on one message.
+
+        :param args: ignored Codex arguments
+        :returns: the next session
+        """
+        session, duration = next(turns)
+        clock[0] += duration
+        return session
+
+    monkeypatch.setattr(run, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(run, "cli_token", token)
+    monkeypatch.setattr(run, "_run_codex", codex)
+    server = run.PRODUCTION_SERVER if bearer else run.local_server("test-secret")
+    return run.play(_scenario(messages=["message"] * len(sessions)), server)
+
+
+@pytest.mark.parametrize("shape", ["transport", "isError", "is_error"])
+@pytest.mark.parametrize("other_failures", [False, True])
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Authentication required",
+        (
+            "Authentication failed. The provided bearer token is invalid, expired, "
+            "or no longer recognized by the server. To resolve: clear authentication "
+            "tokens in your MCP client and reconnect. Your client should automatically "
+            "re-register and obtain new tokens."
+        ),
+    ],
+    ids=["mcp", "fastmcp"],
+)
+async def test_expired_sign_in_makes_the_scenario_invalid(
+    monkeypatch: pytest.MonkeyPatch, shape: str, other_failures: bool, message: str
+) -> None:
+    """A refused sign-in outweighs both a good retry and other failed checks.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param shape: how Codex reports the refusal
+    :param other_failures: also fail tool, answer and memory checks
+    :param message: the auth refusal from MCP or FastMCP
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [
+            _probe(_refused_call(message, shape, "reef_bench")),
+            _session("load_index", "recall", answer=RIGHT_ANSWER),
+        ],
+        [331, 1],
+    )
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scenario = _scenario()
+    if other_failures:
+        scenario |= {
+            "tools_required": ["write"],
+            "tools_forbidden": ["recall"],
+            "answer_must_not": ["december"],
+            "after": [{"ref": "personal/missing.md", "contains": ["new"]}],
+        }
+    scored, _ = await run._play_one(
+        _FakeTarget(server=run.PRODUCTION_SERVER), scenario, True, True
+    )
+    assert scored.verdict == "invalid"
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "the call to recall failed",
+    ]
+
+
+@pytest.mark.parametrize(
+    "seconds, verdict", [(12, "fail"), (269.9, "fail"), (270, "invalid")]
+)
+def test_auth_refusal_uses_its_message_time(
+    monkeypatch: pytest.MonkeyPatch, seconds: float, verdict: str
+) -> None:
+    """Only the refused message's time counts, with a thirty-second margin.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param seconds: duration of the refused message
+    :param verdict: expected verdict at this duration
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [
+            _session("load_index", answer=RIGHT_ANSWER),
+            _probe(_refused_call("Authentication required", "isError", "reef_bench")),
+        ],
+        [400, seconds],
+    )
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=999, bearer=True
+    )
+    assert scored.verdict == verdict
+    assert session.message_seconds == pytest.approx([400, seconds])
+    assert "the call to recall failed" in scored.reasons
+    if verdict == "fail":
+        assert "required tool recall was not used successfully" in scored.reasons
+        assert (
+            f"Reef refused a fresh sign-in after {seconds:.0f} seconds"
+            in scored.reasons
+        )
+        assert not any("ran out" in reason for reason in scored.reasons)
+
+
+def test_long_auth_refusal_keeps_codex_and_shell_reasons(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An invalid verdict keeps its causes and failed calls in order.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    refused = _probe(
+        _refused_call("Authentication required", "transport", "reef_bench")
+    )
+    session = _play_with_times(
+        monkeypatch,
+        [Session("t", refused.tool_calls, ["shell"], "", error="provider stopped")],
+        [331],
+    )
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=331, bearer=True
+    )
+    assert scored.verdict == "invalid"
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "Codex failed: provider stopped",
+        "used tools outside Reef: shell",
+        "the call to recall failed",
+    ]
+
+
+def test_timeout_does_not_list_unmet_scenario_checks() -> None:
+    """A timeout says why the run is invalid, without listing its consequences."""
+    scenario = _scenario(
+        tools_required=["load_index", "write"],
+        facts=["12 uur"],
+        after=[
+            {"ref": "personal/old.md", "contains": ["old"]},
+            {"ref": "personal/new.md", "contains": ["12 uur"]},
+        ],
+    )
+    scored = _score(scenario, Session("t", [], [], "", error="timed out"))
+    assert scored.verdict == "invalid"
+    assert scored.reasons == ["Codex failed: timed out"]
+
+
+def test_invalid_reasons_put_sign_in_notes_before_failed_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep all invalid causes, then sign-in notes, then every failed call.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    refused = _probe(_refused_call("Authentication required", "isError", "reef_bench"))
+    session = _play_with_times(
+        monkeypatch,
+        [
+            refused,
+            Session("t", refused.tool_calls, ["shell"], "wrong", error="timed out"),
+        ],
+        [331, 12],
+    )
+    scenario = _scenario(
+        tools_forbidden=["recall"],
+        answer_must_not=["wrong"],
+        after=[{"ref": "personal/missing.md", "contains": ["new"]}],
+        review=True,
+    )
+    scored = score(
+        scenario, session, {}, files=True, file_text=True, seconds=343, bearer=True
+    )
+    assert scored.verdict == "invalid"
+    assert scored.reasons == [
+        (
+            "the sign-in ran out: the message took 331 seconds and a sign-in lasts "
+            "300; run it again"
+        ),
+        "Codex failed: timed out",
+        "used tools outside Reef: shell",
+        "Reef refused a fresh sign-in after 12 seconds",
+        "the call to recall failed",
+        "the call to recall failed",
+    ]
+
+
+def test_fresh_auth_refusal_can_pass_after_a_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A short refusal keeps the old verdict and adds its measured reason.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [
+            _probe(_refused_call("Authentication required", "isError", "reef_bench")),
+            _session("load_index", "recall", answer=RIGHT_ANSWER),
+        ],
+        [12, 1],
+    )
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=13, bearer=True
+    )
+    assert scored.verdict == "pass"
+    assert "Reef refused a fresh sign-in after 12 seconds" in scored.reasons
+    assert "the call to recall failed" in scored.reasons
+
+
+def test_unmeasured_auth_refusal_does_not_claim_expiry() -> None:
+    """An unmeasured record cannot show that a sign-in ran out."""
+    session = _probe(_refused_call("Authentication required", "isError", "reef_bench"))
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=400, bearer=True
+    )
+    assert scored.verdict == "fail"
+    assert "Reef refused a sign-in; the message time was not measured" in scored.reasons
+
+
+def test_report_shows_the_longest_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The longest whole message is shown in both report formats.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param tmp_path: where the reports go
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [_session("load_index"), _session("recall", answer=RIGHT_ANSWER)],
+        [12.2, 331.4],
+    )
+    scored = _score(_scenario(), session)
+    skipped = _score(_scenario(id="skipped", needs=["files"]), None, files=False)
+    unmeasured = _score(_scenario(id="unmeasured"), _session())
+    paths = write_report(tmp_path, "timing", {}, [scored, skipped, unmeasured], {})
+    report = json.loads(paths[0].read_text())
+    assert report["scenarios"][0]["longest_message_seconds"] == 331
+    assert report["scenarios"][1]["longest_message_seconds"] is None
+    assert report["scenarios"][2]["longest_message_seconds"] is None
+    markdown = paths[1].read_text()
+    assert "| Scenario | Verdict | Seconds | Longest message (s) | Tools |" in markdown
+    assert "| dentist | pass | 2 | 331 | load_index recall |" in markdown
+    assert "| skipped | skipped | 2 | — |" in markdown
+
+
+def test_invalid_report_keeps_the_longest_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A failed Codex message still contributes to the longest message.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param tmp_path: where the reports go
+    """
+    session = _play_with_times(
+        monkeypatch, [Session("t", [], [], "", error="timed out")], [420]
+    )
+    scored = _score(_scenario(), session)
+    paths = write_report(tmp_path, "timing", {}, [scored], {})
+    item = json.loads(paths[0].read_text())["scenarios"][0]
+    assert item["verdict"] == "invalid"
+    assert item["longest_message_seconds"] == 420
+
+
+def test_recorded_auth_result_uses_content_not_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read the real result shape, with the exec event names around it.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    event = {
+        "type": "item.completed",
+        "item": {
+            "id": "recorded-auth-refusal",
+            "type": "mcp_tool_call",
+            "server": "reef_bench",
+            "tool": "load_index",
+            "arguments": {"reason": "..."},
+            "status": "failed",
+            "result": {
+                "content": [{"type": "text", "text": "Authentication required"}],
+                "isError": True,
+                "_meta": {
+                    "mcp/www_authenticate": [
+                        (
+                            'Bearer error="invalid_token", error_description="Authentication '
+                            "failed. The provided bearer token is invalid, expired, or no "
+                            'longer recognized by the server. ..."'
+                        )
+                    ]
+                },
+            },
+            "duration": {"secs": 0, "nanos": 360417291},
+        },
+    }
+    parsed = _probe(event)
+    assert parsed.tool_calls[0].auth_required
+    assert not parsed.tool_calls[0].ok
+    session = _play_with_times(monkeypatch, [parsed], [331])
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=331, bearer=True
+    )
+    assert scored.verdict == "invalid"
+    assert any("331 seconds" in reason for reason in scored.reasons)
+
+    # The metadata alone must not turn a different tool error into an auth error.
+    event["item"]["result"]["content"][0]["text"] = "invalid_arguments"
+    assert not _probe(event).tool_calls[0].auth_required
+
+
+@pytest.mark.parametrize("seconds, verdict", [(12, "review"), (331, "invalid")])
+def test_auth_timing_keeps_failed_write_review(
+    monkeypatch: pytest.MonkeyPatch, seconds: float, verdict: str
+) -> None:
+    """A long auth refusal wins over write review without losing either reason.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param seconds: duration of the message with the auth refusal
+    :param verdict: the verdict after also seeing a failed write
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [
+            _probe(_refused_call("Authentication required", "isError", "reef_bench")),
+            Session(
+                "t",
+                [
+                    ToolCall("reef_bench", "load_index", {}, True),
+                    ToolCall("reef_bench", "recall", {}, True),
+                    ToolCall("reef_bench", "write", {}, False),
+                ],
+                [],
+                RIGHT_ANSWER,
+            ),
+        ],
+        [seconds, 1],
+    )
+    scored = score(
+        _scenario(review_failed_tools=["write"]),
+        session,
+        {},
+        files=True,
+        file_text=True,
+        seconds=seconds + 1,
+        bearer=True,
+    )
+    assert scored.verdict == verdict
+    assert "the call to write failed" in scored.reasons
+    assert "the call to recall failed" in scored.reasons
+    assert any(f"{seconds:.0f} seconds" in reason for reason in scored.reasons)
+
+
+@pytest.mark.parametrize("seconds", [12, 331])
+def test_measured_local_refusal_keeps_local_scoring(
+    monkeypatch: pytest.MonkeyPatch, seconds: float
+) -> None:
+    """Local calls have no bearer token that can expire.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param seconds: duration of the local message
+    """
+    refused = _probe(_refused_call("Authentication required", "isError", "reef_local"))
+    session = _play_with_times(monkeypatch, [refused], [seconds], bearer=False)
+    scored = _score(_scenario(), session)
+    assert scored.verdict == "fail"
+    assert not any("sign-in" in reason for reason in scored.reasons)
+
+
+@pytest.mark.parametrize("bearer", [False, True])
+@pytest.mark.parametrize("retry", [False, True])
+async def test_other_tool_refusals_keep_their_verdict(
+    monkeypatch: pytest.MonkeyPatch, bearer: bool, retry: bool
+) -> None:
+    """Bad arguments still fail a required call, or pass after a good retry.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param bearer: whether the run uses a bearer token
+    :param retry: whether the failed tool later succeeds
+    """
+    server = run.PRODUCTION_SERVER if bearer else run.local_server("test-secret")
+    session = _probe(_refused_call("invalid_arguments", "isError", server.name))
+    session = combine(
+        [
+            _session("load_index", answer=RIGHT_ANSWER),
+            session,
+            _session(*(["recall"] if retry else [])),
+        ]
+    )
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(_FakeTarget(server=server), _scenario(), True, True)
+    assert scored.verdict == ("pass" if retry else "fail")
+    assert "the call to recall failed" in scored.reasons
+
+
+@pytest.mark.parametrize("retry", [False, True])
+async def test_local_auth_refusal_keeps_its_verdict(
+    monkeypatch: pytest.MonkeyPatch, retry: bool
+) -> None:
+    """A local run has no bearer token that could have run out.
+
+    :param monkeypatch: replaces Codex with recorded events
+    :param retry: whether the failed tool later succeeds
+    """
+    session = _probe(
+        _refused_call("Authentication required", "transport", "reef_local")
+    )
+    session = combine(
+        [
+            _session("load_index", answer=RIGHT_ANSWER),
+            session,
+            _session(*(["recall"] if retry else [])),
+        ]
+    )
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(_FakeTarget(), _scenario(), True, True)
+    assert scored.verdict == ("pass" if retry else "fail")
+    assert "the call to recall failed" in scored.reasons
+
+
+async def test_auth_words_in_a_successful_result_are_not_a_refusal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An engram may quote the auth error without making a good run invalid.
+
+    :param monkeypatch: replaces Codex with recorded events
+    """
+    event = _refused_call("Authentication required", "isError", "reef_bench")
+    event["item"]["result"]["isError"] = False
+    session = combine([_probe(event), _session("load_index", answer=RIGHT_ANSWER)])
+    monkeypatch.setattr(run, "play", lambda *args: session)
+    scored, _ = await run._play_one(
+        _FakeTarget(server=run.PRODUCTION_SERVER), _scenario(), True, True
+    )
+    assert scored.verdict == "pass"
 
 
 def test_coverage_counts_alternatives():

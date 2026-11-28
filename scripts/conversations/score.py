@@ -5,17 +5,21 @@ which facts and engrams its answer must hold, and what the memory must hold
 afterwards. :func:`score` turns what Codex did into one verdict:
 
 * ``skipped``: the target lacks something the scenario needs.
-* ``invalid``: there is no session, Codex failed, or the assistant used a
-  tool outside Reef. The run says nothing about Reef.
+* ``invalid``: there is no session, Codex failed, the assistant used a
+  tool outside Reef, or Reef refused a bearer sign-in near its time limit.
+  Read every reason before running the scenario again.
 * ``fail``: a required tool is missing, a forbidden tool was used, or the
   memory afterwards is not as it must be.
 * ``pass``: the tools are right and every fact and engram is in the answer.
 * ``review``: a fact or engram is not in the answer, or a call failed to a
   tool named in ``review_failed_tools``. A person reads the conversation.
 
-Every failed call to a Reef tool is listed in the reasons, whatever the
-verdict. A scenario can name ``review_failed_tools`` to ask for review even
-when a later call succeeds.
+Every failed call to a Reef tool is listed in the reasons for ``pass``,
+``fail``, ``review`` and ``invalid``. An invalid verdict lists every invalid
+cause, then sign-in notes, then failed calls. It leaves out unmet scenario
+checks, which may just follow from the invalid cause.
+A scenario can name ``review_failed_tools`` to ask for review even when a
+later call succeeds.
 
 Reports never hold a staged token, a share nonce or a signed link.
 """
@@ -34,6 +38,11 @@ Verdict = Literal["pass", "fail", "review", "skipped", "invalid"]
 
 #: What a scenario may need from the target before it can be played.
 NEEDS = frozenset({"files", "file_text"})
+
+#: The sign-in provider's access-token lifetime: 300 seconds on 27 Nov 2026.
+ACCESS_TOKEN_LIFETIME = 300
+#: Allow thirty seconds for a sign-in close to its time limit.
+ACCESS_TOKEN_MARGIN = 30
 
 #: A sealed staged token: two long URL-safe base64 parts joined by a dot.
 _TOKEN = re.compile(r"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}")
@@ -59,6 +68,7 @@ class Scored:
     :param reasons: what led to it, in plain words
     :param tools: the Reef tools the assistant called, in order
     :param seconds: how long the conversation took
+    :param longest_message_seconds: the longest measured message, in whole seconds
     """
 
     id: str
@@ -66,6 +76,7 @@ class Scored:
     reasons: list[str]
     tools: list[str]
     seconds: float
+    longest_message_seconds: int | None = None
 
 
 def load(path: Path | str) -> list[dict]:
@@ -186,6 +197,33 @@ def _check_after(checks: list[dict], after: dict[str, str | dict | None]) -> lis
     return reasons
 
 
+def _sign_in_reasons(session: Session) -> tuple[list[str], list[str]]:
+    """Explain refused sign-ins using the time of the message that made them.
+
+    :param session: the calls and measured message times
+    :returns: reasons that make the scenario invalid, and other sign-in notes
+    """
+    invalid: list[str] = []
+    notes: list[str] = []
+    turns = sorted({call.turn for call in session.tool_calls if call.auth_required})
+    for turn in turns:
+        seconds = (
+            session.message_seconds[turn]
+            if turn < len(session.message_seconds)
+            else None
+        )
+        if seconds is None:
+            notes.append("Reef refused a sign-in; the message time was not measured")
+        elif seconds >= ACCESS_TOKEN_LIFETIME - ACCESS_TOKEN_MARGIN:
+            invalid.append(
+                f"the sign-in ran out: the message took {seconds:.0f} seconds "
+                f"and a sign-in lasts {ACCESS_TOKEN_LIFETIME}; run it again"
+            )
+        else:
+            notes.append(f"Reef refused a fresh sign-in after {seconds:.0f} seconds")
+    return invalid, notes
+
+
 def score(
     scenario: dict,
     session: Session | None,
@@ -194,6 +232,7 @@ def score(
     files: bool,
     file_text: bool,
     seconds: float,
+    bearer: bool,
 ) -> Scored:
     """Give a scenario its verdict.
 
@@ -206,6 +245,7 @@ def score(
     :param files: whether the target stores files
     :param file_text: whether the target reads the text in files
     :param seconds: how long the conversation took
+    :param bearer: whether Codex used a bearer token for this scenario
     :returns: the verdict, with the reasons
     """
     id_ = scenario["id"]
@@ -222,19 +262,20 @@ def score(
     if session is None:
         return Scored(id_, "invalid", ["no conversation was played"], [], seconds)
     tools = [call.tool for call in session.tool_calls]
+    measured = [value for value in session.message_seconds if value is not None]
+    longest = round(max(measured)) if measured else None
+    invalid, notes = _sign_in_reasons(session) if bearer else ([], [])
     if session.error:
-        return Scored(
-            id_, "invalid", [f"Codex failed: {session.error}"], tools, seconds
-        )
+        invalid.append(f"Codex failed: {session.error}")
     if session.other_tools:
         used = ", ".join(sorted(set(session.other_tools)))
-        return Scored(
-            id_, "invalid", [f"used tools outside Reef: {used}"], tools, seconds
-        )
-    worked = {call.tool for call in session.tool_calls if call.ok}
+        invalid.append(f"used tools outside Reef: {used}")
     broken = [
         f"the call to {call.tool} failed" for call in session.tool_calls if not call.ok
     ]
+    if invalid:
+        return Scored(id_, "invalid", invalid + notes + broken, tools, seconds, longest)
+    worked = {call.tool for call in session.tool_calls if call.ok}
     failures = []
     for entry in scenario["tools_required"]:
         # A list is a set of alternatives: one of them is enough.
@@ -260,8 +301,6 @@ def score(
         for pattern in scenario.get("answer_must_not", [])
         if re.search(pattern, session.answer)
     ]
-    if failures:
-        return Scored(id_, "fail", failures + broken, tools, seconds)
     answer = normalize(session.answer)
     doubts = [
         f"fact not found: {_label(fact)}"
@@ -279,9 +318,11 @@ def score(
         not call.ok and call.tool in scenario.get("review_failed_tools", [])
         for call in session.tool_calls
     )
+    if failures:
+        return Scored(id_, "fail", failures + notes + broken, tools, seconds, longest)
     if doubts or review_failed:
-        return Scored(id_, "review", doubts + broken, tools, seconds)
-    return Scored(id_, "pass", broken, tools, seconds)
+        return Scored(id_, "review", doubts + notes + broken, tools, seconds, longest)
+    return Scored(id_, "pass", notes + broken, tools, seconds, longest)
 
 
 def redact(text: str) -> str:
@@ -360,11 +401,16 @@ def _markdown(report: dict) -> str:
         f"Result: {totals or 'nothing played'}",
         "",
     ]
-    lines += ["| Scenario | Verdict | Seconds | Tools |", "| --- | --- | --- | --- |"]
+    lines += [
+        "| Scenario | Verdict | Seconds | Longest message (s) | Tools |",
+        "| --- | --- | --- | --- | --- |",
+    ]
     for item in report["scenarios"]:
         tools = " ".join(item["tools"])
+        longest = item["longest_message_seconds"]
+        shown = str(longest) if longest is not None else "—"
         lines.append(
-            f"| {item['id']} | {item['verdict']} | {item['seconds']:.0f} | {tools} |"
+            f"| {item['id']} | {item['verdict']} | {item['seconds']:.0f} | {shown} | {tools} |"
         )
     for item in report["scenarios"]:
         if item["verdict"] == "skipped" or not item["reasons"]:

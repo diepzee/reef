@@ -640,7 +640,9 @@ def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> 
                 server, tools=tools, session_id=session_id, workdir=workdir
             )
             token = cli_token() if server.bearer else None
+            began = time.monotonic()
             turn = _run_codex(command, message, workdir, token)
+            turn = replace(turn, message_seconds=(time.monotonic() - began,))
             turns.append(turn)
             session_id = session_id or turn.session_id
             if turn.error or not session_id:
@@ -1021,7 +1023,15 @@ async def _play_one(
     :param file_text: whether the target reads the text in files
     :returns: the verdict, and the last answer
     """
-    skipped = score(scenario, None, {}, files=files, file_text=file_text, seconds=0)
+    skipped = score(
+        scenario,
+        None,
+        {},
+        files=files,
+        file_text=file_text,
+        seconds=0,
+        bearer=target.server.bearer,
+    )
     if skipped.verdict == "skipped":
         return skipped, ""
     if scenario["kind"] == "write":
@@ -1032,7 +1042,13 @@ async def _play_one(
     refs = [check["ref"] for check in scenario["after"]]
     after = await target.read(refs) if refs and not session.error else {}
     item = score(
-        scenario, session, after, files=files, file_text=file_text, seconds=seconds
+        scenario,
+        session,
+        after,
+        files=files,
+        file_text=file_text,
+        seconds=seconds,
+        bearer=target.server.bearer,
     )
     return item, session.answer
 
