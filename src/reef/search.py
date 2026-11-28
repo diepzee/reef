@@ -2042,14 +2042,7 @@ async def _lift_order(
             }
             for row_id, weight in primed.items():
                 sources[row_id] = sources.get(row_id, 0.0) + weight
-            neighbours, closed = await links.neighbourhood(
-                list(
-                    dict.fromkeys(
-                        [row_id for kind, row_id in ranking if kind == "page"]
-                        + list(primed)
-                    )
-                )
-            )
+            neighbours, closed = await links.neighbourhood(list(sources))
             linked, origins = lifting.linked_weights(sources, neighbours, closed)
         ordered, reasons = lifting.lift(
             ranking,

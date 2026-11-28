@@ -5,6 +5,8 @@ backlink or a count must never tell a reader that an engram they cannot read
 exists, and a person must not be able to plant or remove links by hand.
 """
 
+from uuid import UUID
+
 import asyncpg
 import pytest
 
@@ -553,3 +555,46 @@ async def test_neighbourhood_ignores_retired_and_unreadable_links(tx, household)
     assert neighbours == {a.id: [private.id], private.id: [a.id]}
     await arm(partner)
     assert await links.neighbourhood([a.id]) == ({}, set())
+
+
+async def test_neighbourhood_keeps_better_sources_when_the_row_bound_cuts(
+    tx, household
+):
+    """A low-ranked source cannot fill the bound before the best source."""
+    me = principal_for(household["wouter"])
+    await arm(me)
+    rows = [
+        Engram(
+            space_id=household["w_personal"].id,
+            path=f"node-{number}.md",
+            title="Node",
+            body="Made node",
+        )
+        for number in range(2003)
+    ]
+    await Engram.insert(*rows)
+    best, later, target, *others = rows
+    edges = [
+        Link(
+            id=UUID(int=number + 1),
+            from_engram_id=later.id,
+            to_engram_id=row.id,
+            source="author",
+            author_id=me.person_id,
+        )
+        for number, row in enumerate(others)
+    ]
+    edges.append(
+        Link(
+            id=UUID(int=3000),
+            from_engram_id=target.id,
+            to_engram_id=best.id,
+            source="author",
+            author_id=me.person_id,
+        )
+    )
+    await Link.insert(*edges)
+    neighbours, _ = await links.neighbourhood([best.id, later.id])
+    assert neighbours[best.id] == [target.id]
+    assert sum(len(adjacent) for adjacent in neighbours.values()) == 4000
+    assert len(neighbours[later.id]) == 1999

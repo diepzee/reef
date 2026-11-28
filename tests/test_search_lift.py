@@ -277,6 +277,33 @@ async def test_files_in_the_first_twenty_do_not_admit_later_sources(
     assert order == candidates and notes == {}
 
 
+async def test_only_spreading_sources_seed_the_link_read(matches, monkeypatch):
+    """Lower candidates do not spend the graph's row bound on their links."""
+    me, rows = matches
+    settings = get_settings().search
+    monkeypatch.setattr(settings, "priming", True)
+    monkeypatch.setattr(settings, "spreading", True)
+    candidates = [("page", uuid4()) for _ in range(50)]
+    candidates[0] = ("file", uuid4())
+    primed = uuid4()
+    seen = []
+
+    async def record(ids):
+        """Capture the ordered seeds without adding any graph edges."""
+        seen.append(ids)
+        return {}, set()
+
+    monkeypatch.setattr(links, "neighbourhood", record)
+    async with transaction_scope():
+        await arm(me)
+        await search._lift_order(
+            me, candidates, {rows[0].space_id: "personal"}, [[primed]]
+        )
+    assert seen == [
+        [row_id for kind, row_id in candidates[:20] if kind == "page"] + [primed]
+    ]
+
+
 async def test_replaced_primed_sources_keep_priming_but_pass_nothing(
     matches, monkeypatch
 ):
