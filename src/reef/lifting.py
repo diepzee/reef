@@ -105,8 +105,6 @@ def lift(
         for place, (kind, row_id) in enumerate(candidates, 1)
         if kind == "page"
     }
-    peak_primed = max((primed.get(row_id, 0.0) for row_id in places), default=0.0)
-    peak_linked = max((linked.get(row_id, 0.0) for row_id in places), default=0.0)
 
     def score(row_id: UUID) -> float:
         """Return a candidate's score from its place and its two shares.
@@ -114,8 +112,8 @@ def lift(
         :param row_id: the engram
         :returns: the score used for a stable sort
         """
-        primed_share = primed.get(row_id, 0.0) / peak_primed if peak_primed else 0.0
-        linked_share = linked.get(row_id, 0.0) / peak_linked if peak_linked else 0.0
+        primed_share = min(1.0, primed.get(row_id, 0.0) / NEWEST_WEIGHT)
+        linked_share = min(1.0, linked.get(row_id, 0.0) / PASSED_ON)
         return (
             (1 / places[row_id])
             * (1 + priming_lift * primed_share)

@@ -2,6 +2,8 @@
 
 from uuid import uuid4
 
+import pytest
+
 from reef.lifting import Why, lift, linked_weights, primed_weights
 
 
@@ -81,8 +83,8 @@ def test_at_point_three_the_seventh_stays_out_of_the_first_five():
     assert [i for _, i in order].index(ids[6]) >= 5
 
 
-def test_shares_are_measured_against_the_largest_weight_of_each_kind():
-    """Shares are measured against the largest weight of each kind."""
+def test_shares_use_fixed_references_and_are_capped():
+    """A large sum is capped and a small weight keeps its smaller share."""
     ids = [uuid4() for _ in range(10)]
     order, _ = lift(
         [("page", i) for i in ids],
@@ -93,7 +95,24 @@ def test_shares_are_measured_against_the_largest_weight_of_each_kind():
         spreading_lift=1.0,
     )
     assert [i for _, i in order].index(ids[8]) == 4  # 1/9 * 2 beats 1/5
-    assert [i for _, i in order].index(ids[9]) == 9  # 1/10 * 1.1 stays last
+    assert [i for _, i in order].index(ids[9]) == 9  # 1/10 * 1.2 stays last
+
+
+@pytest.mark.parametrize("kind", ["primed", "linked"])
+@pytest.mark.parametrize("weight,place", [(0.125, 4), (0.01, 5), (2.0, 3)])
+def test_absolute_shares_keep_decay_and_cap_sums(kind, weight, place):
+    """A lone small weight gets only its share of the allowed lift."""
+    ids = [uuid4() for _ in range(6)]
+    weights = {ids[5]: weight}
+    order, _ = lift(
+        [("page", i) for i in ids],
+        weights if kind == "primed" else {},
+        weights if kind == "linked" else {},
+        {},
+        priming_lift=1.0,
+        spreading_lift=1.0,
+    )
+    assert [i for _, i in order].index(ids[5]) == place
 
 
 def test_files_keep_their_place_among_candidates():

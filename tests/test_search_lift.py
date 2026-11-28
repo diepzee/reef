@@ -143,7 +143,12 @@ async def test_a_primed_non_candidate_can_pass_weight_but_cannot_enter(
     monkeypatch.setattr(get_settings().search, "priming", True)
     monkeypatch.setattr(get_settings().search, "spreading", True)
     hits = await search.search_engrams(
-        me, "car", limit=5, semantic=False, rerank=False, earlier=[[source.id]]
+        me,
+        "car",
+        limit=5,
+        semantic=False,
+        rerank=False,
+        earlier=[[source.id], [source.id]],
     )
     assert hits[4]["path"] == rows[5].path
     assert hits[4]["why"]["linked_from"] == [{"cove": "personal", "path": source.path}]
