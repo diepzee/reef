@@ -1023,7 +1023,15 @@ async def _play_one(
     :param file_text: whether the target reads the text in files
     :returns: the verdict, and the last answer
     """
-    skipped = score(scenario, None, {}, files=files, file_text=file_text, seconds=0)
+    skipped = score(
+        scenario,
+        None,
+        {},
+        files=files,
+        file_text=file_text,
+        seconds=0,
+        bearer=target.server.bearer,
+    )
     if skipped.verdict == "skipped":
         return skipped, ""
     if scenario["kind"] == "write":

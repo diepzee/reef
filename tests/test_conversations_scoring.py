@@ -121,7 +121,13 @@ def _score(
     :returns: the scored scenario
     """
     return score(
-        scenario, session, after or {}, files=files, file_text=file_text, seconds=1.5
+        scenario,
+        session,
+        after or {},
+        files=files,
+        file_text=file_text,
+        seconds=1.5,
+        bearer=False,
     )
 
 
@@ -211,6 +217,12 @@ def test_right_answer_passes():
 def test_no_session_is_invalid():
     """Without a session there is nothing to score."""
     assert _score(_scenario(), None).verdict == "invalid"
+
+
+def test_scoring_requires_the_sign_in_mode() -> None:
+    """A caller must say whether the conversation used a bearer token."""
+    with pytest.raises(TypeError, match="bearer"):
+        score(_scenario(), None, {}, files=True, file_text=True, seconds=0)
 
 
 def test_shell_use_is_invalid():

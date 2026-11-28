@@ -231,7 +231,7 @@ def score(
     files: bool,
     file_text: bool,
     seconds: float,
-    bearer: bool = False,
+    bearer: bool,
 ) -> Scored:
     """Give a scenario its verdict.
 
