@@ -450,18 +450,20 @@ BASELINE = {
 }
 
 
-@pytest.mark.parametrize("route", ["words", "hybrid", "reranker"])
+@pytest.mark.parametrize("route", ["words", "hybrid", "reranker", "meaning"])
+@pytest.mark.parametrize("limit", [5, 60])
 async def test_every_enabled_route_gives_the_stage_fifty_candidates(
-    matches, service, reranker, monkeypatch, route
+    matches, service, reranker, monkeypatch, route, limit
 ):
     """The pool has the same bound, even on the old five-result route."""
-    me, _ = matches
+    me, rows = matches
     async with transaction_scope():
         for number in range(8, 60):
             row = await save_engram(
                 me, "personal", f"match-{number}.md", f"car grain{number}", message="x"
             )
             await embedding.embed_engram(me, row.id, service)
+            rows.append(row)
     seen = []
     original = lifting.lift
 
@@ -472,16 +474,30 @@ async def test_every_enabled_route_gives_the_stage_fifty_candidates(
 
     monkeypatch.setattr(lifting, "lift", record)
     monkeypatch.setattr(get_settings().search, "priming", True)
+    monkeypatch.setattr(get_settings().search, "max_results", 100)
     hits = await search.search_engrams(
         me,
-        "car",
-        limit=5,
-        semantic=route == "hybrid",
+        "car" if route != "meaning" else "unmatched",
+        limit=limit,
+        semantic=route in ("hybrid", "meaning"),
         rerank=route == "reranker",
         earlier=[],
     )
-    assert len(hits) == 5
+    assert len(hits) == limit
     assert seen == [50]
+    if limit > 50:
+        target = next(row for row in rows if row.path == hits[-1]["path"])
+        monkeypatch.setattr(get_settings().search, "priming_lift", 100.0)
+        after = await search.search_engrams(
+            me,
+            "car" if route != "meaning" else "unmatched",
+            limit=limit,
+            semantic=route in ("hybrid", "meaning"),
+            rerank=route == "reranker",
+            earlier=[[target.id]],
+        )
+        assert after == hits
+        assert seen == [50, 50]
 
 
 async def test_a_file_keeps_its_slot_and_never_gets_a_reason(matches, monkeypatch):

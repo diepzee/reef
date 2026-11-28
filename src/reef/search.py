@@ -909,7 +909,10 @@ def _is_file_hit(hit: tuple[str, UUID]) -> bool:
 
 
 async def _closest(
-    embedded: tuple[str, list[float]], space_ids: list, files: bool
+    embedded: tuple[str, list[float]],
+    space_ids: list,
+    files: bool,
+    minimum: int = 0,
 ) -> list[tuple[str, UUID]]:
     """Rank the caller's engrams, and with reading on their files, by meaning.
 
@@ -924,11 +927,12 @@ async def _closest(
         :data:`_SEMANTIC_FILES_SQL`: up to ``REEF_SEARCH_FUSION_DEPTH``
         engrams and as many files. False runs the statement search ran
         before files had text, which keeps that many engrams.
+    :param minimum: keep at least this many candidates of each kind
     :returns: kind and id of each row, closest first. Empty when the
         statement failed or nothing visible has a vector of this model.
     """
     model_id, vector = embedded
-    depth = get_settings().search.fusion_depth
+    depth = max(get_settings().search.fusion_depth, minimum)
     if files:
         statement = _SEMANTIC_FILES_SQL % (
             (_ENGRAM_SPACE_FILTER, _FILE_SPACE_FILTER) if space_ids else ("", "")
@@ -2222,7 +2226,14 @@ async def search_engrams(
         if reread:
             reread = await _large_enough(space_ids)
         closest = (
-            await _closest(embedded, space_ids, file_text and files) if embedded else []
+            await _closest(
+                embedded,
+                space_ids,
+                file_text and files,
+                max(limit, lifting.CANDIDATES) if lift_on else 0,
+            )
+            if embedded
+            else []
         )
         words_only = not closest and not reread and not lift_on
         if words_only:
@@ -2264,7 +2275,11 @@ async def search_engrams(
                 *_hits_params(
                     query,
                     space_ids,
-                    max(limit, settings.search.fusion_depth),
+                    max(
+                        limit,
+                        settings.search.fusion_depth,
+                        lifting.CANDIDATES if lift_on else 0,
+                    ),
                     file_text,
                 ),
                 len(query.split()) <= settings.search.sure_words,
@@ -2280,7 +2295,7 @@ async def search_engrams(
                 *_hits_params(
                     query,
                     space_ids,
-                    lifting.CANDIDATES
+                    max(limit, lifting.CANDIDATES)
                     if lift_on
                     else max(limit, settings.rerank.candidates),
                     file_text,
@@ -2290,7 +2305,7 @@ async def search_engrams(
         if file_text and not words_only:
             ranking = spread(ranking, _is_file_hit, files_in_five)
         if lift_on:
-            ranking = ranking[: lifting.CANDIDATES]
+            ranking = ranking[: max(limit, lifting.CANDIDATES)]
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
@@ -2315,7 +2330,10 @@ async def search_engrams(
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
         if lift_on:
-            ranking, why = await _lift_order(principal, ranking, aliases, earlier)
+            lifted, why = await _lift_order(
+                principal, ranking[: lifting.CANDIDATES], aliases, earlier
+            )
+            ranking = lifted + ranking[lifting.CANDIDATES :]
         ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
