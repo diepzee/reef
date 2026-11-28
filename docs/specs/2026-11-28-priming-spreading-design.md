@@ -172,6 +172,8 @@ The stage gets the candidates in order, best first. It gives some of them
   further back gets half of the one after it.
 - An engram returned by several searches gets the sum.
 
+`brief` is never primed. It records a use for each engram it returns, and priming must not decide what gets recorded as use.
+
 **Spreading** (`REEF_SEARCH_SPREADING`, off by default)
 
 - The sources are the first 20 candidates, each with weight `1 / place`,
@@ -207,9 +209,7 @@ each search, and ends after 60 minutes.
 ### The lift
 
 - A candidate at place `p` has the base score `1 / p`.
-- Its primed share is its primed weight divided by the largest primed
-  weight of any candidate in this search. Its linked share likewise. No
-  weight, no share.
+- Its primed share is its primed weight divided by 0.5, the weight of the newest search, and at most 1. Its linked share is its linked weight divided by 0.5, what the best match passes to an only neighbour, and at most 1. So how recent a search was, and how good the match that links to it, both count.
 - Its score is `base × (1 + priming_lift × primed share) ×
   (1 + spreading_lift × linked share)`.
 - Sort by score. Equal scores keep their order.
@@ -243,8 +243,7 @@ A result of `recall` or `brief` that the stage moved up carries `why`:
 - `place_by_match`: its place before the stage.
 - `primed`: present and true when this session's earlier searches
   returned it.
-- `linked_from`: up to three references of the engrams that passed it the
-  most weight, strongest first. Only engrams the person can read.
+- `linked_from`: up to three engrams that are linked with this one and passed it weight, strongest first. Each has a link to it or from it. Only engrams the person can read.
 
 Every other result has no `why`, also one that was pushed down a place
 by another's lift. The connector's

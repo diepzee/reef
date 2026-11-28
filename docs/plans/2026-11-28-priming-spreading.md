@@ -25,6 +25,7 @@
 - No query text, engram text, path or person in any log line or Logfire span.
 - Python: modern types, a ReST docstring on every function, no types in docstrings. Plain language in every text an assistant or a person reads.
 - The connector's `search` keeps its exact shape: `id`, `title`, `url`.
+- `brief` is never primed. It records a use for each engram it returns, and priming must not decide what gets recorded as use. It passes `earlier=[]`; spreading still applies.
 
 ## Review Focus
 
@@ -48,7 +49,7 @@ Each of these has its test in the task that owns the code (tasks 1, 3 and 4).
 - Produces:
   - `PRIMED_PER_SEARCH = 3`, `PRIMED_ENGRAMS = 10`, `PRIMING_MINUTES = 60`, `SPREAD_SOURCES = 20`, `CANDIDATES = 50`, `NEWEST_WEIGHT = 0.5`, `PASSED_ON = 0.5`, `LINKED_FROM = 3`
   - `primed_weights(earlier: list[list[UUID]]) -> dict[UUID, float]`: `earlier` is one list of engram ids per earlier search, newest search first, each best first.
-  - `linked_weights(sources: dict[UUID, float], neighbours: dict[UUID, list[UUID]], closed: set[UUID]) -> tuple[dict[UUID, float], dict[UUID, dict[UUID, float]]]`: the weight each engram received, and per receiver how much came from which source of the first round. `closed` are replaced engrams, which receive nothing and pass nothing on.
+  - `linked_weights(sources: dict[UUID, float], neighbours: dict[UUID, list[UUID]], closed: set[UUID]) -> tuple[dict[UUID, float], dict[UUID, dict[UUID, float]]]`: the weight each engram received, and per receiver how much came from each direct sender. `closed` are replaced engrams, which receive nothing and pass nothing on.
   - `@dataclass(frozen=True) class Why`: `place_by_match: int`, `primed: bool`, `linked_from: tuple[UUID, ...]`
   - `lift(candidates: list[tuple[str, UUID]], primed: dict[UUID, float], linked: dict[UUID, float], origins: dict[UUID, dict[UUID, float]], *, priming_lift: float, spreading_lift: float) -> tuple[list[tuple[str, UUID]], dict[UUID, Why]]`: the new order, and a `Why` for each engram that moved up.
 
@@ -76,7 +77,7 @@ def test_the_second_round_passes_half_of_what_was_received():
     received, origins = linked_weights({a: 1.0}, {a: [b], b: [a, c]}, set())
     assert received[b] == 0.5
     assert received[c] == 0.125          # half of 0.5, shared with a
-    assert origins[c] == {a: 0.125}      # traced back to the first source
+    assert origins[c] == {b: 0.125}      # the direct sender
 
 def test_a_source_gets_nothing_back_from_itself():
     a, b = uuid4(), uuid4()
@@ -103,12 +104,12 @@ def test_at_point_three_the_seventh_stays_out_of_the_first_five():
                     priming_lift=0.3, spreading_lift=0.3)
     assert [i for _, i in order].index(ids[6]) >= 5
 
-def test_shares_are_measured_against_the_largest_weight_of_each_kind():
+def test_shares_use_fixed_references_and_are_capped():
     ids = [uuid4() for _ in range(10)]
     order, _ = lift([("page", i) for i in ids], {}, {ids[8]: 1.0, ids[9]: 0.1}, {},
                     priming_lift=0.3, spreading_lift=1.0)
     assert [i for _, i in order].index(ids[8]) == 4      # 1/9 * 2 beats 1/5
-    assert [i for _, i in order].index(ids[9]) == 9      # 1/10 * 1.1 stays last
+    assert [i for _, i in order].index(ids[9]) == 9      # 1/10 * 1.2 stays last
 
 def test_files_keep_their_place_among_candidates():
     f, a, b = uuid4(), uuid4(), uuid4()
@@ -140,7 +141,8 @@ Expected: FAIL, the module does not exist.
 
 Pure: no database, no settings, no logging. Rules the tests do not fully fix:
 - `primed_weights`: an engram returned by several searches gets the sum. Engrams are counted toward the ten in the order newest search first, best first; a repeat does not use up a place.
-- `linked_weights`: round one passes `weight × PASSED_ON` of each source, shared equally among its neighbours that are not closed. Round two does the same from what each receiver got in round one. A source never receives from its own weight, in either round. `origins` always names sources of round one.
+- `linked_weights`: round one passes `weight × PASSED_ON` of each source, shared equally among its neighbours that are not closed. Round two does the same from what each receiver got in round one. A source never receives from its own weight, in either round. `origins` names the direct sender: the source in round one and the engram in between in round two.
+- Its primed share is its primed weight divided by 0.5, the weight of the newest search, and at most 1. Its linked share is its linked weight divided by 0.5, what the best match passes to an only neighbour, and at most 1. So how recent a search was, and how good the match that links to it, both count. Test a weight of 0.125, a lone small weight and a sum above the reference.
 - `lift`: score is `(1 / place) × (1 + priming_lift × primed share) × (1 + spreading_lift × linked share)`, shares as in the spec. Sort with a stable sort. A `Why` is made only for an engram that has weight and ends at a better place than its place by match. One that was pushed down gets none. `primed` is true when it has primed weight.
 
 - [ ] **Step 4: Run the tests and see them pass**
@@ -237,7 +239,8 @@ Expected: PASS.
 - Consumes: the `why` of Task 4.
 - Produces: a `recall` or `brief` item for an engram that was moved up carries `"why": {"place_by_match": 6, "primed": true, "linked_from": ["personal/projects/bathroom-renovation.md"]}`. `linked_from` holds references `open` takes. Keys that do not apply are left out. Every other item has no `why`.
 
-- [ ] **Step 1: Tests first.** `recall` with spreading on returns `why` with `linked_from` as references; with both switches off no item has the key; `brief` passes it on the same way; the connector's `search` result is exactly `id`, `title`, `url` with both switches on; the protocol holds the new sentence; the MCP output schema still accepts the answers.
+- [ ] **Step 1: Tests first.** `recall` with spreading on returns `why` with `linked_from` as references; with both switches off no item has the key; `brief` passes spreading notes on but never uses priming, even with logged session searches; the connector's `search` result is exactly `id`, `title`, `url` with both switches on; the protocol holds the new sentence; the MCP output schema still accepts the answers.
+- `linked_from`: up to three engrams that are linked with this one and passed it weight, strongest first. Each has a link to it or from it. Only engrams the person can read.
 - [ ] **Step 2: Run** the three test files and see the new tests fail.
 - [ ] **Step 3: Pass `why` on**, and add to `protocol.md`, near "Answer with `recall`", one or two short sentences: what `why` means, and that an assistant may tell the person why a result came up when it helps. Check how much `load_index` grows: at most 300 characters.
 - [ ] **Step 4: Run and see them pass.**
