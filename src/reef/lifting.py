@@ -37,12 +37,12 @@ def linked_weights(
     neighbours: dict[UUID, list[UUID]],
     closed: set[UUID],
 ) -> tuple[dict[UUID, float], dict[UUID, dict[UUID, float]]]:
-    """Pass half the weight along links twice, keeping the first source.
+    """Pass half the weight along links twice, naming each direct sender.
 
     :param sources: starting weight for each source
     :param neighbours: readable neighbours in both directions
     :param closed: replaced engrams, which receive and pass nothing
-    :returns: received weights and their contributions by original source
+    :returns: received weights and their contributions by direct sender
     """
     origins: dict[UUID, dict[UUID, float]] = {}
     for source, weight in sources.items():
@@ -67,7 +67,7 @@ def linked_weights(
                         continue
                     following[target] = following.get(target, 0.0) + share
                     by_source = origins.setdefault(target, {})
-                    by_source[source] = by_source.get(source, 0.0) + share
+                    by_source[sender] = by_source.get(sender, 0.0) + share
             current = following
     return {target: sum(parts.values()) for target, parts in origins.items()}, origins
 
@@ -95,7 +95,7 @@ def lift(
     :param candidates: matching rows, best first
     :param primed: weight from earlier searches
     :param linked: weight received along links
-    :param origins: contributions by the first source
+    :param origins: contributions by the direct sender
     :param priming_lift: maximum factor added by priming
     :param spreading_lift: maximum factor added by spreading
     :returns: the new order and notes only for engrams that rose

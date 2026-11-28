@@ -35,7 +35,17 @@ def test_the_second_round_passes_half_of_what_was_received():
     received, origins = linked_weights({a: 1.0}, {a: [b], b: [a, c]}, set())
     assert received[b] == 0.5
     assert received[c] == 0.125  # half of 0.5, shared with a
-    assert origins[c] == {a: 0.125}  # traced back to the first source
+    assert origins[c] == {b: 0.125}  # the direct sender
+
+
+def test_direct_senders_combine_weight_from_different_sources():
+    """Second-round notes name the linked neighbour, with its summed weight."""
+    a, b, middle, target = (uuid4() for _ in range(4))
+    received, origins = linked_weights(
+        {a: 1.0, b: 0.5}, {a: [middle], b: [middle], middle: [target]}, set()
+    )
+    assert received[target] == 0.375
+    assert origins[target] == {middle: 0.375}
 
 
 def test_a_source_gets_nothing_back_from_itself():
