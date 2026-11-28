@@ -206,6 +206,72 @@ The export holds only what you can see yourself. Nothing is read from the
 production database, and nobody else's private engrams come along. To load a
 newer export, recreate the local database first.
 
+## Priming and spreading
+
+`tests/fixtures/recall_sets.json` uses the made-up test account. It has three
+sets: 10 linked questions, 10 follow-up pairs, and 5 changes of subject.
+Each linked question names the bridge in `via`. In a pair, the first question
+supplies context; only the second counts in its named set. Both still count
+in the overall totals.
+
+Use a local account loaded with the current test-account fixture and wait
+for its engrams to be embedded. Search by words and meaning is required to
+judge these sets: a follow-up may have no useful words in common with its
+answer. Keep the account and model unchanged between runs.
+
+From the repository root, with your local database selected and a local
+embedding service running:
+
+```bash
+export REEF_EMBEDDING_URL=http://127.0.0.1:11434
+uv run --frozen python scripts/measure_recall.py \
+  --email YOUR_LOCAL_TEST_ACCOUNT --file-text off \
+  --priming off --spreading off < tests/fixtures/recall_sets.json
+
+uv run --frozen python scripts/measure_recall.py \
+  --email YOUR_LOCAL_TEST_ACCOUNT --file-text off \
+  --priming on --priming-lift 0.3 --spreading off \
+  < tests/fixtures/recall_sets.json
+
+uv run --frozen python scripts/measure_recall.py \
+  --email YOUR_LOCAL_TEST_ACCOUNT --file-text off \
+  --priming off --spreading on --spreading-lift 0.3 \
+  < tests/fixtures/recall_sets.json
+```
+
+Repeat each mechanism at lifts 0.5 and 1.0, then try both together. The flags
+apply only to that process. Session items pass earlier result ids directly;
+they need neither an MCP session nor the search log. The output holds counts
+and median search time, overall and per named set. Resolving result ids for
+the next turn is outside the search timer. No question, reference or passage
+is printed.
+
+A mechanism passes when its own set gains at least two answers in the first
+five, and no other set loses any. Check both public sets, both private sets,
+the existing 40 engram and 20 file questions, and the benchmark slice in CI.
+Changes of subject must lose none. Both mechanisms together may add at most
+20 ms to median recall time. CI checks the stage with made vectors and
+links; it does not judge these sets' scores without an embedding service.
+
+A mechanism that fails stays off and is reported. If it still fails after
+one round of tuning the lift, the design calls for its removal. The private
+sets, measured results and the decision to switch on belong to the follow-up
+work, RUG-38. Put only numbers from private sets in the report.
+
+Leave this table empty until measured. For the combined row, start at 0.3
+for each lift and record any later choice alongside the results.
+
+| Priming | Spreading | Linked @5 | Follow-up @5 | Subject changes @5 | Median ms | Losses on other sets |
+|---|---|---|---|---|---|---|
+| off | off | | | | | |
+| 0.3 | off | | | | | |
+| 0.5 | off | | | | | |
+| 1.0 | off | | | | | |
+| off | 0.3 | | | | | |
+| off | 0.5 | | | | | |
+| off | 1.0 | | | | | |
+| 0.3 | 0.3 | | | | | |
+
 ## Source and licence
 
 LongMemEval, Wu et al., 2024, cleaned release, MIT licence.
