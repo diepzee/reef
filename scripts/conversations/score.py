@@ -67,6 +67,7 @@ class Scored:
     :param reasons: what led to it, in plain words
     :param tools: the Reef tools the assistant called, in order
     :param seconds: how long the conversation took
+    :param longest_message_seconds: the longest measured message, in whole seconds
     """
 
     id: str
@@ -74,6 +75,7 @@ class Scored:
     reasons: list[str]
     tools: list[str]
     seconds: float
+    longest_message_seconds: int | None = None
 
 
 def load(path: Path | str) -> list[dict]:
@@ -259,6 +261,8 @@ def score(
     if session is None:
         return Scored(id_, "invalid", ["no conversation was played"], [], seconds)
     tools = [call.tool for call in session.tool_calls]
+    measured = [value for value in session.message_seconds if value is not None]
+    longest = round(max(measured)) if measured else None
     invalid, notes = _sign_in_reasons(session) if bearer else ([], [])
     if session.error:
         invalid.append(f"Codex failed: {session.error}")
@@ -313,13 +317,18 @@ def score(
     )
     if invalid:
         return Scored(
-            id_, "invalid", invalid + failures + doubts + notes + broken, tools, seconds
+            id_,
+            "invalid",
+            invalid + failures + doubts + notes + broken,
+            tools,
+            seconds,
+            longest,
         )
     if failures:
-        return Scored(id_, "fail", failures + notes + broken, tools, seconds)
+        return Scored(id_, "fail", failures + notes + broken, tools, seconds, longest)
     if doubts or review_failed:
-        return Scored(id_, "review", doubts + notes + broken, tools, seconds)
-    return Scored(id_, "pass", notes + broken, tools, seconds)
+        return Scored(id_, "review", doubts + notes + broken, tools, seconds, longest)
+    return Scored(id_, "pass", notes + broken, tools, seconds, longest)
 
 
 def redact(text: str) -> str:
@@ -398,11 +407,16 @@ def _markdown(report: dict) -> str:
         f"Result: {totals or 'nothing played'}",
         "",
     ]
-    lines += ["| Scenario | Verdict | Seconds | Tools |", "| --- | --- | --- | --- |"]
+    lines += [
+        "| Scenario | Verdict | Seconds | Longest message (s) | Tools |",
+        "| --- | --- | --- | --- | --- |",
+    ]
     for item in report["scenarios"]:
         tools = " ".join(item["tools"])
+        longest = item["longest_message_seconds"]
+        shown = str(longest) if longest is not None else "—"
         lines.append(
-            f"| {item['id']} | {item['verdict']} | {item['seconds']:.0f} | {tools} |"
+            f"| {item['id']} | {item['verdict']} | {item['seconds']:.0f} | {shown} | {tools} |"
         )
     for item in report["scenarios"]:
         if item["verdict"] == "skipped" or not item["reasons"]:

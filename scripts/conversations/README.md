@@ -93,14 +93,15 @@ Other tool errors, such as `invalid_arguments`, also keep the usual scoring.
 getting each token and starting Codex. Resets and checks of the memory
 afterwards are outside that time.
 
-The report does not measure the longest gap without output from Codex.
-The runner gets all output at once, after `codex exec` ends. The JSON events
-it reads have no timestamps. The total time cannot tell us how long the
-model was silent.
+`Longest message (s)` is the longest Codex message in the scenario, rounded
+to whole seconds. It includes starting Codex, model work and tool calls,
+but excludes getting the token. The JSON field is `longest_message_seconds`.
+An unmeasured or skipped scenario shows `—` in the table and `null` in JSON.
 
-Measuring that gap would need live output reading with a clock, while still
-handling both output streams, timeouts and token removal. Reading Codex's
-session files would be another way. Both are left for a separate change.
+The runner measures the time around each Codex call. It cannot measure
+silent gaps inside a message: it gets all output at once, after Codex ends,
+and the JSON events have no timestamps. Measuring those gaps would need
+live output reading or a reader for Codex's session files.
 
 ## Through Orca
 

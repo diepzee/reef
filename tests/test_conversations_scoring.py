@@ -1911,6 +1911,51 @@ def test_unmeasured_auth_refusal_does_not_claim_expiry() -> None:
     assert "Reef refused a sign-in; the message time was not measured" in scored.reasons
 
 
+def test_report_shows_the_longest_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The longest whole message is shown in both report formats.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param tmp_path: where the reports go
+    """
+    session = _play_with_times(
+        monkeypatch,
+        [_session("load_index"), _session("recall", answer=RIGHT_ANSWER)],
+        [12.2, 331.4],
+    )
+    scored = _score(_scenario(), session)
+    skipped = _score(_scenario(id="skipped", needs=["files"]), None, files=False)
+    unmeasured = _score(_scenario(id="unmeasured"), _session())
+    paths = write_report(tmp_path, "timing", {}, [scored, skipped, unmeasured], {})
+    report = json.loads(paths[0].read_text())
+    assert report["scenarios"][0]["longest_message_seconds"] == 331
+    assert report["scenarios"][1]["longest_message_seconds"] is None
+    assert report["scenarios"][2]["longest_message_seconds"] is None
+    markdown = paths[1].read_text()
+    assert "| Scenario | Verdict | Seconds | Longest message (s) | Tools |" in markdown
+    assert "| dentist | pass | 2 | 331 | load_index recall |" in markdown
+    assert "| skipped | skipped | 2 | — |" in markdown
+
+
+def test_invalid_report_keeps_the_longest_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A failed Codex message still contributes to the longest message.
+
+    :param monkeypatch: replaces Codex and the clock
+    :param tmp_path: where the reports go
+    """
+    session = _play_with_times(
+        monkeypatch, [Session("t", [], [], "", error="timed out")], [420]
+    )
+    scored = _score(_scenario(), session)
+    paths = write_report(tmp_path, "timing", {}, [scored], {})
+    item = json.loads(paths[0].read_text())["scenarios"][0]
+    assert item["verdict"] == "invalid"
+    assert item["longest_message_seconds"] == 420
+
+
 @pytest.mark.parametrize("seconds", [12, 331])
 def test_measured_local_refusal_keeps_local_scoring(
     monkeypatch: pytest.MonkeyPatch, seconds: float
