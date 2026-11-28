@@ -19,7 +19,7 @@
   },
   {
     "id": "linked-3",
-    "text": "Bij mijn abonnementenlijst staat de internetfactuur apart: hoeveel is die gedaald na de overstap?",
+    "text": "Bij mijn abonnementen, naast Flimmerdoos en Reps, staat een verwijzing voor internet: hoeveel goedkoper werd dat na de overstap?",
     "expected": [
       "personal/household/utilities.md"
     ],
@@ -55,7 +55,7 @@
   },
   {
     "id": "linked-7",
-    "text": "Lode Vanhecke noemt bakken als hobby: hoeveel zout gebruikt hij voor zijn vaste recept?",
+    "text": "Lode Vanhecke uit Mechelen noemt een hobby in zijn profiel: welke verhouding gebruikt hij voor dat deeg?",
     "expected": [
       "personal/howto/sourdough.md"
     ],
@@ -73,7 +73,7 @@
   },
   {
     "id": "linked-9",
-    "text": "Voor het cadeau voor Sofie met Kerstmis: welke maat moet ik kopen?",
+    "text": "Op mijn lijst cadeaus staan een dinosaurus-puzzel en een boekenbon: welke uitvoering moet de jas op die lijst hebben?",
     "expected": [
       "personal/household/sofie.md"
     ],
@@ -82,7 +82,7 @@
   },
   {
     "id": "linked-10",
-    "text": "Na het gesprek met juf Ines op 14 oktober: hoe laat begint de volgende afspraak op school?",
+    "text": "Bij het gesprek op 14 oktober was de afspraak elke avond 10 minuten lezen: op welk tijdstip zien we haar weer?",
     "expected": [
       "personal/household/kids.md"
     ],
@@ -138,7 +138,7 @@
       },
       {
         "id": "follow-3",
-        "text": "En welk nummer bel ik bij schade?",
+        "text": "En hoe bereik ik hen als er iets misloopt?",
         "expected": [
           "personal/household/insurance.md"
         ],
@@ -157,7 +157,7 @@
       },
       {
         "id": "follow-4",
-        "text": "En hoeveel betaalden we vroeger per maand?",
+        "text": "Hoeveel scheelt dat eigenlijk?",
         "expected": [
           "personal/household/utilities.md"
         ],
@@ -169,14 +169,14 @@
     "session": [
       {
         "id": "follow-5-start",
-        "text": "Wat weet je over Mouche de kat?",
+        "text": "Wat weet je over de vaccinaties van Mouche de kat?",
         "expected": [
           "personal/household/cat-mouche.md"
         ]
       },
       {
         "id": "follow-5",
-        "text": "En wanneer was de laatste vaccinatie?",
+        "text": "En op welke datum was dat voor het laatst?",
         "expected": [
           "personal/household/cat-mouche.md"
         ],
@@ -188,14 +188,14 @@
     "session": [
       {
         "id": "follow-6-start",
-        "text": "Hoe maak ik zuurdesembrood?",
+        "text": "Wat ging er mis bij mijn laatste zuurdesembrood?",
         "expected": [
           "personal/howto/sourdough.md"
         ]
       },
       {
         "id": "follow-6",
-        "text": "En hoeveel water probeer ik volgende keer meer?",
+        "text": "En wat pas ik daaraan aan?",
         "expected": [
           "personal/howto/sourdough.md"
         ],
@@ -214,7 +214,7 @@
       },
       {
         "id": "follow-7",
-        "text": "En wat kost het verblijf per nacht?",
+        "text": "En wat moet ik daarvoor opzijzetten?",
         "expected": [
           "personal/projects/trip-asturias.md"
         ],
@@ -233,7 +233,7 @@
       },
       {
         "id": "follow-8",
-        "text": "En wat is het volgende doel?",
+        "text": "En waar wil ik nu naartoe?",
         "expected": [
           "personal/logs/training.md"
         ],
@@ -252,7 +252,7 @@
       },
       {
         "id": "follow-9",
-        "text": "En wat gaat volgend jaar in bak vier?",
+        "text": "En wat komt daar nadien in?",
         "expected": [
           "personal/projects/vegetable-garden.md"
         ],

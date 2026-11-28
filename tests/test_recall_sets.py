@@ -7,8 +7,11 @@ from pathlib import Path
 import pytest
 from test_measure_recall import measure_recall
 
+from reef.access import Principal
+from reef.config import get_settings
 from reef.links import parse_target
-from reef.testaccount.fixture import read_fixture
+from reef.search import search_engrams
+from reef.testaccount.fixture import load_fixture, read_fixture
 
 
 @pytest.fixture
@@ -93,3 +96,41 @@ def test_follow_ups_need_context_and_subject_changes_expect_something_else(recal
         else:
             assert second["set"] == "change_of_subject"
             assert set(first["expected"]).isdisjoint(second["expected"])
+
+
+async def test_public_sets_need_their_stated_context_by_words(
+    recall_sets, household, monkeypatch
+):
+    """Words alone leave room for context and still find a changed subject."""
+    person = household["wouter"]
+    me = Principal(person_id=person.id, email=person.email)
+    settings = get_settings()
+    monkeypatch.setattr(settings.search, "priming", False)
+    monkeypatch.setattr(settings.search, "spreading", False)
+    monkeypatch.setattr(settings.reading, "enabled", False)
+    await load_fixture(me, read_fixture(), None)
+    failures = []
+    for item in recall_sets:
+        question = item["session"][-1] if "session" in item else item
+        hits = await search_engrams(
+            me, question["text"], limit=50, semantic=False, rerank=False, files=False
+        )
+        refs = [f"{hit['cove']}/{hit['path']}" for hit in hits]
+        expected = question["expected"]
+        if question["set"] == "follow_up":
+            valid = not set(expected) & set(refs[:5])
+        elif question["set"] == "linked":
+            via = question["via"]
+            valid = (
+                via in refs
+                and all(
+                    ref not in refs or refs.index(via) < refs.index(ref)
+                    for ref in expected
+                )
+                and not set(expected) & set(refs[:1])
+            )
+        else:
+            valid = set(expected) <= set(refs[:5])
+        if not valid:
+            failures.append((question["id"], refs[:5]))
+    assert not failures, "\n".join(f"{name}: {refs}" for name, refs in failures)
