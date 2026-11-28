@@ -45,7 +45,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from reef import embedding, filechunks, searchlog, sections
+from reef import embedding, filechunks, lifting, links, searchlog, sections, usage
 from reef import rerank as reranking
 from reef.access import Principal, alias_map, arm, resolve_space
 from reef.config import get_settings
@@ -682,7 +682,7 @@ def _row_payload(
         }
     else:
         payload = {**common, "path": row["path"], "title": row["title"]}
-        for key in ("replaced_by", "replaces"):
+        for key in ("replaced_by", "replaces", "why"):
             if row.get(key):
                 payload[key] = row[key]
     if passages is not None:
@@ -2001,6 +2001,93 @@ async def _record(log_it: bool, principal: Principal, query: str, rows: list) ->
         )
 
 
+async def _lift_order(
+    principal: Principal,
+    ranking: list[tuple[str, UUID]],
+    aliases: dict[UUID, str],
+    earlier: list[list[UUID]] | None,
+) -> tuple[list[tuple[str, UUID]], dict[UUID, dict]]:
+    """Lift matches and name their sources inside the search's transaction.
+
+    Any failure rolls back the savepoint and keeps the input order. The
+    caller enters here only with a switch on and a question that is not exact.
+
+    :param principal: the armed reader
+    :param ranking: at most fifty candidates, after any reranker
+    :param aliases: the reader's names for their spaces
+    :param earlier: supplied history, or None to read this session's log
+    :returns: the order and notes for engrams that rose
+    """
+    settings = get_settings().search
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        primed = {}
+        if settings.priming:
+            if earlier is None:
+                session_id = usage.current_session_id()
+                earlier = (
+                    await searchlog.earlier_results(principal, session_id)
+                    if session_id
+                    else []
+                )
+            primed = lifting.primed_weights(earlier)
+        linked, origins = {}, {}
+        if settings.spreading:
+            sources = {
+                row_id: 1 / place
+                for place, (kind, row_id) in enumerate(
+                    ranking[: lifting.SPREAD_SOURCES], 1
+                )
+                if kind == "page"
+            }
+            for row_id, weight in primed.items():
+                sources[row_id] = sources.get(row_id, 0.0) + weight
+            neighbours, closed = await links.neighbourhood(
+                list(
+                    dict.fromkeys(
+                        [row_id for kind, row_id in ranking if kind == "page"]
+                        + list(primed)
+                    )
+                )
+            )
+            linked, origins = lifting.linked_weights(sources, neighbours, closed)
+        ordered, reasons = lifting.lift(
+            ranking,
+            primed,
+            linked,
+            origins,
+            priming_lift=settings.priming_lift,
+            spreading_lift=settings.spreading_lift,
+        )
+        source_ids = {source for why in reasons.values() for source in why.linked_from}
+        details = (
+            {
+                row["id"]: {"cove": aliases[row["space_id"]], "path": row["path"]}
+                for row in await Engram.select(
+                    Engram.id, Engram.space_id, Engram.path
+                ).where(Engram.id.is_in(list(source_ids)))
+                if row["space_id"] in aliases
+            }
+            if source_ids
+            else {}
+        )
+        notes = {}
+        for row_id, why in reasons.items():
+            note = {"place_by_match": why.place_by_match}
+            if why.primed:
+                note["primed"] = True
+            refs = [details[source] for source in why.linked_from if source in details]
+            if refs:
+                note["linked_from"] = refs
+            notes[row_id] = note
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search lift keeps the match order (%s)", type(error).__name__)
+        return ranking, {}
+    await savepoint.release()
+    return ordered, notes
+
+
 async def search_engrams(
     principal: Principal,
     query: str,
@@ -2012,6 +2099,7 @@ async def search_engrams(
     rerank: bool = True,
     passages: bool = False,
     files: bool = True,
+    earlier: list[list[UUID]] | None = None,
 ) -> list[dict]:
     """Search every engram and described file the caller can see, best match first.
 
@@ -2106,6 +2194,10 @@ async def search_engrams(
         None. A file's snippet comes from that page.
     :param files: False searches engrams alone, so no file takes the place
         of an engram. True, the default, searches files beside engrams.
+    :param earlier: earlier results, newest search first, each best engram
+        first. When supplied, the search log is not read. None uses the
+        current session, when priming is on. With both switches off this
+        argument changes nothing.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -2116,6 +2208,7 @@ async def search_engrams(
     settings = get_settings()
     limit = max(1, min(limit, settings.search.max_results))
     exact = _EXACT.search(query) is not None
+    lift_on = not exact and (settings.search.priming or settings.search.spreading)
     file_text = settings.reading.enabled
     files_in_five = settings.search.files_in_five
     embedded = await embedding.embed_question(query) if semantic and not exact else None
@@ -2138,7 +2231,7 @@ async def search_engrams(
         closest = (
             await _closest(embedded, space_ids, file_text and files) if embedded else []
         )
-        words_only = not closest and not reread
+        words_only = not closest and not reread and not lift_on
         if words_only:
             # Keyword search, in one statement, as it always was.
             rows = await Engram.raw(
@@ -2194,13 +2287,17 @@ async def search_engrams(
                 *_hits_params(
                     query,
                     space_ids,
-                    max(limit, settings.rerank.candidates),
+                    lifting.CANDIDATES
+                    if lift_on
+                    else max(limit, settings.rerank.candidates),
                     file_text,
                 ),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
         if file_text and not words_only:
             ranking = spread(ranking, _is_file_hit, files_in_five)
+        if lift_on:
+            ranking = ranking[: lifting.CANDIDATES]
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
@@ -2221,6 +2318,9 @@ async def search_engrams(
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
+        why = {}
+        if lift_on:
+            ranking, why = await _lift_order(principal, ranking, aliases, earlier)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
         ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
@@ -2239,6 +2339,8 @@ async def search_engrams(
         for row in rows:
             if row["kind"] == "page" and row["id"] in notes:
                 row.update(notes[row["id"]])
+            if row["kind"] == "page" and row["id"] in why:
+                row["why"] = why[row["id"]]
         await _record(log, principal, query, rows)
         if passages:
             best, texts = await _read_best_pieces(
