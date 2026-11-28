@@ -335,7 +335,11 @@ def test_scenarios_are_well_formed():
 
 
 def test_replace_contract_scenario_asks_then_confirms_then_reads() -> None:
-    """The scripted conversation changes a relation and asks for the new fact."""
+    """The scripted conversation changes a relation and asks for the new fact.
+
+    The answer may also name the old term: the new contract starts later
+    than the conversation, so the old one still holds on the day it is asked.
+    """
     scenario = next(
         scenario for scenario in load(SCENARIOS) if scenario["id"] == "replace-contract"
     )
@@ -349,7 +353,7 @@ def test_replace_contract_scenario_asks_then_confirms_then_reads() -> None:
         scenario["messages"][-1]
         == "Binnen hoeveel uur moet Archiefhaven reageren op een storing?"
     )
-    assert scenario["answer_must_not"]
+    assert scenario["answer_must_not"] == []
     assert scenario["review_failed_tools"] == ["write"]
     assert scenario["after"][0]["replaced_by"] == ["personal/work/contract-2027.md"]
 
