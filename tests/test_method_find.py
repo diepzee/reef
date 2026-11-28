@@ -21,6 +21,71 @@ from reef.db import transaction_scope
 from reef.engrams import get_engram, save_engram
 from reef.methods import REGISTRY, MethodError, find
 
+
+@pytest.mark.parametrize("method", ["recall", "brief"])
+async def test_lifted_results_explain_their_place_with_openable_refs(
+    household, monkeypatch, method
+):
+    """Both reading methods pass on the same path, and omit it when off."""
+    from reef.access import arm
+    from reef.methods import connector
+    from reef.models import Link, SearchLog
+
+    me = caller_for(household["wouter"])
+    rows = [
+        await save_as(
+            me,
+            "personal",
+            f"car-{n}.md",
+            "car " * (6 - n) + "word " * 50,
+            title=f"Note {n}",
+        )
+        for n in range(6)
+    ]
+    async with transaction_scope():
+        await arm(me.principal)
+        await Link(
+            from_engram_id=rows[0].id,
+            to_engram_id=rows[5].id,
+            author_id=me.principal.person_id,
+        ).save()
+    function = getattr(find, method)
+    before = await function(me, "", "car")
+    before = before if method == "recall" else before["engrams"]
+    assert all("why" not in item for item in before)
+    monkeypatch.setattr(get_settings().search, "spreading", True)
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    monkeypatch.setattr(get_settings().search, "log", True)
+    answer = await function(me, "", "car")
+    items = answer if method == "recall" else answer["engrams"]
+    assert items[4]["engram"] == rows[5].path
+    assert items[4]["why"] == {
+        "place_by_match": 6,
+        "linked_from": ["personal/car-0.md"],
+    }
+    assert all("why" not in item for item in items[:4])
+    if method == "brief":
+        async with transaction_scope():
+            await arm(me.principal)
+            assert await SearchLog.count() == 0
+    connected = await connector.search(me, "", "car")
+    assert all(set(item) == {"id", "title", "url"} for item in connected["results"])
+
+
+def test_a_primed_passage_keeps_only_the_applicable_reason_keys():
+    """Priming alone needs no empty list of link sources."""
+    hit = {
+        "kind": "page",
+        "cove": "personal",
+        "path": "a.md",
+        "title": "A",
+        "passage": "A passage",
+        "why": {"place_by_match": 6, "primed": True},
+    }
+    item = find._passage(hit, None, "2026-11-28")
+    assert item["why"] == {"place_by_match": 6, "primed": True}
+
+
 CAR = "The car is a blue estate, insured with Ethias for 45 euro a month. "
 HOUSE = "The house policy covers fire and storm damage, renewed every March. "
 

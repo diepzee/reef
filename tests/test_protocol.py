@@ -145,6 +145,7 @@ def backticked(text: str) -> set[str]:
 
 #: Backticked words that are not tools: arguments, result keys, spaces and tags.
 NOT_TOOLS = {
+    "why",
     "replaces",
     "contradicts",
     "about",
@@ -339,3 +340,15 @@ def test_protocol_explains_relations_and_the_persons_yes() -> None:
         "Four tools act in two steps: `share`, `forget`, `instruct` and `write`."
         in plain
     )
+
+
+def test_protocol_explains_why_a_result_rose_without_growing_the_index():
+    """The recall path takes fewer than 300 extra characters to explain."""
+    text = " ".join((ROOT / "src/reef/protocol.md").read_text().split())
+    sentence = (
+        "An engram that rose because of this session's earlier results or its links "
+        "carries `why`, with its original place and the sources. "
+        "Tell the person why it came up when that helps."
+    )
+    assert sentence in text
+    assert len(sentence) < 300
