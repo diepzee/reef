@@ -116,7 +116,12 @@ async def test_staged_next_reaches_mcp_clients(
         "Ask the person first. After a yes, send this same call again with every "
         "argument unchanged, and add `confirm` with this token."
     )
-    assert "confirm" in tool.inputSchema["properties"]
+    [token_argument] = [
+        argument
+        for argument, schema in tool.inputSchema["properties"].items()
+        if "token from the first call" in schema.get("description", "")
+    ]
+    assert f"`{token_argument}`" in answer["next"]
 
 
 #: Tools that change nothing, so a client may run them without asking.

@@ -251,7 +251,7 @@ async def _stage_share(
         "effect": effect,
         "token": staged_share["nonce"],
         "expires_in": int(staged.TOKEN_TTL_SECONDS),
-        "next": staged.next_step("confirm"),
+        "next": staged.NEXT_STEP,
     }
 
 
