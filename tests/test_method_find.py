@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 import pytest
 from conftest import Store, attach_file, caller_for, save_as
 
-from reef import embedding, sections
+from reef import embedding, searchlog, sections, usage
 from reef.attachments import add_attachment
 from reef.breaker import Breaker
 from reef.config import get_settings
@@ -84,6 +84,43 @@ def test_a_primed_passage_keeps_only_the_applicable_reason_keys():
     }
     item = find._passage(hit, None, "2026-11-28")
     assert item["why"] == {"place_by_match": 6, "primed": True}
+
+
+async def test_brief_never_uses_logged_session_results(household, monkeypatch):
+    """Priming cannot choose which engrams a brief records as used."""
+    me = caller_for(household["wouter"])
+    rows = [
+        await save_as(
+            me,
+            "personal",
+            f"car-{n}.md",
+            "car " * (6 - n) + "word " * 50,
+            title=f"Note {n}",
+        )
+        for n in range(6)
+    ]
+    monkeypatch.setattr(get_settings().search, "log", True)
+    monkeypatch.setattr(usage, "current_session_id", lambda: "made-session")
+    monkeypatch.setattr(searchlog, "current_session_id", lambda: "made-session")
+    async with transaction_scope():
+        await searchlog.record(me.principal, "earlier", [rows[5].id])
+    before = await find.brief(me, "", "car")
+    calls = []
+    original = searchlog.earlier_results
+
+    async def record(*args):
+        """Notice a log read while keeping its real contents."""
+        calls.append(args)
+        return await original(*args)
+
+    monkeypatch.setattr(searchlog, "earlier_results", record)
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    after = await find.brief(me, "", "car")
+    assert [item["engram"] for item in after["engrams"]] == [
+        item["engram"] for item in before["engrams"]
+    ]
+    assert all(not item.get("why", {}).get("primed") for item in after["engrams"])
+    assert calls == []
 
 
 CAR = "The car is a blue estate, insured with Ethias for 45 euro a month. "

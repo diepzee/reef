@@ -656,6 +656,7 @@ async def brief(
             space,
             BRIEF_ENGRAMS,
             log=False,
+            earlier=[],
             files=not get_settings().reading.enabled,
         )
     except AccessDenied:

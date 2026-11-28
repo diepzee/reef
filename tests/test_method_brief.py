@@ -299,7 +299,7 @@ async def test_brief_searches_as_before_with_the_switch_off(household, monkeypat
     me = caller_for(household["wouter"])
     await save_as(me, "personal", "route.md", "Some climbing.")
     await find.brief(me, "", "climbing")
-    assert asked == [{"log": False, "files": True}]
+    assert asked == [{"log": False, "files": True, "earlier": []}]
 
 
 async def test_brief_without_matches_is_empty(household):
