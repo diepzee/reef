@@ -202,8 +202,11 @@ company-sized memory.
   only totals can be read.
 
 Production holds very little usage data so far: 2 rows from one person
-between 18 and 26 November 2026. Everything in section 3 that learns from
-use depends on that changing.
+between 18 and 28 November 2026, against 91 logged searches. The cause is
+not that nobody uses Reef: `recall` answers with passages, so an assistant
+rarely opens an engram, and only opening and writing count as use.
+Decided 28 November 2026: activation keeps that strict rule and waits for
+real use. Everything in section 3 that learns from use depends on it.
 
 ### 2.6 Worker and jobs
 
@@ -279,19 +282,31 @@ tokens, and a memory of today's size already reaches that.
 
 ### 3.2 Priming, spreading and a recall path (RUG-25, RUG-32, RUG-38)
 
-- **Priming:** the last ten engrams a person used in the session count as
-  extra cues for the next search, at half weight, halving with each step
-  back.
+- **Priming:** what the earlier searches of the same session returned
+  counts as extra cues for the next search, at half weight, halving with
+  each search back. Decided 28 November 2026: priming feeds on the
+  session's earlier results, not on use. The design had "the last ten
+  engrams a person used in the session"; in practice assistants answer
+  from `recall` and rarely open an engram, so there is almost no use to
+  prime from. Nothing of priming lasts beyond the session, and nothing of
+  it is stored as use.
 - **Spreading:** relevance passes one to two hops along links, and later
   along associations. The proposal is a personalised PageRank from the
   first 20 results: ten rounds, damping 0.5.
 - **Bounded.** The bonus for activation is at most 1.25 times and for
   spreading at most 1.3 times. An engram that does not match cannot reach
-  the first ten on association alone.
+  the first ten on association alone. Search carries places, not scores,
+  so the first build states the bound in places: a result with the full
+  lift moves from place `p` to about `p / (1 + lift)`, and the test sets
+  choose the lift.
 - **Recall path:** each result says why it came back: how well it matched,
   its activation, and what spread into it from where.
 - `open` returns what is associated with an engram. There is no separate
   tool for it.
+
+The design for this part is `docs/specs/2026-11-28-priming-spreading-design.md`.
+Its first build leaves out the bonus for activation and the "associated"
+list in `open`: there is no usage data to rank by or to test on yet.
 
 Decided 17 November 2026: priming and spreading each ship behind their own
 switch. They go on for everyone only after passing the mechanism gate
@@ -596,6 +611,7 @@ Found while merging the documents:
 | 28 Nov 2026 | An episode holds no search questions; those go after 90 days with the search log. |
 | 28 Nov 2026 | A dream can be undone in the web app and through the assistant, with the person's yes. |
 | 28 Nov 2026 | Which model dreams is open until the design of RUG-28. |
+| 28 Nov 2026 | Priming feeds on what the session's earlier searches returned. Activation keeps the strict rule: only opening and writing count. |
 
 ## 9. Where this came from
 
