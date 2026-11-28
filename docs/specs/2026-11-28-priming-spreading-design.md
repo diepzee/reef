@@ -74,7 +74,7 @@ My calls, for Wouter to check:
 1. A follow-up question finds the engrams the session was just about.
 2. An engram linked from a good match comes up higher than one that is
    not.
-3. A result whose place was changed by either says so, and from where.
+3. A result that either of them moved up says so, and from where.
 4. Each mechanism has its own switch, off by default, and a test set
    that can show whether it helps.
 5. With both switches off, search answers exactly as today.
@@ -98,8 +98,8 @@ My calls, for Wouter to check:
   the median `recall`.
 - **A leak.** Links and logged searches are read as the person, under row
   security. One member's session never primes another member's search.
-- **A longer answer for nothing.** A result whose place did not change
-  carries no extra text.
+- **A longer answer for nothing.** Only a result that was moved up
+  carries extra text.
 
 ## Constraints
 
@@ -228,8 +228,7 @@ place, however much weight it has.
 
 ### The recall path
 
-A result of `recall` or `brief` whose place the stage changed carries
-`why`:
+A result of `recall` or `brief` that the stage moved up carries `why`:
 
 ```json
 "why": {
@@ -245,7 +244,8 @@ A result of `recall` or `brief` whose place the stage changed carries
 - `linked_from`: up to three references of the engrams that passed it the
   most weight, strongest first. Only engrams the person can read.
 
-A result whose place did not change has no `why`. The connector's
+Every other result has no `why`, also one that was pushed down a place
+by another's lift. The connector's
 `search` keeps its fixed shape and never has it. The protocol gets one
 sentence that says what `why` means, so an assistant can tell the person.
 
