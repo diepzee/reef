@@ -2336,10 +2336,14 @@ async def search_engrams(
             else {}
         )
         rows = await _chosen_rows(query, chosen, file_text, nearest) if chosen else []
-        for row in rows:
+        for place, row in enumerate(rows, 1):
             if row["kind"] == "page" and row["id"] in notes:
                 row.update(notes[row["id"]])
-            if row["kind"] == "page" and row["id"] in why:
+            if (
+                row["kind"] == "page"
+                and row["id"] in why
+                and place < why[row["id"]]["place_by_match"]
+            ):
                 row["why"] = why[row["id"]]
         await _record(log, principal, query, rows)
         if passages:

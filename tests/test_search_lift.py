@@ -217,6 +217,18 @@ async def test_replaced_matches_receive_no_linked_weight_and_step_back(
     assert hits[-1]["replaced_by"][0]["path"] == rows[7].path
 
 
+async def test_a_primed_match_that_steps_back_has_no_reason(matches, monkeypatch):
+    """A temporary rise is not reported after replacement handling undoes it."""
+    me, rows = matches
+    await _link(me, rows[7].id, rows[5].id, "supersedes")
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    hits = await search.search_engrams(
+        me, "car", limit=8, semantic=False, rerank=False, earlier=[[rows[5].id]]
+    )
+    assert hits[-1]["path"] == rows[5].path
+    assert "why" not in hits[-1]
+
+
 async def test_hidden_links_cannot_lift_or_name_a_private_source(
     matches, household, monkeypatch
 ):
