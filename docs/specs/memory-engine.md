@@ -512,7 +512,11 @@ Found while merging the documents:
 9. **Validity dates.** The first design gave engrams and links a period
    in which they hold, and let a search for a period prefer what was
    valid then. The link table has the columns; nothing writes them.
-   Decided 26 November 2026: they wait for dreaming.
+   Decided 26 November 2026: they wait for dreaming. Seen in a test
+   conversation on 28 November 2026: a contract that replaces another but
+   starts five weeks later. "Replaced" is then not the same as "no longer
+   valid": the assistant had to read both engrams to answer correctly, and
+   it did.
 10. **What the gates measure.** The design says nDCG@10: a drop of one
     point rolls a dream back, and a mechanism must gain three. The
     benchmark reports "found in the first five" and the mean reciprocal

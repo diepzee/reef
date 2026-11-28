@@ -318,7 +318,9 @@ messages = [
 ]
 tools_required = ["load_index", "write"]
 facts = [["12 uur", "twaalf uur"]]
-answer_must_not = ['\b48\b', 'achtenveertig']
+# The answer may name the old term too. The 2027 contract starts on
+# 1 January 2027, so until then "48 uur" is still true, and a good answer
+# says so. Refusing "48" failed two correct answers of three on 28 Nov 2026.
 
 [[scenario.after]]
 ref = "personal/work/contract-2026.md"
