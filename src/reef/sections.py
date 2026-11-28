@@ -26,8 +26,8 @@ section costs two embeddings, that section and the whole-engram piece, not
 one per section. An edit beyond ``REEF_EMBEDDING_ENGRAM_CHARS`` costs one.
 
 Sections are not stored as rows of their own. They exist only as the
-embedding rows made from them: see the memory engine design, "The unit is
-the engram".
+embedding rows made from them: see ``docs/specs/memory-engine.md``,
+section 2.1.
 
 This module is pure. It reads no table and knows no model.
 """

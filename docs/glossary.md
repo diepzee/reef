@@ -20,7 +20,7 @@ One term per concept. The "Replaces" column lists words the documents used for t
 | Term | Meaning | Replaces | From biology |
 |---|---|---|---|
 | **Engram** | One stored memory: the unit a person or assistant writes and reads. A Markdown document | page, note, node, concept page, memory (as a unit) | Engram: the physical trace of one memory in the brain |
-| **Episode** | Reef's unchangeable record of one session: what was searched, read, written and remembered, including the assistant's wrap-up of what was discussed and decided. Visible only to the person. Kept forever, dormant over time | session trace, session notes | Episodic memory: what happened |
+| **Episode** | Reef's unchangeable record of one session: what was read, written and remembered, including the assistant's wrap-up of what was discussed and decided. Visible only to the person. Kept forever, dormant over time | session trace, session notes | Episodic memory: what happened |
 | **Gist** | An engram the system wrote by consolidating others. It links to its sources and never replaces them | summary, topic page, abstraction | Gist memory: the meaning kept after detail fades |
 | **Section** | A part of an engram under one heading | block | none |
 | **File** | An uploaded document, stored unchanged | attachment | none |
@@ -40,7 +40,7 @@ One term per concept. The "Replaces" column lists words the documents used for t
 
 | Term | Meaning | Replaces | From biology |
 |---|---|---|---|
-| **Recall** | Finding engrams for a question. The tool keeps the name `search` | retrieval | Recall |
+| **Recall** | Finding engrams for a question. The tool is `recall`; `search` is kept for connectors | retrieval | Recall |
 | **Cue** | Anything that starts a recall: the question itself, or a **learned cue** | seed, starting point | Retrieval cue |
 | **Learned cue** | Wording that Reef remembers as leading to an engram, learned from a failed search | cue row, miss | Cue-dependent recall |
 | **Priming** | Engrams used earlier in the session make related engrams easier to recall | session priming, session context | Priming |
