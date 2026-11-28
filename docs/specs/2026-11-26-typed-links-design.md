@@ -2,8 +2,8 @@
 
 Design for the two leftovers of RUG-36 that are not frontend work. It builds
 on the links table of PR #128 and on the memory engine design of
-15 November 2026 (`docs/superpowers/specs/2026-11-15-memory-engine-upgrade-design.md`,
-not in git).
+15 November 2026 (never in git; now replaced by
+`docs/specs/memory-engine.md`).
 
 ## Intent
 

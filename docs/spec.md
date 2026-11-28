@@ -1,5 +1,16 @@
 # rif — design
 
+> **Read this first (28 November 2026).** This is the original design of August 2026,
+> from when Reef was called rif. It is kept as history. Three things have changed since:
+>
+> - **Words.** A cove is now a space and a page is an engram: see `docs/glossary.md`.
+> - **Search.** "No vector database" and "no embeddings" no longer hold. Search uses
+>   words and meaning: see `docs/specs/memory-engine.md`, section 2.2.
+> - **Tools.** The tools named here are retired. The sixteen current ones are in
+>   `docs/specs/2026-11-19-workflow-tool-set-design.md`.
+>
+> The memory engine's design is `docs/specs/memory-engine.md`.
+
 Written 5 Aug 2026, revised twice the same day; rev 3 on 6 Aug. Rev 1: the
 store moved from git repos to Postgres, retrieval from search to whole-corpus
 loading. Rev 2, after an external architecture review: RLS became the enforced
