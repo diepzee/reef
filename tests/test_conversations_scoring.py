@@ -1956,6 +1956,53 @@ def test_invalid_report_keeps_the_longest_message(
     assert item["longest_message_seconds"] == 420
 
 
+def test_recorded_auth_result_uses_content_not_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Read the real result shape, with the exec event names around it.
+
+    :param monkeypatch: replaces Codex and the clock
+    """
+    event = {
+        "type": "item.completed",
+        "item": {
+            "id": "recorded-auth-refusal",
+            "type": "mcp_tool_call",
+            "server": "reef_bench",
+            "tool": "load_index",
+            "arguments": {"reason": "..."},
+            "status": "failed",
+            "result": {
+                "content": [{"type": "text", "text": "Authentication required"}],
+                "isError": True,
+                "_meta": {
+                    "mcp/www_authenticate": [
+                        (
+                            'Bearer error="invalid_token", error_description="Authentication '
+                            "failed. The provided bearer token is invalid, expired, or no "
+                            'longer recognized by the server. ..."'
+                        )
+                    ]
+                },
+            },
+            "duration": {"secs": 0, "nanos": 360417291},
+        },
+    }
+    parsed = _probe(event)
+    assert parsed.tool_calls[0].auth_required
+    assert not parsed.tool_calls[0].ok
+    session = _play_with_times(monkeypatch, [parsed], [331])
+    scored = score(
+        _scenario(), session, {}, files=True, file_text=True, seconds=331, bearer=True
+    )
+    assert scored.verdict == "invalid"
+    assert any("331 seconds" in reason for reason in scored.reasons)
+
+    # The metadata alone must not turn a different tool error into an auth error.
+    event["item"]["result"]["content"][0]["text"] = "invalid_arguments"
+    assert not _probe(event).tool_calls[0].auth_required
+
+
 @pytest.mark.parametrize("seconds", [12, 331])
 def test_measured_local_refusal_keeps_local_scoring(
     monkeypatch: pytest.MonkeyPatch, seconds: float
