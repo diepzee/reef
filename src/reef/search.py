@@ -2329,7 +2329,7 @@ async def search_engrams(
         why = {}
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
-        if lift_on:
+        if lift_on and ranking:
             lifted, why = await _lift_order(
                 principal, ranking[: lifting.CANDIDATES], aliases, earlier
             )

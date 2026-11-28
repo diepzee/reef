@@ -539,3 +539,21 @@ async def test_no_session_or_disabled_log_gives_no_priming(matches, monkeypatch)
     monkeypatch.setattr(usage, "current_session_id", lambda: "made-session")
     monkeypatch.setattr(get_settings().search, "log", False)
     assert await search.search_engrams(me, "car", limit=5, rerank=False) == before
+
+
+async def test_empty_matches_skip_the_stage(matches, monkeypatch):
+    """An empty ranking opens no stage savepoint and reads no session log."""
+    me, _ = matches
+    monkeypatch.setattr(get_settings().search, "priming", True)
+    monkeypatch.setattr(usage, "current_session_id", lambda: "made-session")
+    seen = []
+    original = search._lift_order
+
+    async def record(*args):
+        """Observe the whole stage, including its savepoint and reads."""
+        seen.append(args)
+        return await original(*args)
+
+    monkeypatch.setattr(search, "_lift_order", record)
+    assert await search.search_engrams(me, "absent", semantic=False, rerank=False) == []
+    assert seen == []
