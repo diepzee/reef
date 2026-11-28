@@ -219,7 +219,7 @@ Expected: PASS.
 - [ ] **Step 3: Wire it in.**
   - With a switch on and the question not exact, every route hands the stage up to `CANDIDATES` candidates: the words-only route takes its ranking form, as the reranker route already does; the fused ranking is cut to 50.
   - The stage runs once, after the reranker's `reorder`, before `_replacement_order`, and before the last `spread` of files and the cut. On the routes with two transactions it runs in the second.
-  - Sources for spreading: the first `SPREAD_SOURCES` engram candidates with weight `1 / place`, plus the primed engrams with their weight when priming is on.
+  - Sources for spreading: engrams among candidate positions 1 to `SPREAD_SOURCES` with weight `1 / place`, plus the primed engrams with their weight when priming is on. Skip files without reaching beyond those positions. Replaced engrams are never sources and receive or pass no linked weight, but keep their own primed weight.
   - The readers run inside a savepoint. Any failure: log the error's class only, keep the order.
   - `linked_from` holds only engrams the person can read; their space alias and path are read with the chosen rows. Keep the hit's existing keys as they are (`cove`, `path`).
 - [ ] **Step 4: Run** `just test-py tests/test_search_lift.py tests/test_search.py tests/test_search_hybrid.py tests/test_search_replaced.py tests/test_search_spread.py tests/test_search_files.py` and see them pass.

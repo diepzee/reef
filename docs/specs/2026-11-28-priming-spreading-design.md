@@ -176,6 +176,7 @@ The stage gets the candidates in order, best first. It gives some of them
 
 - The sources are the first 20 candidates, each with weight `1 / place`,
   and, when priming is on, the primed engrams with their weight.
+  Files in positions 1 to 20 are skipped; no later candidate takes their place as a source.
 - Each source passes half of its weight to its link neighbours, shared
   equally among them. So an engram with many links gives each neighbour
   less.
@@ -183,6 +184,7 @@ The stage gets the candidates in order, best first. It gives some of them
   That is two rounds, and it stops there.
 - Links count in both directions and all kinds count alike, with one
   exception: nothing is passed into an engram that has been replaced.
+  A replaced engram is never a source and receives or passes no linked weight, but keeps its own primed weight.
 - Only active links that the person can read at both ends exist for this.
 
 A candidate does not get weight from itself: it already has its place.
