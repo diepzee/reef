@@ -1887,6 +1887,10 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | dev | `REEF_DEV_INSECURE` | `0` | Admit an HTTP connection without a token, as the dev person. On only when set to exactly 1. |
 | dev | `REEF_DEV_PRINCIPAL_EMAIL` | (none) | Who a connection without a token is, in development. |
 | worker | `REEF_WORKER_POLL_SECONDS` | `5` | How long it waits before looking again when idle. |
+| search | `REEF_SEARCH_PRIMING` | `0` | Lift matches returned earlier in this session; off until the test sets decide. |
+| search | `REEF_SEARCH_SPREADING` | `0` | Lift matches linked from good matches; off until the test sets decide. |
+| search | `REEF_SEARCH_PRIMING_LIFT` | `0.3` | The largest lift from earlier results, starting at 0.3 until the test sets decide. |
+| search | `REEF_SEARCH_SPREADING_LIFT` | `0.3` | The largest lift from links, starting at 0.3 until the test sets decide. |
 | search | `REEF_SEARCH_LOG` | `0` | Log searches for 90 days. Off unless switched on: the privacy page promises that people are told first. |
 | search | `REEF_SEARCH_MAX_RESULTS` | `50` | The most results one search returns. |
 | search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |
