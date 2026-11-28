@@ -3,13 +3,15 @@
 Two rankings, merged. Postgres full-text search finds engrams and files by
 their words. Where the deployment has an embedding service, the stored
 vectors find engrams by their meaning, and the two rankings are fused. See
-:func:`search_engrams`. Without a service, or when it does not answer, search
-is keyword search and nothing else changes.
+:func:`search_engrams`. Without a service, or when it does not answer, matches
+come from words alone. An optional stage lifts those matches using session
+results and readable links.
 
 With reading switched on (``REEF_FILE_TEXT``), a file is also found by the
 words on its pages and by the meaning of its chunks (see
 :mod:`reef.filechunks`), and a file hit names the page it was found on. With
-it off, every statement is the one search ran before files had text.
+it off and both ranking switches off, every statement is the one search ran
+before files had text.
 
 Every query runs in the same armed transaction as every other read, so the
 row-level policies scope it — a search can only ever rank content the
@@ -45,7 +47,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from reef import embedding, filechunks, searchlog, sections
+from reef import embedding, filechunks, lifting, links, searchlog, sections, usage
 from reef import rerank as reranking
 from reef.access import Principal, alias_map, arm, resolve_space
 from reef.config import get_settings
@@ -682,7 +684,7 @@ def _row_payload(
         }
     else:
         payload = {**common, "path": row["path"], "title": row["title"]}
-        for key in ("replaced_by", "replaces"):
+        for key in ("replaced_by", "replaces", "why"):
             if row.get(key):
                 payload[key] = row[key]
     if passages is not None:
@@ -909,7 +911,10 @@ def _is_file_hit(hit: tuple[str, UUID]) -> bool:
 
 
 async def _closest(
-    embedded: tuple[str, list[float]], space_ids: list, files: bool
+    embedded: tuple[str, list[float]],
+    space_ids: list,
+    files: bool,
+    minimum: int = 0,
 ) -> list[tuple[str, UUID]]:
     """Rank the caller's engrams, and with reading on their files, by meaning.
 
@@ -924,11 +929,12 @@ async def _closest(
         :data:`_SEMANTIC_FILES_SQL`: up to ``REEF_SEARCH_FUSION_DEPTH``
         engrams and as many files. False runs the statement search ran
         before files had text, which keeps that many engrams.
+    :param minimum: keep at least this many candidates of each kind
     :returns: kind and id of each row, closest first. Empty when the
         statement failed or nothing visible has a vector of this model.
     """
     model_id, vector = embedded
-    depth = get_settings().search.fusion_depth
+    depth = max(get_settings().search.fusion_depth, minimum)
     if files:
         statement = _SEMANTIC_FILES_SQL % (
             (_ENGRAM_SPACE_FILTER, _FILE_SPACE_FILTER) if space_ids else ("", "")
@@ -2001,6 +2007,87 @@ async def _record(log_it: bool, principal: Principal, query: str, rows: list) ->
         )
 
 
+async def _lift_order(
+    principal: Principal,
+    ranking: list[tuple[str, UUID]],
+    aliases: dict[UUID, str],
+    earlier: list[list[UUID]] | None,
+) -> tuple[list[tuple[str, UUID]], dict[UUID, dict]]:
+    """Lift matches and name their sources inside the search's transaction.
+
+    Any failure rolls back the savepoint and keeps the input order. The
+    caller enters here only with a switch on and a question that is not exact.
+
+    :param principal: the armed reader
+    :param ranking: at most fifty candidates, after any reranker and file spread
+    :param aliases: the reader's names for their spaces
+    :param earlier: supplied history, or None to read this session's log
+    :returns: the order and notes for engrams that rose
+    """
+    settings = get_settings().search
+    savepoint = await DB.current_transaction.get().savepoint()
+    try:
+        primed: dict[UUID, float] = {}
+        if settings.priming:
+            if earlier is None:
+                session_id = usage.current_session_id()
+                earlier = (
+                    await searchlog.earlier_results(principal, session_id)
+                    if session_id
+                    else []
+                )
+            primed = lifting.primed_weights(earlier)
+        linked: dict[UUID, float] = {}
+        origins: dict[UUID, dict[UUID, float]] = {}
+        if settings.spreading:
+            sources = {
+                row_id: 1 / place
+                for place, (kind, row_id) in enumerate(
+                    ranking[: lifting.SPREAD_SOURCES], 1
+                )
+                if kind == "page"
+            }
+            for row_id, weight in primed.items():
+                sources[row_id] = sources.get(row_id, 0.0) + weight
+            neighbours, closed = await links.neighbourhood(list(sources))
+            linked, origins = lifting.linked_weights(sources, neighbours, closed)
+        ordered, reasons = lifting.lift(
+            ranking,
+            primed,
+            linked,
+            origins,
+            priming_lift=settings.priming_lift,
+            spreading_lift=settings.spreading_lift,
+        )
+        source_ids = {source for why in reasons.values() for source in why.linked_from}
+        details = (
+            {
+                row["id"]: {"cove": aliases[row["space_id"]], "path": row["path"]}
+                for row in await Engram.select(
+                    Engram.id, Engram.space_id, Engram.path
+                ).where(Engram.id.is_in(list(source_ids)))
+                if row["space_id"] in aliases
+            }
+            if source_ids
+            else {}
+        )
+        notes: dict[UUID, dict] = {}
+        for row_id, why in reasons.items():
+            note = {"place_by_match": why.place_by_match}
+            if why.primed:
+                note["primed"] = True
+            refs = [details[source] for source in why.linked_from if source in details]
+            if refs:
+                note["linked_from"] = refs
+            notes[row_id] = note
+    except Exception as error:  # noqa: BLE001
+        await savepoint.rollback_to()
+        log.warning("search lift keeps the match order (%s)", type(error).__name__)
+        return ranking, {}
+    await savepoint.release()
+    return ordered, notes
+
+
 async def search_engrams(
     principal: Principal,
     query: str,
@@ -2012,6 +2099,7 @@ async def search_engrams(
     rerank: bool = True,
     passages: bool = False,
     files: bool = True,
+    earlier: list[list[UUID]] | None = None,
 ) -> list[dict]:
     """Search every engram and described file the caller can see, best match first.
 
@@ -2038,8 +2126,8 @@ async def search_engrams(
     ``REEF_RERANK_CANDIDATES`` results are read next to the query and put
     in its order, see :mod:`reef.rerank`.
 
-    A query with a quoted phrase or an exclusion is neither merged nor read
-    again: it stays exact.
+    A query with a quoted phrase or an exclusion is neither merged, read
+    again nor lifted: it stays exact.
 
     **Room for engrams.** With reading on, engrams and files are taken as
     candidates each on their own, by words and by meaning, so files that
@@ -2047,6 +2135,17 @@ async def search_engrams(
     at most ``REEF_SEARCH_FILES_IN_FIVE`` files while engrams remain, see
     :func:`spread`: after the fusion or the keyword ranking, again after
     the reranker, and on the rows of a search by words alone.
+
+    **Session and links.** With priming or spreading on, lift the first 50
+    matches after the reranker and its file spread, before replacements.
+    Recent results from this person's session give primed weight. Readable
+    links from good matches pass weight for two rounds. Each share uses a
+    fixed reference and is capped at one, so age and match place still count.
+    Only engrams can rise; files keep their slots and no new match enters.
+    Fetch at least 50 candidates, or the asked length when larger, and keep
+    any tail behind the lifted prefix. Empty rankings skip the stage.
+    With both switches off, the original statements and cut stay. The stage's
+    reads use a savepoint; a failure keeps the match order and gives no notes.
 
     **Never slow because of a model.** The search embeds the query first,
     then reads in one short transaction, then asks the reranker, then reads
@@ -2064,7 +2163,11 @@ async def search_engrams(
     an inserted replacement can push its old hit out. A failed replacement
     query keeps the original order and adds no notes.
 
-    Search never fails because of the embedding service or the reranker.
+    Only an engram whose final place is better than its place before the
+    lift carries ``why``. It names any priming and up to three direct link
+    neighbours that passed it weight, strongest first.
+
+    Search never fails because of the embedding service, reranker or lift.
     Without them, or when they are slow or down, the answer is the order
     it had without them.
 
@@ -2106,6 +2209,10 @@ async def search_engrams(
         None. A file's snippet comes from that page.
     :param files: False searches engrams alone, so no file takes the place
         of an engram. True, the default, searches files beside engrams.
+    :param earlier: earlier results, newest search first, each best engram
+        first. When supplied, the search log is not read. None uses the
+        current session, when priming is on. With both switches off this
+        argument changes nothing.
     :raises AccessDenied: when ``space`` names no space of the caller's
     """
     # Postgres text cannot hold a NUL byte, and one in a parameter fails the
@@ -2116,6 +2223,7 @@ async def search_engrams(
     settings = get_settings()
     limit = max(1, min(limit, settings.search.max_results))
     exact = _EXACT.search(query) is not None
+    lift_on = not exact and (settings.search.priming or settings.search.spreading)
     file_text = settings.reading.enabled
     files_in_five = settings.search.files_in_five
     embedded = await embedding.embed_question(query) if semantic and not exact else None
@@ -2136,11 +2244,18 @@ async def search_engrams(
         if reread:
             reread = await _large_enough(space_ids)
         closest = (
-            await _closest(embedded, space_ids, file_text and files) if embedded else []
+            await _closest(
+                embedded,
+                space_ids,
+                file_text and files,
+                max(limit, lifting.CANDIDATES) if lift_on else 0,
+            )
+            if embedded
+            else []
         )
-        words_only = not closest and not reread
+        words_only = not closest and not reread and not lift_on
         if words_only:
-            # Keyword search, in one statement, as it always was.
+            # With both lifts off, keep the original keyword statement and cut.
             rows = await Engram.raw(
                 hits_sql + (_PAGE_RESULTS_SQL if file_text else _RESULTS_SQL),
                 *_hits_params(query, space_ids, limit, file_text),
@@ -2178,7 +2293,11 @@ async def search_engrams(
                 *_hits_params(
                     query,
                     space_ids,
-                    max(limit, settings.search.fusion_depth),
+                    max(
+                        limit,
+                        settings.search.fusion_depth,
+                        lifting.CANDIDATES if lift_on else 0,
+                    ),
                     file_text,
                 ),
                 len(query.split()) <= settings.search.sure_words,
@@ -2194,13 +2313,17 @@ async def search_engrams(
                 *_hits_params(
                     query,
                     space_ids,
-                    max(limit, settings.rerank.candidates),
+                    max(limit, lifting.CANDIDATES)
+                    if lift_on
+                    else max(limit, settings.rerank.candidates),
                     file_text,
                 ),
             )
             ranking = [(row["kind"], row["id"]) for row in keyword]
         if file_text and not words_only:
             ranking = spread(ranking, _is_file_hit, files_in_five)
+        if lift_on:
+            ranking = ranking[: max(limit, lifting.CANDIDATES)]
         if reread and len(ranking) > 1:
             reading = await _read_candidates(
                 ranking[: get_settings().rerank.candidates], embedded, file_text
@@ -2221,8 +2344,14 @@ async def search_engrams(
     headlines: dict[UUID, str] = {}
     async with transaction_scope():
         await arm(principal)
+        why: dict[UUID, dict] = {}
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
+        if lift_on and ranking:
+            lifted, why = await _lift_order(
+                principal, ranking[: lifting.CANDIDATES], aliases, earlier
+            )
+            ranking = lifted + ranking[lifting.CANDIDATES :]
         ranking, notes = await _replacement_order(ranking[:limit], space_ids, aliases)
         if file_text:
             ranking = spread(ranking, _is_file_hit, files_in_five)
@@ -2236,9 +2365,15 @@ async def search_engrams(
             else {}
         )
         rows = await _chosen_rows(query, chosen, file_text, nearest) if chosen else []
-        for row in rows:
+        for place, row in enumerate(rows, 1):
             if row["kind"] == "page" and row["id"] in notes:
                 row.update(notes[row["id"]])
+            if (
+                row["kind"] == "page"
+                and row["id"] in why
+                and place < why[row["id"]]["place_by_match"]
+            ):
+                row["why"] = why[row["id"]]
         await _record(log, principal, query, rows)
         if passages:
             best, texts = await _read_best_pieces(

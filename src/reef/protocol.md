@@ -50,6 +50,10 @@ and name where each claim comes from. Call `open` with a ref only when the
 passages are not enough, or before you change an engram. If memory holds
 nothing on the question, say so. Do not fill the gap from guesses.
 
+An engram that rose because of this session's earlier results or because a
+good match links to it carries `why`, with its original place and the sources.
+Tell the person why it came up when that helps.
+
 **Advise with `brief`.** It returns the engrams that bear on a topic: the
 latest entries of each log, and the text of everything else. Use it before a
 meeting, a decision or a plan.

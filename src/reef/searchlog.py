@@ -42,6 +42,7 @@ from uuid import UUID, uuid4
 from reef.access import Principal, arm
 from reef.config import get_settings
 from reef.db import DB
+from reef.lifting import PRIMING_MINUTES
 from reef.models import SearchLog
 from reef.rls import (
     SEARCH_LOG_DAYS,
@@ -55,6 +56,26 @@ log = logging.getLogger("reef.searchlog")
 
 #: How many days a logged search is kept.
 RETENTION_DAYS = SEARCH_LOG_DAYS
+
+
+async def earlier_results(principal: Principal, session_id: str) -> list[list[UUID]]:
+    """Read this person's recent results in the caller's armed transaction.
+
+    :param principal: the person whose rows may count
+    :param session_id: the session label already used by the logs
+    :returns: at most ten searches, newest first, each best result first
+    """
+    if not get_settings().search.log:
+        return []
+    rows = await SearchLog.raw(
+        "SELECT engram_ids FROM search_log WHERE person_id = {} AND session_id = {} "
+        "AND searched_at >= LOCALTIMESTAMP - {} * interval '1 minute' "
+        "ORDER BY searched_at DESC, id DESC LIMIT 10",
+        principal.person_id,
+        session_id,
+        PRIMING_MINUTES,
+    )
+    return [row["engram_ids"] for row in rows]
 
 
 async def record(principal: Principal, query: str, engram_ids: list[UUID]) -> None:

@@ -52,6 +52,63 @@ from reef.relations import MAX_RELATIONS, RELATION_KEYS, InvalidRelations, Relat
 _TYPED_LINK_LOCK_KEY = 7360036
 
 
+async def neighbourhood(
+    engram_ids: list[UUID],
+) -> tuple[dict[UUID, list[UUID]], set[UUID]]:
+    """Read up to two hops of active links for the armed person.
+
+    Both ends are protected by row security. At most 2,000 link rows are
+    taken, best source first and then by link id. Replacement checks include
+    incoming links outside that cut, so a cut cannot make an old engram accept
+    weight.
+
+    :param engram_ids: the starting engrams, best placed first
+    :returns: neighbours in both directions and replaced engrams
+    """
+    if not engram_ids:
+        return {}, set()
+    rows = await Link.raw(
+        "WITH seeds AS (SELECT * FROM unnest({}::uuid[]) "
+        "WITH ORDINALITY AS s(id, priority)), "
+        "nearby AS (SELECT id, min(priority) AS priority FROM ("
+        "SELECT id, priority FROM seeds UNION ALL "
+        "SELECT l.to_engram_id, s.priority FROM links l "
+        "JOIN seeds s ON l.from_engram_id = s.id WHERE l.status = 'active' UNION ALL "
+        "SELECT l.from_engram_id, s.priority FROM links l "
+        "JOIN seeds s ON l.to_engram_id = s.id WHERE l.status = 'active'"
+        ") reached GROUP BY id), "
+        "touching AS (SELECT l.id, l.from_engram_id, l.to_engram_id, n.priority "
+        "FROM nearby n JOIN links l ON l.from_engram_id = n.id "
+        "WHERE l.status = 'active' UNION "
+        "SELECT l.id, l.from_engram_id, l.to_engram_id, n.priority "
+        "FROM nearby n JOIN links l ON l.to_engram_id = n.id "
+        "WHERE l.status = 'active'), "
+        "edges AS (SELECT id, from_engram_id, to_engram_id, min(priority) AS priority "
+        "FROM touching GROUP BY id, from_engram_id, to_engram_id "
+        "ORDER BY priority, id LIMIT 2000) "
+        "SELECT e.from_engram_id, e.to_engram_id, "
+        "EXISTS (SELECT 1 FROM links r WHERE r.to_engram_id = e.from_engram_id "
+        "AND r.kind = 'supersedes' AND r.status = 'active') AS from_closed, "
+        "EXISTS (SELECT 1 FROM links r WHERE r.to_engram_id = e.to_engram_id "
+        "AND r.kind = 'supersedes' AND r.status = 'active') AS to_closed "
+        "FROM edges e ORDER BY e.priority, e.id",
+        [str(engram_id) for engram_id in engram_ids],
+    )
+    neighbours: dict[UUID, list[UUID]] = {}
+    closed: set[UUID] = set()
+    for row in rows:
+        source, target = row["from_engram_id"], row["to_engram_id"]
+        for near, far in ((source, target), (target, source)):
+            adjacent = neighbours.setdefault(near, [])
+            if far not in adjacent:
+                adjacent.append(far)
+        if row["from_closed"]:
+            closed.add(source)
+        if row["to_closed"]:
+            closed.add(target)
+    return neighbours, closed
+
+
 def parse_target(target: str) -> tuple[str | None, str]:
     """Split a written wiki-link target into a space name and an engram path.
 

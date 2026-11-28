@@ -61,6 +61,40 @@ SIXTEEN = {
 CONNECTOR = {"search", "fetch"}
 
 
+async def test_recall_path_fits_the_mcp_output_schema(client, household, monkeypatch):
+    """Clients receive the optional reason in a valid structured answer."""
+    me = principal_for(household["wouter"])
+    async with transaction_scope():
+        await save_engram(me, "personal", "a.md", "car", message="x")
+
+    async def found(*args, **kwargs):
+        """Supply a moved hit at the search boundary."""
+        return [
+            {
+                "kind": "page",
+                "cove": "personal",
+                "path": "a.md",
+                "title": "A",
+                "passage": "car",
+                "why": {
+                    "place_by_match": 6,
+                    "primed": True,
+                    "linked_from": [{"cove": "personal", "path": "a.md"}],
+                },
+            }
+        ]
+
+    monkeypatch.setattr(find, "search_engrams", found)
+    result = await client.call_tool("recall", {"question": "car"})
+    assert result.is_error is False
+    validate(result.structured_content, (await _listed(client))["recall"].outputSchema)
+    assert result.data[0]["why"] == {
+        "place_by_match": 6,
+        "primed": True,
+        "linked_from": ["personal/a.md"],
+    }
+
+
 async def test_write_has_optional_confirmation() -> None:
     """The tool can return the person's confirmation token on a second call."""
     tool = next(tool for tool in await mcp.list_tools() if tool.name == "write")
@@ -250,6 +284,7 @@ async def test_tool_descriptions_have_their_limits_filled_in(client: Client) -> 
     assert listed["write"].description.startswith(
         "Create or replace whole engrams, up to 20 in one call, all or nothing."
     )
+    assert "A result that moved up may say why." in listed["recall"].description
     for name, tool in listed.items():
         assert "{" not in tool.description, name
 

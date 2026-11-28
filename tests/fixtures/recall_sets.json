@@ -1,0 +1,377 @@
+[
+  {
+    "id": "linked-1",
+    "text": "Voor het huis aan de Zwaluwhofstraat 23: hoeveel kost de laatste wijziging aan de geplande werken extra?",
+    "expected": [
+      "personal/projects/bathroom-renovation.md"
+    ],
+    "set": "linked",
+    "via": "personal/household/home.md"
+  },
+  {
+    "id": "linked-2",
+    "text": "Voor onze Ford Puma met nummerplaat 1-ABC-123: welk bedrag moet ik elk jaar voor de dekking voorzien?",
+    "expected": [
+      "personal/household/insurance.md"
+    ],
+    "set": "linked",
+    "via": "personal/household/car.md"
+  },
+  {
+    "id": "linked-3",
+    "text": "Bij mijn abonnementen, naast Flimmerdoos en Reps, staat een verwijzing voor internet: hoeveel goedkoper werd dat na de overstap?",
+    "expected": [
+      "personal/household/utilities.md"
+    ],
+    "set": "linked",
+    "via": "personal/finance/subscriptions.md"
+  },
+  {
+    "id": "linked-4",
+    "text": "Onze glasvezel 500 Mbit van Nettie werkt niet: hoe lang moet ik de stroom onderbreken?",
+    "expected": [
+      "personal/howto/wifi-router-reset.md"
+    ],
+    "set": "linked",
+    "via": "personal/household/utilities.md"
+  },
+  {
+    "id": "linked-5",
+    "text": "Voor de Fleetboard-pipeline van ruwe GPS-punten naar ritten: welk schema zet ik als eerste uit als ik alles opnieuw moet maken?",
+    "expected": [
+      "personal/work/howto-rebuild-trips.md"
+    ],
+    "set": "linked",
+    "via": "personal/work/project-fleetboard.md"
+  },
+  {
+    "id": "linked-6",
+    "text": "Bij de onboarding van een nieuwe collega in fleetboard-pipelines: wat is de achternaam van de buddy?",
+    "expected": [
+      "personal/work/team.md"
+    ],
+    "set": "linked",
+    "via": "personal/work/onboarding-new-colleague.md"
+  },
+  {
+    "id": "linked-7",
+    "text": "Lode Vanhecke uit Mechelen noemt een hobby in zijn profiel: welke verhouding gebruikt hij voor dat deeg?",
+    "expected": [
+      "personal/howto/sourdough.md"
+    ],
+    "set": "linked",
+    "via": "personal/profile/about-lode.md"
+  },
+  {
+    "id": "linked-8",
+    "text": "Voor mijn idee van een dashboardje voor de energiemeters: hoeveel vermogen is er al op het dak geplaatst?",
+    "expected": [
+      "personal/household/utilities.md"
+    ],
+    "set": "linked",
+    "via": "personal/projects/ideas.md"
+  },
+  {
+    "id": "linked-9",
+    "text": "Op mijn lijst cadeaus staan een dinosaurus-puzzel en een boekenbon: welke uitvoering moet de jas op die lijst hebben?",
+    "expected": [
+      "personal/household/sofie.md"
+    ],
+    "set": "linked",
+    "via": "personal/notes/gift-ideas.md"
+  },
+  {
+    "id": "linked-10",
+    "text": "Bij het gesprek op 14 oktober was de afspraak elke avond 10 minuten lezen: op welk tijdstip zien we haar weer?",
+    "expected": [
+      "personal/household/kids.md"
+    ],
+    "set": "linked",
+    "via": "personal/notes/meeting-school-2026-10.md"
+  },
+  {
+    "session": [
+      {
+        "id": "follow-1-start",
+        "text": "Wat is er beslist over de badkamerverbouwing?",
+        "expected": [
+          "personal/projects/bathroom-renovation.md"
+        ]
+      },
+      {
+        "id": "follow-1",
+        "text": "En hoeveel komt erbij door de laatste wijziging?",
+        "expected": [
+          "personal/projects/bathroom-renovation.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-2-start",
+        "text": "Welke auto hebben we gekocht?",
+        "expected": [
+          "personal/household/car.md"
+        ]
+      },
+      {
+        "id": "follow-2",
+        "text": "En wanneer was dat precies?",
+        "expected": [
+          "personal/household/car.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-3-start",
+        "text": "Welke verzekeringen hebben we?",
+        "expected": [
+          "personal/household/insurance.md"
+        ]
+      },
+      {
+        "id": "follow-3",
+        "text": "En hoe bereik ik hen als er iets misloopt?",
+        "expected": [
+          "personal/household/insurance.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-4-start",
+        "text": "Hoe zit het met energie en internet?",
+        "expected": [
+          "personal/household/utilities.md"
+        ]
+      },
+      {
+        "id": "follow-4",
+        "text": "Hoeveel scheelt dat eigenlijk?",
+        "expected": [
+          "personal/household/utilities.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-5-start",
+        "text": "Wat weet je over de vaccinaties van Mouche de kat?",
+        "expected": [
+          "personal/household/cat-mouche.md"
+        ]
+      },
+      {
+        "id": "follow-5",
+        "text": "En op welke datum was dat voor het laatst?",
+        "expected": [
+          "personal/household/cat-mouche.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-6-start",
+        "text": "Wat ging er mis bij mijn laatste zuurdesembrood?",
+        "expected": [
+          "personal/howto/sourdough.md"
+        ]
+      },
+      {
+        "id": "follow-6",
+        "text": "En wat pas ik daaraan aan?",
+        "expected": [
+          "personal/howto/sourdough.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-7-start",
+        "text": "Wat is het plan voor de reis naar Asturië?",
+        "expected": [
+          "personal/projects/trip-asturias.md"
+        ]
+      },
+      {
+        "id": "follow-7",
+        "text": "En wat moet ik daarvoor opzijzetten?",
+        "expected": [
+          "personal/projects/trip-asturias.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-8-start",
+        "text": "Hoe gaat het trainen de laatste weken?",
+        "expected": [
+          "personal/logs/training.md"
+        ]
+      },
+      {
+        "id": "follow-8",
+        "text": "En waar wil ik nu naartoe?",
+        "expected": [
+          "personal/logs/training.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-9-start",
+        "text": "Wat hebben we in de moestuin gekweekt?",
+        "expected": [
+          "personal/projects/vegetable-garden.md"
+        ]
+      },
+      {
+        "id": "follow-9",
+        "text": "En wat komt daar nadien in?",
+        "expected": [
+          "personal/projects/vegetable-garden.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "follow-10-start",
+        "text": "Wat is er in mijn 1-on-1 met Greet afgesproken?",
+        "expected": [
+          "personal/work/one-on-one-greet.md"
+        ]
+      },
+      {
+        "id": "follow-10",
+        "text": "En hoeveel kost die cursus?",
+        "expected": [
+          "personal/work/one-on-one-greet.md"
+        ],
+        "set": "follow_up"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "change-1-start",
+        "text": "Wat is er beslist over de badkamerverbouwing?",
+        "expected": [
+          "personal/projects/bathroom-renovation.md"
+        ]
+      },
+      {
+        "id": "change-1",
+        "text": "Wat is de nieuwe deadline voor Fleetboard?",
+        "expected": [
+          "personal/work/project-fleetboard.md"
+        ],
+        "set": "change_of_subject"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "change-2-start",
+        "text": "Welke auto hebben we gekocht?",
+        "expected": [
+          "personal/household/car.md"
+        ]
+      },
+      {
+        "id": "change-2",
+        "text": "Hoeveel zout gaat in mijn zuurdesembrood?",
+        "expected": [
+          "personal/howto/sourdough.md"
+        ],
+        "set": "change_of_subject"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "change-3-start",
+        "text": "Welke verzekeringen hebben we?",
+        "expected": [
+          "personal/household/insurance.md"
+        ]
+      },
+      {
+        "id": "change-3",
+        "text": "Hoe laat heeft Noor zwemles op woensdag?",
+        "expected": [
+          "personal/household/kids.md"
+        ],
+        "set": "change_of_subject"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "change-4-start",
+        "text": "Hoe gaat het trainen de laatste weken?",
+        "expected": [
+          "personal/logs/training.md"
+        ]
+      },
+      {
+        "id": "change-4",
+        "text": "Wat kost mijn glasvezelabonnement bij Nettie?",
+        "expected": [
+          "personal/household/utilities.md"
+        ],
+        "set": "change_of_subject"
+      }
+    ]
+  },
+  {
+    "session": [
+      {
+        "id": "change-5-start",
+        "text": "Wat weet je over Mouche de kat?",
+        "expected": [
+          "personal/household/cat-mouche.md"
+        ]
+      },
+      {
+        "id": "change-5",
+        "text": "Wanneer heb ik mijn belastingaangifte ingediend?",
+        "expected": [
+          "personal/howto/tax-return.md"
+        ],
+        "set": "change_of_subject"
+      }
+    ]
+  }
+]

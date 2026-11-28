@@ -286,3 +286,23 @@ def test_a_page_may_not_pass_200000_characters(monkeypatch):
     monkeypatch.setenv("REEF_FILE_TEXT_PAGE_CHARS", "200001")
     with pytest.raises(ValueError):
         config.Settings()
+
+
+def test_search_lifts_start_off_at_point_three(monkeypatch):
+    """New ranking signals wait for a measured choice before being enabled."""
+    for name in ("PRIMING", "SPREADING", "PRIMING_LIFT", "SPREADING_LIFT"):
+        for prefix in ("REEF", "RIF"):
+            monkeypatch.delenv(f"{prefix}_SEARCH_{name}", raising=False)
+    settings = config.get_settings().search
+    assert (settings.priming, settings.spreading) == (False, False)
+    assert (settings.priming_lift, settings.spreading_lift) == (0.3, 0.3)
+
+
+@pytest.mark.parametrize("name", ["priming", "spreading"])
+def test_search_lift_switches_and_bounds(monkeypatch, name):
+    """Each switch can be enabled, but a negative lift is refused."""
+    monkeypatch.setenv(f"REEF_SEARCH_{name.upper()}", "1")
+    assert getattr(config.SearchSettings(), name) is True
+    monkeypatch.setenv(f"REEF_SEARCH_{name.upper()}_LIFT", "-0.1")
+    with pytest.raises(ValueError):
+        config.SearchSettings()

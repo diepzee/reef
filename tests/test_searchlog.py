@@ -281,3 +281,64 @@ async def test_the_full_export_carries_only_the_persons_own_searches(
         ("boiler", [{"space": "household", "path": "boiler.md"}])
     ]
     assert manifest["contents"]["search_log"] == 1
+
+
+async def test_earlier_results_belong_to_this_person_and_recent_session(
+    household, seed, logging_on
+):
+    """A shared label never shares another member's search history."""
+    me = principal_for(household["wouter"])
+    partner = principal_for(household["partner"])
+    a, b = uuid4(), uuid4()
+    rows = [
+        (me.person_id, "same", [a, b], 2),
+        (me.person_id, "same", [b], 1),
+        (me.person_id, "same", [a], 61),
+        (me.person_id, "other", [a], 0),
+        (partner.person_id, "same", [a], 0),
+    ]
+    for person, session, ids, minutes in rows:
+        await seed.execute(
+            "INSERT INTO search_log (id, person_id, query, session_id, engram_ids, searched_at) "
+            "VALUES ($1, $2, 'question', $3, $4, LOCALTIMESTAMP - $5 * interval '1 minute')",
+            uuid4(),
+            person,
+            session,
+            ids,
+            minutes,
+        )
+    async with transaction_scope():
+        await arm(me)
+        assert await searchlog.earlier_results(me, "same") == [[b], [a, b]]
+        await arm(partner)
+        assert await searchlog.earlier_results(partner, "same") == [[a]]
+        assert await searchlog.earlier_results(me, "same") == []
+
+
+async def test_earlier_results_read_at_most_ten_searches(tx, household, logging_on):
+    """The reader bounds its history before the pure stage counts engrams."""
+    me = principal_for(household["wouter"])
+    await arm(me)
+    for number in range(12):
+        await SearchLog.raw(
+            "INSERT INTO search_log (id, person_id, query, session_id, engram_ids, searched_at) "
+            "VALUES ({}, {}, 'question', 'same', {}, LOCALTIMESTAMP - {} * interval '1 minute')",
+            uuid4(),
+            me.person_id,
+            [uuid4()],
+            number,
+        )
+    assert len(await searchlog.earlier_results(me, "same")) == 10
+
+
+async def test_earlier_results_off_reads_nothing(tx, household, monkeypatch):
+    """Turning off search logging also turns off its use for priming."""
+    me = principal_for(household["wouter"])
+    monkeypatch.setattr(get_settings().search, "log", False)
+
+    def refuse(*args, **kwargs):
+        """Reject any attempt to read a disabled log."""
+        raise AssertionError("the disabled log was read")
+
+    monkeypatch.setattr(SearchLog, "raw", refuse)
+    assert await searchlog.earlier_results(me, "same") == []

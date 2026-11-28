@@ -872,6 +872,27 @@ worker does not use it.
   query, reads in one short transaction, asks the reranker, then reads the
   results in a second short transaction.
 
+**Priming and spreading (28 Nov 2026).** Both switches are off by default
+and stay off for this build. Measure before switching either on; the method
+and empty results table are in `scripts/eval/README.md`.
+
+- `REEF_SEARCH_PRIMING=0`: earlier results in the same MCP session can lift
+  a match. Live priming needs `REEF_SEARCH_LOG=1`; without a session or with
+  logging off it does nothing. It reads the person's last hour of searches.
+- `REEF_SEARCH_SPREADING=0`: readable links from good matches can lift
+  another match, over two rounds. With priming on, earlier results can be
+  sources too. Replaced engrams pass and receive no linked weight.
+- `REEF_SEARCH_PRIMING_LIFT=0.3` and `REEF_SEARCH_SPREADING_LIFT=0.3`:
+  the starting bounds, each at least zero. Measure 0.3, 0.5 and 1.0 before
+  choosing either one.
+
+Before priming is switched on, add a sentence to the privacy page saying
+that a session's earlier search results help rank later searches, and that
+this effect ends with the session. Search-log retention stays the same;
+priming stores nothing and does not count as use. Switching on is a separate
+decision under RUG-38. With both switches off, search keeps its old statements
+and cuts. A question with a phrase or an exclusion never gets a lift.
+
 **The search log (18 Nov 2026).** reef can log each search: the query
 text, the engrams returned and the time. It is **off** until `REEF_SEARCH_LOG=1`
 is set on `reef-app`. Do not set it before people have been told: the
@@ -1887,6 +1908,10 @@ are set, the new one wins. Rename them in the deployment when convenient.
 | dev | `REEF_DEV_INSECURE` | `0` | Admit an HTTP connection without a token, as the dev person. On only when set to exactly 1. |
 | dev | `REEF_DEV_PRINCIPAL_EMAIL` | (none) | Who a connection without a token is, in development. |
 | worker | `REEF_WORKER_POLL_SECONDS` | `5` | How long it waits before looking again when idle. |
+| search | `REEF_SEARCH_PRIMING` | `0` | Lift matches returned earlier in this session; off until the test sets decide. |
+| search | `REEF_SEARCH_SPREADING` | `0` | Lift matches linked from good matches; off until the test sets decide. |
+| search | `REEF_SEARCH_PRIMING_LIFT` | `0.3` | The largest lift from earlier results, starting at 0.3 until the test sets decide. |
+| search | `REEF_SEARCH_SPREADING_LIFT` | `0.3` | The largest lift from links, starting at 0.3 until the test sets decide. |
 | search | `REEF_SEARCH_LOG` | `0` | Log searches for 90 days. Off unless switched on: the privacy page promises that people are told first. |
 | search | `REEF_SEARCH_MAX_RESULTS` | `50` | The most results one search returns. |
 | search | `REEF_SEARCH_FUSION_DEPTH` | `50` | How many results of each ranking take part in the fusion. |

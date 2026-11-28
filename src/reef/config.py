@@ -263,6 +263,24 @@ class SearchSettings(BaseSettings):
 
     model_config = _group(f"{PREFIX}SEARCH_")
 
+    priming: bool = Field(
+        False,
+        description="Lift matches returned earlier in this session; off until the test sets decide.",
+    )
+    spreading: bool = Field(
+        False,
+        description="Lift matches linked from good matches; off until the test sets decide.",
+    )
+    priming_lift: float = Field(
+        0.3,
+        ge=0,
+        description="The largest lift from earlier results, starting at 0.3 until the test sets decide.",
+    )
+    spreading_lift: float = Field(
+        0.3,
+        ge=0,
+        description="The largest lift from links, starting at 0.3 until the test sets decide.",
+    )
     log: bool = Field(
         False,
         description=(

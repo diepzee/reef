@@ -323,7 +323,24 @@ def _passage(hit: dict, author: str | None, updated_at: str) -> dict:
         "ref": f"{space}/{hit['path']}",
         **({"replaced_by": hit["replaced_by"]} if hit.get("replaced_by") else {}),
         **({"replaces": hit["replaces"]} if hit.get("replaces") else {}),
+        **_recall_path(hit),
     }
+
+
+def _recall_path(hit: dict) -> dict:
+    """Turn a moved hit's source paths into references that open accepts.
+
+    :param hit: an engram hit from search
+    :returns: the optional why field, without changing the search hit
+    """
+    if not hit.get("why"):
+        return {}
+    why = dict(hit["why"])
+    if why.get("linked_from"):
+        why["linked_from"] = [
+            f"{ref['cove']}/{ref['path']}" for ref in why["linked_from"]
+        ]
+    return {"why": why}
 
 
 @method("open")
@@ -603,8 +620,10 @@ async def brief(
 ) -> dict:
     """Return the engrams that bear on a topic, ready to advise or prepare on.
 
-    Ranked by :func:`reef.search.search_engrams`, engrams only. With reading
-    of files switched on, files are not searched, so none takes the place of
+    Ranked by :func:`reef.search.search_engrams`, engrams only. It is never
+    primed: the session must not decide what gets recorded as use. Spreading
+    still applies. With reading of files switched on, files are not searched,
+    so none takes the place of
     an engram. A log, an engram tagged ``log``, gives its last ``entries``
     entries across all its parts (see :mod:`reef.methods.logs`); several
     hits in one log make one item, at the best hit's place. Any other engram
@@ -639,6 +658,7 @@ async def brief(
             space,
             BRIEF_ENGRAMS,
             log=False,
+            earlier=[],
             files=not get_settings().reading.enabled,
         )
     except AccessDenied:
@@ -741,6 +761,7 @@ async def _brief_item(
         item["replaced_by"] = refs
     if hit.get("replaces"):
         item["replaces"] = hit["replaces"]
+    item.update(_recall_path(hit))
     return item
 
 
