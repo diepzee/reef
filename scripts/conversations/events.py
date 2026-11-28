@@ -76,6 +76,7 @@ class Session:
     :param answer: the assistant's last message; for several turns, the
         last message of each turn
     :param error: why Codex stopped, when a turn failed or did not finish
+    :param message_seconds: elapsed time of each message, or None when unmeasured
     """
 
     session_id: str
@@ -83,6 +84,7 @@ class Session:
     other_tools: list[str]
     answer: str
     error: str | None = None
+    message_seconds: tuple[float | None, ...] = ()
 
 
 def parse_events(lines: Iterable[str]) -> Session:
@@ -154,6 +156,10 @@ def combine(sessions: list[Session]) -> Session:
         other_tools=[tool for session in sessions for tool in session.other_tools],
         answer="\n\n".join(session.answer for session in sessions if session.answer),
         error=errors[0] if errors else None,
+        message_seconds=tuple(
+            session.message_seconds[0] if session.message_seconds else None
+            for session in sessions
+        ),
     )
 
 

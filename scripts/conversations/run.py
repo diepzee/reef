@@ -640,7 +640,9 @@ def play(scenario: dict, server: Server, tools: Sequence[str] | None = None) -> 
                 server, tools=tools, session_id=session_id, workdir=workdir
             )
             token = cli_token() if server.bearer else None
+            began = time.monotonic()
             turn = _run_codex(command, message, workdir, token)
+            turn = replace(turn, message_seconds=(time.monotonic() - began,))
             turns.append(turn)
             session_id = session_id or turn.session_id
             if turn.error or not session_id:

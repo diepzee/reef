@@ -67,13 +67,21 @@ overrides whether the target reads file text. Reports go to
 | `fail` | A required tool did not work, a forbidden tool was used, or another check failed. |
 | `review` | The tools and checks passed, but a person must read the answer. |
 | `skipped` | The target lacks something the scenario needs. |
-| `invalid` | Codex failed, used a tool outside Reef, or Reef refused its bearer sign-in. |
+| `invalid` | Codex failed, used a tool outside Reef, or Reef refused a bearer sign-in near its time limit. |
 
-When a bearer sign-in runs out during a message, the run proves nothing
-about the scenario. It is `invalid` even if other checks fail or a later
-call succeeds. The reason says to run it again. The runner recognizes the
-MCP reply `Authentication required` and FastMCP's longer reply about an
-invalid or expired bearer token.
+The runner times each Codex message, after getting its token. The sign-in
+provider's access tokens last 300 seconds (as of 27 November 2026). With a
+30-second margin, a refused sign-in in a message that took at least 270
+seconds makes the scenario `invalid`, even if a later call succeeds. The
+reason gives the measured time and the token lifetime. Every other reason,
+including failed calls, stays in the report.
+
+A refusal in a shorter message keeps the usual verdict. For example, the
+report adds "Reef refused a fresh sign-in after 12 seconds". A required
+call that failed still makes the scenario `fail`. The runner recognizes
+the MCP reply `Authentication required` and FastMCP's longer reply about
+an invalid or expired bearer token. Without a measured message time, it
+reports the refusal without claiming that the sign-in ran out.
 
 Local runs have no bearer token to expire. Their tool errors keep the usual
 scoring, including an auth error: it may point to a local setup problem.
