@@ -6,7 +6,7 @@ afterwards. :func:`score` turns what Codex did into one verdict:
 
 * ``skipped``: the target lacks something the scenario needs.
 * ``invalid``: there is no session, Codex failed, the assistant used a
-  tool outside Reef, or a long message outlasted its bearer sign-in.
+  tool outside Reef, or Reef refused a bearer sign-in near its time limit.
   Read every reason before running the scenario again.
 * ``fail``: a required tool is missing, a forbidden tool was used, or the
   memory afterwards is not as it must be.
