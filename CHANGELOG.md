@@ -1,3 +1,18 @@
+## [2.7.2](https://github.com/diepzee/reef/compare/v2.7.1...v2.7.2) (2026-11-28)
+
+### Bug fixes
+
+* **conversations:** a sign-in that ran out is an invalid run, not a failed scenario (RUG-99) ([#201](https://github.com/diepzee/reef/issues/201)) ([2bd62c8](https://github.com/diepzee/reef/commit/2bd62c8e09614135bf35280645d39c660c2663ea))
+* **tools:** the first answer of a two-call tool says what to send next (RUG-98) ([#202](https://github.com/diepzee/reef/issues/202)) ([d68dc67](https://github.com/diepzee/reef/commit/d68dc679fcc6c37bfd17a86188194b9b26ccf9e6))
+
+### Documentation
+
+* **memory:** one canonical design for the memory engine (RUG-42) ([#203](https://github.com/diepzee/reef/issues/203)) ([9ceb216](https://github.com/diepzee/reef/commit/9ceb216bab9832d22f631990077c30488a644bd5))
+
+### Tests
+
+* **conversations:** the replacement scenario accepts an answer that names the old term (RUG-98) ([#205](https://github.com/diepzee/reef/issues/205)) ([132e708](https://github.com/diepzee/reef/commit/132e70843077368ee808bc4d281b3f1e086a9930))
+
 ## [2.7.1](https://github.com/diepzee/reef/compare/v2.7.0...v2.7.1) (2026-11-27)
 
 ### Bug fixes
