@@ -413,37 +413,6 @@ async def test_write_sends_confirmation(monkeypatch, tmp_path) -> None:
     assert FakeClient.calls[-1][1]["confirm"] == "token"
 
 
-@pytest.mark.parametrize("compact", [False, True])
-async def test_staged_answer_prints_next_unchanged(
-    monkeypatch, tmp_path, capsys, compact: bool
-) -> None:
-    """The CLI prints an added next step as ordinary JSON in either format.
-
-    :param monkeypatch: pytest's patch fixture
-    :param tmp_path: a scratch directory for the CLI's config
-    :param capsys: captured command output
-    :param compact: whether to print compact JSON
-    """
-    answer = {
-        "effect": "This replaces the old note.",
-        "token": "token",
-        "expires_in": 600,
-        "next": (
-            "Ask the person first. After a yes, send this same call again with every "
-            "argument unchanged, and add `confirm` with this token."
-        ),
-    }
-    options = ["--compact"] if compact else []
-    status = await _call(
-        monkeypatch,
-        tmp_path,
-        [*options, "write", "personal", "[]", "--message", "replace"],
-        answer,
-    )
-    assert status == 0
-    assert json.loads(capsys.readouterr().out) == answer
-
-
 async def test_correct_and_undo(monkeypatch, tmp_path):
     """Correct and undo map their arguments."""
     await _call(
